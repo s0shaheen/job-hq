@@ -1112,6 +1112,10 @@ _REGISTRY = {
 
 def get_jobs_for(ats: str, slug: str, company: str, session: requests.Session,
                  workday_search: str = "product") -> list[Job]:
+    if ats == "apify":  # quarantined long-tail; token from env, failures surface to Health
+        import os
+        from src import apify
+        return apify.get_jobs(slug, company, session, token=os.environ.get("APIFY_TOKEN", ""))
     fn = _REGISTRY.get(ats)
     if fn is None:
         raise ValueError(f"Unknown ATS: {ats}")
@@ -1119,6 +1123,8 @@ def get_jobs_for(ats: str, slug: str, company: str, session: requests.Session,
         return fn(slug, company, session, search=workday_search)
     return fn(slug, company, session)
 ```
+
+> Note: `apify` is intentionally NOT in `_REGISTRY` (it has a distinct signature requiring a token). Routing it through `get_jobs_for` means the orchestrator's per-company try/except quarantines any Apify failure into a Health ERROR row without touching the zero-secret core. Wired in commit `0c8ef17`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
