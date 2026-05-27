@@ -1,4 +1,25 @@
-from src.config import load_profile
+from src.config import load_profile, unconfigured_reason
+from src.models import Profile
+
+
+def _profile(**kw):
+    base = dict(name="pm", sheet_id="1RealSheetId", ntfy_topic="topic-x7f2",
+                include=["product manager"], exclude=[])
+    base.update(kw)
+    return Profile(**base)
+
+
+def test_unconfigured_reason_flags_placeholder_sheet_id():
+    reason = unconfigured_reason(_profile(sheet_id="REPLACE_WITH_GOOGLE_SHEET_ID"))
+    assert reason is not None and "sheet_id" in reason
+
+
+def test_unconfigured_reason_flags_empty_sheet_id():
+    assert unconfigured_reason(_profile(sheet_id="")) is not None
+
+
+def test_unconfigured_reason_none_when_configured():
+    assert unconfigured_reason(_profile()) is None
 
 
 def test_load_profile(tmp_path):

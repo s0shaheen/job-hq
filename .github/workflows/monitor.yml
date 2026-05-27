@@ -16,9 +16,9 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -48,5 +48,5 @@ jobs:
         env:
           OPS: ${{ secrets.MONITOR_OPS_NTFY_TOPIC }}
         run: |
-          curl -s -H "Title: ⚠ Job monitor workflow failed" -H "Priority: high" -H "Tags: warning" \
+          curl -s -H "Title: Job monitor workflow failed" -H "Priority: high" -H "Tags: warning" \
             -d "GitHub Actions run failed: ${{ github.run_id }}" "https://ntfy.sh/${OPS}" || true

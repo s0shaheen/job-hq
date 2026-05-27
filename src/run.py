@@ -4,7 +4,7 @@ from datetime import date
 
 import requests
 
-from src.config import list_profiles
+from src.config import list_profiles, unconfigured_reason
 from src.dedup import reconcile_company
 from src.fetchers import get_jobs_for
 from src.filtering import title_matches
@@ -108,26 +108,41 @@ def run_profile(profile: Profile, store: SheetStore, fetch=get_jobs_for,
 
 
 def main() -> int:
+    import os
+    import sys
+    import traceback
+
     session = requests.Session()
     profiles = list_profiles()
     failures = []
     for profile in profiles:
+        reason = unconfigured_reason(profile)
+        if reason:  # clear, actionable message instead of an opaque gspread 404
+            failures.append(f"{profile.name}: {reason}")
+            print(f"[monitor] profile '{profile.name}' SKIPPED — {reason}", file=sys.stderr)
+            continue
         try:
             store = GspreadSheetStore(profile.sheet_id)
-            summary = run_profile(profile, store, session=session)
+            run_profile(profile, store, session=session)
             snapshot.write_snapshot(f"snapshots/{profile.name}.json",
                                     profile.name, store.read_history())
-            if summary.errored:
-                # weekly digest is gated in the workflow; per-run errors still logged to Health
-                pass
         except Exception as e:  # whole-profile failure
             failures.append(f"{profile.name}: {e}")
+            # Full traceback to the Actions log so the REAL cause is always visible.
+            print(f"[monitor] profile '{profile.name}' FAILED:\n{traceback.format_exc()}",
+                  file=sys.stderr)
 
     if failures:
-        import os
+        summary_msg = "; ".join(failures)
+        # Surface failures in the log unconditionally — the alert send must never
+        # be the thing that hides the underlying error.
+        print(f"[monitor] FAILURES: {summary_msg}", file=sys.stderr)
         ops = os.environ.get("MONITOR_OPS_NTFY_TOPIC", "")
         if ops:
-            notify.failure_alert(session, ops, "; ".join(failures)[:300])
+            try:
+                notify.failure_alert(session, ops, summary_msg[:300])
+            except Exception as alert_err:  # alerting is best-effort, never fatal
+                print(f"[monitor] failure_alert itself errored: {alert_err}", file=sys.stderr)
         return 1
     return 0
 
