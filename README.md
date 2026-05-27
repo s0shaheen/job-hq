@@ -1,7 +1,7 @@
 # PM Job Monitor
 
-Zero-secret daily monitor for new PM roles across ~131 companies' public ATS APIs
-(Greenhouse, Ashby, Lever, SmartRecruiters, Workday). New roles land in a Google Sheet
+Zero-secret daily monitor for new PM roles across target companies' public ATS APIs
+(Greenhouse, Ashby, Lever, SmartRecruiters, Workday, Amazon). New roles land in a Google Sheet
 and get pushed to your phone via ntfy. Status + contacts are tracked in the same Sheet.
 
 ## How it works

@@ -18,6 +18,17 @@ def test_registry_unknown_ats_raises():
         get_jobs_for("bogus", "x", "X", session=None, workday_search="product")
 
 
+def test_registry_routes_amazon_with_search(monkeypatch):
+    captured = {}
+    def fake(slug, company, session, search="product"):
+        captured["search"] = search
+        return []
+    import src.fetchers as f
+    monkeypatch.setitem(f._REGISTRY, "amazon", fake)
+    get_jobs_for("amazon", "amazon", "Amazon", session=None, workday_search="product manager")
+    assert captured["search"] == "product manager"
+
+
 def test_registry_routes_apify(monkeypatch):
     captured = {}
     def fake_apify_get(slug, company, session, token):
