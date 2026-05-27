@@ -15,6 +15,10 @@ _REGISTRY = {
 
 def get_jobs_for(ats: str, slug: str, company: str, session: requests.Session,
                  workday_search: str = "product") -> list[Job]:
+    if ats == "apify":
+        import os
+        from src import apify
+        return apify.get_jobs(slug, company, session, token=os.environ.get("APIFY_TOKEN", ""))
     fn = _REGISTRY.get(ats)
     if fn is None:
         raise ValueError(f"Unknown ATS: {ats}")
