@@ -1803,7 +1803,8 @@ def test_first_run_seeds_without_notifying():
     pushed = []
     summary = run_profile(
         PROFILE, store, fetch=_fetch_returns({"Stripe": jobs}),
-        today="2026-05-26", notifier=lambda *a, **k: pushed.append(a))
+        today="2026-05-26", notifier=lambda *a, **k: pushed.append(a),
+        heartbeater=lambda *a, **k: None)
     assert summary.new_count == 0          # seeded silently
     assert "greenhouse-1" in store.read_history()
     assert store.read_history()["greenhouse-1"].status == "Seen"
