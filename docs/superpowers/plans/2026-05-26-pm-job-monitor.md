@@ -905,10 +905,11 @@ def get_jobs(slug: str, company: str, session: requests.Session) -> list[Job]:
         resp = session.get(url, timeout=TIMEOUT)
         resp.raise_for_status()
         payload = resp.json()
+        content = payload.get("content") or []
         out.extend(parse(payload, company, slug))
         total = payload.get("totalFound", len(out))
-        offset += PAGE
-        if offset >= total or not payload.get("content"):
+        offset += len(content)  # advance by items actually returned (robust to short final page)
+        if offset >= total or not content:
             break
     return out
 ```
@@ -1111,6 +1112,10 @@ _REGISTRY = {
 
 def get_jobs_for(ats: str, slug: str, company: str, session: requests.Session,
                  workday_search: str = "product") -> list[Job]:
+    if ats == "apify":  # quarantined long-tail; token from env, failures surface to Health
+        import os
+        from src import apify
+        return apify.get_jobs(slug, company, session, token=os.environ.get("APIFY_TOKEN", ""))
     fn = _REGISTRY.get(ats)
     if fn is None:
         raise ValueError(f"Unknown ATS: {ats}")
@@ -1118,6 +1123,8 @@ def get_jobs_for(ats: str, slug: str, company: str, session: requests.Session,
         return fn(slug, company, session, search=workday_search)
     return fn(slug, company, session)
 ```
+
+> Note: `apify` is intentionally NOT in `_REGISTRY` (it has a distinct signature requiring a token). Routing it through `get_jobs_for` means the orchestrator's per-company try/except quarantines any Apify failure into a Health ERROR row without touching the zero-secret core. Wired in commit `0c8ef17`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1802,7 +1809,8 @@ def test_first_run_seeds_without_notifying():
     pushed = []
     summary = run_profile(
         PROFILE, store, fetch=_fetch_returns({"Stripe": jobs}),
-        today="2026-05-26", notifier=lambda *a, **k: pushed.append(a))
+        today="2026-05-26", notifier=lambda *a, **k: pushed.append(a),
+        heartbeater=lambda *a, **k: None)
     assert summary.new_count == 0          # seeded silently
     assert "greenhouse-1" in store.read_history()
     assert store.read_history()["greenhouse-1"].status == "Seen"

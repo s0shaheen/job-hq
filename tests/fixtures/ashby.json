@@ -1,0 +1,6 @@
+{"jobs": [
+  {"id": "uuid-aaa", "title": "Product Manager", "location": "San Francisco",
+   "jobUrl": "https://jobs.ashbyhq.com/ramp/uuid-aaa", "publishedDate": "2026-05-22"},
+  {"id": "uuid-bbb", "title": "Product Designer", "location": "Remote",
+   "jobUrl": "https://jobs.ashbyhq.com/ramp/uuid-bbb", "publishedDate": "2026-05-21"}
+]}
