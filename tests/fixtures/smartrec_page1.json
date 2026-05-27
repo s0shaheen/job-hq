@@ -1,0 +1,4 @@
+{"totalFound": 3, "content": [
+  {"id": "sr-1", "name": "Product Manager", "location": {"city": "Sydney", "country": "au"}},
+  {"id": "sr-2", "name": "Data Scientist", "location": {"city": "Remote", "country": "us"}}
+]}
