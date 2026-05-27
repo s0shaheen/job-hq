@@ -905,10 +905,11 @@ def get_jobs(slug: str, company: str, session: requests.Session) -> list[Job]:
         resp = session.get(url, timeout=TIMEOUT)
         resp.raise_for_status()
         payload = resp.json()
+        content = payload.get("content") or []
         out.extend(parse(payload, company, slug))
         total = payload.get("totalFound", len(out))
-        offset += PAGE
-        if offset >= total or not payload.get("content"):
+        offset += len(content)  # advance by items actually returned (robust to short final page)
+        if offset >= total or not content:
             break
     return out
 ```
