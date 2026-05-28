@@ -32,7 +32,16 @@ def _probe(ats: str, slug: str, session: requests.Session) -> bool:
     }
     try:
         r = session.get(urls[ats], timeout=TIMEOUT)
-        return r.status_code == 200
+        if r.status_code != 200:
+            return False
+        # SmartRecruiters returns HTTP 200 with an empty body for unknown companies
+        # — every name would falsely "match". Require at least one real posting.
+        if ats == "smartrec":
+            try:
+                return int((r.json().get("totalFound") or 0)) > 0
+            except (ValueError, AttributeError):
+                return False
+        return True
     except requests.RequestException:
         return False
 

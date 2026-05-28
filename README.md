@@ -26,6 +26,13 @@ Add a row to the `Companies` tab (`name, ats, slug, monitor=TRUE`). Unsure of th
 Run `python -m src.discover "Company Name"`. The next run seeds it silently, then notifies
 only on genuinely new roles.
 
+### Bulk-adding from a candidate list
+For larger pushes (e.g. a VC portfolio dump), put names in `candidate_companies.csv`
+(`name,category`) and run `python -m scripts.bulk_discover`. It dedupes against
+`companies.seed.csv`, probes each name in parallel, and emits `candidates_resolved.csv`
+(paste-ready, 5-col) plus `candidates_unresolved.csv` (likely-Workday / custom — needs a
+manual careers-URL lookup before adding).
+
 ## Removing a company
 Set its `monitor` cell to `FALSE`. History is preserved (never delete rows).
 
