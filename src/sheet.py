@@ -1,12 +1,29 @@
 from __future__ import annotations
 import json
 import os
-from typing import Protocol
+from typing import Protocol, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.tagging import Tags
 
 from src.models import Company, JobRecord
 
-JOBS_HEADER = ["id", "company", "title", "location", "url", "status", "first_seen", "last_seen", "posted"]
+TAG_COLUMNS = ["yoe", "seniority", "company_industry", "role_focus",
+               "skills", "comp_range", "work_model", "tagged_at"]
+BASE_JOBS_HEADER = ["id", "company", "title", "location", "url", "status",
+                    "first_seen", "last_seen", "posted"]
+JOBS_HEADER = BASE_JOBS_HEADER + TAG_COLUMNS
 HEALTH_HEADER = ["company", "ats", "result", "count", "message", "checked_at"]
+
+
+def _row_to_record(r: dict) -> "JobRecord":
+    return JobRecord(
+        id=str(r.get("id", "")).strip(), company=str(r.get("company", "")),
+        title=str(r.get("title", "")), location=str(r.get("location", "")),
+        url=str(r.get("url", "")), status=str(r.get("status", "")) or "New",
+        first_seen=str(r.get("first_seen", "")), last_seen=str(r.get("last_seen", "")),
+        posted=str(r.get("posted", "")),
+    )
 
 
 class SheetStore(Protocol):
@@ -18,6 +35,9 @@ class SheetStore(Protocol):
     def set_last_seen(self, ids: list[str], today: str) -> None: ...
     def mark_seeded(self, company_names: list[str]) -> None: ...
     def write_health(self, rows: list[list]) -> None: ...
+    def ensure_tag_columns(self) -> None: ...
+    def read_jobs_for_tagging(self) -> list[tuple[JobRecord, str]]: ...
+    def write_tags(self, id_to_tags: dict[str, "Tags"], today: str) -> None: ...
 
 
 class FakeSheetStore:
@@ -29,6 +49,8 @@ class FakeSheetStore:
         self._contacts = {k.lower(): v for k, v in contacts_by_company.items()}
         self.health_rows: list[list] = []
         self.seeded_marks: list[str] = []
+        self._tags: dict = {}
+        self._tagged_at: dict = {}
 
     def read_companies(self):
         return [c for c in self._companies if c.monitor]
@@ -62,6 +84,20 @@ class FakeSheetStore:
     def write_health(self, rows):
         self.health_rows = rows
 
+    def ensure_tag_columns(self):  # no-op for the in-memory store
+        return
+
+    def read_jobs_for_tagging(self):
+        return [(r, self._tagged_at.get(r.id, "")) for r in self._history.values()]
+
+    def write_tags(self, id_to_tags, today):
+        for jid, tags in id_to_tags.items():
+            self._tags[jid] = tags
+            self._tagged_at[jid] = today
+
+    def tags_for(self, jid):
+        return self._tags.get(jid)
+
 
 class GspreadSheetStore:
     """Real SheetStore backed by a Google Sheet via gspread."""
@@ -92,16 +128,10 @@ class GspreadSheetStore:
         rows = self._ws("Jobs").get_all_records()
         out = {}
         for r in rows:
-            jid = str(r.get("id", "")).strip()
-            if not jid:
+            rec = _row_to_record(r)
+            if not rec.id:
                 continue
-            out[jid] = JobRecord(
-                id=jid, company=str(r.get("company", "")), title=str(r.get("title", "")),
-                location=str(r.get("location", "")), url=str(r.get("url", "")),
-                status=str(r.get("status", "")) or "New",
-                first_seen=str(r.get("first_seen", "")), last_seen=str(r.get("last_seen", "")),
-                posted=str(r.get("posted", "")),
-            )
+            out[rec.id] = rec
         return out
 
     def contact_count(self, company):
@@ -157,3 +187,55 @@ class GspreadSheetStore:
         ws = self._ws("Health")
         ws.clear()
         ws.update([HEALTH_HEADER] + rows, value_input_option="RAW")
+
+    def ensure_tag_columns(self):
+        from gspread.utils import rowcol_to_a1
+        ws = self._ws("Jobs")
+        header = ws.row_values(1)
+        missing = [c for c in TAG_COLUMNS if c not in header]
+        if not missing:
+            return
+        # Fail loud on a partial/manual migration rather than appending duplicate
+        # columns and silently corrupting the contiguous tag block write_tags relies on.
+        if len(missing) < len(TAG_COLUMNS):
+            present = [c for c in TAG_COLUMNS if c in header]
+            raise RuntimeError(
+                f"Jobs sheet has only some tag columns present ({present}); "
+                f"expected all or none. Fix the header manually before running."
+            )
+        # Append the full tag block as one contiguous run to the right of existing columns.
+        start = len(header) + 1
+        end = start + len(TAG_COLUMNS) - 1
+        rng = f"{rowcol_to_a1(1, start)}:{rowcol_to_a1(1, end)}"
+        ws.batch_update([{"range": rng, "values": [TAG_COLUMNS]}], value_input_option="RAW")
+
+    def read_jobs_for_tagging(self):
+        rows = self._ws("Jobs").get_all_records()
+        out = []
+        for r in rows:
+            rec = _row_to_record(r)
+            if not rec.id:
+                continue
+            out.append((rec, str(r.get("tagged_at", "")).strip()))
+        return out
+
+    def write_tags(self, id_to_tags, today):
+        if not id_to_tags:
+            return
+        from gspread.utils import rowcol_to_a1
+        ws = self._ws("Jobs")
+        header = ws.row_values(1)
+        start = header.index("yoe") + 1            # tag block is contiguous, yoe..tagged_at
+        mapping = self._id_to_row()
+        updates = []
+        for jid, tags in id_to_tags.items():
+            row = mapping.get(jid)
+            if not row:
+                continue
+            values = [tags.yoe, tags.seniority, tags.company_industry, tags.role_focus,
+                      tags.skills, tags.comp_range, tags.work_model, today]
+            rng = f"{rowcol_to_a1(row, start)}:{rowcol_to_a1(row, start + len(values) - 1)}"
+            updates.append({"range": rng, "values": [values]})
+        if updates:
+            # One batch_update covers all rows — fine at this project's scale (tens–hundreds of roles).
+            ws.batch_update(updates, value_input_option="RAW")

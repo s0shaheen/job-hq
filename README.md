@@ -33,6 +33,23 @@ Set its `monitor` cell to `FALSE`. History is preserved (never delete rows).
 Drop `profiles/finance.yaml` (own `sheet_id`, `ntfy_topic`, include/exclude keywords) and
 create their Sheet. No code changes.
 
+## AI tagging (optional)
+A second nightly workflow (`review.yml`) enriches each open PM role with tags:
+`yoe`, `seniority`, `company_industry`, `role_focus`, `skills`, `comp_range`, `work_model`.
+It runs `python -m src.review`, reads untagged open rows from `Jobs`, fetches each job's
+description from its ATS's JSON detail endpoint, and asks Claude Haiku for the tags.
+
+- **Enable:** set the `ANTHROPIC_API_KEY` repo secret. Leave it unset to keep tagging off —
+  the pass logs a clear skip and the discovery core is unaffected either way.
+- **Self-migrating:** the 8 tag columns are appended to the `Jobs` tab automatically on the
+  first run; no manual column setup.
+- **Backfill:** there is no per-run cap — the first run tags the whole existing backlog, then
+  it idles. New rows are tagged the next night.
+- **Coverage:** Greenhouse, Ashby, Lever, SmartRecruiters, and Workday roles get tagged.
+  Amazon roles are **not** tagged — amazon.jobs is a JS app with no machine-readable
+  description; those rows are skipped at zero cost and left untagged.
+- **Cost:** Claude Haiku, ~a fraction of a cent per role.
+
 ## Known limitations
 - The Health tab's "ZERO" result counts post-filter jobs, so a company with many roles but
   zero PM matches is logged the same as a dead slug returning zero. The weekly digest still
