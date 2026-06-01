@@ -1,6 +1,9 @@
 from __future__ import annotations
+import functools
 import json
 import os
+import random
+import time
 from typing import Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -99,6 +102,40 @@ class FakeSheetStore:
         return self._tags.get(jid)
 
 
+_QUOTA_MAX_RETRIES = 5
+
+
+def _retry_on_quota(fn):
+    """Retry a gspread call on a 429 quota error with exponential backoff.
+
+    Google Sheets enforces a per-minute, per-user read/write quota (default 60
+    reads/min). A burst of requests — e.g. the nightly run touching several
+    worksheets in quick succession — can trip it transiently. Backing off and
+    retrying (honouring Retry-After when present) clears it instead of failing
+    the whole profile with an opaque 429.
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        from gspread.exceptions import APIError
+        delay = 1.0
+        for attempt in range(_QUOTA_MAX_RETRIES):
+            try:
+                return fn(*args, **kwargs)
+            except APIError as e:
+                resp = getattr(e, "response", None)
+                status = getattr(resp, "status_code", None)
+                if status != 429 or attempt == _QUOTA_MAX_RETRIES - 1:
+                    raise
+                retry_after = 0.0
+                try:
+                    retry_after = float(resp.headers.get("Retry-After", 0))
+                except (AttributeError, TypeError, ValueError):
+                    retry_after = 0.0
+                time.sleep(max(delay, retry_after) + random.uniform(0, 0.5))
+                delay *= 2
+    return wrapper
+
+
 class GspreadSheetStore:
     """Real SheetStore backed by a Google Sheet via gspread."""
 
@@ -109,8 +146,16 @@ class GspreadSheetStore:
         self._sh = gc.open_by_key(sheet_id)
 
     def _ws(self, title: str):
-        return self._sh.worksheet(title)
+        # Cache worksheet handles: gspread's worksheet() issues a metadata read
+        # request every call, so re-resolving the same tab repeatedly within a
+        # run needlessly burns the per-minute read quota. Lazily initialised so
+        # it also works for instances built via __new__ (see tests).
+        cache = self.__dict__.setdefault("_ws_cache", {})
+        if title not in cache:
+            cache[title] = self._sh.worksheet(title)
+        return cache[title]
 
+    @_retry_on_quota
     def read_companies(self):
         rows = self._ws("Companies").get_all_records()
         out = []
@@ -124,6 +169,7 @@ class GspreadSheetStore:
             ))
         return [c for c in out if c.monitor]
 
+    @_retry_on_quota
     def read_history(self):
         rows = self._ws("Jobs").get_all_records()
         out = {}
@@ -134,17 +180,30 @@ class GspreadSheetStore:
             out[rec.id] = rec
         return out
 
+    @_retry_on_quota
     def contact_count(self, company):
-        try:
-            rows = self._ws("Contacts").get_all_records()
-        except Exception:
-            return 0
-        return sum(1 for r in rows if str(r.get("company", "")).strip().lower() == company.lower())
+        # run.py calls this once per new job in a tight comprehension. Reading
+        # the whole Contacts sheet each time meant 1 read request per new role —
+        # a burst that on its own can blow the per-minute read quota. Read once
+        # and serve every lookup from an in-memory count map.
+        counts = self.__dict__.get("_contact_counts")
+        if counts is None:
+            counts = {}
+            try:
+                for r in self._ws("Contacts").get_all_records():
+                    name = str(r.get("company", "")).strip().lower()
+                    if name:
+                        counts[name] = counts.get(name, 0) + 1
+            except Exception:
+                counts = {}
+            self.__dict__["_contact_counts"] = counts
+        return counts.get(company.lower(), 0)
 
     def _id_to_row(self) -> dict[str, int]:
         ids = self._ws("Jobs").col_values(1)  # includes header at row 1
         return {v: i + 1 for i, v in enumerate(ids) if i > 0}
 
+    @_retry_on_quota
     def append_jobs(self, records):
         if not records:
             return
@@ -152,6 +211,7 @@ class GspreadSheetStore:
                  r.first_seen, r.last_seen, r.posted] for r in records]
         self._ws("Jobs").append_rows(rows, value_input_option="RAW")
 
+    @_retry_on_quota
     def set_status(self, id_to_status):
         if not id_to_status:
             return
@@ -161,6 +221,7 @@ class GspreadSheetStore:
         if updates:
             ws.batch_update(updates, value_input_option="RAW")
 
+    @_retry_on_quota
     def set_last_seen(self, ids, today):
         if not ids:
             return
@@ -170,6 +231,7 @@ class GspreadSheetStore:
         if updates:
             ws.batch_update(updates, value_input_option="RAW")
 
+    @_retry_on_quota
     def mark_seeded(self, company_names):
         if not company_names:
             return
@@ -183,11 +245,13 @@ class GspreadSheetStore:
         if updates:
             ws.batch_update(updates, value_input_option="RAW")
 
+    @_retry_on_quota
     def write_health(self, rows):
         ws = self._ws("Health")
         ws.clear()
         ws.update([HEALTH_HEADER] + rows, value_input_option="RAW")
 
+    @_retry_on_quota
     def ensure_tag_columns(self):
         from gspread.utils import rowcol_to_a1
         ws = self._ws("Jobs")
@@ -209,6 +273,7 @@ class GspreadSheetStore:
         rng = f"{rowcol_to_a1(1, start)}:{rowcol_to_a1(1, end)}"
         ws.batch_update([{"range": rng, "values": [TAG_COLUMNS]}], value_input_option="RAW")
 
+    @_retry_on_quota
     def read_jobs_for_tagging(self):
         rows = self._ws("Jobs").get_all_records()
         out = []
@@ -219,6 +284,7 @@ class GspreadSheetStore:
             out.append((rec, str(r.get("tagged_at", "")).strip()))
         return out
 
+    @_retry_on_quota
     def write_tags(self, id_to_tags, today):
         if not id_to_tags:
             return

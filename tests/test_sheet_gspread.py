@@ -1,5 +1,5 @@
 import pytest
-from src.sheet import GspreadSheetStore, BASE_JOBS_HEADER, TAG_COLUMNS
+from src.sheet import GspreadSheetStore, BASE_JOBS_HEADER, TAG_COLUMNS, _retry_on_quota
 from src.tagging import Tags
 
 
@@ -9,11 +9,13 @@ class FakeWS:
         self._records = records or []
         self._ids_col = ids_col or []
         self.batch_calls = []
+        self.get_all_records_calls = 0
 
     def row_values(self, n):
         return list(self._header)
 
     def get_all_records(self):
+        self.get_all_records_calls += 1
         return [dict(r) for r in self._records]
 
     def col_values(self, n):
@@ -26,8 +28,10 @@ class FakeWS:
 class FakeSheet:
     def __init__(self, ws):
         self._ws = ws
+        self.worksheet_calls = 0
 
     def worksheet(self, title):
+        self.worksheet_calls += 1
         return self._ws
 
 
@@ -87,3 +91,85 @@ def test_ensure_tag_columns_raises_on_partial_migration():
     with pytest.raises(RuntimeError):
         _store(ws).ensure_tag_columns()
     assert ws.batch_calls == []
+
+
+# --- read-quota mitigations -------------------------------------------------
+
+def test_ws_handles_are_cached():
+    # Resolving the same tab repeatedly must not re-issue worksheet() metadata
+    # reads, which otherwise burn the per-minute read quota.
+    ws = FakeWS(header=list(BASE_JOBS_HEADER))
+    s = _store(ws)
+    s._ws("Jobs")
+    s._ws("Jobs")
+    s._ws("Jobs")
+    assert s._sh.worksheet_calls == 1
+
+
+def test_contact_count_reads_contacts_only_once():
+    # run.py calls contact_count once per new job; it must read the Contacts
+    # sheet a single time, not once per lookup.
+    ws = FakeWS(header=["company"], records=[{"company": "Acme"}, {"company": "Acme"},
+                                             {"company": "Ramp"}])
+    s = _store(ws)
+    assert s.contact_count("Acme") == 2
+    assert s.contact_count("acme") == 2   # case-insensitive
+    assert s.contact_count("Ramp") == 1
+    assert s.contact_count("Unknown") == 0
+    assert ws.get_all_records_calls == 1
+
+
+def _api_error(status, retry_after=None):
+    import gspread.exceptions
+
+    class _Resp:
+        status_code = status
+        text = "quota"
+        headers = {"Retry-After": str(retry_after)} if retry_after is not None else {}
+
+        def json(self):
+            return {"error": {"code": status, "message": "quota", "status": "RESOURCE_EXHAUSTED"}}
+
+    return gspread.exceptions.APIError(_Resp())
+
+
+def test_retry_on_quota_retries_429_then_succeeds(monkeypatch):
+    import src.sheet
+    monkeypatch.setattr(src.sheet.time, "sleep", lambda *_: None)  # don't actually wait
+    calls = {"n": 0}
+
+    @_retry_on_quota
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise _api_error(429)
+        return "ok"
+
+    assert flaky() == "ok"
+    assert calls["n"] == 3
+
+
+def test_retry_on_quota_reraises_non_429():
+    @_retry_on_quota
+    def boom():
+        raise _api_error(404)
+
+    import gspread.exceptions
+    with pytest.raises(gspread.exceptions.APIError):
+        boom()
+
+
+def test_retry_on_quota_gives_up_after_max_retries(monkeypatch):
+    import src.sheet
+    monkeypatch.setattr(src.sheet.time, "sleep", lambda *_: None)
+    calls = {"n": 0}
+
+    @_retry_on_quota
+    def always_429():
+        calls["n"] += 1
+        raise _api_error(429)
+
+    import gspread.exceptions
+    with pytest.raises(gspread.exceptions.APIError):
+        always_429()
+    assert calls["n"] == src.sheet._QUOTA_MAX_RETRIES
