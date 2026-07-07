@@ -16,9 +16,9 @@ edits — without sounding like AI and without altering the voice of any bullet.
 - `jd-playbook.md` — the concrete per-JD/archetype tailoring map (sample of 10 target roles).
 - `applications/` — **symlink to Google Drive** (`My Drive/Job Applications`, synced by Drive
   for Desktop, so every application is on local disk AND in Drive automatically). One folder
-  per job: `job-posting.pdf`, `cv.yaml`, `notes.md`, `Salman_Shaheen_Resume_<Company>.pdf` +
-  `.docx`, `.preview.png`. Plus `applications-log.csv` — append-only event log (created /
-  packaged / applied rows).
+  per job: `job-posting.pdf`, `cv.yaml`, `notes.md`, `Salman_Shaheen_Resume.pdf` + `.docx`
+  (ALWAYS this exact filename, no company suffix — the folder provides context), `.preview.png`.
+  Plus `applications-log.csv` — append-only event log (created / packaged / applied rows).
 - `scripts/` — `new-job.sh` (intake), `package.sh` (render + DOCX + log), `yaml_to_docx.py`.
 - `references/` — vetted research on resume best practices. Consult before changing strategy.
 - `Salman_Shaheen_Resume (2).gdoc` — the original Google Doc (Current Draft + Archive). Historical
@@ -47,7 +47,7 @@ When Salman drops a list of job URLs, run this loop for each:
    algorithm below. Plaid (`applications/plaid-pm-core/`) is the worked example of a
    minimal one-edit tailor; Cresta (`applications/cresta-fdpm/`) of a 3-edit archetype-C tailor.
 3. `scripts/package.sh <slug> "Company"` — renders (hard-fails if not exactly 1 page),
-   writes `Salman_Shaheen_Resume_<Company>.pdf` + `.docx`, logs a `packaged` event.
+   writes `Salman_Shaheen_Resume.pdf` + `.docx`, logs a `packaged` event.
 4. LOOK at `applications/<slug>/.preview.png` for 3-line bullets / orphan words, and finish
    `notes.md` (archetype, edits, keywords, probe risks).
 
@@ -130,6 +130,9 @@ ATS auto-rejection is a myth: ATSs track workflow, humans reject. Keywords matte
 "ATS optimization" services and white-text tricks backfire. The screen to survive is a human
 skimming 5–20 seconds, top-left first: companies, titles, dates, then the first bullet of the
 top role. Best material always goes top-of-page, first-in-role.
+Parse-verified 2026-07-07 (pypdf text extraction on the harvard-theme PDF): clean linear
+reading order, all contact/title/date/skill tokens extract, no tables/columns/images. Re-run
+that check if the theme or template ever changes.
 
 ## Hard constraints (violating any of these is a failed tailoring)
 

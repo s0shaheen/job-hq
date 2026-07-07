@@ -13,7 +13,7 @@ SLUG="${1:?usage: package.sh <slug> [Company_For_Filename]}"
 COMPANY="${2:-$(echo "${SLUG%%-*}" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')}"
 DIR="$REPO/applications/$SLUG"
 LOG="$REPO/applications/applications-log.csv"
-BASENAME="Salman_Shaheen_Resume_${COMPANY}"
+BASENAME="Salman_Shaheen_Resume"   # no company suffix — always the same filename
 
 [[ -f "$DIR/cv.yaml" ]] || { echo "No cv.yaml in $DIR — run new-job.sh first"; exit 1; }
 
