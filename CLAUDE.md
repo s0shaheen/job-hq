@@ -178,13 +178,12 @@ polished it. Concretely:
   new clause, match the terseness of the surrounding bullets.
 - No summary/objective section. No headshot, no colors, no icons, no two-column layout.
 
-## Things Salman still needs to verify (surface these when relevant, don't block on them)
+## Verification status
 
-- 150 hrs/month manual-eng-ops figure (unit check: /mo vs /yr) — top probe target.
-- Whether the ~800 hrs metadata-remediation saving is one-time or recurring (/qtr changes the bullet).
-- pp-vs-relative for the disputes 5% and 8% figures.
-- Whether the in-app survey was company-first or team-first ("one of the app's first" currently).
-- $[X]B portfolio size for the Trade Credit scope line (currently omitted — add only with a real figure).
+The 2026-07-07 content workshop resolved all open number/claim questions — answers live in
+`content-workshop.md`, verified state in `master-resume.md` (incl. the KILLED lists). The one
+open item: Salman's gut-check on the SDD "dependency mapping from quarters to weeks" phrasing
+(fallback: "cutting spec-to-build cycle time 50%").
 
 ## Interview-prep pairing
 
