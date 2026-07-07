@@ -1,0 +1,15 @@
+# Personal source conversations — local only, never push
+Claude-Exporter-Career-*/
+
+# Build artifacts
+resume/out/
+**/.build/
+*.aux *.log *.fdb_latexmk *.fls *.synctex.gz
+
+# macOS / Drive noise
+.DS_Store
+Icon?
+.playwright-mcp/
+
+# Google Doc pointer (meaningless off this machine)
+*.gdoc
