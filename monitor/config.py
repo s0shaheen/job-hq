@@ -1,34 +1,45 @@
+"""Monitor runtime config — sourced from the HQ Config tab, not local files.
+
+profiles/*.yaml is retired: Salman turns every knob from the spreadsheet
+(validated per key by core.config.UserConfig; an invalid value falls back to
+the committed default and lands in .problems for the caller's ops push, so a
+phone typo can never take the monitor down).
+"""
 from __future__ import annotations
-import glob
-import os
 
-import yaml
-
-from monitor.models import Profile
+from dataclasses import dataclass, field
 
 
-def load_profile(path: str) -> Profile:
-    with open(path) as f:
-        data = yaml.safe_load(f)
-    return Profile(
-        name=data["name"],
-        sheet_id=data["sheet_id"],
-        ntfy_topic=data["ntfy_topic"],
-        include=list(data["include"]),
-        exclude=list(data["exclude"]),
-        workday_search=data.get("workday_search", "product"),
-        digest_weekday=int(data.get("digest_weekday", 0)),
+@dataclass
+class RuntimeConfig:
+    include: list[str] = field(default_factory=list)
+    exclude: list[str] = field(default_factory=list)
+    workday_search: str = "product"
+    yoe_push_max: int = 4
+    push_new_jobs: bool = True
+    push_status_events: bool = True
+    problems: list[str] = field(default_factory=list)
+
+
+def get_runtime_config(hq) -> RuntimeConfig:
+    cfg = hq.user_config()
+    return RuntimeConfig(
+        include=list(cfg["titles_include"]),
+        exclude=list(cfg["titles_exclude"]),
+        workday_search=str(cfg["workday_search"]),
+        yoe_push_max=int(cfg["yoe_push_max"]),
+        push_new_jobs=bool(cfg["push_new_jobs"]),
+        push_status_events=bool(cfg["push_status_events"]),
+        problems=list(cfg.problems),
     )
 
 
-def list_profiles(profiles_dir: str = "monitor/profiles") -> list[Profile]:
-    return [load_profile(p) for p in sorted(glob.glob(os.path.join(profiles_dir, "*.yaml")))]
-
-
-def unconfigured_reason(profile: Profile) -> str | None:
-    """Return an actionable reason if a profile still has placeholder/empty config
-    that would otherwise fail with an opaque error (e.g. gspread 404), else None."""
-    if not profile.sheet_id or "REPLACE" in profile.sheet_id:
-        return (f"monitor/profiles/{profile.name}.yaml: sheet_id is unset "
-                f"('{profile.sheet_id}') — set it to your Google Sheet ID (README step 5)")
+def unconfigured_reason() -> str | None:
+    """Actionable pre-check instead of an opaque gspread 404: the HQ sheet id
+    must be pinned (env HQ_SHEET_ID or hq.config.yaml) before any run."""
+    from core.config import sheet_id
+    if not sheet_id():
+        return ("HQ sheet_id is unset — set HQ_SHEET_ID or run "
+                "`python -m tracker.bootstrap` once to create the spreadsheet "
+                "and pin its id into hq.config.yaml")
     return None

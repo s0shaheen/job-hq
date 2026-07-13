@@ -1,5 +1,28 @@
 import pytest
-from monitor.tagging import extract_tags, Tags
+from monitor.tagging import Tags, extract_tags, min_yoe_from
+
+
+# ---- min_yoe derivation
+
+@pytest.mark.parametrize("yoe,expected", [
+    ("3+", 3),
+    ("2-4", 2),
+    ("0-2", 0),
+    ("5", 5),
+    ("10+ years", 10),
+    ("", ""),
+    ("banana", ""),
+    ("2026", ""),          # implausible number = junk, not 2026 years
+])
+def test_min_yoe_from(yoe, expected):
+    assert min_yoe_from(yoe) == expected
+
+
+def test_tags_min_yoe_is_computed_from_yoe():
+    assert Tags(yoe="3+").min_yoe == 3
+    assert Tags(yoe="2-4").min_yoe == 2
+    assert Tags().min_yoe == ""
+    assert min_yoe_from("3") == 3   # round-trips the sheet's min_yoe cell too
 
 
 class _FakeBlock:

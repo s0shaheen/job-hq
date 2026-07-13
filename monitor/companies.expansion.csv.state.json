@@ -1,0 +1,332 @@
+{
+ "resolved": {
+  "baseten": {
+   "ats": "ashby",
+   "name": "Baseten",
+   "notes": "ai-infra",
+   "slug": "baseten"
+  },
+  "black forest labs": {
+   "ats": "ashby",
+   "name": "Black Forest Labs",
+   "notes": "ai-labs",
+   "slug": "black-forest-labs"
+  },
+  "box": {
+   "ats": "greenhouse",
+   "name": "Box",
+   "notes": "enterprise-saas",
+   "slug": "boxinc"
+  },
+  "chroma": {
+   "ats": "ashby",
+   "name": "Chroma",
+   "notes": "ai-infra",
+   "slug": "trychroma"
+  },
+  "commonwealth fusion systems": {
+   "ats": "lever",
+   "name": "Commonwealth Fusion Systems",
+   "notes": "climate-frontier",
+   "slug": "cfsenergy"
+  },
+  "contextual ai": {
+   "ats": "greenhouse",
+   "name": "Contextual AI",
+   "notes": "ai-labs",
+   "slug": "contextualai"
+  },
+  "deepgram": {
+   "ats": "ashby",
+   "name": "Deepgram",
+   "notes": "ai-infra",
+   "slug": "deepgram"
+  },
+  "doordash": {
+   "ats": "greenhouse",
+   "name": "DoorDash",
+   "notes": "consumer-marketplace",
+   "slug": "doordashusa"
+  },
+  "etched": {
+   "ats": "ashby",
+   "name": "Etched",
+   "notes": "ai-infra",
+   "slug": "etched"
+  },
+  "eventbrite": {
+   "ats": "greenhouse",
+   "name": "Eventbrite",
+   "notes": "consumer-marketplace",
+   "slug": "eventbriteinc"
+  },
+  "fireworks ai": {
+   "ats": "greenhouse",
+   "name": "Fireworks AI",
+   "notes": "ai-infra",
+   "slug": "fireworksai"
+  },
+  "heygen": {
+   "ats": "greenhouse",
+   "name": "HeyGen",
+   "notes": "ai-apps",
+   "slug": "heygen"
+  },
+  "hims & hers": {
+   "ats": "ashby",
+   "name": "Hims & Hers",
+   "notes": "healthtech",
+   "slug": "hims-and-hers"
+  },
+  "hinge": {
+   "ats": "ashby",
+   "name": "Hinge",
+   "notes": "consumer-marketplace",
+   "slug": "hinge"
+  },
+  "ideogram": {
+   "ats": "ashby",
+   "name": "Ideogram",
+   "notes": "ai-labs",
+   "slug": "ideogram"
+  },
+  "inflection ai": {
+   "ats": "greenhouse",
+   "name": "Inflection AI",
+   "notes": "ai-labs",
+   "slug": "inflectionai"
+  },
+  "lancedb": {
+   "ats": "ashby",
+   "name": "LanceDB",
+   "notes": "ai-infra",
+   "slug": "lancedb"
+  },
+  "luma ai": {
+   "ats": "ashby",
+   "name": "Luma AI",
+   "notes": "ai-labs",
+   "slug": "lumaai"
+  },
+  "midjourney": {
+   "ats": "ashby",
+   "name": "Midjourney",
+   "notes": "ai-labs",
+   "slug": "midjourney"
+  },
+  "optimism": {
+   "ats": "ashby",
+   "name": "Optimism",
+   "notes": "fintech-crypto",
+   "slug": "oplabs"
+  },
+  "recursion pharma": {
+   "ats": "greenhouse",
+   "name": "Recursion Pharma",
+   "notes": "healthtech",
+   "slug": "recursionpharmaceuticals"
+  },
+  "sambanova systems": {
+   "ats": "greenhouse",
+   "name": "SambaNova Systems",
+   "notes": "ai-infra",
+   "slug": "sambanovasystems"
+  },
+  "snap": {
+   "ats": "workday",
+   "name": "Snap",
+   "notes": "consumer-marketplace",
+   "slug": "snapchat.wd1.myworkdayjobs.com/snap"
+  },
+  "sourcegraph": {
+   "ats": "greenhouse",
+   "name": "Sourcegraph",
+   "notes": "dev-tools",
+   "slug": "sourcegraph91"
+  },
+  "weaviate": {
+   "ats": "ashby",
+   "name": "Weaviate",
+   "notes": "ai-infra",
+   "slug": "weaviate"
+  },
+  "xai": {
+   "ats": "greenhouse",
+   "name": "xAI",
+   "notes": "ai-labs",
+   "slug": "xai"
+  }
+ },
+ "unresolved": {
+  "adept": {
+   "name": "Adept",
+   "notes": "ai-labs",
+   "reason": "hint+generic probes missed"
+  },
+  "ai21 labs": {
+   "name": "AI21 Labs",
+   "notes": "ai-labs",
+   "reason": "no standard ATS match"
+  },
+  "bamboohr": {
+   "name": "BambooHR",
+   "notes": "enterprise-saas",
+   "reason": "no standard ATS match"
+  },
+  "bilt rewards": {
+   "name": "Bilt Rewards",
+   "notes": "fintech",
+   "reason": "hint+generic probes missed"
+  },
+  "census": {
+   "name": "Census",
+   "notes": "data-infra",
+   "reason": "hint+generic probes missed"
+  },
+  "coda": {
+   "name": "Coda",
+   "notes": "enterprise-saas",
+   "reason": "hint+generic probes missed"
+  },
+  "convex": {
+   "name": "Convex",
+   "notes": "data-infra",
+   "reason": "hint+generic probes missed"
+  },
+  "eigenlayer": {
+   "name": "EigenLayer",
+   "notes": "fintech-crypto",
+   "reason": "hint+generic probes missed"
+  },
+  "goodrx": {
+   "name": "GoodRx",
+   "notes": "healthtech",
+   "reason": "hint+generic probes missed"
+  },
+  "groq": {
+   "name": "Groq",
+   "notes": "ai-infra",
+   "reason": "hint+generic probes missed"
+  },
+  "hashicorp": {
+   "name": "HashiCorp",
+   "notes": "dev-tools",
+   "reason": "hint+generic probes missed"
+  },
+  "hugging face": {
+   "name": "Hugging Face",
+   "notes": "ai-infra",
+   "reason": "no standard ATS match"
+  },
+  "joby aviation": {
+   "name": "Joby Aviation",
+   "notes": "climate-frontier",
+   "reason": "hint+generic probes missed"
+  },
+  "klarna": {
+   "name": "Klarna",
+   "notes": "fintech",
+   "reason": "hint+generic probes missed"
+  },
+  "liveblocks": {
+   "name": "Liveblocks",
+   "notes": "dev-tools",
+   "reason": "hint+generic probes missed"
+  },
+  "modular": {
+   "name": "Modular",
+   "notes": "ai-infra",
+   "reason": "hint+generic probes missed"
+  },
+  "monday.com": {
+   "name": "monday.com",
+   "notes": "enterprise-saas",
+   "reason": "hint+generic probes missed"
+  },
+  "outerbounds": {
+   "name": "Outerbounds",
+   "notes": "data-infra",
+   "reason": "hint+generic probes missed"
+  },
+  "patronus ai": {
+   "name": "Patronus AI",
+   "notes": "ai-infra",
+   "reason": "hint+generic probes missed"
+  },
+  "pipe": {
+   "name": "Pipe",
+   "notes": "fintech",
+   "reason": "hint+generic probes missed"
+  },
+  "plenty": {
+   "name": "Plenty",
+   "notes": "climate-frontier",
+   "reason": "hint+generic probes missed"
+  },
+  "privy": {
+   "name": "Privy",
+   "notes": "fintech-crypto",
+   "reason": "hint+generic probes missed"
+  },
+  "procore": {
+   "name": "Procore",
+   "notes": "enterprise-saas",
+   "reason": "hint+generic probes missed"
+  },
+  "pulumi": {
+   "name": "Pulumi",
+   "notes": "dev-tools",
+   "reason": "hint+generic probes missed"
+  },
+  "qdrant": {
+   "name": "Qdrant",
+   "notes": "ai-infra",
+   "reason": "no standard ATS match"
+  },
+  "replicate": {
+   "name": "Replicate",
+   "notes": "ai-infra",
+   "reason": "hint+generic probes missed"
+  },
+  "rippling": {
+   "name": "Rippling",
+   "notes": "enterprise-saas",
+   "reason": "no standard ATS match"
+  },
+  "sakana ai": {
+   "name": "Sakana AI",
+   "notes": "ai-labs",
+   "reason": "hint+generic probes missed"
+  },
+  "shopify": {
+   "name": "Shopify",
+   "notes": "enterprise-saas",
+   "reason": "hint+generic probes missed"
+  },
+  "tempus ai": {
+   "name": "Tempus AI",
+   "notes": "healthtech",
+   "reason": "hint+generic probes missed"
+  },
+  "tome": {
+   "name": "Tome",
+   "notes": "ai-apps",
+   "reason": "hint+generic probes missed"
+  },
+  "turso": {
+   "name": "Turso",
+   "notes": "data-infra",
+   "reason": "hint+generic probes missed"
+  },
+  "weights & biases": {
+   "name": "Weights & Biases",
+   "notes": "ai-infra",
+   "reason": "hint+generic probes missed"
+  },
+  "xata": {
+   "name": "Xata",
+   "notes": "data-infra",
+   "reason": "hint+generic probes missed"
+  }
+ }
+}

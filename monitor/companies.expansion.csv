@@ -1,0 +1,117 @@
+name,ats,slug,monitor,seeded,priority,notes
+Character AI,ashby,character,TRUE,FALSE,FALSE,ai
+Imbue,greenhouse,imbue,TRUE,FALSE,FALSE,ai
+Krea,ashby,krea,TRUE,FALSE,FALSE,ai
+Liquid AI,ashby,liquid,TRUE,FALSE,FALSE,ai
+Magic,greenhouse,magic,TRUE,FALSE,FALSE,ai
+Mercor,ashby,mercor,TRUE,FALSE,FALSE,ai
+OpenEvidence,ashby,openevidence,TRUE,FALSE,FALSE,ai
+Pika,ashby,pika,TRUE,FALSE,FALSE,ai
+Poolside,ashby,poolside,TRUE,FALSE,FALSE,ai
+Stability AI,greenhouse,stabilityai,TRUE,FALSE,FALSE,ai
+Suno,ashby,suno,TRUE,FALSE,FALSE,ai
+Tavus,ashby,tavus,TRUE,FALSE,FALSE,ai
+HeyGen,greenhouse,heygen,TRUE,FALSE,FALSE,ai-apps
+Baseten,ashby,baseten,TRUE,FALSE,FALSE,ai-infra
+Chroma,ashby,trychroma,TRUE,FALSE,FALSE,ai-infra
+Deepgram,ashby,deepgram,TRUE,FALSE,FALSE,ai-infra
+Etched,ashby,etched,TRUE,FALSE,FALSE,ai-infra
+Fireworks AI,greenhouse,fireworksai,TRUE,FALSE,FALSE,ai-infra
+LanceDB,ashby,lancedb,TRUE,FALSE,FALSE,ai-infra
+SambaNova Systems,greenhouse,sambanovasystems,TRUE,FALSE,FALSE,ai-infra
+Weaviate,ashby,weaviate,TRUE,FALSE,FALSE,ai-infra
+Black Forest Labs,ashby,black-forest-labs,TRUE,FALSE,FALSE,ai-labs
+Contextual AI,greenhouse,contextualai,TRUE,FALSE,FALSE,ai-labs
+Ideogram,ashby,ideogram,TRUE,FALSE,FALSE,ai-labs
+Inflection AI,greenhouse,inflectionai,TRUE,FALSE,FALSE,ai-labs
+Luma AI,ashby,lumaai,TRUE,FALSE,FALSE,ai-labs
+Midjourney,ashby,midjourney,TRUE,FALSE,FALSE,ai-labs
+xAI,greenhouse,xai,TRUE,FALSE,TRUE,ai-labs
+Archer Aviation,greenhouse,archer,TRUE,FALSE,FALSE,climate-frontier
+Astranis,greenhouse,astranis,TRUE,FALSE,FALSE,climate-frontier
+Boom Supersonic,ashby,boom,TRUE,FALSE,FALSE,climate-frontier
+Commonwealth Fusion Systems,lever,cfsenergy,TRUE,FALSE,FALSE,climate-frontier
+Form Energy,ashby,formenergy,TRUE,FALSE,FALSE,climate-frontier
+Heart Aerospace,greenhouse,heartaerospace,TRUE,FALSE,FALSE,climate-frontier
+Helion Energy,ashby,helion,TRUE,FALSE,FALSE,climate-frontier
+KoBold Metals,greenhouse,koboldmetals,TRUE,FALSE,FALSE,climate-frontier
+Planet Labs,greenhouse,planetlabs,TRUE,FALSE,FALSE,climate-frontier
+Rocket Lab,greenhouse,rocketlab,TRUE,FALSE,FALSE,climate-frontier
+Twelve,ashby,twelve,TRUE,FALSE,FALSE,climate-frontier
+Watershed,greenhouse,watershed,TRUE,FALSE,FALSE,climate-frontier
+Attentive,greenhouse,attentive,TRUE,FALSE,FALSE,consumer-marketplace
+BetterUp,ashby,betterup,TRUE,FALSE,FALSE,consumer-marketplace
+Bumble,ashby,bumble,TRUE,FALSE,FALSE,consumer-marketplace
+Calm,greenhouse,calm,TRUE,FALSE,FALSE,consumer-marketplace
+DoorDash,greenhouse,doordashusa,TRUE,FALSE,FALSE,consumer-marketplace
+Eventbrite,greenhouse,eventbriteinc,TRUE,FALSE,FALSE,consumer-marketplace
+Headway,greenhouse,headway,TRUE,FALSE,FALSE,consumer-marketplace
+Hinge,ashby,hinge,TRUE,FALSE,FALSE,consumer-marketplace
+Instacart,greenhouse,instacart,TRUE,FALSE,FALSE,consumer-marketplace
+Klaviyo,greenhouse,klaviyo,TRUE,FALSE,FALSE,consumer-marketplace
+Lyft,greenhouse,lyft,TRUE,FALSE,FALSE,consumer-marketplace
+Ro,lever,ro,TRUE,FALSE,FALSE,consumer-marketplace
+Snap,workday,snapchat.wd1.myworkdayjobs.com/snap,TRUE,FALSE,FALSE,consumer-marketplace
+Strava,ashby,strava,TRUE,FALSE,FALSE,consumer-marketplace
+Sweetgreen,greenhouse,sweetgreen,TRUE,FALSE,FALSE,consumer-marketplace
+Toast,greenhouse,toast,TRUE,FALSE,FALSE,consumer-marketplace
+Whoop,ashby,whoop,TRUE,FALSE,FALSE,consumer-marketplace
+Airbyte,ashby,airbyte,TRUE,FALSE,FALSE,data-infra
+ClickHouse,greenhouse,clickhouse,TRUE,FALSE,FALSE,data-infra
+Cockroach Labs,greenhouse,cockroachlabs,TRUE,FALSE,FALSE,data-infra
+Fivetran,greenhouse,fivetran,TRUE,FALSE,FALSE,data-infra
+Inngest,ashby,inngest,TRUE,FALSE,FALSE,data-infra
+Knock,greenhouse,knock,TRUE,FALSE,FALSE,data-infra
+Lightning AI,greenhouse,lightningai,TRUE,FALSE,FALSE,data-infra
+Materialize,greenhouse,materialize,TRUE,FALSE,FALSE,data-infra
+MotherDuck,ashby,motherduck,TRUE,FALSE,FALSE,data-infra
+PlanetScale,greenhouse,planetscale,TRUE,FALSE,FALSE,data-infra
+Resend,ashby,resend,TRUE,FALSE,FALSE,data-infra
+Sigma Computing,greenhouse,sigmacomputing,TRUE,FALSE,FALSE,data-infra
+Tinybird,lever,tinybird,TRUE,FALSE,FALSE,data-infra
+Trigger.dev,ashby,triggerdev,TRUE,FALSE,FALSE,data-infra
+Bitwarden,greenhouse,bitwarden,TRUE,FALSE,FALSE,dev-tools
+GitLab,greenhouse,gitlab,TRUE,FALSE,FALSE,dev-tools
+Grafana Labs,greenhouse,grafanalabs,TRUE,FALSE,FALSE,dev-tools
+Honeycomb,greenhouse,honeycomb,TRUE,FALSE,FALSE,dev-tools
+JFrog,greenhouse,jfrog,TRUE,FALSE,FALSE,dev-tools
+Postman,greenhouse,postman,TRUE,FALSE,FALSE,dev-tools
+Render,ashby,render,TRUE,FALSE,FALSE,dev-tools
+Replit,ashby,replit,TRUE,FALSE,FALSE,dev-tools
+Sentry,ashby,sentry,TRUE,FALSE,FALSE,dev-tools
+Sourcegraph,greenhouse,sourcegraph91,TRUE,FALSE,FALSE,dev-tools
+Asana,greenhouse,asana,TRUE,FALSE,FALSE,enterprise-saas
+Box,greenhouse,boxinc,TRUE,FALSE,FALSE,enterprise-saas
+Braze,greenhouse,braze,TRUE,FALSE,FALSE,enterprise-saas
+Calendly,greenhouse,calendly,TRUE,FALSE,FALSE,enterprise-saas
+ClickUp,ashby,clickup,TRUE,FALSE,FALSE,enterprise-saas
+Customer.io,greenhouse,customerio,TRUE,FALSE,FALSE,enterprise-saas
+Dropbox,greenhouse,dropbox,TRUE,FALSE,FALSE,enterprise-saas
+Iterable,greenhouse,iterable,TRUE,FALSE,FALSE,enterprise-saas
+Justworks,greenhouse,justworks,TRUE,FALSE,FALSE,enterprise-saas
+Remote,greenhouse,remote,TRUE,FALSE,FALSE,enterprise-saas
+Smartsheet,greenhouse,smartsheet,TRUE,FALSE,FALSE,enterprise-saas
+Squarespace,greenhouse,squarespace,TRUE,FALSE,FALSE,enterprise-saas
+Webflow,greenhouse,webflow,TRUE,FALSE,FALSE,enterprise-saas
+Workato,greenhouse,workato,TRUE,FALSE,FALSE,enterprise-saas
+Zapier,ashby,zapier,TRUE,FALSE,FALSE,enterprise-saas
+Alchemy,ashby,alchemy,TRUE,FALSE,FALSE,fintech-crypto
+Anchorage Digital,lever,anchorage,TRUE,FALSE,FALSE,fintech-crypto
+Carta,greenhouse,carta,TRUE,FALSE,FALSE,fintech-crypto
+Fireblocks,greenhouse,fireblocks,TRUE,FALSE,FALSE,fintech-crypto
+MoonPay,lever,moonpay,TRUE,FALSE,FALSE,fintech-crypto
+Offchain Labs,lever,offchainlabs,TRUE,FALSE,FALSE,fintech-crypto
+OpenSea,ashby,opensea,TRUE,FALSE,FALSE,fintech-crypto
+Optimism,ashby,oplabs,TRUE,FALSE,FALSE,fintech-crypto
+Phantom,ashby,phantom,TRUE,FALSE,FALSE,fintech-crypto
+Uniswap Labs,ashby,uniswap,TRUE,FALSE,FALSE,fintech-crypto
+Devoted Health,smartrec,devotedhealth,TRUE,FALSE,FALSE,healthtech
+Hims & Hers,ashby,hims-and-hers,TRUE,FALSE,FALSE,healthtech
+Hinge Health,ashby,hinge-health,TRUE,FALSE,FALSE,healthtech
+Komodo Health,greenhouse,komodohealth,TRUE,FALSE,FALSE,healthtech
+Lyra Health,ashby,lyrahealth,TRUE,FALSE,FALSE,healthtech
+Maven Clinic,greenhouse,mavenclinic,TRUE,FALSE,FALSE,healthtech
+Omada Health,greenhouse,omadahealth,TRUE,FALSE,FALSE,healthtech
+Oscar Health,greenhouse,oscar,TRUE,FALSE,FALSE,healthtech
+Recursion Pharma,greenhouse,recursionpharmaceuticals,TRUE,FALSE,FALSE,healthtech
+Spring Health,ashby,spring-health,TRUE,FALSE,FALSE,healthtech

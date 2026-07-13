@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 from dataclasses import dataclass
 
 MODEL = "claude-haiku-4-5"
@@ -41,6 +42,20 @@ _TAG_TOOL = {
 }
 
 
+def min_yoe_from(yoe: str) -> int | str:
+    """Lower bound of a tagged YoE string: "3+" -> 3, "2-4" -> 2, "5" -> 5.
+
+    Returns "" for junk (no digits, or an implausible number like a year) so
+    the push filter treats unknown experience as not-pushable rather than 0.
+    Also parses the min_yoe strings read back from the Feed tab ("3" -> 3).
+    """
+    m = re.search(r"\d+", str(yoe or ""))
+    if not m:
+        return ""
+    v = int(m.group())
+    return v if 0 <= v <= 30 else ""
+
+
 @dataclass
 class Tags:
     yoe: str = ""
@@ -50,6 +65,12 @@ class Tags:
     skills: str = ""          # semicolon-joined for the single Sheet cell
     comp_range: str = ""
     work_model: str = ""
+
+    @property
+    def min_yoe(self) -> int | str:
+        """Computed (never stored on the dataclass) so it can't drift from yoe;
+        the sheet's min_yoe column is written from this at write time."""
+        return min_yoe_from(self.yoe)
 
 
 def _default_client():

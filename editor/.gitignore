@@ -1,0 +1,17 @@
+# deps / build
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# env — secrets never enter git
+.env
+.env.local
+.env*.local
+
+# vercel
+.vercel
+
+# misc
+.DS_Store
+npm-debug.log*

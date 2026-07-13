@@ -44,17 +44,7 @@ class Company:
     slug: str
     monitor: bool = True
     seeded: bool = False
-
-
-@dataclass
-class Profile:
-    name: str
-    sheet_id: str
-    ntfy_topic: str
-    include: list[str]
-    exclude: list[str]
-    workday_search: str = "product"
-    digest_weekday: int = 0  # Monday
+    priority: bool = False   # Companies-tab flag: alert-worthy regardless of YoE
 
 
 @dataclass

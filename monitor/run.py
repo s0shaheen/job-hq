@@ -1,16 +1,39 @@
+"""Hourly discovery run over the HQ spreadsheet (entry: python -m monitor.run).
+
+Flow: Config tab -> fetch every monitored company's board -> title filter ->
+reconcile against feed history (seed silently, surface new, reopen, close
+stale) -> inline-tag NEW roles at discovery (capped; review.py sweeps the
+rest nightly) -> ONE push for roles within the YoE bar -> health snapshot,
+git snapshot, heartbeat.
+
+Failure posture: one company never kills the run (quarantined to Health);
+notification failure never fails the pipeline (core.notify swallows); no new
+roles means silence — Config-tab heartbeats + the digest replaced ntfy
+heartbeat pushes.
+"""
 from __future__ import annotations
-from dataclasses import dataclass
+
+import os
+import sys
+from dataclasses import dataclass, field
 from datetime import date
 
 import requests
 
-from monitor.config import list_profiles, unconfigured_reason
+from core import notify
+from monitor import jobcontent, snapshot, tagging
+from monitor.config import RuntimeConfig, get_runtime_config, unconfigured_reason
 from monitor.dedup import reconcile_company
 from monitor.fetchers import get_jobs_for
 from monitor.filtering import title_matches
-from monitor.models import Profile
-from monitor.sheet import GspreadSheetStore, SheetStore
-from monitor import notify, snapshot
+from monitor.models import JobRecord
+from monitor.notify import format_new_jobs
+from monitor.sheet import HQFeedStore, SheetStore
+
+INLINE_TAG_MAX_ENV = "MONITOR_INLINE_TAG_MAX"
+INLINE_TAG_MAX_DEFAULT = 60          # cost cap on JD fetches + LLM calls per run
+STALE_DAYS = 14                      # board days-missing before a role is Closed
+SNAPSHOT_PATH = "monitor/snapshots/hq.json"
 
 
 @dataclass
@@ -19,132 +42,182 @@ class RunSummary:
     ok: int = 0
     zero: int = 0
     errored: int = 0
-    error_companies: list[str] = None
+    error_companies: list[str] = field(default_factory=list)
+    tagged: int = 0
+    tag_failed: int = 0
+    pushed: int = 0
 
-    def __post_init__(self):
-        if self.error_companies is None:
-            self.error_companies = []
+
+def _inline_tag_max() -> int:
+    try:
+        return max(0, int(os.environ.get(INLINE_TAG_MAX_ENV, INLINE_TAG_MAX_DEFAULT)))
+    except ValueError:
+        return INLINE_TAG_MAX_DEFAULT
 
 
-def run_profile(profile: Profile, store: SheetStore, fetch=get_jobs_for,
-                today: str | None = None, session: requests.Session | None = None,
-                notifier=None, heartbeater=None) -> RunSummary:
+def make_tagger(session: requests.Session, *, jd_fetch=None, extract=None):
+    """(JobRecord, slug) -> Tags|None. None = no JD source (stays untagged;
+    review.py retries nightly). Raises on fetch/LLM failure so the caller can
+    count it and move on — a tag failure never blocks the append."""
+    jd_fetch = jd_fetch or jobcontent.fetch_description
+    extract = extract or tagging.extract_tags
+
+    def tag(rec: JobRecord, slug: str):
+        ats, _, native_id = rec.id.partition("-")
+        jd = jd_fetch(ats, native_id, slug, rec.url, session)
+        if not jd or not jd.strip():
+            return None
+        return extract(jd, rec.title, rec.company)
+    return tag
+
+
+def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
+                tagger=None, today: str | None = None,
+                session: requests.Session | None = None,
+                pusher=None, inline_tag_max: int | None = None) -> RunSummary:
+    """One reconcile pass. tagger=None disables inline tagging (no
+    ANTHROPIC_API_KEY, or tests) — review.py catches untagged rows nightly.
+    pusher defaults late to core.notify.push so monkeypatching works."""
     today = today or date.today().isoformat()
     session = session or requests.Session()
-    notifier = notifier or (lambda *a, **k: notify.push(*a, **k))
-    heartbeater = heartbeater or (lambda *a, **k: notify.heartbeat(*a, **k))
+    pusher = pusher or notify.push
+    cap = _inline_tag_max() if inline_tag_max is None else inline_tag_max
 
     companies = store.read_companies()
     history = store.read_history()
+    known_min_yoe = store.read_min_yoe()   # for reopened roles tagged in a past run
+    slugs = {c.name: c.slug for c in companies}
     summary = RunSummary()
-    health_rows: list[list] = []
+    health: list[dict] = []
 
-    all_new = []
-    append_records = []
-    reopen_status = {}
-    last_seen_ids = []
-    newly_seeded = []
+    all_new: list[JobRecord] = []          # fresh + reopened, discovery order
+    append_records: list[JobRecord] = []
+    status_changes: dict[str, str] = {}
+    last_seen_ids: list[str] = []
+    newly_seeded: list[str] = []
 
     for c in companies:
-        # history scoped to this company
         chist = {jid: r for jid, r in history.items() if r.company == c.name}
         try:
-            jobs = fetch(c.ats, c.slug, c.name, session, workday_search=profile.workday_search)
-        except Exception as e:  # quarantine: one company never kills the run
+            jobs = fetch(c.ats, c.slug, c.name, session, workday_search=cfg.workday_search)
+        except Exception as e:   # quarantine: one company never kills the run
             summary.errored += 1
             summary.error_companies.append(c.name)
-            health_rows.append([c.name, c.ats, "ERROR", 0, str(e)[:200], today])
+            health.append({"company": c.name, "ats": c.ats, "result": "ERROR",
+                           "count": 0, "message": str(e)[:200], "checked_at": today})
             continue
 
-        jobs = [j for j in jobs if title_matches(j.title, profile.include, profile.exclude)]
+        jobs = [j for j in jobs if title_matches(j.title, cfg.include, cfg.exclude)]
         result = reconcile_company(chist, jobs, seeded=c.seeded, today=today,
-                                   stale_days=14)
+                                   stale_days=STALE_DAYS)
 
         append_records.extend(result.seed_records)
         append_records.extend(result.new_records)
         all_new.extend(result.new_records)
+        # new records carry last_seen=today in the append itself — no re-touch
         last_seen_ids.extend(result.touched_ids)
         last_seen_ids.extend(result.reopened_ids)
-        last_seen_ids.extend([r.id for r in result.new_records])
         for rid in result.reopened_ids:
-            reopen_status[rid] = "New"
-            # surface reopened roles in the push too
-            all_new.append(history[rid])
+            status_changes[rid] = "New"
+            all_new.append(history[rid])   # reopened roles surface in the push too
         for rid in result.closed_ids:
-            reopen_status[rid] = "Closed"
-
+            status_changes[rid] = "Closed"
         if not c.seeded:
             newly_seeded.append(c.name)
 
-        result_label = "ZERO" if not jobs else "OK"
-        if result_label == "ZERO":
+        label = "ZERO" if not jobs else "OK"
+        if label == "ZERO":
             summary.zero += 1
         else:
             summary.ok += 1
-        health_rows.append([c.name, c.ats, result_label, len(jobs), "", today])
+        health.append({"company": c.name, "ats": c.ats, "result": label,
+                       "count": len(jobs), "message": "", "checked_at": today})
+
+    # inline tagging at discovery, capped; attempts (success or fail) spend budget
+    tags_by_id: dict[str, tagging.Tags] = {}
+    if tagger is not None:
+        budget = cap
+        for rec in append_records:
+            if rec.status != "New":        # never burn LLM calls on silent seeds
+                continue
+            if budget <= 0:
+                break                      # overflow stays untagged for review.py
+            budget -= 1
+            try:
+                t = tagger(rec, slugs.get(rec.company, ""))
+            except Exception as e:
+                summary.tag_failed += 1
+                print(f"[monitor] inline tag {rec.id} FAILED: {str(e)[:200]}",
+                      file=sys.stderr)
+                continue
+            if t is not None:
+                tags_by_id[rec.id] = t
+                summary.tagged += 1
 
     # writes
     if append_records:
-        store.append_jobs(append_records)
-    if reopen_status:
-        store.set_status(reopen_status)
+        store.append_jobs(append_records, tags=tags_by_id, today=today)
+    if status_changes:
+        store.set_status(status_changes)
     if last_seen_ids:
         store.set_last_seen(last_seen_ids, today)
     if newly_seeded:
         store.mark_seeded(newly_seeded)
-    store.write_health(health_rows)
-
+    store.write_health(health)
     summary.new_count = len(all_new)
 
-    # notify (never silent)
-    contact_counts = {r.company: store.contact_count(r.company) for r in all_new}
-    if all_new:
-        title, body = notify.format_new_jobs(all_new, contact_counts)
-        notifier(session, profile.ntfy_topic, title, body, tags=["briefcase"])
-    else:
-        heartbeater(session, profile.ntfy_topic, summary.ok, summary.zero, summary.errored)
+    # push policy: one push, only roles whose min required YoE clears the bar;
+    # untagged/over-bar roles are a Feed count. Nothing new -> silence.
+    if all_new and cfg.push_new_jobs:
+        def yoe_of(rec: JobRecord) -> int | str:
+            t = tags_by_id.get(rec.id)
+            if t is not None:
+                return t.min_yoe
+            return tagging.min_yoe_from(known_min_yoe.get(rec.id, ""))
+
+        matched = [r for r in all_new
+                   if (y := yoe_of(r)) != "" and y <= cfg.yoe_push_max]
+        if matched:
+            comp = {r.id: tags_by_id[r.id].comp_range
+                    for r in matched if r.id in tags_by_id}
+            title, body = format_new_jobs(matched, comp,
+                                          more_in_feed=len(all_new) - len(matched))
+            if pusher(title, body, tags=["briefcase"], click=matched[0].url,
+                      session=session):
+                store.mark_pushed([r.id for r in matched], today)
+                summary.pushed = len(matched)
 
     return summary
 
 
 def main() -> int:
-    import os
-    import sys
     import traceback
 
-    session = requests.Session()
-    profiles = list_profiles()
-    failures = []
-    for profile in profiles:
-        reason = unconfigured_reason(profile)
-        if reason:  # clear, actionable message instead of an opaque gspread 404
-            failures.append(f"{profile.name}: {reason}")
-            print(f"[monitor] profile '{profile.name}' SKIPPED — {reason}", file=sys.stderr)
-            continue
-        try:
-            store = GspreadSheetStore(profile.sheet_id)
-            run_profile(profile, store, session=session)
-            snapshot.write_snapshot(f"monitor/snapshots/{profile.name}.json",
-                                    profile.name, store.read_history())
-        except Exception as e:  # whole-profile failure
-            failures.append(f"{profile.name}: {e}")
-            # Full traceback to the Actions log so the REAL cause is always visible.
-            print(f"[monitor] profile '{profile.name}' FAILED:\n{traceback.format_exc()}",
-                  file=sys.stderr)
-
-    if failures:
-        summary_msg = "; ".join(failures)
-        # Surface failures in the log unconditionally — the alert send must never
-        # be the thing that hides the underlying error.
-        print(f"[monitor] FAILURES: {summary_msg}", file=sys.stderr)
-        ops = os.environ.get("MONITOR_OPS_NTFY_TOPIC", "")
-        if ops:
-            try:
-                notify.failure_alert(session, ops, summary_msg[:300])
-            except Exception as alert_err:  # alerting is best-effort, never fatal
-                print(f"[monitor] failure_alert itself errored: {alert_err}", file=sys.stderr)
+    reason = unconfigured_reason()
+    if reason:
+        print(f"[monitor] SKIPPED — {reason}", file=sys.stderr)
         return 1
-    return 0
+
+    session = requests.Session()
+    try:
+        from core.sheets import HQ
+        hq = HQ.open()
+        cfg = get_runtime_config(hq)
+        if cfg.problems:
+            notify.ops_alert("HQ config problems",
+                             "\n".join(cfg.problems)[:1500], session=session)
+        store = HQFeedStore(hq)
+        tagger = make_tagger(session) if os.environ.get("ANTHROPIC_API_KEY") else None
+        s = run_monitor(store, cfg, session=session, tagger=tagger)
+        print(f"[monitor] new={s.new_count} pushed={s.pushed} tagged={s.tagged} "
+              f"ok={s.ok} zero={s.zero} errored={s.errored}", file=sys.stderr)
+        snapshot.write_snapshot(SNAPSHOT_PATH, "hq", store.read_history())
+        hq.heartbeat("monitor")
+        return 0
+    except Exception as e:   # whole-run failure: real cause to the log, ping ops
+        print(f"[monitor] FAILED:\n{traceback.format_exc()}", file=sys.stderr)
+        notify.ops_alert("Monitor run FAILED", str(e)[:300], session=session)
+        return 1
 
 
 if __name__ == "__main__":

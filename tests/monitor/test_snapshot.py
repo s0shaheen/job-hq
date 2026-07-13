@@ -4,10 +4,11 @@ from monitor.snapshot import write_snapshot
 
 
 def test_write_snapshot(tmp_path):
-    history = {"gh-1": JobRecord("gh-1", "Stripe", "PM", "NYC", "http://x", "New", "2026-05-26", "2026-05-26")}
-    path = tmp_path / "snap.json"
-    write_snapshot(str(path), "pm", history)
+    history = {"greenhouse-1": JobRecord("greenhouse-1", "Stripe", "PM", "NYC",
+                                         "http://x", "New", "2026-07-13", "2026-07-13")}
+    path = tmp_path / "hq.json"
+    write_snapshot(str(path), "hq", history)
     data = json.loads(path.read_text())
-    assert data["profile"] == "pm"
+    assert data["feed"] == "hq"
     assert data["count"] == 1
-    assert data["jobs"][0]["id"] == "gh-1"
+    assert data["jobs"][0]["id"] == "greenhouse-1"

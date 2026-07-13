@@ -1,7 +1,9 @@
 from __future__ import annotations
 import requests
 
-from monitor.fetchers import greenhouse, ashby, lever, smartrecruiters, workday, amazon
+from monitor.fetchers import (greenhouse, ashby, lever, smartrecruiters, workday,
+                              amazon, eightfold, oracle_hcm, google, apple,
+                              goldman, radancy)
 from monitor.models import Job
 
 _REGISTRY = {
@@ -11,10 +13,18 @@ _REGISTRY = {
     "smartrec": smartrecruiters.get_jobs,
     "workday": workday.get_jobs,
     "amazon": amazon.get_jobs,
+    "eightfold": eightfold.get_jobs,
+    "oraclehcm": oracle_hcm.get_jobs,
+    "google": google.get_jobs,
+    "apple": apple.get_jobs,
+    "goldman": goldman.get_jobs,
+    "radancy": radancy.get_jobs,
 }
 
-# ATSes that take a query/search hint (no per-company slug) instead of a board slug.
-_SEARCH_ATS = ("workday", "amazon")
+# ATSes whose fetchers take a query/search hint (search=) — corpus-wide boards
+# where the server does the first cut, vs. slug-only company boards.
+_SEARCH_ATS = ("workday", "amazon", "eightfold", "oraclehcm", "google", "apple",
+               "goldman", "radancy")
 
 
 def get_jobs_for(ats: str, slug: str, company: str, session: requests.Session,

@@ -1,59 +1,246 @@
+"""Feed storage over the HQ spreadsheet — the monitor's only sheet surface.
+
+Everything goes through core.sheets.Tab (gid-addressed tabs, header-map column
+identity, keyed verified writes), so a human sort, rename, or extra column can
+never land a write on the wrong row. Row identity in the feed tab is
+schema.KEY; JobRecord.id IS the key (jobkeys "{ats}-{native_id}" format).
+
+Dropped from the old per-profile store, deliberately:
+- contact_count: the HQ schema has no Contacts tab and the push format no
+  longer carries a contact hint.
+- ensure_tag_columns: bots never invent columns (core.sheets aborts on unknown
+  headers); bootstrap/self-heal own the feed schema, header_map() asserts it.
+"""
 from __future__ import annotations
-import functools
-import json
-import os
-import random
-import time
-from typing import Protocol, TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from monitor.tagging import Tags
+from typing import Any, Protocol, TYPE_CHECKING
 
+from core import schema
+from core.sheets import RowNotFound, SchemaAnomaly
 from monitor.models import Company, JobRecord
 
-TAG_COLUMNS = ["yoe", "seniority", "company_industry", "role_focus",
-               "skills", "comp_range", "work_model", "tagged_at"]
-BASE_JOBS_HEADER = ["id", "company", "title", "location", "url", "status",
-                    "first_seen", "last_seen", "posted"]
-JOBS_HEADER = BASE_JOBS_HEADER + TAG_COLUMNS
-HEALTH_HEADER = ["company", "ats", "result", "count", "message", "checked_at"]
+if TYPE_CHECKING:
+    from core.sheets import HQ
+    from monitor.tagging import Tags
+
+# Tag block written by the monitor/review passes. min_yoe rides along, derived
+# from yoe at write time (Tags.min_yoe), so filterers never re-parse yoe.
+TAG_FIELDS = ["yoe", "seniority", "company_industry", "role_focus",
+              "skills", "comp_range", "work_model"]
 
 
-def _row_to_record(r: dict) -> "JobRecord":
-    return JobRecord(
-        id=str(r.get("id", "")).strip(), company=str(r.get("company", "")),
-        title=str(r.get("title", "")), location=str(r.get("location", "")),
-        url=str(r.get("url", "")), status=str(r.get("status", "")) or "New",
-        first_seen=str(r.get("first_seen", "")), last_seen=str(r.get("last_seen", "")),
-        posted=str(r.get("posted", "")),
-    )
+def _truthy(cell: str) -> bool:
+    return str(cell).strip().upper() in ("TRUE", "1", "YES")
+
+
+def _tag_values(tags: "Tags") -> dict[str, Any]:
+    vals = {f: getattr(tags, f) for f in TAG_FIELDS}
+    vals["min_yoe"] = tags.min_yoe
+    return vals
 
 
 class SheetStore(Protocol):
     def read_companies(self) -> list[Company]: ...
     def read_history(self) -> dict[str, JobRecord]: ...
-    def contact_count(self, company: str) -> int: ...
-    def append_jobs(self, records: list[JobRecord]) -> None: ...
+    def read_min_yoe(self) -> dict[str, str]: ...
+    def append_jobs(self, records: list[JobRecord],
+                    tags: dict[str, "Tags"] | None = None, today: str = "") -> None: ...
     def set_status(self, id_to_status: dict[str, str]) -> None: ...
     def set_last_seen(self, ids: list[str], today: str) -> None: ...
     def mark_seeded(self, company_names: list[str]) -> None: ...
-    def write_health(self, rows: list[list]) -> None: ...
-    def ensure_tag_columns(self) -> None: ...
+    def mark_pushed(self, ids: list[str], today: str) -> None: ...
+    def write_health(self, rows: list[dict]) -> None: ...
     def read_jobs_for_tagging(self) -> list[tuple[JobRecord, str]]: ...
     def write_tags(self, id_to_tags: dict[str, "Tags"], today: str) -> None: ...
 
 
-class FakeSheetStore:
-    """In-memory SheetStore for tests."""
+class HQFeedStore:
+    """SheetStore over the HQ spreadsheet's feed/companies/health tabs."""
 
-    def __init__(self, companies, history, contacts_by_company):
-        self._companies = companies
+    def __init__(self, hq: "HQ"):
+        self._hq = hq
+        self._min_yoe: dict[str, str] | None = None
+
+    # ---- reads
+
+    def read_companies(self) -> list[Company]:
+        out = []
+        for r in self._hq.tab("companies").records():
+            name = r.get("name", "")
+            if not name:
+                continue   # humans leave blank rows; not an anomaly
+            out.append(Company(
+                name=name, ats=r.get("ats", ""), slug=r.get("slug", ""),
+                monitor=_truthy(r.get("monitor", "")),
+                seeded=_truthy(r.get("seeded", "")),
+                priority=_truthy(r.get("priority", "")),
+            ))
+        return [c for c in out if c.monitor]
+
+    def _feed_record(self, r: dict) -> JobRecord:
+        return JobRecord(
+            id=r.get(schema.KEY, ""), company=r.get("company", ""),
+            title=r.get("title", ""), location=r.get("location", ""),
+            url=r.get("url", ""), status=r.get("status", "") or "New",
+            first_seen=r.get("first_seen", ""), last_seen=r.get("last_seen", ""),
+            posted=r.get("posted", ""),
+        )
+
+    def read_history(self) -> dict[str, JobRecord]:
+        out: dict[str, JobRecord] = {}
+        min_yoe: dict[str, str] = {}
+        for r in self._hq.tab("feed").records():
+            rec = self._feed_record(r)
+            if not rec.id:
+                continue
+            out[rec.id] = rec
+            min_yoe[rec.id] = r.get("min_yoe", "")
+        self._min_yoe = min_yoe   # same read serves read_min_yoe — no second fetch
+        return out
+
+    def read_min_yoe(self) -> dict[str, str]:
+        if self._min_yoe is None:
+            self.read_history()
+        return dict(self._min_yoe or {})
+
+    def read_jobs_for_tagging(self) -> list[tuple[JobRecord, str]]:
+        out = []
+        for r in self._hq.tab("feed").records():
+            rec = self._feed_record(r)
+            if rec.id:
+                out.append((rec, r.get("tagged_at", "")))
+        return out
+
+    # ---- writes
+
+    def append_jobs(self, records: list[JobRecord],
+                    tags: dict[str, "Tags"] | None = None, today: str = "") -> None:
+        if not records:
+            return
+        tags = tags or {}
+        rows = []
+        for r in records:
+            row: dict[str, Any] = {
+                schema.KEY: r.id, "company": r.company, "title": r.title,
+                "location": r.location, "url": r.url, "status": r.status,
+                "first_seen": r.first_seen, "last_seen": r.last_seen,
+                "posted": r.posted,
+            }
+            t = tags.get(r.id)
+            if t is not None:   # discovery-time tags ride the append itself
+                row.update(_tag_values(t))
+                row["tagged_at"] = today
+            rows.append(row)
+        self._hq.tab("feed").append_records(rows)
+        self._hq.log("monitor", "feed_append", detail=f"{len(rows)} rows ({len(tags)} tagged inline)")
+
+    def _bulk_set_by_key(self, values_by_key: dict[str, dict[str, Any]]) -> None:
+        """Batched keyed writes on the feed tab: rows located fresh, one
+        batch_update, one verifying batch_get (key cell + every written cell).
+        Any row that moved mid-flight is redone through Tab.set_by_key, which
+        re-locates and verifies again. Same guarantees as set_by_key at ~4 API
+        calls total instead of ~5 per row — the hourly last_seen sweep touches
+        every open role, which would otherwise eat the 60 req/min quota.
+        """
+        if not values_by_key:
+            return
+        from gspread.utils import rowcol_to_a1
+        t = self._hq.tab("feed")
+        hmap = t.header_map()
+        idx = t.key_index()
+        updates = []
+        checks: list[tuple[str, str, str]] = []   # (key, a1, expected value)
+        for key, vals in values_by_key.items():
+            rownum = idx.get(key)
+            if rownum is None:   # feed is bot-only; a vanished row is an anomaly
+                raise RowNotFound(f"[feed] key {key!r} not found")
+            checks.append((key, rowcol_to_a1(rownum, hmap[schema.KEY]), key))
+            for h, v in vals.items():
+                if h not in hmap:
+                    raise SchemaAnomaly(f"[feed] no column {h!r}")
+                a1 = rowcol_to_a1(rownum, hmap[h])
+                v = "" if v is None else str(v)
+                updates.append({"range": a1, "values": [[v]]})
+                checks.append((key, a1, v))
+        t.ws.batch_update(updates, value_input_option="RAW")
+        got = t.ws.batch_get([a1 for _, a1, _ in checks])
+        moved = set()
+        for (key, _a1, want), cell in zip(checks, got):
+            have = str(cell[0][0] if cell and cell[0] else "").strip()
+            if have != want.strip():
+                moved.add(key)
+        for key in moved:
+            t.set_by_key(key, values_by_key[key])
+
+    def set_status(self, id_to_status: dict[str, str]) -> None:
+        self._bulk_set_by_key({jid: {"status": st} for jid, st in id_to_status.items()})
+        if id_to_status:
+            self._hq.log("monitor", "feed_status", detail=str(id_to_status)[:400])
+
+    def set_last_seen(self, ids: list[str], today: str) -> None:
+        self._bulk_set_by_key({jid: {"last_seen": today} for jid in ids})
+
+    def mark_seeded(self, company_names: list[str]) -> None:
+        t = self._hq.tab("companies")
+        for name in company_names:
+            t.set_by_key(name, {"seeded": "TRUE"}, key_header="name")
+        if company_names:
+            self._hq.log("monitor", "seeded", detail=", ".join(company_names)[:400])
+
+    def mark_pushed(self, ids: list[str], today: str) -> None:
+        """Fill-blank only: a role is pushed once; re-marks never clobber."""
+        t = self._hq.tab("feed")
+        for jid in ids:
+            t.set_by_key(jid, {"pushed_at": today}, only_if_blank=True)
+
+    def write_tags(self, id_to_tags: dict[str, "Tags"], today: str) -> None:
+        updates = {}
+        for jid, tags in id_to_tags.items():
+            vals = _tag_values(tags)
+            vals["tagged_at"] = today
+            updates[jid] = vals
+        self._bulk_set_by_key(updates)
+        if id_to_tags:
+            self._hq.log("review", "tags_written", detail=f"{len(id_to_tags)} rows")
+
+    def write_health(self, rows: list[dict]) -> None:
+        """Full snapshot per run: rewrite the bot-only health tab in place,
+        blank-padding to the previous extent so stale rows vanish without a
+        separate clear call (one RAW write, schema asserted first)."""
+        t = self._hq.tab("health")
+        hmap = t.header_map()   # loud abort BEFORE the destructive rewrite
+        ncols = max(hmap.values())
+        header = [""] * ncols
+        for h, i in hmap.items():
+            header[i - 1] = h
+        grid = [header]
+        for rec in rows:
+            unknown = [k for k in rec if k not in hmap]
+            if unknown:
+                raise SchemaAnomaly(f"[health] no column for {unknown}")
+            row = [""] * ncols
+            for k, v in rec.items():
+                row[hmap[k] - 1] = "" if v is None else str(v)
+            grid.append(row)
+        prev = len(t.ws.get_all_values())
+        while len(grid) < prev:
+            grid.append([""] * ncols)
+        t.ws.update(grid, "A1", value_input_option="RAW")
+
+
+class FakeSheetStore:
+    """In-memory SheetStore for pure-logic tests (run/review flows). The real
+    write paths are covered by HQFeedStore over core.fakes.fake_hq."""
+
+    def __init__(self, companies, history, min_yoe: dict[str, str] | None = None):
+        self._companies = list(companies)
         self._history = dict(history)
-        self._contacts = {k.lower(): v for k, v in contacts_by_company.items()}
-        self.health_rows: list[list] = []
+        self._min_yoe: dict[str, str] = dict(min_yoe or {})
+        self._tags: dict[str, Any] = {}
+        self._tagged_at: dict[str, str] = {}
+        self.health_rows: list[dict] = []
         self.seeded_marks: list[str] = []
-        self._tags: dict = {}
-        self._tagged_at: dict = {}
+        self.pushed_marks: list[str] = []
 
     def read_companies(self):
         return [c for c in self._companies if c.monitor]
@@ -61,12 +248,18 @@ class FakeSheetStore:
     def read_history(self):
         return dict(self._history)
 
-    def contact_count(self, company):
-        return self._contacts.get(company.lower(), 0)
+    def read_min_yoe(self):
+        return dict(self._min_yoe)
 
-    def append_jobs(self, records):
+    def append_jobs(self, records, tags=None, today=""):
+        tags = tags or {}
         for r in records:
             self._history[r.id] = r
+            t = tags.get(r.id)
+            if t is not None:
+                self._tags[r.id] = t
+                self._tagged_at[r.id] = today
+                self._min_yoe[r.id] = str(t.min_yoe)
 
     def set_status(self, id_to_status):
         for jid, status in id_to_status.items():
@@ -84,11 +277,11 @@ class FakeSheetStore:
             if c.name in company_names:
                 c.seeded = True
 
+    def mark_pushed(self, ids, today):
+        self.pushed_marks.extend(i for i in ids if i not in self.pushed_marks)
+
     def write_health(self, rows):
         self.health_rows = rows
-
-    def ensure_tag_columns(self):  # no-op for the in-memory store
-        return
 
     def read_jobs_for_tagging(self):
         return [(r, self._tagged_at.get(r.id, "")) for r in self._history.values()]
@@ -97,211 +290,7 @@ class FakeSheetStore:
         for jid, tags in id_to_tags.items():
             self._tags[jid] = tags
             self._tagged_at[jid] = today
+            self._min_yoe[jid] = str(tags.min_yoe)
 
     def tags_for(self, jid):
         return self._tags.get(jid)
-
-
-_QUOTA_MAX_RETRIES = 5
-
-
-def _retry_on_quota(fn):
-    """Retry a gspread call on a 429 quota error with exponential backoff.
-
-    Google Sheets enforces a per-minute, per-user read/write quota (default 60
-    reads/min). A burst of requests — e.g. the nightly run touching several
-    worksheets in quick succession — can trip it transiently. Backing off and
-    retrying (honouring Retry-After when present) clears it instead of failing
-    the whole profile with an opaque 429.
-    """
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        from gspread.exceptions import APIError
-        delay = 1.0
-        for attempt in range(_QUOTA_MAX_RETRIES):
-            try:
-                return fn(*args, **kwargs)
-            except APIError as e:
-                resp = getattr(e, "response", None)
-                status = getattr(resp, "status_code", None)
-                if status != 429 or attempt == _QUOTA_MAX_RETRIES - 1:
-                    raise
-                retry_after = 0.0
-                try:
-                    retry_after = float(resp.headers.get("Retry-After", 0))
-                except (AttributeError, TypeError, ValueError):
-                    retry_after = 0.0
-                time.sleep(max(delay, retry_after) + random.uniform(0, 0.5))
-                delay *= 2
-    return wrapper
-
-
-class GspreadSheetStore:
-    """Real SheetStore backed by a Google Sheet via gspread."""
-
-    def __init__(self, sheet_id: str):
-        import gspread
-        creds = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
-        gc = gspread.service_account_from_dict(creds)
-        self._sh = gc.open_by_key(sheet_id)
-
-    def _ws(self, title: str):
-        # Cache worksheet handles: gspread's worksheet() issues a metadata read
-        # request every call, so re-resolving the same tab repeatedly within a
-        # run needlessly burns the per-minute read quota. Lazily initialised so
-        # it also works for instances built via __new__ (see tests).
-        cache = self.__dict__.setdefault("_ws_cache", {})
-        if title not in cache:
-            cache[title] = self._sh.worksheet(title)
-        return cache[title]
-
-    @_retry_on_quota
-    def read_companies(self):
-        rows = self._ws("Companies").get_all_records()
-        out = []
-        for r in rows:
-            out.append(Company(
-                name=str(r.get("name", "")).strip(),
-                ats=str(r.get("ats", "")).strip(),
-                slug=str(r.get("slug", "")).strip(),
-                monitor=str(r.get("monitor", "")).strip().upper() in ("TRUE", "1", "YES"),
-                seeded=str(r.get("seeded", "")).strip().upper() in ("TRUE", "1", "YES"),
-            ))
-        return [c for c in out if c.monitor]
-
-    @_retry_on_quota
-    def read_history(self):
-        rows = self._ws("Jobs").get_all_records()
-        out = {}
-        for r in rows:
-            rec = _row_to_record(r)
-            if not rec.id:
-                continue
-            out[rec.id] = rec
-        return out
-
-    @_retry_on_quota
-    def contact_count(self, company):
-        # run.py calls this once per new job in a tight comprehension. Reading
-        # the whole Contacts sheet each time meant 1 read request per new role —
-        # a burst that on its own can blow the per-minute read quota. Read once
-        # and serve every lookup from an in-memory count map.
-        counts = self.__dict__.get("_contact_counts")
-        if counts is None:
-            counts = {}
-            try:
-                for r in self._ws("Contacts").get_all_records():
-                    name = str(r.get("company", "")).strip().lower()
-                    if name:
-                        counts[name] = counts.get(name, 0) + 1
-            except Exception:
-                counts = {}
-            self.__dict__["_contact_counts"] = counts
-        return counts.get(company.lower(), 0)
-
-    def _id_to_row(self) -> dict[str, int]:
-        ids = self._ws("Jobs").col_values(1)  # includes header at row 1
-        return {v: i + 1 for i, v in enumerate(ids) if i > 0}
-
-    @_retry_on_quota
-    def append_jobs(self, records):
-        if not records:
-            return
-        rows = [[r.id, r.company, r.title, r.location, r.url, r.status,
-                 r.first_seen, r.last_seen, r.posted] for r in records]
-        self._ws("Jobs").append_rows(rows, value_input_option="RAW")
-
-    @_retry_on_quota
-    def set_status(self, id_to_status):
-        if not id_to_status:
-            return
-        ws, mapping = self._ws("Jobs"), self._id_to_row()
-        updates = [{"range": f"F{mapping[jid]}", "values": [[st]]}
-                   for jid, st in id_to_status.items() if jid in mapping]
-        if updates:
-            ws.batch_update(updates, value_input_option="RAW")
-
-    @_retry_on_quota
-    def set_last_seen(self, ids, today):
-        if not ids:
-            return
-        ws, mapping = self._ws("Jobs"), self._id_to_row()
-        updates = [{"range": f"H{mapping[jid]}", "values": [[today]]}
-                   for jid in ids if jid in mapping]
-        if updates:
-            ws.batch_update(updates, value_input_option="RAW")
-
-    @_retry_on_quota
-    def mark_seeded(self, company_names):
-        if not company_names:
-            return
-        ws = self._ws("Companies")
-        records = ws.get_all_records()
-        names = {n for n in company_names}
-        updates = []
-        for i, r in enumerate(records):
-            if str(r.get("name", "")).strip() in names:
-                updates.append({"range": f"E{i + 2}", "values": [["TRUE"]]})
-        if updates:
-            ws.batch_update(updates, value_input_option="RAW")
-
-    @_retry_on_quota
-    def write_health(self, rows):
-        ws = self._ws("Health")
-        ws.clear()
-        ws.update([HEALTH_HEADER] + rows, value_input_option="RAW")
-
-    @_retry_on_quota
-    def ensure_tag_columns(self):
-        from gspread.utils import rowcol_to_a1
-        ws = self._ws("Jobs")
-        header = ws.row_values(1)
-        missing = [c for c in TAG_COLUMNS if c not in header]
-        if not missing:
-            return
-        # Fail loud on a partial/manual migration rather than appending duplicate
-        # columns and silently corrupting the contiguous tag block write_tags relies on.
-        if len(missing) < len(TAG_COLUMNS):
-            present = [c for c in TAG_COLUMNS if c in header]
-            raise RuntimeError(
-                f"Jobs sheet has only some tag columns present ({present}); "
-                f"expected all or none. Fix the header manually before running."
-            )
-        # Append the full tag block as one contiguous run to the right of existing columns.
-        start = len(header) + 1
-        end = start + len(TAG_COLUMNS) - 1
-        rng = f"{rowcol_to_a1(1, start)}:{rowcol_to_a1(1, end)}"
-        ws.batch_update([{"range": rng, "values": [TAG_COLUMNS]}], value_input_option="RAW")
-
-    @_retry_on_quota
-    def read_jobs_for_tagging(self):
-        rows = self._ws("Jobs").get_all_records()
-        out = []
-        for r in rows:
-            rec = _row_to_record(r)
-            if not rec.id:
-                continue
-            out.append((rec, str(r.get("tagged_at", "")).strip()))
-        return out
-
-    @_retry_on_quota
-    def write_tags(self, id_to_tags, today):
-        if not id_to_tags:
-            return
-        from gspread.utils import rowcol_to_a1
-        ws = self._ws("Jobs")
-        header = ws.row_values(1)
-        start = header.index("yoe") + 1            # tag block is contiguous, yoe..tagged_at
-        mapping = self._id_to_row()
-        updates = []
-        for jid, tags in id_to_tags.items():
-            row = mapping.get(jid)
-            if not row:
-                continue
-            values = [tags.yoe, tags.seniority, tags.company_industry, tags.role_focus,
-                      tags.skills, tags.comp_range, tags.work_model, today]
-            rng = f"{rowcol_to_a1(row, start)}:{rowcol_to_a1(row, start + len(values) - 1)}"
-            updates.append({"range": rng, "values": [values]})
-        if updates:
-            # One batch_update covers all rows — fine at this project's scale (tens–hundreds of roles).
-            ws.batch_update(updates, value_input_option="RAW")

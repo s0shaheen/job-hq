@@ -1,16 +1,23 @@
+"""Nightly tagging sweep (entry: python -m monitor.review).
+
+Any open feed row still untagged — inline-cap overflow, an LLM hiccup at
+discovery, or a JD source that was down — gets tags + min_yoe here. Skips
+cleanly without ANTHROPIC_API_KEY (tagging is an enhancement, never a
+blocker); per-job failures are quarantined, systemic failure pings ops.
+"""
 from __future__ import annotations
-from dataclasses import dataclass, field
-from datetime import date
+
 import os
 import sys
-import traceback
+from dataclasses import dataclass, field
+from datetime import date
 
 import requests
 
-from monitor.config import list_profiles, unconfigured_reason
-from monitor.sheet import GspreadSheetStore, SheetStore
-from monitor.models import Profile
-from monitor import jobcontent, tagging, notify
+from core import notify
+from monitor import jobcontent, tagging
+from monitor.config import unconfigured_reason
+from monitor.sheet import HQFeedStore, SheetStore
 
 
 @dataclass
@@ -21,16 +28,17 @@ class ReviewSummary:
     fail_companies: list = field(default_factory=list)
 
 
-def review_profile(profile: Profile, store: SheetStore, *, today: str | None = None,
-                   session: requests.Session | None = None,
-                   fetch=jobcontent.fetch_description,
-                   extract=tagging.extract_tags) -> ReviewSummary:
+def review_feed(store: SheetStore, *, today: str | None = None,
+                session: requests.Session | None = None,
+                fetch=None, extract=None) -> ReviewSummary:
+    """fetch/extract default late (None) so tests can monkeypatch the modules."""
     today = today or date.today().isoformat()
     session = session or requests.Session()
-    store.ensure_tag_columns()
+    fetch = fetch or jobcontent.fetch_description
+    extract = extract or tagging.extract_tags
     slug_by_company = {c.name: c.slug for c in store.read_companies()}
     summary = ReviewSummary()
-    updates: dict = {}
+    updates: dict[str, tagging.Tags] = {}
 
     for rec, tagged_at in store.read_jobs_for_tagging():
         if tagged_at or rec.status == "Closed":
@@ -47,48 +55,45 @@ def review_profile(profile: Profile, store: SheetStore, *, today: str | None = N
         except Exception as e:
             summary.failed += 1
             summary.fail_companies.append(rec.company)
-            print(f"[review] {rec.id} ({rec.company}) FAILED: {str(e)[:200]}", file=sys.stderr)
+            print(f"[review] {rec.id} ({rec.company}) FAILED: {str(e)[:200]}",
+                  file=sys.stderr)
 
     if updates:
-        store.write_tags(updates, today)
+        store.write_tags(updates, today)   # writes tag block + min_yoe + tagged_at
     return summary
 
 
 def main() -> int:
-    session = requests.Session()
+    import traceback
+
     if not os.environ.get("ANTHROPIC_API_KEY", ""):
         print("[review] ANTHROPIC_API_KEY not set — tagging pass skipped", file=sys.stderr)
         return 0
-    failures = []
-    for profile in list_profiles():
-        reason = unconfigured_reason(profile)
-        if reason:
-            print(f"[review] profile '{profile.name}' SKIPPED — {reason}", file=sys.stderr)
-            continue
-        try:
-            store = GspreadSheetStore(profile.sheet_id)
-            s = review_profile(profile, store, session=session)
-            print(f"[review] {profile.name}: tagged={s.tagged} "
-                  f"skipped_no_jd={s.skipped_no_jd} failed={s.failed}", file=sys.stderr)
-            # Systemic failure (e.g. bad/expired key fails every call) — surface it.
-            if s.failed and not s.tagged:
-                failures.append(f"{profile.name}: tagging failed for all {s.failed} attempted job(s)")
-        except Exception as e:
-            failures.append(f"{profile.name}: {e}")
-            print(f"[review] profile '{profile.name}' FAILED:\n{traceback.format_exc()}",
-                  file=sys.stderr)
-
-    if failures:
-        msg = "; ".join(failures)
-        print(f"[review] FAILURES: {msg}", file=sys.stderr)
-        ops = os.environ.get("MONITOR_OPS_NTFY_TOPIC", "")
-        if ops:
-            try:
-                notify.failure_alert(session, ops, msg[:300])
-            except Exception as alert_err:
-                print(f"[review] failure_alert itself errored: {alert_err}", file=sys.stderr)
+    reason = unconfigured_reason()
+    if reason:
+        print(f"[review] SKIPPED — {reason}", file=sys.stderr)
         return 1
-    return 0
+
+    session = requests.Session()
+    try:
+        from core.sheets import HQ
+        hq = HQ.open()
+        store = HQFeedStore(hq)
+        s = review_feed(store, session=session)
+        print(f"[review] tagged={s.tagged} skipped_no_jd={s.skipped_no_jd} "
+              f"failed={s.failed}", file=sys.stderr)
+        hq.heartbeat("review")   # liveness: the sweep ran, whatever it found
+        if s.failed and not s.tagged:
+            # systemic (e.g. bad/expired key fails every call) — surface it
+            msg = f"tagging failed for all {s.failed} attempted job(s)"
+            print(f"[review] FAILURES: {msg}", file=sys.stderr)
+            notify.ops_alert("Review tagging FAILED", msg, session=session)
+            return 1
+        return 0
+    except Exception as e:
+        print(f"[review] FAILED:\n{traceback.format_exc()}", file=sys.stderr)
+        notify.ops_alert("Review run FAILED", str(e)[:300], session=session)
+        return 1
 
 
 if __name__ == "__main__":

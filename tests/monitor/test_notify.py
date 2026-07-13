@@ -1,63 +1,81 @@
-from unittest.mock import MagicMock
+"""monitor.notify is a shim over core.notify; only format_new_jobs is real."""
+import core.notify
 from monitor.models import JobRecord
-from monitor.notify import format_new_jobs, push, failure_alert
+from monitor.notify import format_new_jobs, ops_alert, push
 
 
 class _Latin1Session:
-    """Fake session that mirrors http.client: header values MUST be latin-1
-    encodable, otherwise the real requests stack raises UnicodeEncodeError."""
+    """Mirrors http.client: header values MUST be latin-1 encodable, otherwise
+    the real requests stack raises UnicodeEncodeError."""
 
     def __init__(self):
+        self.url = None
         self.headers = None
+        self.body = None
 
-    def post(self, url, data, headers, timeout):
-        for value in headers.values():
-            value.encode("latin-1")  # raises if a header value isn't latin-1 safe
-        self.headers = headers
-
-
-def _rec(company, title):
-    return JobRecord(f"gh-{title}", company, title, "NYC", "http://x", "New", "2026-05-26", "2026-05-26")
+    def post(self, url, data=None, headers=None, timeout=None):
+        for value in (headers or {}).values():
+            value.encode("latin-1")   # raises if not latin-1 safe
+        self.url, self.headers, self.body = url, headers, data
 
 
-def test_format_new_jobs_includes_count_and_contact_hint():
-    recs = [_rec("Ramp", "Sr PM"), _rec("Glean", "PM, Platform")]
-    contact_counts = {"Ramp": 2}
-    title, body = format_new_jobs(recs, contact_counts, preview=5)
-    assert "2 new" in title
-    assert "Ramp" in body and "Sr PM" in body
-    assert "(2 contacts at Ramp)" in body
-    assert "Glean" in body
+def _rec(company, title, jid=None):
+    jid = jid or f"gh-{title}"
+    return JobRecord(jid, company, title, "NYC", "http://x", "New",
+                     "2026-07-13", "2026-07-13")
+
+
+def test_shim_reexports_core_notify():
+    assert push is core.notify.push
+    assert ops_alert is core.notify.ops_alert
+
+
+def test_format_new_jobs_lists_title_company_and_comp():
+    recs = [_rec("Ramp", "Sr PM", "gh-1"), _rec("Glean", "PM, Platform", "gh-2")]
+    title, body = format_new_jobs(recs, {"gh-1": "$180k-$210k"}, more_in_feed=3)
+    assert "2 new roles" in title
+    assert "Sr PM — Ramp ($180k-$210k)" in body
+    assert "PM, Platform — Glean" in body
+    assert "3 more in Feed" in body
+
+
+def test_format_new_jobs_no_feed_line_when_everything_matched():
+    title, body = format_new_jobs([_rec("Ramp", "PM")], {}, more_in_feed=0)
+    assert "1 new role" in title
+    assert "more in Feed" not in body
 
 
 def test_format_truncates_to_preview():
-    recs = [_rec("C", f"PM {i}") for i in range(10)]
-    title, body = format_new_jobs(recs, {}, preview=3)
-    assert "10 new" in title
-    assert body.count("PM ") <= 4  # 3 shown + possible "+7 more"
+    recs = [_rec("C", f"PM {i}", f"gh-{i}") for i in range(10)]
+    _, body = format_new_jobs(recs, {}, preview=3)
+    assert body.count("PM ") == 3
+    assert "+7 more in range" in body
 
 
-def test_push_posts_to_ntfy():
-    session = MagicMock()
-    push(session, "topic-x", "Title", "Body", tags=["briefcase"])
-    args, kwargs = session.post.call_args
-    assert args[0] == "https://ntfy.sh/topic-x"
-    assert kwargs["data"].encode if isinstance(kwargs["data"], str) else True
-    assert kwargs["headers"]["Title"] == "Title"
-    assert kwargs["headers"]["Tags"] == "briefcase"
-
-
-def test_push_title_with_non_latin1_char_does_not_crash():
-    # HTTP headers are latin-1 encoded by http.client; a title with an emoji
-    # (or any non-latin-1 char) must be sanitized, not crash the send.
+def test_push_sends_and_survives_non_latin1_title(monkeypatch):
+    monkeypatch.setenv("HQ_NTFY_TOPIC", "topic-x")
     session = _Latin1Session()
-    push(session, "topic", "⚠ heads up", "body", tags=["warning"])
-    assert session.headers is not None  # post completed without UnicodeEncodeError
+    assert push("⚠ heads up — new roles", "body", tags=["briefcase"],
+                click="http://x", session=session) is True
+    assert session.url == "https://ntfy.sh/topic-x"
+    assert session.headers["Tags"] == "briefcase"
+    assert session.headers["Click"] == "http://x"
 
 
-def test_failure_alert_does_not_crash_on_header_encoding():
-    # The failure alerter must never be the thing that crashes — it's the last
-    # line of defense for surfacing the real error.
+def test_push_returns_false_when_no_topic_configured(monkeypatch):
+    monkeypatch.delenv("HQ_NTFY_TOPIC", raising=False)
+    monkeypatch.setattr("core.config.registry", lambda: {})   # no committed fallback
     session = _Latin1Session()
-    failure_alert(session, "topic", "the real underlying error")
-    assert session.headers is not None
+    assert push("t", "b", session=session) is False
+    assert session.url is None                                # nothing sent
+
+
+def test_ops_alert_never_raises_even_when_send_explodes(monkeypatch):
+    monkeypatch.setenv("HQ_OPS_NTFY_TOPIC", "ops-x")
+
+    class _Boom:
+        def post(self, *a, **k):
+            raise RuntimeError("network down")
+
+    assert ops_alert("Job monitor FAILED", "the real underlying error",
+                     session=_Boom()) is False

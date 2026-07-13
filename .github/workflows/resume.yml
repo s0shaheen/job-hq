@@ -1,0 +1,139 @@
+# Resume render & publish — the no-drift pipeline (see tmp/research resume-editing §2).
+#
+# Every push touching resume content — including GitHub-mobile / API commits from
+# the phone editor, which fire on:push like any other — re-renders BOTH variants
+# with the same pinned engine as the Mac, hard-gates one page, publishes to Drive
+# via the Apps Script uploader, and pings the phone with the preview attached.
+# A bad phone edit can never silently corrupt anything: it fails CI and alerts ops.
+#
+# rendercv is pinned ==2.8 because the project breaks compatibility within 2.x;
+# CI and the Mac upgrade together, deliberately. rendercv[full] is pure-pip
+# (bundled Typst compiler + fonts) so ubuntu-latest needs no system packages.
+name: Resume render & publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "resume/**"
+      - "scripts/render-alt.sh"
+      - "scripts/yaml_to_docx.py"
+      - "scripts/publish_to_drive.py"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hq-resume
+  cancel-in-progress: false
+
+# Topics mirror hq.config.yaml (ntfy.jobs / ntfy.ops); secrets override if rotated.
+env:
+  HQ_NTFY_TOPIC: ${{ secrets.HQ_NTFY_TOPIC || 'REDACTED-NTFY-TOPIC' }}
+  HQ_OPS_NTFY_TOPIC: ${{ secrets.HQ_OPS_NTFY_TOPIC || 'REDACTED-NTFY-TOPIC' }}
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+
+      # zsh: render-alt.sh is #!/bin/zsh and GitHub's ubuntu image ships no zsh —
+      # install it and run the byte-identical script the Mac runs, instead of
+      # replicating its email swap here (the alt email stays defined in ONE place).
+      # uv: render-alt.sh's docx step invokes `uv run --with python-docx`.
+      - name: Install toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zsh
+          pip install --quiet "rendercv[full]==2.8" python-docx PyYAML requests uv
+
+      # Same command as local `make` (the Makefile IS the render definition), plus
+      # the hard gate package.sh applies locally: exactly one rendered page.
+      - name: Render base (hard one-page gate)
+        run: |
+          rm -rf resume/out
+          make render
+          PAGES=$(ls resume/out/*.png | wc -l | tr -d ' ')
+          if [ "$PAGES" != "1" ]; then
+            echo "::error::Base resume rendered $PAGES pages — must be exactly 1"
+            exit 1
+          fi
+          cp resume/out/*.pdf resume/out/Salman_Shaheen_Resume.pdf
+          cp resume/out/*_1.png resume/out/.preview.png
+          python scripts/yaml_to_docx.py resume/base.yaml resume/out/Salman_Shaheen_Resume.docx
+
+      # render-alt.sh gates one page itself (exit 1 otherwise) and already emits
+      # Salman_Shaheen_Resume.pdf/.docx + .preview.png into resume/out-alt/.
+      - name: Render alt-email variant
+        run: make alt
+
+      # Label = text after "resume:" in the head commit subject (empty is fine).
+      - name: Derive publish label
+        id: meta
+        run: |
+          MSG="$(git log -1 --pretty=%s)"
+          LABEL=""
+          case "$MSG" in
+            *resume:*) LABEL="$(printf '%s' "${MSG#*resume:}" | sed 's/^[[:space:]]*//')" ;;
+          esac
+          echo "label=$LABEL" >> "$GITHUB_OUTPUT"
+          echo "label: '$LABEL'"
+
+      - name: Publish to Drive (Apps Script uploader)
+        id: publish
+        env:
+          APPSSCRIPT_UPLOAD_URL: ${{ secrets.APPSSCRIPT_UPLOAD_URL }}
+          APPSSCRIPT_UPLOAD_SECRET: ${{ secrets.APPSSCRIPT_UPLOAD_SECRET }}
+          LABEL: ${{ steps.meta.outputs.label }}
+        run: |
+          if [ -z "$APPSSCRIPT_UPLOAD_URL" ] || [ -z "$APPSSCRIPT_UPLOAD_SECRET" ]; then
+            echo "::notice::Drive publish SKIPPED — APPSSCRIPT_UPLOAD_URL / APPSSCRIPT_UPLOAD_SECRET secrets are not configured. Render + one-page gates above still ran."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python scripts/publish_to_drive.py --label "$LABEL"
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+      # Preview PNG as a ntfy attachment: PUT binary body + Filename header
+      # (https://docs.ntfy.sh/publish/#attach-local-file). Never fails the run.
+      - name: Phone ping with preview
+        if: steps.publish.outputs.published == 'true'
+        env:
+          LABEL: ${{ steps.meta.outputs.label }}
+          DRIVE_FOLDER_URL: ${{ secrets.DRIVE_FOLDER_URL }}
+        run: |
+          TITLE="Resume published"
+          if [ -n "$LABEL" ]; then TITLE="Resume published: $LABEL"; fi
+          ARGS=(-fsS -m 30 -T resume/out/.preview.png
+                -H "Filename: resume-preview.png"
+                -H "Title: $TITLE"
+                -H "Tags: page_facing_up")
+          if [ -n "$DRIVE_FOLDER_URL" ]; then ARGS+=(-H "Click: $DRIVE_FOLDER_URL"); fi
+          curl "${ARGS[@]}" "https://ntfy.sh/$HQ_NTFY_TOPIC" \
+            || echo "::warning::ntfy preview push failed (notification failure is never fatal)"
+
+  # Any step failing above lands here — ops topic, high priority, click-through
+  # to the run. Mirrors the ops-alert pattern in monitor.yml.
+  alert-on-failure:
+    needs: render
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ops alert
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message || 'workflow_dispatch' }}
+        run: |
+          FIRST_LINE="$(printf '%s' "$COMMIT_MSG" | head -n 1)"
+          curl -fsS -m 15 \
+            -H "Title: Resume pipeline failed" \
+            -H "Priority: high" \
+            -H "Tags: warning" \
+            -H "Click: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -d "Render/publish failed on: $FIRST_LINE" \
+            "https://ntfy.sh/$HQ_OPS_NTFY_TOPIC" || true
