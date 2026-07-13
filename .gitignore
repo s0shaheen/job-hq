@@ -3,6 +3,8 @@ Claude-Exporter-Career-*/
 
 # Build artifacts
 resume/out/
+resume/out-alt/
+resume/.alt.cv.yaml
 **/.build/
 *.aux *.log *.fdb_latexmk *.fls *.synctex.gz
 
