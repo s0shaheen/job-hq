@@ -86,3 +86,17 @@ def test_dedupe_keys_keeps_first_and_repairs(monkeypatch):
     assert [r["key"] for r in rows] == ["greenhouse-1", "greenhouse-2"]
     assert rows[0]["title"] == "tagged first"      # first occurrence kept
     t.key_index()                                   # no longer raises
+
+
+def test_trim_leading_blanks_collapses_bootstrap_gap():
+    from core.fakes import fake_hq
+    from tracker import selfheal
+    hq = fake_hq(["feed"])
+    ws = hq.tab("feed").ws
+    ws._grid.extend([[] for _ in range(199)])                       # bootstrap's blank grid
+    hq.tab("feed").append_records([{"key": "greenhouse-9", "company": "X", "status": "New"}])
+    ws._grid.append(["greenhouse-10", "Y"])                         # data even further down
+    assert selfheal.trim_leading_blanks(hq, "feed") == ["[feed] trimmed 199 blank rows above the data"]
+    rows = hq.tab("feed").records()
+    assert rows[0]["key"] == "greenhouse-9"                         # data now at row 2
+    assert selfheal.trim_leading_blanks(hq, "feed") == []           # idempotent
