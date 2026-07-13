@@ -36,7 +36,7 @@ def test_registry_routes_apify(monkeypatch):
         captured["company"] = company
         captured["token"] = token
         return []
-    monkeypatch.setattr("src.apify.get_jobs", fake_apify_get)
+    monkeypatch.setattr("monitor.apify.get_jobs", fake_apify_get)
     monkeypatch.setenv("APIFY_TOKEN", "TOK123")
     from monitor.fetchers import get_jobs_for
     get_jobs_for("apify", "actor7:https://careers.meta.com", "Meta", session=None, workday_search="product")
@@ -50,7 +50,7 @@ def test_registry_apify_without_token_uses_empty_string(monkeypatch):
     def fake_apify_get(slug, company, session, token):
         captured["token"] = token
         return []
-    monkeypatch.setattr("src.apify.get_jobs", fake_apify_get)
+    monkeypatch.setattr("monitor.apify.get_jobs", fake_apify_get)
     monkeypatch.delenv("APIFY_TOKEN", raising=False)
     from monitor.fetchers import get_jobs_for
     get_jobs_for("apify", "a:u", "X", session=None)

@@ -135,7 +135,7 @@ def _api_error(status, retry_after=None):
 
 def test_retry_on_quota_retries_429_then_succeeds(monkeypatch):
     import monitor.sheet
-    monkeypatch.setattr(src.sheet.time, "sleep", lambda *_: None)  # don't actually wait
+    monkeypatch.setattr(monitor.sheet.time, "sleep", lambda *_: None)  # don't actually wait
     calls = {"n": 0}
 
     @_retry_on_quota
@@ -161,7 +161,7 @@ def test_retry_on_quota_reraises_non_429():
 
 def test_retry_on_quota_gives_up_after_max_retries(monkeypatch):
     import monitor.sheet
-    monkeypatch.setattr(src.sheet.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(monitor.sheet.time, "sleep", lambda *_: None)
     calls = {"n": 0}
 
     @_retry_on_quota
@@ -172,4 +172,4 @@ def test_retry_on_quota_gives_up_after_max_retries(monkeypatch):
     import gspread.exceptions
     with pytest.raises(gspread.exceptions.APIError):
         always_429()
-    assert calls["n"] == src.sheet._QUOTA_MAX_RETRIES
+    assert calls["n"] == monitor.sheet._QUOTA_MAX_RETRIES
