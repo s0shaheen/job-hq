@@ -1,0 +1,16 @@
+# Prints the service account's client_email (needed once, to share the HQ
+# spreadsheet with it). Prints nothing else from the credential.
+name: Service account whoami
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  whoami:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Print client_email
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python3 -c "import json,os; print('SA_EMAIL=' + json.loads(os.environ['GOOGLE_SERVICE_ACCOUNT_JSON'])['client_email'])"

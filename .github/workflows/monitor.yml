@@ -1,52 +1,45 @@
-name: PM Job Monitor
+# Daily full discovery sweep across every monitored company (Companies tab),
+# with inline tagging of new roles and YoE-filtered pushes.
+name: Job monitor
 
 on:
   schedule:
-    - cron: "0 12 * * *"   # ~07:00 America/Chicago (CDT). Adjust for CST if needed.
+    - cron: "0 12 * * *"   # ~07:00 America/Chicago
   workflow_dispatch: {}
 
 permissions:
-  contents: write          # to commit the daily snapshot (no PAT needed)
+  contents: write          # commits the daily snapshot (keeps cron alive too)
 
 concurrency:
-  group: job-monitor
+  group: hq-monitor
   cancel-in-progress: false
 
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
-
       - uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Install deps
-        run: pip install -r requirements.txt
-
-      - name: Run monitor
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Run discovery
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          MONITOR_OPS_NTFY_TOPIC: ${{ secrets.MONITOR_OPS_NTFY_TOPIC }}
-          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           mkdir -p monitor/snapshots
           python -m monitor.run
-
-      - name: Commit snapshot (keeps repo active so cron isn't auto-disabled)
+      - name: Commit snapshot
         run: |
-          git config user.name "job-monitor-bot"
+          git config user.name "hq-bot"
           git config user.email "bot@users.noreply.github.com"
           git add monitor/snapshots/ || true
           git commit -m "chore: daily snapshot $(date -u +%Y-%m-%d)" || echo "no changes"
           git push || echo "nothing to push"
-
-      - name: Alert on failure
+      - name: Ops alert on failure
         if: failure()
-        env:
-          OPS: ${{ secrets.MONITOR_OPS_NTFY_TOPIC }}
         run: |
-          curl -s -H "Title: Job monitor workflow failed" -H "Priority: high" -H "Tags: warning" \
-            -d "GitHub Actions run failed: ${{ github.run_id }}" "https://ntfy.sh/${OPS}" || true
+          curl -s -H "Title: Job monitor failed" -H "Priority: high" -H "Tags: warning" \
+            -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "https://ntfy.sh/REDACTED-NTFY-TOPIC" || true

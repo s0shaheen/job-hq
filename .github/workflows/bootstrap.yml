@@ -1,0 +1,61 @@
+# One-shot (idempotent, re-runnable) provisioning of the HQ spreadsheet:
+# tabs, headers, dropdowns, protections, Config seeding, Companies seeding —
+# then commits the gid registry (hq.config.yaml) back to this branch.
+# Also the migration entrypoint (legacy Jobs data). Dispatch-only.
+name: Bootstrap HQ sheet
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed_companies:
+        description: "Seed the Companies tab from the CSVs"
+        type: boolean
+        default: true
+      migrate_legacy:
+        description: "Migrate the legacy Job Monitor sheet's Jobs tab into Feed"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hq-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Bootstrap
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          SA_EMAIL=$(python -c "import json,os; print(json.loads(os.environ['GOOGLE_SERVICE_ACCOUNT_JSON'])['client_email'])")
+          echo "service account: $SA_EMAIL"
+          ARGS="--owner shaheensalmant@gmail.com --sa-email $SA_EMAIL"
+          if [ "${{ inputs.seed_companies }}" = "true" ]; then ARGS="$ARGS --seed-companies"; fi
+          python -m tracker.bootstrap $ARGS
+      - name: Migrate legacy Jobs data
+        if: ${{ inputs.migrate_legacy }}
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python -m tracker.migrate --legacy
+      - name: Commit gid registry
+        run: |
+          git config user.name "hq-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add hq.config.yaml || true
+          git commit -m "chore: pin HQ sheet gids from bootstrap" || echo "no changes"
+          git push || echo "nothing to push"
+      - name: Ops alert on failure
+        if: failure()
+        run: |
+          curl -s -H "Title: Bootstrap failed" -H "Priority: high" -H "Tags: warning" \
+            -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "https://ntfy.sh/REDACTED-NTFY-TOPIC" || true

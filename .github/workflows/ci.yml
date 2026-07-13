@@ -1,0 +1,39 @@
+# Tests on every push/PR + the live adapter smoke test on dispatch.
+# The smoke job verifies every ATS adapter from a real runner (datacenter
+# egress differs from residential — this is the check that matters).
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    paths-ignore: ["monitor/snapshots/**", "snapshots/**"]
+  pull_request: {}
+  workflow_dispatch:
+    inputs:
+      smoke:
+        description: "Also run the live adapter smoke test"
+        type: boolean
+        default: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - run: pytest -q
+
+  smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.smoke }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Live adapter smoke (from datacenter egress)
+        run: python -m monitor.scripts.smoke_adapters
