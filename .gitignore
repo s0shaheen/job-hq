@@ -40,3 +40,4 @@ Icon?
 
 # Committed migration import data (sanitized; scout CSV has no prefs/password)
 !tracker/data/*.csv
+monitor/companies.expansion.csv.state.json
