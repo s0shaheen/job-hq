@@ -128,6 +128,9 @@ class FakeSpreadsheet:
         self._sheets.append(ws)
         return ws
 
+    def del_worksheet(self, ws):
+        self._sheets.remove(ws)
+
     def batch_update(self, body):   # structure ops are no-ops in the fake
         return body
 

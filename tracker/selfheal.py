@@ -34,6 +34,12 @@ _TRIM_TABS = ("feed", "pipeline", "scout_jobs", "quick_add", "targets",
               "email_events", "log", "digest", "health", "companies")
 
 
+def _row_blank(row) -> bool:
+    # checkbox columns materialize literal FALSE on otherwise-empty rows —
+    # treat those as blank (a real data row always carries key/company text)
+    return all(str(c).strip() in ("", "FALSE") for c in row)
+
+
 def trim_leading_blanks(hq: HQ, logical: str) -> list[str]:
     """Delete fully-empty rows sitting between the header and the first data
     row. Safe by construction: bots locate rows by key at write time, never
@@ -42,13 +48,58 @@ def trim_leading_blanks(hq: HQ, logical: str) -> list[str]:
     values = tab.ws.get_all_values()
     first_data = None
     for i, row in enumerate(values[1:], start=2):
-        if any(str(c).strip() for c in row):
+        if not _row_blank(row):
             first_data = i
             break
     if first_data is None or first_data == 2:
         return []
     tab.ws.delete_rows(2, first_data - 1)
     return [f"[{logical}] trimmed {first_data - 2} blank rows above the data"]
+
+
+def _tab_empty(ws) -> bool:
+    vals = ws.get_all_values()
+    return all(_row_blank(r) for r in vals[1:])
+
+
+def reconcile_renamed(hq: HQ, reg: dict) -> list[str]:
+    """Heal a split-brain from the pre-gid-aware era: the registry points at
+    an EMPTY recreated tab while the human's renamed original (with the data)
+    sits unregistered. Adopt the data tab, delete the empty duplicate, re-pin.
+    Deterministic only: header-schema tabs adopt on an exact header match;
+    the free-form prefs tab adopts a single unregistered *Preferences* tab."""
+    sh = hq.sh
+    tabs = reg.setdefault("tabs", {})
+    repairs: list[str] = []
+    live = {w.id: w for w in sh.worksheets()}
+    orphans = [w for w in sh.worksheets() if w.id not in set(tabs.values())]
+
+    for logical, headers in schema.HEADERS.items():
+        if not headers:
+            continue
+        w = live.get(tabs.get(logical))
+        if w is None or not _tab_empty(w):
+            continue
+        for o in list(orphans):
+            ovals = o.get_all_values()
+            if (ovals and not _tab_empty(o)
+                    and [str(c).strip() for c in ovals[0][:len(headers)]] == list(headers)):
+                tabs[logical] = o.id
+                sh.del_worksheet(w)
+                orphans.remove(o)
+                repairs.append(f"adopted renamed tab {o.title!r} as {logical}; "
+                               f"deleted its empty recreated duplicate")
+                break
+
+    w = live.get(tabs.get("scout_prefs"))
+    if w is not None and _tab_empty(w):
+        cand = [o for o in orphans if "preferences" in o.title.lower() and not _tab_empty(o)]
+        if len(cand) == 1:
+            tabs["scout_prefs"] = cand[0].id
+            sh.del_worksheet(w)
+            repairs.append(f"adopted renamed tab {cand[0].title!r} as scout_prefs; "
+                           f"deleted its empty recreated duplicate")
+    return repairs
 
 
 def dedupe_keys(hq: HQ, logical: str) -> list[str]:
@@ -79,10 +130,15 @@ def run(hq: HQ, *, reg_path: Path | None = None) -> list[str]:
     if not reg:
         reg = dict(hq.registry)   # first run in a fresh checkout
 
-    repairs = bootstrap.assert_structure(
+    repairs = reconcile_renamed(hq, reg)
+    # the in-memory HQ must see reconciled gids before any tab access below
+    hq.registry["tabs"] = dict(reg.get("tabs") or {})
+    hq._tabs.clear()
+    repairs += bootstrap.assert_structure(
         sh,
         owner=reg.get("owner_email", ""),
         sa_email=reg.get("service_account_email", ""),
+        tabs_gids=reg.get("tabs"),
     )
 
     for logical in _KEYED_TABS:
@@ -90,9 +146,12 @@ def run(hq: HQ, *, reg_path: Path | None = None) -> list[str]:
     for logical in _TRIM_TABS:
         repairs.extend(trim_leading_blanks(hq, logical))
 
-    # Re-pin gids: assert_structure guarantees every tab exists (recreating by
-    # title if a human deleted one), so the live title->gid map is the truth.
-    live = {logical: sh.worksheet(title).id for logical, title in schema.TABS.items()}
+    # Re-pin gids, gid-first: a live registered gid stays canonical whatever
+    # its title (renames are the same tab); only dead gids fall back to the
+    # default title, which assert_structure guarantees exists.
+    resolved = bootstrap.resolve_tabs(sh, reg.get("tabs"))
+    live = {logical: (ws.id if ws is not None else sh.worksheet(title).id)
+            for (logical, title), ws in zip(schema.TABS.items(), resolved.values())}
     stale = {k: v for k, v in (reg.get("tabs") or {}).items() if live.get(k) != v}
     if stale or reg.get("tabs") != live:
         reg["tabs"] = live

@@ -52,7 +52,8 @@ def test_quiet_run_no_repairs_no_alert(tmp_path, monkeypatch):
     p = _reg_file(tmp_path, hq)
     selfheal.run(hq, reg_path=p)     # first run: adds protections into the fake void
     # fake can't record protections; simulate a live sheet where they all exist
-    specs = bootstrap._desired_protections(hq.sh, "o@x.com", "sa@x.com")
+    specs = bootstrap._desired_protections(
+        bootstrap.resolve_tabs(hq.sh, hq.registry["tabs"]), "o@x.com", "sa@x.com")
     existing = [{"_sheetId": s["ws"].id, "description": s["description"]} for s in specs]
     monkeypatch.setattr("core.sheets.list_protections", lambda sh: existing)
     alerts.clear()
@@ -100,3 +101,56 @@ def test_trim_leading_blanks_collapses_bootstrap_gap():
     rows = hq.tab("feed").records()
     assert rows[0]["key"] == "greenhouse-9"                         # data now at row 2
     assert selfheal.trim_leading_blanks(hq, "feed") == []           # idempotent
+
+
+def test_reconcile_adopts_renamed_tab_and_deletes_empty_duplicate():
+    from core import schema
+    from core.fakes import fake_hq
+    from tracker import selfheal
+    hq = fake_hq()
+    # simulate the incident: user renamed Scout — Jobs; a title-based pass
+    # recreated an empty duplicate and the registry got pinned to it
+    real = hq.sh.worksheet(schema.TABS["scout_jobs"])
+    real.title = "Raza — Jobs"
+    hq.tab("scout_jobs").append_records({0: None} and [
+        {"Job No": "SS", "Company": "Abridge", "Position": "PM",
+         "Job Link": "https://jobs.ashbyhq.com/abridge/bdbe64c1-cb3e-4ba6-a0fe-0bf76372a673",
+         "Applied": "TRUE"}])
+    dup = hq.sh.add_worksheet(schema.TABS["scout_jobs"])
+    dup.update([list(schema.HEADERS["scout_jobs"])], "A1")
+    reg = {"tabs": dict(hq.registry["tabs"])}
+    reg["tabs"]["scout_jobs"] = dup.id                      # mis-pinned at the empty one
+    repairs = selfheal.reconcile_renamed(hq, reg)
+    assert any("Raza — Jobs" in r for r in repairs)
+    assert reg["tabs"]["scout_jobs"] == real.id             # re-pinned to the data tab
+    assert all(w.title != schema.TABS["scout_jobs"] for w in hq.sh.worksheets())  # dup gone
+
+
+def test_assert_structure_adopts_renamed_tab_by_gid():
+    from core import schema
+    from core.fakes import fake_hq
+    from tracker import bootstrap
+    hq = fake_hq()
+    ws = hq.sh.worksheet(schema.TABS["feed"])
+    ws.title = "My Custom Feed Name"
+    before = len(hq.sh.worksheets())
+    repairs = bootstrap.assert_structure(hq.sh, owner="o@x.com", sa_email="sa@x.com",
+                                         tabs_gids=hq.registry["tabs"])
+    assert len(hq.sh.worksheets()) == before                # nothing recreated
+    assert not any("created tab" in r and "Feed" in r for r in repairs)
+
+
+def test_trim_treats_checkbox_false_as_blank():
+    from core.fakes import fake_hq
+    from tracker import selfheal
+    hq = fake_hq(["feed"])
+    ws = hq.tab("feed").ws
+    hmap = hq.tab("feed").header_map()
+    icol = hmap["interested"]
+    for _ in range(50):                                     # blank grid rows w/ materialized FALSE
+        row = [""] * icol
+        row[icol - 1] = "FALSE"
+        ws._grid.append(row)
+    ws._grid.append(["greenhouse-77", "RealCo"])
+    assert selfheal.trim_leading_blanks(hq, "feed") == ["[feed] trimmed 50 blank rows above the data"]
+    assert hq.tab("feed").records()[0]["key"] == "greenhouse-77"

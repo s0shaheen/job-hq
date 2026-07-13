@@ -119,11 +119,11 @@ def _rename_default_tab(sh) -> str | None:
     return f"renamed 'Sheet1' -> {first!r}"
 
 
-def _desired_protections(sh, owner: str, sa_email: str) -> list[dict]:
+def _desired_protections(wss: dict, owner: str, sa_email: str) -> list[dict]:
     editors = [e for e in (owner, sa_email) if e]
     specs: list[dict] = []
-    for logical, title in schema.TABS.items():
-        ws = sh.worksheet(title)
+    for logical in schema.TABS:
+        ws = wss[logical]
         specs.append(dict(ws=ws, description=DESC_HEADER, warning_only=False,
                           editors=editors, row_span=(0, 1)))
         if logical in schema.BOT_ONLY_TABS:
@@ -144,30 +144,52 @@ def _desired_protections(sh, owner: str, sa_email: str) -> list[dict]:
     return specs
 
 
-def assert_structure(sh, *, owner: str, sa_email: str) -> list[str]:
+def resolve_tabs(sh, tabs_gids: dict | None) -> dict:
+    """logical -> live worksheet, resolved BY GID first so human renames are
+    adopted, never shadowed by a recreated title. None when the gid is dead."""
+    out: dict = {}
+    for logical in schema.TABS:
+        ws = None
+        gid = (tabs_gids or {}).get(logical)
+        if gid not in (None, ""):
+            try:
+                ws = sh.get_worksheet_by_id(int(gid))
+            except Exception:
+                ws = None
+        out[logical] = ws
+    return out
+
+
+def assert_structure(sh, *, owner: str, sa_email: str,
+                     tabs_gids: dict | None = None) -> list[str]:
     """Idempotently assert tabs, headers, frozen row, dropdowns, checkboxes,
-    protections. Returns human-readable repairs (things actually changed;
-    dropdown/checkbox rules are re-applied blindly — they can't be diffed
-    cheaply and re-applying an identical rule is a no-op)."""
+    protections. Tabs are identified by REGISTRY GID first (renamed tabs are
+    the same tab); a tab is only created when neither its gid nor its default
+    title exists. Returns human-readable repairs (dropdown/checkbox rules are
+    re-applied blindly — identical rules are a no-op)."""
     repairs: list[str] = []
+    wss = resolve_tabs(sh, tabs_gids)
     for logical, title in schema.TABS.items():
-        ws, created = sheets.ensure_tab(sh, title)
-        if created:
-            repairs.append(f"created tab {title!r}")
+        ws = wss[logical]
+        if ws is None:
+            ws, created = sheets.ensure_tab(sh, title)
+            if created:
+                repairs.append(f"created tab {title!r}")
+            wss[logical] = ws
         for fix in sheets.ensure_headers(ws, schema.HEADERS.get(logical, [])):
-            repairs.append(f"[{title}] {fix}")
+            repairs.append(f"[{ws.title}] {fix}")
         sheets.freeze_header(sh, ws)
 
     for logical, header, options, strict in _DROPDOWNS:
-        ws = sh.worksheet(schema.TABS[logical])
+        ws = wss[logical]
         sheets.set_dropdown(sh, ws, Tab(ws, logical).col(header), options, strict=strict)
     for logical, header in _CHECKBOXES:
-        ws = sh.worksheet(schema.TABS[logical])
+        ws = wss[logical]
         set_checkbox(sh, ws, Tab(ws, logical).col(header))
 
     existing = {(p["_sheetId"], p.get("description", ""))
                 for p in sheets.list_protections(sh)}
-    for spec in _desired_protections(sh, owner, sa_email):
+    for spec in _desired_protections(wss, owner, sa_email):
         ws = spec.pop("ws")
         if (ws.id, spec["description"]) in existing:
             continue
