@@ -1,103 +1,177 @@
-# Salman Shaheen — Resume Tailoring System
+# Job Search HQ — operating manual
 
-You are maintaining and tailoring Salman's PM resume. The user's core requirement: a strong
-generic base that can absorb keywords/storyline changes per job posting with the MINIMAL set of
-edits — without sounding like AI and without altering the voice of any bullet.
+One Google Sheet ("Job Search HQ") is the cockpit; this monorepo is the engine — discovery
+bots, tracker bots, the resume pipeline, the phone editor, and the Apps Script sources all
+live here and run on GitHub Actions cron. Gmail is the status ground truth: ATS
+confirmation/rejection/OA/interview emails are captured by an Apps Script in Salman's main
+account and auto-advance Pipeline rows with evidence links — nobody marks "applied" by hand.
+Humans (Salman + the scout) only touch the spreadsheet; behavior changes happen in its Config
+tab, not in code.
+
+Repo: github.com/s0shaheen/job-hq — the old `job-monitor` repo, with `resume-drafting` merged in
+(both histories preserved) and then renamed. GitHub redirects the old URLs. The live HQ sheet is
+built and populated; tab gids are pinned in `hq.config.yaml`.
 
 ## Repo map
 
-- `resume/base.yaml` — the base (generic) resume content. One page, always.
-- `resume/design.yaml` — shared RenderCV design (harvard theme, stock spacing, footer off,
-  URL-style connections). Salman picked harvard from a six-theme comparison (2026-07-06).
-  Applies to every version; tweak design here only, never per-job.
-- `master-resume.md` — the bullet library: locked bullets, tagged alternates, unverified claims,
-  numbers inventory, keyword maps. **The only source of bullet content.** Never invent a bullet
-  that isn't in it; if a JD demands something new, ask Salman and add it to the library first.
-- `jd-playbook.md` — the concrete per-JD/archetype tailoring map (sample of 10 target roles).
-- `applications/` — **symlink to Google Drive** (`My Drive/Job Applications`, synced by Drive
-  for Desktop, so every application is on local disk AND in Drive automatically). One folder
-  per job: `job-posting.pdf`, `cv.yaml`, `notes.md`, `Salman_Shaheen_Resume.pdf` + `.docx`
-  (ALWAYS this exact filename, no company suffix — the folder provides context), `.preview.png`.
-  Plus `applications-log.csv` — append-only event log (created / packaged / applied rows).
-- `scripts/` — `new-job.sh` (intake), `package.sh` (render + DOCX + log), `yaml_to_docx.py`.
-- `references/` — vetted research on resume best practices. Consult before changing strategy.
-- `Salman_Shaheen_Resume (2).gdoc` — the original Google Doc (Current Draft + Archive). Historical
-  source; the YAML files are now canonical.
+- `core/` — the shared contract. `schema.py` (every tab, header, enum, status rule),
+  `sheets.py` (**the only write path to the sheet** — read it before touching sheet code),
+  `config.py` + `config_defaults.yaml` (registry + Config-tab knobs), `jobkeys.py`
+  (canonical `{ats}-{native_id}` dedup keys), `llm.py` (Haiku JSON helper), `notify.py` (ntfy).
+- `monitor/` — discovery. `run.py` (daily sweep), `priority.py` (hourly watch),
+  `review.py` (nightly tag backfill), `wide.py` (hiring.cafe/TheirStack safety net),
+  `fetchers/` (12 ATS adapters: greenhouse, ashby, lever, smartrec, workday, amazon,
+  eightfold, oraclehcm, google, apple, goldman, radancy), `discover.py` + `scripts/`
+  (slug tooling, adapter smoke test), `companies.*.csv` (seed data, ~640 companies).
+- `tracker/` — sheet-side bots. `bootstrap` (create/repair the spreadsheet), `migrate`
+  (one-off history import), `promote` (Feed ★→Pipeline), `quickadd` (pasted URL→Pipeline),
+  `scout` (his tab: flags in, applied rows out), `stale` (silence flags), `join` (email
+  events→Pipeline statuses), `simplify` (best-effort import), `digest` (daily briefing),
+  `selfheal` + `snapshot` (nightly structure re-assert + CSV backup).
+- `editor/` — phone-first Next.js editor for the resume YAMLs (Vercel). `editor/README.md`.
+- `appsscript/` — sources for the two Apps Script projects: `capture/` (Gmail → Email
+  Events tab) and `drive-upload/` (resume publish web app). Provisioning: `appsscript/README.md`.
+- `resume/` — `base.yaml` + `design.yaml`, **the resume source of truth**.
+- `scripts/` — `render-alt.sh` (alt-email render), `publish_to_drive.py`, `yaml_to_docx.py`,
+  `new-job.sh` + `package.sh` (per-job tailoring intake/packaging).
+- `applications/` — symlink to Google Drive (`My Drive/Job Search & Recruiting/Job
+  Applications`): one folder per tailored application + `applications-log.csv`.
+- `docs/` — `SPEC.md` (the approved consolidation spec), `RUNBOOK.md` (ops bible),
+  `ACTIVATION.md` (go-live checklist), `scout-instructions.md`, `research/` (6 verified
+  research reports — cite these, don't re-research).
+- `.github/workflows/` — the schedules (table below).
+- `hq.config.yaml` — machine-owned registry: sheet id, tab gids, ntfy topics, Drive folder
+  ids, service-account email. bootstrap writes it, self-heal re-pins it. **Never hand-edit.**
+- `master-resume.md` / `jd-playbook.md` / `references/` / `content-workshop.md` — the resume
+  content system (bullet library, per-JD map, vetted research, verified numbers).
+- `snapshots/hq/` — nightly per-tab CSV backups (committed by the self-heal workflow).
 
-## Build (RenderCV — invoke the `rendercv` skill before nontrivial RenderCV work)
+## The durability contract (core/sheets.py — non-negotiable)
 
-- Base: `make` · Tailored: `make CV=tailored/<company>-<role>/cv.yaml` · Live: `make watch`
-- Output: `<cv dir>/out/` — PDF to send + one PNG per page. The Makefile prints `Pages: N`;
-  **N must be 1**. Always LOOK at the PNG after a content change: check for 3-line bullets and
-  second lines carrying only 1–4 words (fix by trimming the bullet, not the design).
-- `rendercv` lives in `~/.local/bin` (installed via `uv tool install "rendercv[full]"`); the
-  Makefile handles PATH.
-- YAML gotchas: quote any string containing a colon; `~` and `&` render fine as plain text;
-  don't use `→` (write "8 to 3 hrs"); design changes go in `resume/design.yaml` only.
+Humans sort, rename, insert columns, and fat-finger the sheet daily. The write layer makes
+that safe, and every future session must keep it that way:
 
-## Bulk application workflow (list of job URLs → finished applications)
+1. **Tabs by gid** (from `hq.config.yaml`), title fallback only. Renames are harmless.
+2. **Columns by header name**, resolved from row 1 on every access. A required header
+   missing or duplicated → `SchemaAnomaly` → loud abort, ops push, **zero writes**.
+3. **Rows by key column, located at write time.** Row numbers are never cached across API
+   calls — a human may sort mid-run. Keyed writes are read back and verified; a row that
+   moved mid-write is re-located once, then the run aborts.
+4. **Cell-targeted writes only**, `RAW` input, appends via `INSERT_ROWS` anchored at A1.
+   Never whole-row overwrites on shared tabs, never positional (A1-letter) addressing.
+5. **Bots fill blanks; humans win.** `only_if_blank=True` on backfills; `advance_status`
+   moves status **forward only** and never touches a human-invented status.
+6. **Fail loud, never guess.** A skipped run is recoverable; a guessed write is corruption.
+   Bots never invent columns (bootstrap/self-heal own the schema) and never delete rows.
 
-When Salman drops a list of job URLs, run this loop for each:
+A future session must NEVER add a positional sheet write, a cached row index, a whole-row
+update on a shared tab, or a write path that bypasses `core.sheets.Tab`. If the schema needs
+a new column, add it to `core/schema.py` and let bootstrap/self-heal create it.
 
-1. `scripts/new-job.sh <slug> <url> "Company" "Role"` — creates the Drive-synced folder,
-   captures the posting as `job-posting.pdf` (headless Chrome; if capture fails or looks
-   empty, fall back to WebFetch and note it), seeds `cv.yaml` from base and a `notes.md`
-   template, logs a `created` event.
-2. Read `job-posting.pdf`, then tailor `applications/<slug>/cv.yaml` using the tailoring
-   algorithm below. Plaid (`applications/plaid-pm-core/`) is the worked example of a
-   minimal one-edit tailor; Cresta (`applications/cresta-fdpm/`) of a 3-edit archetype-C tailor.
+## Workflows (GitHub Actions)
+
+| Workflow | Cron (UTC) | ~CT | Runs |
+|---|---|---|---|
+| `monitor.yml` Job monitor | `0 12 * * *` | 07:00 daily | `python -m monitor.run` + snapshot commit |
+| `priority.yml` Priority watch | `17 11-23,0-4 * * *` | hourly 06–23 | `python -m monitor.priority` |
+| `review.yml` Tagging review | `0 15 * * *` | 10:00 daily | `python -m monitor.review` |
+| `wide.yml` Wide sweep | `30 13 * * *` | 08:30 daily | `python -m monitor.wide` |
+| `tracker.yml` Tracker | `31 */2 * * *` | every 2 h | promote → quickadd → scout → stale → join |
+| `simplify.yml` Simplify import | `7 14 * * *` | 09:07 daily | `python -m tracker.simplify` |
+| `digest.yml` Daily digest | `40 11 * * *` | 06:40 daily | `python -m tracker.digest` |
+| `selfheal.yml` Self-heal + snapshot | `23 8 * * *` | 03:23 nightly | selfheal + snapshot + commit |
+| `resume.yml` Resume render & publish | on push to `main` touching `resume/**` | — | render base + alt, one-page gate, Drive publish, ntfy w/ preview |
+| `ci.yml` CI | every push/PR | — | pytest; dispatch inputs: adapter smoke / whoami / bootstrap |
+| `bootstrap.yml`, `whoami.yml` | dispatch only | — | sheet provisioning / print SA email |
+
+Every scheduled workflow ops-pushes on failure (ntfy topic `REDACTED-NTFY-TOPIC`) with a
+click-through to the run. Ops procedures: `docs/RUNBOOK.md`.
+
+## Running locally
+
+Env vars per `.env.example` (at minimum `GOOGLE_SERVICE_ACCOUNT_JSON`; `ANTHROPIC_API_KEY`
+for anything that tags/classifies). Then:
+
+```sh
+# tests (the canonical command — 334 passing)
+uv run --python 3.11 --with-requirements requirements.txt --no-project -- pytest
+
+# discovery / tracker jobs — same entrypoints CI uses
+python -m monitor.run          # or monitor.priority / monitor.review / monitor.wide
+python -m tracker.promote      # or quickadd / scout / stale / join / simplify / digest
+python -m tracker.selfheal && python -m tracker.snapshot
+python -m tracker.bootstrap --sheet-id ID --owner EMAIL --sa-email EMAIL [--seed-companies] [--dry-run]
+python -m tracker.migrate --legacy --scout-csv --applog [--dry-run]
+python -m monitor.discover "Company Name"          # find a board slug
+python -m monitor.scripts.smoke_adapters           # live-hit all 12 ATS families
+
+# resume
+make            # render resume/base.yaml -> resume/out/ (prints "Pages: N" — must be 1)
+make alt        # parallel alt-email render -> resume/out-alt/ (email swapped at render time)
+make watch      # live re-render while editing
+make CV=applications/<slug>/cv.yaml    # render a tailored version
+
+# editor
+cd editor && npm install && npm run dev   # http://localhost:3000; npm test / npm run typecheck
+```
+
+Apps Script code (`appsscript/*/Code.gs`) has no local runtime — it is pasted into
+script.google.com per `appsscript/README.md`.
+
+## Resume system
+
+`resume/base.yaml` (content) + `resume/design.yaml` (design, harvard theme) are the single
+source of truth. **The render/publish pipeline replaced the manual flow:** any push to `main`
+touching `resume/` renders both variants with pinned `rendercv[full]==2.8` (CI and Mac
+upgrade together — RenderCV breaks compatibility within 2.x), hard-fails unless exactly one
+page, publishes `Salman_Shaheen_Resume.pdf`/`.docx` to Drive `Resume/Current/` +
+`Resume/Current-Alt/` (scout's alt-email copy) + a stamped `Resume/Archive/` snapshot, and
+pushes a preview PNG to the phone. A bad edit can't corrupt anything — it fails CI and
+alerts. Phone edits go through the editor app (or the GitHub mobile app); both are plain
+commits, so the same workflow fires. Drift between "the YAML" and "the PDF people receive"
+is structurally impossible: never hand-distribute a render, let the pipeline publish.
+
+- Build gotchas: quote YAML strings containing a colon; `~` and `&` render fine; don't use
+  `→` (write "8 to 3 hrs"); design changes go in `resume/design.yaml` only, never per-job.
+- Always LOOK at the output PNG after a content change: no 3-line bullets, no second line
+  carrying only 1–4 words (fix by trimming the bullet, not the design).
+- Invoke the `rendercv` skill before nontrivial RenderCV work.
+
+### Per-job tailoring workflow (retained)
+
+When Salman drops job URLs, loop per job:
+
+1. `scripts/new-job.sh <slug> <url> "Company" "Role"` — creates the Drive-synced
+   `applications/<slug>/` folder, captures `job-posting.pdf` (headless Chrome; WebFetch
+   fallback), seeds `cv.yaml` from base + a `notes.md` template, logs a `created` event.
+2. Read the posting, tailor `applications/<slug>/cv.yaml` per the algorithm below.
+   Plaid (`applications/plaid-pm-core/`) is the worked one-edit example; Cresta
+   (`applications/cresta-fdpm/`) the 3-edit archetype-C example.
 3. `scripts/package.sh <slug> "Company"` — renders (hard-fails if not exactly 1 page),
    writes `Salman_Shaheen_Resume.pdf` + `.docx`, logs a `packaged` event.
-4. LOOK at `applications/<slug>/.preview.png` for 3-line bullets / orphan words, and finish
-   `notes.md` (archetype, edits, keywords, probe risks).
+4. LOOK at `applications/<slug>/.preview.png`; finish `notes.md` (archetype, edits,
+   keywords, probe risks).
 
-Batch discipline: process jobs sequentially (tailoring is judgment work); report per-job
-status at the end (slug → tier, edits made, anything skipped). Do NOT parallelize edits to
-shared files.
+Batch discipline: process sequentially (tailoring is judgment work); report per-job status
+at the end. Do NOT parallelize edits to shared files.
 
-**DOCX rule:** the `.docx` exists for last-mile manual edits in Word/Google Docs. The YAML
-stays the source of record — if Salman edits a docx in a way that should persist, backport
-it into `cv.yaml` (and `master-resume.md` if it's a new bullet) and re-package.
+**DOCX rule:** the `.docx` exists for last-mile manual edits. The YAML stays the source of
+record — backport any docx edit that should persist into `cv.yaml` (and `master-resume.md`
+if it's a new bullet) and re-package.
 
-**Job Monitor sheet (Google Sheets):** exists but is NOT ready — another automation writes
-to it (GitHub Actions + Claude API). Never write to it. The integration seam is
-`applications/applications-log.csv` (in Drive via the synced folder): when the sheet
-stabilizes, its resume-link column gets filled by joining on the job URL. Single-writer
-principle: this pipeline only ever writes the CSV, never the sheet.
+**Sheets:** tailored applications land in the Pipeline via Gmail capture (the confirmation
+email) or `tracker.migrate --applog`; this workflow itself only appends to
+`applications/applications-log.csv`. Never write any spreadsheet directly from here.
 
-## Remote sessions (claude.ai/code on the GitHub repo, no Mac available)
-
-This repo lives at github.com/s0shaheen/resume-drafting (private). A cloud session has the
-system but NOT the `applications/` symlink target or headless Chrome. Remote flow:
-
-1. Install the toolchain: `uv tool install "rendercv[full]"`.
-2. Intake: fetch the JD with WebFetch and save it as `job-posting.md` (no Chrome PDF in the
-   cloud — capture the PDF later from the Mac if wanted). Create `cv.yaml` from
-   `resume/base.yaml` and tailor per the algorithm below; `make render CV=...` still works
-   with the folder created locally in the sandbox.
-3. Package: render + one-page check + `scripts/yaml_to_docx.py` exactly as local.
-4. Deliver to Drive via the Google Drive connector: create a subfolder under
-   **Job Applications (Drive folder id: `REDACTED-FOLDER-ID`)** named
-   `<slug>`, then upload the PDF/DOCX/cv.yaml/notes.md/job-posting.md with `create_file`
-   (base64Content, `disableConversionToGoogleType: true` for pdf/docx). Drive for Desktop
-   syncs them onto the Mac automatically — local + Drive record stays intact.
-5. Append the log rows to `applications-log.csv` the same way (download, append, re-upload)
-   or note it in the commit message for the next local session to reconcile.
-6. Commit the tailored `cv.yaml`/`notes.md` under `remote-staging/<slug>/` in git so the
-   local repo can `git pull` and reconcile into `applications/` later.
-
-Note: `Claude-Exporter-Career-*` (the source conversations) is local-only, excluded from
-git — interview-prep deep dives need the Mac.
-
-## The tailoring algorithm (per job posting)
+### The tailoring algorithm (per job posting)
 
 1. **Classify the JD into an archetype** (A Platform / B Fintech / C AI-forward — defined in
    `master-resume.md`). Rule: match the JD's *first-listed responsibility*. Credit/lending words →
    B-credit. Money movement/PSP → B-payments. API/platform/system-of-record → A. AI agents/LLM →
    C. Growth/consumer JDs are long-shots: apply the base with light keyword mirroring; do not
    contort.
-2. **Copy** `resume/base.yaml` → `tailored/<company>-<role>/cv.yaml`. Check `jd-playbook.md`
-   for a pre-mapped read on this company/archetype first.
+2. **Copy** `resume/base.yaml` → `applications/<slug>/cv.yaml` (new-job.sh does this). Check
+   `jd-playbook.md` for a pre-mapped read on this company/archetype first.
 3. **Make at most these edits, in ROI order — stop as soon as the resume reads native to the JD:**
    a. **Title's product-name half** (e.g., "Financial Core Platform" → "Core Servicing Platform
       (Ledger, Billing & Payments)"). Never change "Product Manager" itself or any dates.
@@ -118,12 +192,12 @@ git — interview-prep deep dives need the Mac.
      story needs framing (84% of successful early-career PM resumes had one) — but a generic
      summary is dead weight; if it isn't specific to this application, omit it. The base resume
      carries no summary.
-5. **Check constraints** (below), build (`make CV=tailored/<dir>/cv.yaml`), confirm `Pages: 1`,
-   and eyeball the output PNG for wrap/orphan violations.
+5. **Check constraints** (below), build (`make CV=applications/<slug>/cv.yaml`), confirm
+   `Pages: 1`, and eyeball the output PNG for wrap/orphan violations.
 6. **Write `notes.md`** in the folder: JD link/text, archetype, edits made and why, keywords
    mirrored, and any interview-prep flags (probe risks touched).
 
-## ATS reality (evidence-based — see references/)
+### ATS reality (evidence-based — see references/)
 
 ATS auto-rejection is a myth: ATSs track workflow, humans reject. Keywords matter because
 *humans* search and skim for them — so mirror the JD's nouns honestly and visibly, never stuff.
@@ -134,7 +208,7 @@ Parse-verified 2026-07-07 (pypdf text extraction on the harvard-theme PDF): clea
 reading order, all contact/title/date/skill tokens extract, no tables/columns/images. Re-run
 that check if the theme or template ever changes.
 
-## Hard constraints (violating any of these is a failed tailoring)
+### Hard constraints (violating any of these is a failed tailoring)
 
 - **One page.** If something is added, something is cut (cut order: OTCR → intern role →
   weakest-fit alternate).
@@ -156,7 +230,7 @@ that check if the theme or template ever changes.
 - **No internal jargon.** RTE, Quick Sites, One Lake, ASRs etc. get translated to industry terms.
   Keep at most ONE technical signal word per bullet, and only for A/C archetypes.
 
-## Voice (the anti-AI-slop rules)
+### Voice (the anti-AI-slop rules)
 
 The resume must read like a sharp operator wrote it in a hurry, not like a language model
 polished it. Concretely:
@@ -178,17 +252,50 @@ polished it. Concretely:
   new clause, match the terseness of the surrounding bullets.
 - No summary/objective section. No headshot, no colors, no icons, no two-column layout.
 
-## Verification status
+### Verification status
 
 The 2026-07-07 content workshop resolved all open number/claim questions — answers live in
 `content-workshop.md`, verified state in `master-resume.md` (incl. the KILLED lists). The one
 open item: Salman's gut-check on the SDD "dependency mapping from quarters to weeks" phrasing
 (fallback: "cutting spec-to-build cycle time 50%").
 
-## Interview-prep pairing
+### Interview-prep pairing
 
 Each tailored resume's `notes.md` should list which probe-risk bullets made the cut, so Salman
 can prep the defense (e.g., $2M model mechanics, SDUI adoption role vs build, adverse-selection
 story for anything credit-flavored). The deep interview ammunition lives in the three source
 conversations under `Claude-Exporter-Career-2026-07-06_14-43-59/` (Trade Credit simulation,
-disputes reconstruction, Supernova SA analysis).
+disputes reconstruction, Supernova SA analysis) — local-only, excluded from git.
+
+## Remote sessions (claude.ai/code, no Mac)
+
+A cloud session has the system but NOT the `applications/` symlink target or headless Chrome:
+
+1. `uv tool install "rendercv[full]"` (pin 2.8 to match CI).
+2. Intake: WebFetch the JD → save as `job-posting.md`. Seed `cv.yaml` from `resume/base.yaml`,
+   tailor per the algorithm; `make render CV=...` works in the sandbox.
+3. Package: render + one-page check + `scripts/yaml_to_docx.py` as local.
+4. Deliver via the Google Drive connector into **Job Applications**
+   (folder id `REDACTED-FOLDER-ID`, per `hq.config.yaml: drive`): subfolder
+   `<slug>`, upload pdf/docx/cv.yaml/notes.md with `create_file`
+   (`disableConversionToGoogleType: true` for pdf/docx). Drive for Desktop syncs to the Mac.
+5. Append rows to `applications-log.csv` the same way, or note it in the commit for local
+   reconciliation. Commit `cv.yaml`/`notes.md` under `remote-staging/<slug>/` in git.
+
+## Golden rules
+
+1. **Never write the legacy "Job Monitor" sheet** (`hq.config.yaml:
+   drive.legacy_job_monitor_sheet`). It is archived history; `tracker.migrate --legacy` reads
+   it, nothing writes it. The HQ sheet is written ONLY through `core.sheets`.
+2. **Never push to `main`.** Branch + PR; CI must be green. `main` is live — a push touching
+   `resume/` publishes a resume to Drive.
+3. **The Config tab is where behavior changes**, not code and not `hq.config.yaml`. Knob
+   list + valid ranges: `core/config_defaults.yaml` + `docs/RUNBOOK.md`. Bad values fall
+   back to defaults and alert — a typo can't take the system down.
+4. **No positional sheet access, ever** (see the durability contract). New columns/tabs go
+   through `core/schema.py` + bootstrap/self-heal.
+5. **Pin discipline:** `rendercv==2.8`, `gspread==6.2.1`, requirements.txt versions — these
+   are load-bearing (compat breaks were verified, not hypothetical). Upgrade deliberately,
+   Mac and CI together.
+6. **Truth ceiling applies to docs too:** don't document behavior you haven't read in the
+   code; don't invent bullets not in `master-resume.md`.

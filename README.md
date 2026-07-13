@@ -1,68 +1,66 @@
-# PM Job Monitor
+# Job Search HQ
 
-Zero-secret daily monitor for new PM roles across target companies' public ATS APIs
-(Greenhouse, Ashby, Lever, SmartRecruiters, Workday, Amazon). New roles land in a Google Sheet
-and get pushed to your phone via ntfy. Status + contacts are tracked in the same Sheet.
+Salman Shaheen's entire job search as one system: **one Google Sheet** (the cockpit — the
+only thing humans touch), **one repo** (this — the engine), and **Gmail as the status
+ground truth** (ATS emails auto-advance the tracker; "applied" is never marked by hand).
+It absorbs five previously disconnected fragments: the PM job monitor, the scout's
+spreadsheet, Simplify, the inbox, and the RenderCV resume pipeline.
 
-## How it works
-GitHub Actions runs `python -m src.run` daily. For each profile it reads the Companies
-tab, fetches each board, filters to PM titles, dedupes against history on
-`{ats}-{native_id}`, appends new roles, auto-closes stale ones, writes a Health tab,
-commits a JSON snapshot, and pushes new roles (or a heartbeat if none) to ntfy.
+**How it works:** GitHub Actions fetch ~640 companies' boards through 12 live-verified ATS
+adapters (plus a hiring.cafe wide sweep for everything else) into a **Feed** tab, tag each
+role with Claude Haiku, and push roles matching the YoE rule to the phone via ntfy. Tracker
+bots merge every funnel — Feed ★-picks, the scout's rows, Quick Add URL pastes, Simplify —
+into one deduped **Pipeline** keyed on ATS-native job ids. An Apps Script in Gmail
+classifies every ATS email into an **Email Events** tab; the joiner matches events to
+Pipeline rows and moves statuses forward with evidence links. Any push touching `resume/`
+re-renders both resume variants (hard one-page gate) and publishes them to Drive. All sheet
+writes go through one durable layer — tabs by gid, columns by header, rows by key,
+fill-blanks-only, fail-loud — so human sorting, renaming, and fat-fingering can't corrupt
+anything, and a nightly self-heal + CSV snapshot makes any catastrophe a git restore.
 
-## One-time setup
-1. Create a Google Sheet with tabs `Companies`, `Jobs`, `Contacts`, `Health` and the
-   headers in `docs/superpowers/specs/2026-05-26-pm-job-monitor-design.md` §7.
-2. Import `companies.seed.csv` into the `Companies` tab.
-3. Create a Google Cloud service account, download its JSON key, share the Sheet with
-   the service-account email (Editor).
-4. Set repo secrets: `GOOGLE_SERVICE_ACCOUNT_JSON` (the key's JSON),
-   `MONITOR_OPS_NTFY_TOPIC` (an ntfy topic for failure alerts). `APIFY_TOKEN` optional.
-5. Edit `profiles/pm.yaml`: set `sheet_id` and a private `ntfy_topic`. Keep the repo private.
-6. Subscribe to your `ntfy_topic` and the ops topic in the ntfy phone app.
+## Subsystems
 
-## Adding a company
-Add a row to the `Companies` tab (`name, ats, slug, monitor=TRUE`). Unsure of the slug?
-Run `python -m src.discover "Company Name"`. The next run seeds it silently, then notifies
-only on genuinely new roles.
+| Subsystem | Entrypoint | When | What |
+|---|---|---|---|
+| Discovery monitor | `python -m monitor.run` | daily 07:00 CT | full sweep, reconcile Feed, Health tab, YoE-gated push |
+| Priority watch | `python -m monitor.priority` | hourly 06–23 CT | handpicked companies → push within the hour, no YoE gate |
+| Tagging review | `python -m monitor.review` | daily 10:00 CT | Haiku-tags any Feed row discovery couldn't tag inline |
+| Wide sweep | `python -m monitor.wide` | daily 08:30 CT | hiring.cafe (Apify) + TheirStack safety net; off until `APIFY_TOKEN` |
+| Tracker chain | `python -m tracker.promote` → `quickadd` → `scout` → `stale` → `join` | every 2 h | ★-promotions, URL enrich, scout sync + flags, stale flags, email-event join |
+| Simplify import | `python -m tracker.simplify` | daily 09:07 CT | best-effort saved-queue import via session cookies |
+| Daily digest | `python -m tracker.digest` | daily 06:40 CT | briefing row (Apps Script emails it ~7:00) + capture watchdog |
+| Self-heal + snapshot | `python -m tracker.selfheal` + `python -m tracker.snapshot` | nightly 03:23 CT | re-assert schema/protections/gids; commit per-tab CSVs to `snapshots/hq/` |
+| Gmail capture | `appsscript/capture/` | every 15 min (in Gmail) | ATS-mail gate → Haiku classify → Email Events + instant OA/interview pushes |
+| Resume pipeline | `.github/workflows/resume.yml` | on push to `resume/**` | render base + alt (rendercv==2.8), one-page gate, publish to Drive, preview to phone |
+| Resume editor | `editor/` (Vercel) | on demand | phone-first editor for the two YAMLs; comment-preserving commits |
+| Provisioning | `python -m tracker.bootstrap` / `tracker.migrate` | one-time | create/repair the spreadsheet; import legacy history |
 
-### Bulk-adding from a candidate list
-For larger pushes (e.g. a VC portfolio dump), put names in `candidate_companies.csv`
-(`name,category`) and run `python -m scripts.bulk_discover`. It dedupes against
-`companies.seed.csv`, probes each name in parallel, and emits `candidates_resolved.csv`
-(paste-ready, 5-col) plus `candidates_unresolved.csv` (likely-Workday / custom — needs a
-manual careers-URL lookup before adding).
+Tests: **334 passing** — `uv run --python 3.11 --with-requirements requirements.txt --no-project -- pytest`
 
-## Removing a company
-Set its `monitor` cell to `FALSE`. History is preserved (never delete rows).
+## Docs
 
-## Adding another person (e.g. a finance analyst)
-Drop `profiles/finance.yaml` (own `sheet_id`, `ntfy_topic`, include/exclude keywords) and
-create their Sheet. No code changes.
+- **[docs/ACTIVATION.md](docs/ACTIVATION.md)** — the one-time ~15-minute go-live checklist.
+- **[docs/RUNBOOK.md](docs/RUNBOOK.md)** — every failure mode: symptom → cause → fix.
+- **[docs/SPEC.md](docs/SPEC.md)** — the approved consolidation spec (architecture + decisions).
+- **[CLAUDE.md](CLAUDE.md)** — operating manual for AI sessions: repo map, the sheet
+  durability contract, the resume tailoring system, golden rules.
+- **[docs/scout-instructions.md](docs/scout-instructions.md)** — plain-English daily
+  instructions for the scout.
+- `docs/research/` — six verified research reports (ATS endpoints, Gmail quotas, Sheets
+  durability, Simplify internals, aggregators, resume editing) grounding every design call.
+- `appsscript/README.md` / `editor/README.md` — provisioning for the two Apps Script
+  projects and the editor deploy.
 
-## AI tagging (optional)
-A second nightly workflow (`review.yml`) enriches each open PM role with tags:
-`yoe`, `seniority`, `company_industry`, `role_focus`, `skills`, `comp_range`, `work_model`.
-It runs `python -m src.review`, reads untagged open rows from `Jobs`, fetches each job's
-description from its ATS's JSON detail endpoint, and asks Claude Haiku for the tags.
+## Cost
 
-- **Enable:** set the `ANTHROPIC_API_KEY` repo secret. Leave it unset to keep tagging off —
-  the pass logs a clear skip and the discovery core is unaffected either way.
-- **Self-migrating:** the 8 tag columns are appended to the `Jobs` tab automatically on the
-  first run; no manual column setup.
-- **Backfill:** there is no per-run cap — the first run tags the whole existing backlog, then
-  it idles. New rows are tagged the next night.
-- **Coverage:** Greenhouse, Ashby, Lever, SmartRecruiters, and Workday roles get tagged.
-  Amazon roles are **not** tagged — amazon.jobs is a JS app with no machine-readable
-  description; those rows are skipped at zero cost and left untagged.
-- **Cost:** Claude Haiku, ~a fraction of a cent per role.
+**≈ $2–7/month.** Haiku tagging + email classification ~$2–3 · GitHub Actions free tier at
+the current cadence ($4/mo Pro only if hourly-everything is ever wanted) · Apify wide sweep
+inside the free $5 credit · ntfy, Vercel hobby, TheirStack free tier: $0.
 
-## Known limitations
-- The Health tab's "ZERO" result counts post-filter jobs, so a company with many roles but
-  zero PM matches is logged the same as a dead slug returning zero. The weekly digest still
-  surfaces both for manual investigation; hard fetch failures are logged separately as "ERROR".
+## Provenance
 
-## Troubleshooting
-- No notification at all → the run failed; check the ops ntfy topic and the Actions log.
-- A company shows ERROR/ZERO in the Health tab for days → likely a dead slug; re-run
-  `discover.py` for it.
+Designed, researched (~360 verified fetches, endpoints probed live), spec'd, built, and
+tested in one pass on 2026-07-13, from `docs/SPEC.md`. The 12 ATS adapters were verified
+against live endpoints the same day; re-verify from a real Actions runner via
+CI → Run workflow → smoke (datacenter egress differs from residential). History: the
+`job-monitor` repo and the resume system merged here with both histories preserved.
