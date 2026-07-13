@@ -82,7 +82,7 @@ BIGTECH_NAMES = {
 # public Job Board API is disabled, so the pipeline can't monitor it.)
 PRIORITY_NAMES = {
     "capital one", "xai", "circle", "kraken", "paxos", "chainalysis",
-    "trm labs", "checkout.com", "bill.com", "melio", "column", "increase",
+    "trm labs", "checkout.com", "bill.com", "melio", "column",
     "highnote", "palantir",
 }
 PRIORITY_CAP = 15
@@ -105,11 +105,13 @@ SKIP_KNOWN: dict[str, str] = {
     "hashicorp": "acquired by IBM (2025); hiring moved into IBM Avature (unsupported)",
     "grammarly": "greenhouse v1 API disabled (job-boards only; now under Superhuman)",
     "hugging face": "hires via Workable (unsupported family)",
+    "increase": "tiny team (~15) with an empty lever board — no active API-visible hiring",
     "joby aviation": "hires via iCIMS (careers-jobyaviation.icims.com) — unsupported",
     "klarna": "hires via Deel-hosted careers (jobs.deel.com/klarna) — unsupported",
     "moneylion": "acquired by Gen Digital (2025); no API-accessible board",
     "moveworks": "acquired by ServiceNow (2025); ServiceNow already in seed",
     "liveblocks": "no standard board found (tiny team, custom careers page)",
+    "metlife": "only a LatAm agent-recruiting lever board is API-visible; US careers on unsupported platform",
     "modular": "greenhouse board (modularai) live but public Job Board API disabled",
     "monday.com": "hires via Comeet (unsupported family)",
     "outerbounds": "no standard board found (tiny team)",
@@ -224,13 +226,17 @@ def probe_ashby(slug: str) -> str | None:
 
 
 def probe_lever(slug: str) -> str | None:
+    """Requires >=1 live posting: lever exposes no org identity, so an empty
+    list proves nothing about who owns the board — an empty board named
+    "increase" once produced a dead registry row."""
     r = _get(f"https://api.lever.co/v0/postings/{slug}?limit=1&mode=json")
     if r is None or r.status_code != 200:
         return None
     try:
-        if not isinstance(r.json(), list):
-            return None
+        d = r.json()
     except ValueError:
+        return None
+    if not (isinstance(d, list) and d):
         return None
     return ""   # lever exposes no org name
 
@@ -613,7 +619,6 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("Moov", "fintech-infra", ("greenhouse:moov", "ashby:moov")),
     ("Dwolla", "fintech-infra", ("greenhouse:dwolla", "lever:dwolla")),
     ("Orum", "fintech-infra", ("ashby:orum", "greenhouse:orum")),
-    ("Increase", "fintech-infra", ("ashby:increase",)),
     ("Column", "fintech-infra", ("ashby:column",)),
     ("Cross River", "fintech-infra", ("greenhouse:crossriverbank",)),
     ("Treasury Prime", "fintech-infra", ("greenhouse:treasuryprime",)),
@@ -705,7 +710,6 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("Corebridge Financial", "insurance", ("workday:corebridgefinancial.wd1.myworkdayjobs.com/CorebridgeFinancial",)),
     ("Hagerty", "insurance", ("workday:hagerty.wd5.myworkdayjobs.com/hagerty",)),
     ("Northwestern Mutual", "insurance", ("workday:northwesternmutual.wd5.myworkdayjobs.com", "workday:nm.wd1.myworkdayjobs.com")),
-    ("MetLife", "insurance", ("workday:metlife.wd5.myworkdayjobs.com", "workday:metlife.wd1.myworkdayjobs.com")),
     ("Prudential Financial", "insurance", ("workday:pru.wd5.myworkdayjobs.com", "workday:prudential.wd5.myworkdayjobs.com")),
     ("The Hartford", "insurance", ("radancy:careers.thehartford.com", "workday:thehartford.wd5.myworkdayjobs.com")),
     ("Travelers", "insurance", ("workday:travelers.wd5.myworkdayjobs.com", "workday:travelers.wd1.myworkdayjobs.com")),

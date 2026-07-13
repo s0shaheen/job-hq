@@ -37,3 +37,6 @@ Icon?
 
 # Google Doc pointer (meaningless off this machine)
 *.gdoc
+
+# Committed migration import data (sanitized; scout CSV has no prefs/password)
+!tracker/data/*.csv

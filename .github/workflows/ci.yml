@@ -82,14 +82,15 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: |
           SA_EMAIL=$(python -c "import json,os; print(json.loads(os.environ['GOOGLE_SERVICE_ACCOUNT_JSON'])['client_email'])")
-          ARGS="--owner shaheensalmant@gmail.com --sa-email $SA_EMAIL"
+          SHEET_ID=$(python -c "import yaml; print(yaml.safe_load(open('hq.config.yaml'))['sheet_id'])")
+          ARGS="--sheet-id $SHEET_ID --owner shaheensalmant@gmail.com --sa-email $SA_EMAIL"
           if [ "${{ inputs.seed_companies }}" = "true" ]; then ARGS="$ARGS --seed-companies"; fi
           python -m tracker.bootstrap $ARGS
-      - name: Migrate legacy Jobs data
+      - name: Migrate history (legacy sheet + committed import CSVs)
         if: ${{ inputs.migrate_legacy }}
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-        run: python -m tracker.migrate --legacy
+        run: python -m tracker.migrate --legacy --scout-csv --applog tracker/data/applog-import.csv
       - name: Commit gid registry
         run: |
           git config user.name "hq-bot"

@@ -32,6 +32,7 @@ DEFAULT_XLSX = ("/Users/s0shaheen/Library/CloudStorage/"
                 "GoogleDrive-shaheensalmant@gmail.com/My Drive/"
                 "Job Search & Recruiting/Jobs Applied -Salman - Sample.xlsx")
 DEFAULT_APPLOG = "applications/applications-log.csv"
+DEFAULT_SCOUT_CSV = "tracker/data/scout-import.csv"
 SCOUT_SINCE = _dt.date(2026, 1, 1)
 
 # Legacy Jobs-tab header map, local on purpose: the legacy sheet is frozen
@@ -170,17 +171,14 @@ def _scout_key(rec: dict) -> str:
                    title=rec.get("Position", ""), location=rec.get("City", ""))
 
 
-def migrate_scout_xlsx(hq: HQ, path: str, *, dry_run: bool = False) -> dict:
-    if not os.path.exists(path):
-        return {"missing": path, "appended": 0}
+def _scout_rows_from_xlsx(path: str) -> tuple[list[dict], int]:
+    """Normalized 2026 rows from the workbook (his columns + Applied=TRUE),
+    plus the pre-2026 skip count. No HQ access — runs anywhere the file is."""
     import openpyxl
     ws = openpyxl.load_workbook(path, read_only=True, data_only=True)["Jobs Applied"]
     rows = ws.iter_rows(min_row=4, values_only=True)
     hmap = _xlsx_header_map(list(next(rows)))
-
-    tab = hq.tab("scout_jobs")
-    have = {k for k in (_scout_key(r) for r in tab.records()) if k}
-    recs, skipped, old = [], 0, 0
+    recs, old = [], 0
     for raw in rows:
         rec = {h: _cell(raw[i]) if i < len(raw) else "" for i, h in hmap.items()}
         if not rec.get("Company", "").strip():
@@ -191,15 +189,55 @@ def migrate_scout_xlsx(hq: HQ, path: str, *, dry_run: bool = False) -> dict:
             continue
         rec["Date Searched"] = d.isoformat()
         rec["Applied"] = "TRUE"
+        recs.append(rec)
+    return recs, old
+
+
+def _append_scout(hq: HQ, recs: list[dict], *, dry_run: bool) -> dict:
+    tab = hq.tab("scout_jobs")
+    have = {k for k in (_scout_key(r) for r in tab.records()) if k}
+    out, skipped = [], 0
+    for rec in recs:
         key = _scout_key(rec)
         if not key or key in have:
             skipped += 1
             continue
         have.add(key)
-        recs.append(rec)
+        out.append(rec)
     if not dry_run:
-        tab.append_records(recs)
-    return {"appended": len(recs), "skipped_dup": skipped, "skipped_pre2026": old}
+        tab.append_records(out)
+    return {"appended": len(out), "skipped_dup": skipped}
+
+
+def migrate_scout_xlsx(hq: HQ, path: str, *, dry_run: bool = False) -> dict:
+    if not os.path.exists(path):
+        return {"missing": path, "appended": 0}
+    recs, old = _scout_rows_from_xlsx(path)
+    rep = _append_scout(hq, recs, dry_run=dry_run)
+    rep["skipped_pre2026"] = old
+    return rep
+
+
+def export_scout_csv(xlsx_path: str, csv_path: str) -> dict:
+    """Local, credential-free half of the scout migration: workbook -> a
+    sanitized CSV (Jobs Applied rows only — the Preferences tab and anything
+    sensitive never leaves the Mac). Commit the CSV; the runner imports it."""
+    recs, old = _scout_rows_from_xlsx(xlsx_path)
+    fields = [h for h in schema.HEADERS["scout_jobs"] if not h.startswith(schema.BOT)]
+    Path(csv_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(csv_path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(recs)
+    return {"exported": len(recs), "skipped_pre2026": old, "csv": csv_path}
+
+
+def migrate_scout_csv(hq: HQ, path: str, *, dry_run: bool = False) -> dict:
+    if not os.path.exists(path):
+        return {"missing": path, "appended": 0}
+    with open(path, newline="") as f:
+        recs = [dict(r) for r in csv.DictReader(f)]
+    return _append_scout(hq, recs, dry_run=dry_run)
 
 
 def _raw_date(raw: tuple, hmap: dict[int, str]):
@@ -269,19 +307,32 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--legacy", action="store_true", help="legacy Job Monitor sheet -> feed")
     ap.add_argument("--scout-xlsx", nargs="?", const=DEFAULT_XLSX, default=None,
                     metavar="PATH", help="scout workbook -> scout_jobs")
+    ap.add_argument("--scout-csv", nargs="?", const=DEFAULT_SCOUT_CSV, default=None,
+                    metavar="PATH", help="sanitized scout CSV (see --export-scout-csv) -> scout_jobs")
+    ap.add_argument("--export-scout-csv", nargs="?", const=DEFAULT_SCOUT_CSV, default=None,
+                    metavar="OUT", help="LOCAL: workbook -> sanitized CSV; no credentials, no sheet access")
     ap.add_argument("--applog", nargs="?", const=DEFAULT_APPLOG, default=None,
                     metavar="PATH", help="applications-log.csv -> pipeline")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
-    if not (args.legacy or args.scout_xlsx or args.applog):
-        ap.error("pick at least one source: --legacy / --scout-xlsx / --applog")
+
+    if args.export_scout_csv:
+        rep = export_scout_csv(args.scout_xlsx or DEFAULT_XLSX, args.export_scout_csv)
+        print("[migrate] export_scout_csv: " + "  ".join(f"{k}={v}" for k, v in rep.items()))
+        if not (args.legacy or args.scout_csv or args.applog):
+            return 0
+
+    if not (args.legacy or args.scout_xlsx or args.scout_csv or args.applog):
+        ap.error("pick at least one source: --legacy / --scout-xlsx / --scout-csv / --applog")
 
     hq = HQ.open()
     reports: dict[str, dict] = {}
     if args.legacy:
         reports["legacy"] = migrate_legacy(hq, load_legacy_rows(), dry_run=args.dry_run)
-    if args.scout_xlsx:
+    if args.scout_xlsx and not args.export_scout_csv:
         reports["scout_xlsx"] = migrate_scout_xlsx(hq, args.scout_xlsx, dry_run=args.dry_run)
+    if args.scout_csv:
+        reports["scout_csv"] = migrate_scout_csv(hq, args.scout_csv, dry_run=args.dry_run)
     if args.applog:
         reports["applog"] = migrate_applog(hq, args.applog, dry_run=args.dry_run)
 
