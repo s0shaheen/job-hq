@@ -1,0 +1,17 @@
+name,ats,slug,monitor,seeded,priority
+Microsoft,eightfold,apply.careers.microsoft.com|microsoft.com,TRUE,FALSE,TRUE
+Apple,apple,apple,TRUE,FALSE,TRUE
+Google,google,google,TRUE,FALSE,TRUE
+Netflix,eightfold,explore.jobs.netflix.net|netflix.com,TRUE,FALSE,FALSE
+PayPal,eightfold,paypal.eightfold.ai|paypal.com,TRUE,FALSE,FALSE
+Goldman Sachs,goldman,goldman,TRUE,FALSE,FALSE
+Intuit,radancy,jobs.intuit.com,TRUE,FALSE,FALSE
+Oracle,oraclehcm,eeho.fa.us2.oraclecloud.com|CX_45001,TRUE,FALSE,FALSE
+JPMorgan Chase,oraclehcm,jpmc.fa.oraclecloud.com|CX_1001,TRUE,FALSE,FALSE
+Adobe,workday,adobe.wd5.myworkdayjobs.com/external_experienced,TRUE,FALSE,FALSE
+Mastercard,workday,mastercard.wd1.myworkdayjobs.com/CorporateCareers,TRUE,FALSE,FALSE
+Visa,workday,visa.wd5.myworkdayjobs.com/Visa,TRUE,FALSE,FALSE
+Salesforce,workday,salesforce.wd12.myworkdayjobs.com/External_Career_Site,TRUE,FALSE,FALSE
+Airbnb,greenhouse,airbnb,TRUE,FALSE,FALSE
+Coinbase,greenhouse,coinbase,TRUE,FALSE,FALSE
+Block (Square),greenhouse,block,TRUE,FALSE,FALSE

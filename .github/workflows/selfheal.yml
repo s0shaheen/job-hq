@@ -1,0 +1,47 @@
+# Nightly self-heal + snapshot: re-asserts headers/dropdowns/protections/gids,
+# then exports every tab to CSV and commits — the restore point that makes any
+# human catastrophe a one-command rollback.
+name: Self-heal and snapshot
+
+on:
+  schedule:
+    - cron: "23 8 * * *"   # 03:23 America/Chicago
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hq-selfheal
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Self-heal schema
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python -m tracker.selfheal
+      - name: Snapshot tabs to CSV
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python -m tracker.snapshot
+      - name: Commit snapshots + registry re-pins
+        run: |
+          git config user.name "hq-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add snapshots/hq/ hq.config.yaml || true
+          git commit -m "chore: nightly HQ snapshot $(date -u +%Y-%m-%d)" || echo "no changes"
+          git push || echo "nothing to push"
+      - name: Ops alert on failure
+        if: failure()
+        run: |
+          curl -s -H "Title: Self-heal failed" -H "Priority: high" -H "Tags: warning" \
+            -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "https://ntfy.sh/REDACTED-NTFY-TOPIC" || true

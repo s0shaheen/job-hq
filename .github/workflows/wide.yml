@@ -1,0 +1,36 @@
+# Daily wide-coverage sweep: hiring.cafe (via Apify actor) + optional
+# TheirStack safety net. Catches everything outside the curated list and
+# anything a broken adapter misses. Skips cleanly until APIFY_TOKEN is set.
+name: Wide sweep
+
+on:
+  schedule:
+    - cron: "30 13 * * *"   # ~08:30 America/Chicago
+  workflow_dispatch: {}
+
+concurrency:
+  group: hq-wide
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Sweep
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          THEIRSTACK_API_KEY: ${{ secrets.THEIRSTACK_API_KEY }}
+        run: python -m monitor.wide
+      - name: Ops alert on failure
+        if: failure()
+        run: |
+          curl -s -H "Title: Wide sweep failed" -H "Priority: high" -H "Tags: warning" \
+            -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "https://ntfy.sh/REDACTED-NTFY-TOPIC" || true

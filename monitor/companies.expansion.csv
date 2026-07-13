@@ -1,0 +1,498 @@
+name,ats,slug,monitor,seeded,priority,notes
+Character AI,ashby,character,TRUE,FALSE,FALSE,ai
+Imbue,greenhouse,imbue,TRUE,FALSE,FALSE,ai
+Krea,ashby,krea,TRUE,FALSE,FALSE,ai
+Liquid AI,ashby,liquid,TRUE,FALSE,FALSE,ai
+Magic,greenhouse,magic,TRUE,FALSE,FALSE,ai
+Mercor,ashby,mercor,TRUE,FALSE,FALSE,ai
+OpenEvidence,ashby,openevidence,TRUE,FALSE,FALSE,ai
+Pika,ashby,pika,TRUE,FALSE,FALSE,ai
+Poolside,ashby,poolside,TRUE,FALSE,FALSE,ai
+Stability AI,greenhouse,stabilityai,TRUE,FALSE,FALSE,ai
+Suno,ashby,suno,TRUE,FALSE,FALSE,ai
+Tavus,ashby,tavus,TRUE,FALSE,FALSE,ai
+Ada,greenhouse,ada18,TRUE,FALSE,FALSE,ai-apps
+Descript,greenhouse,descript,TRUE,FALSE,FALSE,ai-apps
+Gamma,ashby,gamma,TRUE,FALSE,FALSE,ai-apps
+HeyGen,greenhouse,heygen,TRUE,FALSE,FALSE,ai-apps
+Observe.AI,greenhouse,observeai,TRUE,FALSE,FALSE,ai-apps
+Photoroom,ashby,photoroom,TRUE,FALSE,FALSE,ai-apps
+Retell AI,ashby,retell-ai,TRUE,FALSE,FALSE,ai-apps
+Speak,ashby,speak,TRUE,FALSE,FALSE,ai-apps
+Typeface,greenhouse,typeface,TRUE,FALSE,FALSE,ai-apps
+Vapi,ashby,vapi,TRUE,FALSE,FALSE,ai-apps
+Applied Intuition,ashby,applied,TRUE,FALSE,FALSE,ai-infra
+Arthur AI,ashby,arthur-ai,TRUE,FALSE,FALSE,ai-infra
+AssemblyAI,greenhouse,assemblyai,TRUE,FALSE,FALSE,ai-infra
+Baseten,ashby,baseten,TRUE,FALSE,FALSE,ai-infra
+Chroma,ashby,trychroma,TRUE,FALSE,FALSE,ai-infra
+Deepgram,ashby,deepgram,TRUE,FALSE,FALSE,ai-infra
+Etched,ashby,etched,TRUE,FALSE,FALSE,ai-infra
+Fiddler AI,ashby,fiddler-ai,TRUE,FALSE,FALSE,ai-infra
+Fireworks AI,greenhouse,fireworksai,TRUE,FALSE,FALSE,ai-infra
+Galileo,greenhouse,galileo,TRUE,FALSE,FALSE,ai-infra
+Invisible Technologies,smartrec,invisibletechnologies,TRUE,FALSE,FALSE,ai-infra
+Labelbox,greenhouse,labelbox,TRUE,FALSE,FALSE,ai-infra
+LanceDB,ashby,lancedb,TRUE,FALSE,FALSE,ai-infra
+LiveKit,ashby,livekit,TRUE,FALSE,FALSE,ai-infra
+Nebius,greenhouse,nebius,TRUE,FALSE,FALSE,ai-infra
+OpenRouter,ashby,openrouter,TRUE,FALSE,FALSE,ai-infra
+RunPod,ashby,runpod,TRUE,FALSE,FALSE,ai-infra
+SambaNova Systems,greenhouse,sambanovasystems,TRUE,FALSE,FALSE,ai-infra
+SF Compute,ashby,sfcompute,TRUE,FALSE,FALSE,ai-infra
+Snorkel AI,greenhouse,snorkelai,TRUE,FALSE,FALSE,ai-infra
+Surge AI,ashby,surge-ai,TRUE,FALSE,FALSE,ai-infra
+Turing,greenhouse,turing,TRUE,FALSE,FALSE,ai-infra
+Weaviate,ashby,weaviate,TRUE,FALSE,FALSE,ai-infra
+Zilliz,lever,zilliz,TRUE,FALSE,FALSE,ai-infra
+Aurora Innovation,greenhouse,aurorainnovation,TRUE,FALSE,FALSE,ai-labs
+Black Forest Labs,ashby,black-forest-labs,TRUE,FALSE,FALSE,ai-labs
+Cartesia,ashby,cartesia,TRUE,FALSE,FALSE,ai-labs
+Contextual AI,greenhouse,contextualai,TRUE,FALSE,FALSE,ai-labs
+Ideogram,ashby,ideogram,TRUE,FALSE,FALSE,ai-labs
+Inflection AI,greenhouse,inflectionai,TRUE,FALSE,FALSE,ai-labs
+Luma AI,ashby,lumaai,TRUE,FALSE,FALSE,ai-labs
+Midjourney,ashby,midjourney,TRUE,FALSE,FALSE,ai-labs
+Nous Research,ashby,nous-research,TRUE,FALSE,FALSE,ai-labs
+Nuro,greenhouse,nuro,TRUE,FALSE,FALSE,ai-labs
+Prime Intellect,ashby,primeintellect,TRUE,FALSE,FALSE,ai-labs
+Reka AI,ashby,reka,TRUE,FALSE,FALSE,ai-labs
+Sesame,ashby,sesame,TRUE,FALSE,FALSE,ai-labs
+Twelve Labs,ashby,twelve-labs,TRUE,FALSE,FALSE,ai-labs
+Waymo,greenhouse,waymo,TRUE,FALSE,FALSE,ai-labs
+World Labs,greenhouse,worldlabs,TRUE,FALSE,FALSE,ai-labs
+xAI,greenhouse,xai,TRUE,FALSE,TRUE,ai-labs
+Zoox,lever,zoox,TRUE,FALSE,FALSE,ai-labs
+Associated Bank,workday,associatedbank.wd1.myworkdayjobs.com/external_careers,TRUE,FALSE,FALSE,bank
+BlackRock,radancy,careers.blackrock.com,TRUE,FALSE,FALSE,bank
+BMO US,workday,bmo.wd3.myworkdayjobs.com/External,TRUE,FALSE,FALSE,bank
+BNY Mellon,oraclehcm,eofe.fa.us2.oraclecloud.com|CX_1001,TRUE,FALSE,FALSE,bank
+Capital One,workday,capitalone.wd12.myworkdayjobs.com/Capital_One,TRUE,FALSE,TRUE,bank
+Charles Schwab,greenhouse,charles,TRUE,FALSE,FALSE,bank
+CIBC US,workday,cibc.wd3.myworkdayjobs.com/search,TRUE,FALSE,FALSE,bank
+Citizens,radancy,jobs.citizensbank.com,TRUE,FALSE,FALSE,bank
+Fifth Third Bank,workday,fifththird.wd5.myworkdayjobs.com/53careers,TRUE,FALSE,FALSE,bank
+First National Bank of Omaha,workday,firstnational.wd12.myworkdayjobs.com/fnbocareers,TRUE,FALSE,FALSE,bank
+KeyBank,workday,keybank.wd5.myworkdayjobs.com/External_Career_Site,TRUE,FALSE,FALSE,bank
+M&T Bank,workday,mtb.wd5.myworkdayjobs.com/MTB,TRUE,FALSE,FALSE,bank
+Morgan Stanley,eightfold,morganstanley.eightfold.ai|morganstanley.com,TRUE,FALSE,FALSE,bank
+Navy Federal Credit Union,oraclehcm,fa-etbx-saasfaprod1.fa.ocs.oraclecloud.com|CX_1,TRUE,FALSE,FALSE,bank
+Northern Trust,workday,ntrs.wd1.myworkdayjobs.com/northerntrust,TRUE,FALSE,FALSE,bank
+PNC,workday,pnc.wd5.myworkdayjobs.com/External,TRUE,FALSE,FALSE,bank
+Santander US,workday,santander.wd3.myworkdayjobs.com/santandercareers,TRUE,FALSE,FALSE,bank
+TD Bank,workday,td.wd3.myworkdayjobs.com/TD_Bank_Careers,TRUE,FALSE,FALSE,bank
+Texas Capital Bank,workday,texascapitalbank.wd12.myworkdayjobs.com/Careers,TRUE,FALSE,FALSE,bank
+TIAA,workday,tiaa.wd1.myworkdayjobs.com/Search,TRUE,FALSE,FALSE,bank
+Truist,workday,truist.wd1.myworkdayjobs.com/Careers,TRUE,FALSE,FALSE,bank
+U.S. Bank,workday,usbank.wd1.myworkdayjobs.com/US_Bank_Careers,TRUE,FALSE,FALSE,bank
+UMB Bank,workday,umb.wd1.myworkdayjobs.com/UMBExternal,TRUE,FALSE,FALSE,bank
+USAA,workday,usaa.wd1.myworkdayjobs.com/USAAJOBSWD,TRUE,FALSE,FALSE,bank
+Western Alliance Bank,workday,westernalliancebank.wd5.myworkdayjobs.com/WAB,TRUE,FALSE,FALSE,bank
+Archer Aviation,greenhouse,archer,TRUE,FALSE,FALSE,climate-frontier
+Astranis,greenhouse,astranis,TRUE,FALSE,FALSE,climate-frontier
+Boom Supersonic,ashby,boom,TRUE,FALSE,FALSE,climate-frontier
+Commonwealth Fusion Systems,lever,cfsenergy,TRUE,FALSE,FALSE,climate-frontier
+Form Energy,ashby,formenergy,TRUE,FALSE,FALSE,climate-frontier
+Heart Aerospace,greenhouse,heartaerospace,TRUE,FALSE,FALSE,climate-frontier
+Helion Energy,ashby,helion,TRUE,FALSE,FALSE,climate-frontier
+KoBold Metals,greenhouse,koboldmetals,TRUE,FALSE,FALSE,climate-frontier
+Planet Labs,greenhouse,planetlabs,TRUE,FALSE,FALSE,climate-frontier
+Rocket Lab,greenhouse,rocketlab,TRUE,FALSE,FALSE,climate-frontier
+Twelve,ashby,twelve,TRUE,FALSE,FALSE,climate-frontier
+Watershed,greenhouse,watershed,TRUE,FALSE,FALSE,climate-frontier
+Angi,ashby,angi,TRUE,FALSE,FALSE,consumer-marketplace
+Attentive,greenhouse,attentive,TRUE,FALSE,FALSE,consumer-marketplace
+BetterUp,ashby,betterup,TRUE,FALSE,FALSE,consumer-marketplace
+Bumble,ashby,bumble,TRUE,FALSE,FALSE,consumer-marketplace
+Calm,greenhouse,calm,TRUE,FALSE,FALSE,consumer-marketplace
+Chewy,workday,chewy.wd5.myworkdayjobs.com/External,TRUE,FALSE,FALSE,consumer-marketplace
+ChowNow,lever,chownow,TRUE,FALSE,FALSE,consumer-marketplace
+Compass,greenhouse,urbancompass,TRUE,FALSE,FALSE,consumer-marketplace
+Coursera,greenhouse,coursera,TRUE,FALSE,FALSE,consumer-marketplace
+DoorDash,greenhouse,doordashusa,TRUE,FALSE,FALSE,consumer-marketplace
+Eventbrite,greenhouse,eventbriteinc,TRUE,FALSE,FALSE,consumer-marketplace
+Fetch,greenhouse,fetch,TRUE,FALSE,FALSE,consumer-marketplace
+Glassdoor,greenhouse,glassdoor,TRUE,FALSE,FALSE,consumer-marketplace
+GOAT Group,greenhouse,goatgroup,TRUE,FALSE,FALSE,consumer-marketplace
+Gopuff,lever,gopuff,TRUE,FALSE,FALSE,consumer-marketplace
+Handshake,ashby,handshake,TRUE,FALSE,FALSE,consumer-marketplace
+Headway,greenhouse,headway,TRUE,FALSE,FALSE,consumer-marketplace
+Hinge,ashby,hinge,TRUE,FALSE,FALSE,consumer-marketplace
+Hopper,ashby,hopper,TRUE,FALSE,FALSE,consumer-marketplace
+Houzz,lever,houzz,TRUE,FALSE,FALSE,consumer-marketplace
+Ibotta,ashby,ibotta,TRUE,FALSE,FALSE,consumer-marketplace
+Indeed,greenhouse,indeed,TRUE,FALSE,FALSE,consumer-marketplace
+Instacart,greenhouse,instacart,TRUE,FALSE,FALSE,consumer-marketplace
+Instawork,greenhouse,instawork,TRUE,FALSE,FALSE,consumer-marketplace
+Klaviyo,greenhouse,klaviyo,TRUE,FALSE,FALSE,consumer-marketplace
+Lyft,greenhouse,lyft,TRUE,FALSE,FALSE,consumer-marketplace
+Mercari,greenhouse,mercari,TRUE,FALSE,FALSE,consumer-marketplace
+Nextdoor,greenhouse,nextdoor,TRUE,FALSE,FALSE,consumer-marketplace
+Niantic,ashby,niantic,TRUE,FALSE,FALSE,consumer-marketplace
+OfferUp,greenhouse,offerup,TRUE,FALSE,FALSE,consumer-marketplace
+OpenTable,greenhouse,opentable,TRUE,FALSE,FALSE,consumer-marketplace
+Patreon,ashby,patreon,TRUE,FALSE,FALSE,consumer-marketplace
+Poshmark,greenhouse,poshmark,TRUE,FALSE,FALSE,consumer-marketplace
+Quora,ashby,quora,TRUE,FALSE,FALSE,consumer-marketplace
+Ro,lever,ro,TRUE,FALSE,FALSE,consumer-marketplace
+Rover,lever,rover,TRUE,FALSE,FALSE,consumer-marketplace
+SeatGeek,greenhouse,seatgeek,TRUE,FALSE,FALSE,consumer-marketplace
+Slice,greenhouse,slice,TRUE,FALSE,FALSE,consumer-marketplace
+Snap,workday,snapchat.wd1.myworkdayjobs.com/snap,TRUE,FALSE,FALSE,consumer-marketplace
+StockX,greenhouse,stockx,TRUE,FALSE,FALSE,consumer-marketplace
+Strava,ashby,strava,TRUE,FALSE,FALSE,consumer-marketplace
+Substack,ashby,substack,TRUE,FALSE,FALSE,consumer-marketplace
+Sweetgreen,greenhouse,sweetgreen,TRUE,FALSE,FALSE,consumer-marketplace
+Thumbtack,ashby,thumbtack,TRUE,FALSE,FALSE,consumer-marketplace
+Toast,greenhouse,toast,TRUE,FALSE,FALSE,consumer-marketplace
+Traba,ashby,traba,TRUE,FALSE,FALSE,consumer-marketplace
+Twitch,greenhouse,twitch,TRUE,FALSE,FALSE,consumer-marketplace
+Udemy,greenhouse,udemy,TRUE,FALSE,FALSE,consumer-marketplace
+Via,greenhouse,via,TRUE,FALSE,FALSE,consumer-marketplace
+Wayfair,smartrec,wayfair,TRUE,FALSE,FALSE,consumer-marketplace
+Whoop,ashby,whoop,TRUE,FALSE,FALSE,consumer-marketplace
+ZipRecruiter,greenhouse,ziprecruiter,TRUE,FALSE,FALSE,consumer-marketplace
+Zola,greenhouse,zola,TRUE,FALSE,FALSE,consumer-marketplace
+Airbyte,ashby,airbyte,TRUE,FALSE,FALSE,data-infra
+Algolia,greenhouse,algolia,TRUE,FALSE,FALSE,data-infra
+Astronomer,ashby,astronomer,TRUE,FALSE,FALSE,data-infra
+ClickHouse,greenhouse,clickhouse,TRUE,FALSE,FALSE,data-infra
+Cockroach Labs,greenhouse,cockroachlabs,TRUE,FALSE,FALSE,data-infra
+Convex,ashby,convex-dev,TRUE,FALSE,FALSE,data-infra
+Dagster Labs,greenhouse,dagsterlabs,TRUE,FALSE,FALSE,data-infra
+Dataiku,greenhouse,dataiku,TRUE,FALSE,FALSE,data-infra
+Domino Data Lab,greenhouse,dominodatalab,TRUE,FALSE,FALSE,data-infra
+Elastic,greenhouse,elastic,TRUE,FALSE,FALSE,data-infra
+Fivetran,greenhouse,fivetran,TRUE,FALSE,FALSE,data-infra
+Imply,greenhouse,imply,TRUE,FALSE,FALSE,data-infra
+InfluxData,ashby,influxdata,TRUE,FALSE,FALSE,data-infra
+Inngest,ashby,inngest,TRUE,FALSE,FALSE,data-infra
+Knock,greenhouse,knock,TRUE,FALSE,FALSE,data-infra
+Lightning AI,greenhouse,lightningai,TRUE,FALSE,FALSE,data-infra
+Materialize,greenhouse,materialize,TRUE,FALSE,FALSE,data-infra
+Matillion,lever,matillion,TRUE,FALSE,FALSE,data-infra
+MotherDuck,ashby,motherduck,TRUE,FALSE,FALSE,data-infra
+Neo4j,greenhouse,neo4j,TRUE,FALSE,FALSE,data-infra
+Palantir,lever,palantir,TRUE,FALSE,TRUE,data-infra
+PingCAP,greenhouse,pingcap,TRUE,FALSE,FALSE,data-infra
+PlanetScale,greenhouse,planetscale,TRUE,FALSE,FALSE,data-infra
+Prefect,ashby,prefect,TRUE,FALSE,FALSE,data-infra
+Redis,ashby,redis,TRUE,FALSE,FALSE,data-infra
+Resend,ashby,resend,TRUE,FALSE,FALSE,data-infra
+Sigma Computing,greenhouse,sigmacomputing,TRUE,FALSE,FALSE,data-infra
+SingleStore,greenhouse,singlestore,TRUE,FALSE,FALSE,data-infra
+StarTree,greenhouse,startree,TRUE,FALSE,FALSE,data-infra
+Temporal,greenhouse,temporaltechnologies,TRUE,FALSE,FALSE,data-infra
+Tinybird,lever,tinybird,TRUE,FALSE,FALSE,data-infra
+Trigger.dev,ashby,triggerdev,TRUE,FALSE,FALSE,data-infra
+Yugabyte,greenhouse,yugabyte,TRUE,FALSE,FALSE,data-infra
+Blue Origin,workday,blueorigin.wd5.myworkdayjobs.com/BlueOrigin,TRUE,FALSE,FALSE,defense
+Relativity Space,greenhouse,relativity,TRUE,FALSE,FALSE,defense
+Saronic,ashby,saronic,TRUE,FALSE,FALSE,defense
+Shield AI,lever,shieldai,TRUE,FALSE,FALSE,defense
+SpaceX,greenhouse,spacex,TRUE,FALSE,FALSE,defense
+Vast,ashby,vast,TRUE,FALSE,FALSE,defense
+Apollo GraphQL,ashby,apollo-graphql,TRUE,FALSE,FALSE,dev-tools
+Bitwarden,greenhouse,bitwarden,TRUE,FALSE,FALSE,dev-tools
+Buildkite,greenhouse,buildkite,TRUE,FALSE,FALSE,dev-tools
+CircleCI,greenhouse,circleci,TRUE,FALSE,FALSE,dev-tools
+Clerk,ashby,clerk,TRUE,FALSE,FALSE,dev-tools
+Cloudinary,lever,cloudinary,TRUE,FALSE,FALSE,dev-tools
+Contentful,greenhouse,contentful,TRUE,FALSE,FALSE,dev-tools
+Cypress,greenhouse,cypressio,TRUE,FALSE,FALSE,dev-tools
+Descope,greenhouse,descope,TRUE,FALSE,FALSE,dev-tools
+Docker,ashby,docker,TRUE,FALSE,FALSE,dev-tools
+FullStory,ashby,fullstory,TRUE,FALSE,FALSE,dev-tools
+GitLab,greenhouse,gitlab,TRUE,FALSE,FALSE,dev-tools
+Gradle,greenhouse,gradle,TRUE,FALSE,FALSE,dev-tools
+Grafana Labs,greenhouse,grafanalabs,TRUE,FALSE,FALSE,dev-tools
+Honeycomb,greenhouse,honeycomb,TRUE,FALSE,FALSE,dev-tools
+JFrog,greenhouse,jfrog,TRUE,FALSE,FALSE,dev-tools
+Kong,ashby,kong,TRUE,FALSE,FALSE,dev-tools
+LogRocket,lever,logrocket,TRUE,FALSE,FALSE,dev-tools
+Mux,ashby,mux,TRUE,FALSE,FALSE,dev-tools
+Octopus Deploy,greenhouse,octopusdeploy,TRUE,FALSE,FALSE,dev-tools
+Paragon,ashby,paragon,TRUE,FALSE,FALSE,dev-tools
+PostHog,ashby,posthog,TRUE,FALSE,FALSE,dev-tools
+Postman,greenhouse,postman,TRUE,FALSE,FALSE,dev-tools
+Pulumi,greenhouse,pulumicorporation,TRUE,FALSE,FALSE,dev-tools
+QA Wolf,ashby,qawolf,TRUE,FALSE,FALSE,dev-tools
+Render,ashby,render,TRUE,FALSE,FALSE,dev-tools
+Replit,ashby,replit,TRUE,FALSE,FALSE,dev-tools
+Sanity,ashby,sanity,TRUE,FALSE,FALSE,dev-tools
+Sauce Labs,greenhouse,saucelabs,TRUE,FALSE,FALSE,dev-tools
+Sentry,ashby,sentry,TRUE,FALSE,FALSE,dev-tools
+Solo.io,greenhouse,soloioinc,TRUE,FALSE,FALSE,dev-tools
+Sourcegraph,greenhouse,sourcegraph91,TRUE,FALSE,FALSE,dev-tools
+Stytch,ashby,stytch,TRUE,FALSE,FALSE,dev-tools
+Twilio,greenhouse,twilio,TRUE,FALSE,FALSE,dev-tools
+WorkOS,ashby,workos,TRUE,FALSE,FALSE,dev-tools
+15Five,lever,15five,TRUE,FALSE,FALSE,enterprise-saas
+AlphaSense,greenhouse,alphasense,TRUE,FALSE,FALSE,enterprise-saas
+Anaplan,greenhouse,anaplan,TRUE,FALSE,FALSE,enterprise-saas
+Asana,greenhouse,asana,TRUE,FALSE,FALSE,enterprise-saas
+Box,greenhouse,boxinc,TRUE,FALSE,FALSE,enterprise-saas
+Braze,greenhouse,braze,TRUE,FALSE,FALSE,enterprise-saas
+Calendly,greenhouse,calendly,TRUE,FALSE,FALSE,enterprise-saas
+Checkr,greenhouse,checkr,TRUE,FALSE,FALSE,enterprise-saas
+ClickUp,ashby,clickup,TRUE,FALSE,FALSE,enterprise-saas
+Cube,ashby,cube,TRUE,FALSE,FALSE,enterprise-saas
+Culture Amp,greenhouse,cultureamp,TRUE,FALSE,FALSE,enterprise-saas
+Customer.io,greenhouse,customerio,TRUE,FALSE,FALSE,enterprise-saas
+Dialpad,greenhouse,dialpad,TRUE,FALSE,FALSE,enterprise-saas
+DocuSign,smartrec,docusign,TRUE,FALSE,FALSE,enterprise-saas
+Dropbox,greenhouse,dropbox,TRUE,FALSE,FALSE,enterprise-saas
+Five9,greenhouse,five9,TRUE,FALSE,FALSE,enterprise-saas
+FourKites,greenhouse,fourkites,TRUE,FALSE,FALSE,enterprise-saas
+Freshworks,smartrec,freshworks,TRUE,FALSE,FALSE,enterprise-saas
+G2,ashby,g2,TRUE,FALSE,FALSE,enterprise-saas
+Genesys,workday,genesys.wd1.myworkdayjobs.com/Genesys,TRUE,FALSE,FALSE,enterprise-saas
+Greenhouse Software,greenhouse,greenhouse,TRUE,FALSE,FALSE,enterprise-saas
+Guild,greenhouse,guild,TRUE,FALSE,FALSE,enterprise-saas
+Help Scout,ashby,helpscout,TRUE,FALSE,FALSE,enterprise-saas
+HubSpot,greenhouse,hubspotjobs,TRUE,FALSE,FALSE,enterprise-saas
+Iterable,greenhouse,iterable,TRUE,FALSE,FALSE,enterprise-saas
+Justworks,greenhouse,justworks,TRUE,FALSE,FALSE,enterprise-saas
+Lucid Software,greenhouse,lucidsoftware,TRUE,FALSE,FALSE,enterprise-saas
+Miro,ashby,miro,TRUE,FALSE,FALSE,enterprise-saas
+Motive,greenhouse,gomotive,TRUE,FALSE,FALSE,enterprise-saas
+Olo,lever,olo,TRUE,FALSE,FALSE,enterprise-saas
+Outreach,lever,outreach,TRUE,FALSE,FALSE,enterprise-saas
+Owner.com,ashby,owner,TRUE,FALSE,FALSE,enterprise-saas
+Oyster,ashby,oyster,TRUE,FALSE,FALSE,enterprise-saas
+PandaDoc,greenhouse,pandadoc,TRUE,FALSE,FALSE,enterprise-saas
+Pave,ashby,pave,TRUE,FALSE,FALSE,enterprise-saas
+Pigment,lever,pigment,TRUE,FALSE,FALSE,enterprise-saas
+Procore,workday,procore.wd12.myworkdayjobs.com/Procore_External_Careers,TRUE,FALSE,FALSE,enterprise-saas
+project44,greenhouse,project44,TRUE,FALSE,FALSE,enterprise-saas
+Remote,greenhouse,remote,TRUE,FALSE,FALSE,enterprise-saas
+Salesloft,greenhouse,salesloft,TRUE,FALSE,FALSE,enterprise-saas
+Samsara,greenhouse,samsara,TRUE,FALSE,FALSE,enterprise-saas
+SeekOut,greenhouse,seekout,TRUE,FALSE,FALSE,enterprise-saas
+SmartRecruiters,smartrec,smartrecruiters,TRUE,FALSE,FALSE,enterprise-saas
+Smartsheet,greenhouse,smartsheet,TRUE,FALSE,FALSE,enterprise-saas
+Sprout Social,greenhouse,sproutsocial,TRUE,FALSE,FALSE,enterprise-saas
+Squarespace,greenhouse,squarespace,TRUE,FALSE,FALSE,enterprise-saas
+Talkdesk,ashby,talkdesk,TRUE,FALSE,FALSE,enterprise-saas
+Webflow,greenhouse,webflow,TRUE,FALSE,FALSE,enterprise-saas
+Workato,greenhouse,workato,TRUE,FALSE,FALSE,enterprise-saas
+Workday,workday,workday.wd5.myworkdayjobs.com/Workday,TRUE,FALSE,FALSE,enterprise-saas
+Zapier,ashby,zapier,TRUE,FALSE,FALSE,enterprise-saas
+Zendesk,workday,zendesk.wd1.myworkdayjobs.com/Zendesk,TRUE,FALSE,FALSE,enterprise-saas
+Zoom,workday,zoom.wd5.myworkdayjobs.com/Zoom,TRUE,FALSE,FALSE,enterprise-saas
+Analog Devices,workday,analogdevices.wd1.myworkdayjobs.com/External,TRUE,FALSE,FALSE,f500-tech
+Applied Materials,workday,amat.wd1.myworkdayjobs.com/External,TRUE,FALSE,FALSE,f500-tech
+AT&T,radancy,www.att.jobs,TRUE,FALSE,FALSE,f500-tech
+Boeing,radancy,jobs.boeing.com,TRUE,FALSE,FALSE,f500-tech
+Broadcom,workday,broadcom.wd1.myworkdayjobs.com/External_Career,TRUE,FALSE,FALSE,f500-tech
+Disney,workday,disney.wd5.myworkdayjobs.com/disneycareer,TRUE,FALSE,FALSE,f500-tech
+Intel,workday,intel.wd1.myworkdayjobs.com/External,TRUE,FALSE,FALSE,f500-tech
+Marvell,workday,marvell.wd1.myworkdayjobs.com/marvellcareers,TRUE,FALSE,FALSE,f500-tech
+Micron,workday,micron.wd1.myworkdayjobs.com/External,TRUE,FALSE,FALSE,f500-tech
+Motorola Solutions,workday,motorolasolutions.wd5.myworkdayjobs.com/Careers,TRUE,FALSE,FALSE,f500-tech
+Pure Storage,greenhouse,purestorage,TRUE,FALSE,FALSE,f500-tech
+Qualcomm,eightfold,careers.qualcomm.com|qualcomm.com,TRUE,FALSE,FALSE,f500-tech
+Roku,greenhouse,roku,TRUE,FALSE,FALSE,f500-tech
+T-Mobile,workday,tmobile.wd1.myworkdayjobs.com/External,TRUE,FALSE,FALSE,f500-tech
+Target,workday,target.wd5.myworkdayjobs.com/targetcareers,TRUE,FALSE,FALSE,f500-tech
+Acorns,ashby,acorns,TRUE,FALSE,FALSE,fintech
+AngelList,lever,angellist,TRUE,FALSE,FALSE,fintech
+Betterment,greenhouse,betterment,TRUE,FALSE,FALSE,fintech
+Bill.com,greenhouse,billcom,TRUE,FALSE,TRUE,fintech
+Brigit,ashby,brigit,TRUE,FALSE,FALSE,fintech
+Current,greenhouse,current,TRUE,FALSE,FALSE,fintech
+Dave,ashby,dave,TRUE,FALSE,FALSE,fintech
+Enova,greenhouse,enova,TRUE,FALSE,FALSE,fintech
+Expensify,ashby,expensify,TRUE,FALSE,FALSE,fintech
+Fidelity Investments,workday,fmr.wd1.myworkdayjobs.com/FidelityCareers,TRUE,FALSE,FALSE,fintech
+Greenlight,ashby,greenlight,TRUE,FALSE,FALSE,fintech
+Happen (LendingClub),workday,lendingclub.wd1.myworkdayjobs.com/External,TRUE,FALSE,FALSE,fintech
+M1 Finance,smartrec,m1finance,TRUE,FALSE,FALSE,fintech
+Melio,greenhouse,melio,TRUE,FALSE,TRUE,fintech
+Mission Lane,greenhouse,missionlane,TRUE,FALSE,FALSE,fintech
+Oportun,greenhouse,oportun,TRUE,FALSE,FALSE,fintech
+Pathward,greenhouse,pathward,TRUE,FALSE,FALSE,fintech
+Payoneer,greenhouse,payoneer,TRUE,FALSE,FALSE,fintech
+Pipe,greenhouse,pipetechnologies,TRUE,FALSE,FALSE,fintech
+Self Financial,greenhouse,selffinancial,TRUE,FALSE,FALSE,fintech
+Sezzle,greenhouse,sezzle,TRUE,FALSE,FALSE,fintech
+Stash,greenhouse,stashinvest,TRUE,FALSE,FALSE,fintech
+Upstart,greenhouse,upstart,TRUE,FALSE,FALSE,fintech
+Wealthfront,lever,wealthfront,TRUE,FALSE,FALSE,fintech
+Alchemy,ashby,alchemy,TRUE,FALSE,FALSE,fintech-crypto
+Anchorage Digital,lever,anchorage,TRUE,FALSE,FALSE,fintech-crypto
+BitGo,greenhouse,bitgo,TRUE,FALSE,FALSE,fintech-crypto
+Blockchain.com,greenhouse,blockchain,TRUE,FALSE,FALSE,fintech-crypto
+Carta,greenhouse,carta,TRUE,FALSE,FALSE,fintech-crypto
+Chainalysis,ashby,chainalysis-careers,TRUE,FALSE,TRUE,fintech-crypto
+Circle,ashby,circle,TRUE,FALSE,TRUE,fintech-crypto
+CoinTracker,ashby,cointracker,TRUE,FALSE,FALSE,fintech-crypto
+Fireblocks,greenhouse,fireblocks,TRUE,FALSE,FALSE,fintech-crypto
+Galaxy Digital,greenhouse,galaxydigitalservices,TRUE,FALSE,FALSE,fintech-crypto
+Gemini,greenhouse,gemini,TRUE,FALSE,FALSE,fintech-crypto
+MoonPay,lever,moonpay,TRUE,FALSE,FALSE,fintech-crypto
+Offchain Labs,lever,offchainlabs,TRUE,FALSE,FALSE,fintech-crypto
+OpenSea,ashby,opensea,TRUE,FALSE,FALSE,fintech-crypto
+Optimism,ashby,oplabs,TRUE,FALSE,FALSE,fintech-crypto
+Paxos,ashby,paxos,TRUE,FALSE,TRUE,fintech-crypto
+Phantom,ashby,phantom,TRUE,FALSE,FALSE,fintech-crypto
+Ripple,greenhouse,ripple,TRUE,FALSE,FALSE,fintech-crypto
+TaxBit,greenhouse,taxbit,TRUE,FALSE,FALSE,fintech-crypto
+TRM Labs,ashby,trm-labs,TRUE,FALSE,TRUE,fintech-crypto
+Uniswap Labs,ashby,uniswap,TRUE,FALSE,FALSE,fintech-crypto
+Zero Hash,greenhouse,zero,TRUE,FALSE,FALSE,fintech-crypto
+Akoya,greenhouse,akoya,TRUE,FALSE,FALSE,fintech-infra
+Alkami,workday,alkami.wd12.myworkdayjobs.com/Alkami,TRUE,FALSE,FALSE,fintech-infra
+Alpaca,greenhouse,alpaca,TRUE,FALSE,FALSE,fintech-infra
+Amount,greenhouse,amount,TRUE,FALSE,FALSE,fintech-infra
+Anrok,ashby,anrok,TRUE,FALSE,FALSE,fintech-infra
+Array,greenhouse,array,TRUE,FALSE,FALSE,fintech-infra
+Atomic,ashby,atomic,TRUE,FALSE,FALSE,fintech-infra
+Blend,greenhouse,blend,TRUE,FALSE,FALSE,fintech-infra
+Bolt,ashby,bolt,TRUE,FALSE,FALSE,fintech-infra
+Broadridge,workday,broadridge.wd5.myworkdayjobs.com/Careers,TRUE,FALSE,FALSE,fintech-infra
+Codat,ashby,codat,TRUE,FALSE,FALSE,fintech-infra
+Column,ashby,column,TRUE,FALSE,TRUE,fintech-infra
+ComplyAdvantage,greenhouse,complyadvantage,TRUE,FALSE,FALSE,fintech-infra
+Cross River,greenhouse,crossriverbank,TRUE,FALSE,FALSE,fintech-infra
+DriveWealth,greenhouse,drivewealth,TRUE,FALSE,FALSE,fintech-infra
+Dwolla,lever,dwolla,TRUE,FALSE,FALSE,fintech-infra
+Equifax,workday,equifax.wd5.myworkdayjobs.com/External,TRUE,FALSE,FALSE,fintech-infra
+Experian,smartrec,experian,TRUE,FALSE,FALSE,fintech-infra
+Feedzai,greenhouse,feedzai,TRUE,FALSE,FALSE,fintech-infra
+FICO,workday,fico.wd1.myworkdayjobs.com/External,TRUE,FALSE,FALSE,fintech-infra
+Finch,ashby,finch,TRUE,FALSE,FALSE,fintech-infra
+Finix,lever,finix,TRUE,FALSE,FALSE,fintech-infra
+FIS,workday,fis.wd5.myworkdayjobs.com/SearchJobs,TRUE,FALSE,FALSE,fintech-infra
+Fiserv,workday,fiserv.wd5.myworkdayjobs.com/EXT,TRUE,FALSE,FALSE,fintech-infra
+Footprint,ashby,footprint,TRUE,FALSE,FALSE,fintech-infra
+Forter,greenhouse,forter,TRUE,FALSE,FALSE,fintech-infra
+Global Payments,workday,tsys.wd1.myworkdayjobs.com/Tsys,TRUE,FALSE,FALSE,fintech-infra
+Highnote,greenhouse,highnote,TRUE,FALSE,TRUE,fintech-infra
+Incode,greenhouse,incode,TRUE,FALSE,FALSE,fintech-infra
+Jack Henry,radancy,careers.jackhenry.com,TRUE,FALSE,FALSE,fintech-infra
+Jumio,greenhouse,jumio,TRUE,FALSE,FALSE,fintech-infra
+Merge,greenhouse,merge,TRUE,FALSE,FALSE,fintech-infra
+Middesk,ashby,middesk,TRUE,FALSE,FALSE,fintech-infra
+Morningstar,workday,morningstar.wd5.myworkdayjobs.com/Morningstar,TRUE,FALSE,FALSE,fintech-infra
+Nasdaq,workday,nasdaq.wd1.myworkdayjobs.com/Global_External_Site,TRUE,FALSE,FALSE,fintech-infra
+nCino,workday,ncino.wd5.myworkdayjobs.com/ncinocareers,TRUE,FALSE,FALSE,fintech-infra
+Nium,lever,nium,TRUE,FALSE,FALSE,fintech-infra
+Orum,ashby,orum,TRUE,FALSE,FALSE,fintech-infra
+Pinwheel,greenhouse,pinwheelapi,TRUE,FALSE,FALSE,fintech-infra
+Prove,greenhouse,prove,TRUE,FALSE,FALSE,fintech-infra
+Q2,workday,q2ebanking.wd5.myworkdayjobs.com/Q2,TRUE,FALSE,FALSE,fintech-infra
+Riskified,greenhouse,riskified,TRUE,FALSE,FALSE,fintech-infra
+Rutter,ashby,rutter,TRUE,FALSE,FALSE,fintech-infra
+SentiLink,ashby,sentilink,TRUE,FALSE,FALSE,fintech-infra
+Sift,ashby,sift,TRUE,FALSE,FALSE,fintech-infra
+Synctera,ashby,synctera,TRUE,FALSE,FALSE,fintech-infra
+TransUnion,workday,transunion.wd5.myworkdayjobs.com/Transunion,TRUE,FALSE,FALSE,fintech-infra
+Treasury Prime,greenhouse,treasuryprime,TRUE,FALSE,FALSE,fintech-infra
+Trustly,ashby,trustly,TRUE,FALSE,FALSE,fintech-infra
+Truv,lever,truv,TRUE,FALSE,FALSE,fintech-infra
+Veriff,greenhouse,veriff,TRUE,FALSE,FALSE,fintech-infra
+Vertex Inc,workday,vertexinc.wd1.myworkdayjobs.com/Vertexinc,TRUE,FALSE,FALSE,fintech-infra
+WEX,workday,wexinc.wd5.myworkdayjobs.com/Wexinc,TRUE,FALSE,FALSE,fintech-infra
+Zuora,greenhouse,zuora,TRUE,FALSE,FALSE,fintech-infra
+Abbott,workday,abbott.wd5.myworkdayjobs.com/abbottcareers,TRUE,FALSE,FALSE,healthtech
+athenahealth,workday,athenahealth.wd1.myworkdayjobs.com/External,TRUE,FALSE,FALSE,healthtech
+Charlie Health,greenhouse,charliehealth,TRUE,FALSE,FALSE,healthtech
+CVS Health,workday,cvshealth.wd1.myworkdayjobs.com/CVS_Health_Careers,TRUE,FALSE,FALSE,healthtech
+Devoted Health,smartrec,devotedhealth,TRUE,FALSE,FALSE,healthtech
+Doximity,greenhouse,doximity,TRUE,FALSE,FALSE,healthtech
+Eight Sleep,ashby,eightsleep,TRUE,FALSE,FALSE,healthtech
+Flatiron Health,greenhouse,flatironhealth,TRUE,FALSE,FALSE,healthtech
+Grow Therapy,ashby,grow-therapy,TRUE,FALSE,FALSE,healthtech
+Hims & Hers,ashby,hims-and-hers,TRUE,FALSE,FALSE,healthtech
+Hinge Health,ashby,hinge-health,TRUE,FALSE,FALSE,healthtech
+Included Health,lever,includedhealth,TRUE,FALSE,FALSE,healthtech
+Komodo Health,greenhouse,komodohealth,TRUE,FALSE,FALSE,healthtech
+Levels,ashby,levels,TRUE,FALSE,FALSE,healthtech
+Lyra Health,ashby,lyrahealth,TRUE,FALSE,FALSE,healthtech
+Maven Clinic,greenhouse,mavenclinic,TRUE,FALSE,FALSE,healthtech
+McKesson,workday,mckesson.wd3.myworkdayjobs.com/External_Careers,TRUE,FALSE,FALSE,healthtech
+Omada Health,greenhouse,omadahealth,TRUE,FALSE,FALSE,healthtech
+Oscar Health,greenhouse,oscar,TRUE,FALSE,FALSE,healthtech
+Oura,greenhouse,oura,TRUE,FALSE,FALSE,healthtech
+Peloton,greenhouse,peloton,TRUE,FALSE,FALSE,healthtech
+Recursion Pharma,greenhouse,recursionpharmaceuticals,TRUE,FALSE,FALSE,healthtech
+Redox,lever,redoxengine,TRUE,FALSE,FALSE,healthtech
+Rula,ashby,rula,TRUE,FALSE,FALSE,healthtech
+SonderMind,ashby,sondermind,TRUE,FALSE,FALSE,healthtech
+Spring Health,ashby,spring-health,TRUE,FALSE,FALSE,healthtech
+Stryker,workday,stryker.wd1.myworkdayjobs.com/strykercareers,TRUE,FALSE,FALSE,healthtech
+Sword Health,lever,swordhealth,TRUE,FALSE,FALSE,healthtech
+Talkiatry,ashby,talkiatry,TRUE,FALSE,FALSE,healthtech
+Teladoc Health,smartrec,teladochealth,TRUE,FALSE,FALSE,healthtech
+Tempus AI,workday,tempus.wd5.myworkdayjobs.com/Tempus_Careers,TRUE,FALSE,FALSE,healthtech
+Thirty Madison,greenhouse,thirtymadison,TRUE,FALSE,FALSE,healthtech
+Truveta,greenhouse,truveta,TRUE,FALSE,FALSE,healthtech
+Two Chairs,greenhouse,twochairs,TRUE,FALSE,FALSE,healthtech
+Veeva Systems,lever,veeva,TRUE,FALSE,FALSE,healthtech
+Virta Health,ashby,virtahealth,TRUE,FALSE,FALSE,healthtech
+Zocdoc,greenhouse,zocdoc,TRUE,FALSE,FALSE,healthtech
+DigitalOcean,greenhouse,digitalocean98,TRUE,FALSE,FALSE,infra
+Fastly,greenhouse,fastly,TRUE,FALSE,FALSE,infra
+Netlify,greenhouse,netlify,TRUE,FALSE,FALSE,infra
+Railway,ashby,railway,TRUE,FALSE,FALSE,infra
+Vultr,ashby,vultr,TRUE,FALSE,FALSE,infra
+AIG,workday,aig.wd1.myworkdayjobs.com/aig,TRUE,FALSE,FALSE,insurance
+At-Bay,greenhouse,atbay,TRUE,FALSE,FALSE,insurance
+CCC Intelligent Solutions,workday,cccis.wd1.myworkdayjobs.com/Cccis,TRUE,FALSE,FALSE,insurance
+Cigna,workday,cigna.wd5.myworkdayjobs.com/cignacareers,TRUE,FALSE,FALSE,insurance
+CNA Insurance,workday,cna.wd1.myworkdayjobs.com/CNA_Careers,TRUE,FALSE,FALSE,insurance
+Coalition,greenhouse,coalition,TRUE,FALSE,FALSE,insurance
+Corebridge Financial,workday,corebridgefinancial.wd1.myworkdayjobs.com/CorebridgeFinancial,TRUE,FALSE,FALSE,insurance
+Duck Creek,workday,duckcreek.wd1.myworkdayjobs.com/duckcreekcareers,TRUE,FALSE,FALSE,insurance
+Ethos Life,greenhouse,ethoslife,TRUE,FALSE,FALSE,insurance
+Federato,greenhouse,federato,TRUE,FALSE,FALSE,insurance
+Guidewire,workday,guidewire.wd5.myworkdayjobs.com/External,TRUE,FALSE,FALSE,insurance
+Hagerty,workday,hagerty.wd5.myworkdayjobs.com/hagerty,TRUE,FALSE,FALSE,insurance
+Markel,workday,markelcorp.wd5.myworkdayjobs.com/GlobalCareers,TRUE,FALSE,FALSE,insurance
+Marsh McLennan,workday,mmc.wd1.myworkdayjobs.com/Mmc,TRUE,FALSE,FALSE,insurance
+Newfront,ashby,newfront,TRUE,FALSE,FALSE,insurance
+Northwestern Mutual,smartrec,northwesternmutual,TRUE,FALSE,FALSE,insurance
+Prudential Financial,workday,pru.wd5.myworkdayjobs.com/Careers,TRUE,FALSE,FALSE,insurance
+RLI Corp,workday,rlicorp.wd1.myworkdayjobs.com/RLI_Corp_Careers,TRUE,FALSE,FALSE,insurance
+Root Insurance,greenhouse,root,TRUE,FALSE,FALSE,insurance
+Travelers,workday,travelers.wd5.myworkdayjobs.com/External,TRUE,FALSE,FALSE,insurance
+Vouch Insurance,smartrec,vouch,TRUE,FALSE,FALSE,insurance
+Axiom,ashby,axiom,TRUE,FALSE,FALSE,observability
+New Relic,greenhouse,newrelic,TRUE,FALSE,FALSE,observability
+Sumo Logic,greenhouse,sumologic,TRUE,FALSE,FALSE,observability
+AbbVie,smartrec,abbvie,TRUE,FALSE,FALSE,pharma
+Amgen,workday,amgen.wd1.myworkdayjobs.com/Careers,TRUE,FALSE,FALSE,pharma
+AstraZeneca,workday,astrazeneca.wd3.myworkdayjobs.com/Careers,TRUE,FALSE,FALSE,pharma
+Bristol Myers Squibb,workday,bristolmyerssquibb.wd5.myworkdayjobs.com/BMS,TRUE,FALSE,FALSE,pharma
+Gilead Sciences,workday,gilead.wd1.myworkdayjobs.com/gileadcareers,TRUE,FALSE,FALSE,pharma
+Johnson & Johnson,workday,jj.wd5.myworkdayjobs.com/JJ,TRUE,FALSE,FALSE,pharma
+Moderna,workday,modernatx.wd1.myworkdayjobs.com/M_tx,TRUE,FALSE,FALSE,pharma
+Pfizer,workday,pfizer.wd1.myworkdayjobs.com/PfizerCareers,TRUE,FALSE,FALSE,pharma
+Regeneron,workday,regeneron.wd1.myworkdayjobs.com/Careers,TRUE,FALSE,FALSE,pharma
+Takeda,workday,takeda.wd3.myworkdayjobs.com/External,TRUE,FALSE,FALSE,pharma
+Zoetis,workday,zoetis.wd5.myworkdayjobs.com/zoetis,TRUE,FALSE,FALSE,pharma
+Chainguard,greenhouse,chainguard,TRUE,FALSE,FALSE,security
+Dashlane,greenhouse,dashlane,TRUE,FALSE,FALSE,security
+Endor Labs,greenhouse,endorlabs,TRUE,FALSE,FALSE,security
+Expel,greenhouse,expel,TRUE,FALSE,FALSE,security
+Huntress,greenhouse,huntress,TRUE,FALSE,FALSE,security
+KnowBe4,greenhouse,knowbe4,TRUE,FALSE,FALSE,security
+Material Security,ashby,material,TRUE,FALSE,FALSE,security
+Netskope,greenhouse,netskope,TRUE,FALSE,FALSE,security
+Orca Security,greenhouse,orcasecurity,TRUE,FALSE,FALSE,security
+Ping Identity,greenhouse,pingidentity,TRUE,FALSE,FALSE,security
+Proofpoint,workday,proofpoint.wd5.myworkdayjobs.com/proofpointcareers,TRUE,FALSE,FALSE,security
+Qualys,workday,qualys.wd5.myworkdayjobs.com/Careers,TRUE,FALSE,FALSE,security
+SailPoint,workday,sailpoint.wd1.myworkdayjobs.com/Sailpoint,TRUE,FALSE,FALSE,security
+Secureframe,lever,secureframe,TRUE,FALSE,FALSE,security
+Semgrep,ashby,semgrep,TRUE,FALSE,FALSE,security
+SentinelOne,greenhouse,sentinellabs,TRUE,FALSE,FALSE,security
+Snyk,ashby,snyk,TRUE,FALSE,FALSE,security
+Socket,ashby,socket,TRUE,FALSE,FALSE,security
+Sonatype,lever,sonatype,TRUE,FALSE,FALSE,security
+Sysdig,lever,sysdig,TRUE,FALSE,FALSE,security
+Torq,greenhouse,torq,TRUE,FALSE,FALSE,security
+Twingate,lever,twingate,TRUE,FALSE,FALSE,security
+Veracode,greenhouse,veracode,TRUE,FALSE,FALSE,security
+Zscaler,greenhouse,zscaler,TRUE,FALSE,FALSE,security

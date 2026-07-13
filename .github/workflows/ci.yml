@@ -1,0 +1,143 @@
+# Tests on every push/PR + the live adapter smoke test on dispatch.
+# The smoke job verifies every ATS adapter from a real runner (datacenter
+# egress differs from residential — this is the check that matters).
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    paths-ignore: ["monitor/snapshots/**", "snapshots/**"]
+  pull_request: {}
+  workflow_dispatch:
+    inputs:
+      smoke:
+        description: "Also run the live adapter smoke test"
+        type: boolean
+        default: true
+      whoami:
+        description: "Print the service account client_email"
+        type: boolean
+        default: false
+      bootstrap:
+        description: "Bootstrap the HQ sheet (branch-side control until merge)"
+        type: boolean
+        default: false
+      seed_companies:
+        description: "Seed Companies tab during bootstrap"
+        type: boolean
+        default: true
+      migrate_legacy:
+        description: "Migrate legacy Jobs data during bootstrap"
+        type: boolean
+        default: false
+      migrate_simplify:
+        description: "Import the committed Simplify tracker CSV into Pipeline"
+        type: boolean
+        default: false
+      seed_jobs:
+        description: "Run full discovery now (all companies) + tag — seeds the Feed"
+        type: boolean
+        default: false
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - run: pytest -q
+
+  smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.smoke }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Live adapter smoke (from datacenter egress)
+        run: python -m monitor.scripts.smoke_adapters
+
+  whoami:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.whoami }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Print client_email
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        # base64 so GitHub's secret masking doesn't redact it (it's a substring
+        # of the JSON secret); client_email is an identifier, not a credential.
+        run: python3 -c "import json,os,base64; print('SA_EMAIL_B64=' + base64.b64encode(json.loads(os.environ['GOOGLE_SERVICE_ACCOUNT_JSON'])['client_email'].encode()).decode())"
+
+  bootstrap:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Bootstrap HQ sheet
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          SA_EMAIL=$(python -c "import json,os; print(json.loads(os.environ['GOOGLE_SERVICE_ACCOUNT_JSON'])['client_email'])")
+          SHEET_ID=$(python -c "import yaml; print(yaml.safe_load(open('hq.config.yaml'))['sheet_id'])")
+          ARGS="--sheet-id $SHEET_ID --owner shaheensalmant@gmail.com --sa-email $SA_EMAIL"
+          if [ "${{ inputs.seed_companies }}" = "true" ]; then ARGS="$ARGS --seed-companies"; fi
+          python -m tracker.bootstrap $ARGS
+      - name: Migrate history (legacy sheet + committed import CSVs)
+        if: ${{ inputs.migrate_legacy }}
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python -m tracker.migrate --legacy --scout-csv --applog tracker/data/applog-import.csv
+      - name: Commit gid registry
+        run: |
+          git config user.name "hq-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git pull --rebase origin ${{ github.ref_name }} || true
+          git add hq.config.yaml || true
+          git commit -m "chore: pin HQ sheet gids from bootstrap" || echo "no changes"
+          git push || echo "nothing to push"
+
+  migrate_simplify:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.migrate_simplify }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Import Simplify tracker CSV
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python -m tracker.migrate --simplify-csv
+
+  seed_jobs:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.seed_jobs }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Full discovery sweep (all monitored companies)
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m monitor.run
+      - name: Tag any roles discovery left untagged
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m monitor.review

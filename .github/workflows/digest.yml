@@ -1,0 +1,33 @@
+# Composes the daily digest into the Digest tab (+ ntfy summary). The Apps
+# Script mailer sends it as email at ~7am CT — this runs just before.
+# Also the watchdog: flags a silent Gmail capture script.
+name: Daily digest
+
+on:
+  schedule:
+    - cron: "40 11 * * *"   # 06:40 America/Chicago (CDT)
+  workflow_dispatch: {}
+
+concurrency:
+  group: hq-digest
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Compose digest
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python -m tracker.digest
+      - name: Ops alert on failure
+        if: failure()
+        run: |
+          curl -s -H "Title: Digest failed" -H "Priority: high" -H "Tags: warning" \
+            -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "https://ntfy.sh/REDACTED-NTFY-TOPIC" || true

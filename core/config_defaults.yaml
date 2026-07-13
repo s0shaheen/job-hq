@@ -1,0 +1,41 @@
+# Committed defaults for every Config-tab knob. The Config TAB in the sheet
+# overrides these (validated per key; invalid values fall back here and get
+# reported to ops). bootstrap seeds the Config tab from this file.
+yoe_push_max: 4            # push any new role whose min required YoE <= this
+stale_days: 30             # Applied + this many silent days -> stale flag + digest nudge
+digest_hour_ct: 7          # daily digest hour, America/Chicago
+push_new_jobs: true
+push_status_events: true
+simplify_enabled: true
+ghost_suggest: true
+workday_search: product
+titles_include:
+  - product manager
+  - associate product manager
+  - senior product manager
+  - group product manager
+  - principal product manager
+  - head of product
+  - director of product
+  - vp of product
+  - technical product manager
+  - deployment strategist
+  - forward deployed
+  - product strategist
+  - product operations
+  - strategic projects
+titles_exclude:
+  - product marketing
+  - product designer
+  - product design
+  - product analyst
+  - data analyst
+  - program manager
+  - marketing manager
+  - pmm
+  - intern
+dna_companies:            # do-not-apply guard (scout tab flags these)
+  - Capital One
+  - Discover
+  - Bank of America
+  - Citi
