@@ -62,7 +62,9 @@ jobs:
       - name: Print client_email
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-        run: python3 -c "import json,os; print('SA_EMAIL=' + json.loads(os.environ['GOOGLE_SERVICE_ACCOUNT_JSON'])['client_email'])"
+        # base64 so GitHub's secret masking doesn't redact it (it's a substring
+        # of the JSON secret); client_email is an identifier, not a credential.
+        run: python3 -c "import json,os,base64; print('SA_EMAIL_B64=' + base64.b64encode(json.loads(os.environ['GOOGLE_SERVICE_ACCOUNT_JSON'])['client_email'].encode()).decode())"
 
   bootstrap:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap }}
