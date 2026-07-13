@@ -30,6 +30,14 @@ on:
         description: "Migrate legacy Jobs data during bootstrap"
         type: boolean
         default: false
+      migrate_simplify:
+        description: "Import the committed Simplify tracker CSV into Pipeline"
+        type: boolean
+        default: false
+      seed_jobs:
+        description: "Run full discovery now (all companies) + tag — seeds the Feed"
+        type: boolean
+        default: false
 
 jobs:
   tests:
@@ -99,3 +107,37 @@ jobs:
           git add hq.config.yaml || true
           git commit -m "chore: pin HQ sheet gids from bootstrap" || echo "no changes"
           git push || echo "nothing to push"
+
+  migrate_simplify:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.migrate_simplify }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Import Simplify tracker CSV
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python -m tracker.migrate --simplify-csv
+
+  seed_jobs:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.seed_jobs }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Full discovery sweep (all monitored companies)
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m monitor.run
+      - name: Tag any roles discovery left untagged
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m monitor.review

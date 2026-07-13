@@ -33,6 +33,7 @@ DEFAULT_XLSX = ("/Users/s0shaheen/Library/CloudStorage/"
                 "Job Search & Recruiting/Jobs Applied -Salman - Sample.xlsx")
 DEFAULT_APPLOG = "applications/applications-log.csv"
 DEFAULT_SCOUT_CSV = "tracker/data/scout-import.csv"
+DEFAULT_SIMPLIFY_CSV = "tracker/data/simplify-import.csv"
 SCOUT_SINCE = _dt.date(2026, 1, 1)
 
 # Legacy Jobs-tab header map, local on purpose: the legacy sheet is frozen
@@ -299,6 +300,86 @@ def migrate_applog(hq: HQ, path: str, *, dry_run: bool = False) -> dict:
             "skipped_dup": skipped, "unkeyed": unkeyed}
 
 
+# -------------------------------------------------------------- simplify csv
+
+# Simplify tracker "Export CSV" -> Pipeline status. Forward-only when the row
+# already exists (Gmail may have created it first); create otherwise.
+_SIMPLIFY_STATUS = {
+    "SAVED": "Inbox", "APPLIED": "Applied", "SCREEN": "Screen",
+    "SCREENING": "Screen", "INTERVIEW": "Interview", "INTERVIEWING": "Interview",
+    "OFFER": "Offer", "ACCEPTED": "Offer",
+    "REJECTED": "Rejected", "WITHDRAWN": "Withdrawn", "GHOSTED": "Closed",
+}
+
+
+def _clean(v: str) -> str:
+    v = (v or "").strip()
+    return "" if v.upper() in ("", "N/A", "NA", "NONE") else v
+
+
+def migrate_simplify_csv(hq: HQ, path: str, *, dry_run: bool = False) -> dict:
+    """Simplify's tracker CSV export (Job Title, Company Name, Location, Job URL,
+    Applied Date, Status, ...) -> Pipeline. source=simplify; applied rows get
+    applied_via=simplify. Idempotent: existing rows are advanced forward-only
+    and blank-filled, never overwritten."""
+    p = Path(path)
+    if not p.is_absolute():
+        p = config.REPO_ROOT / p
+    try:
+        with open(p, newline="") as f:
+            rows = list(csv.DictReader(f))
+    except OSError:
+        return {"missing": str(p), "created": 0}
+
+    pipe = hq.tab("pipeline")
+    have = set(pipe.key_index())
+    created, advanced, filled, unkeyed = 0, 0, 0, 0
+    new_recs = []
+    for r in rows:
+        url = _clean(r.get("Job URL"))
+        company = _clean(r.get("Company Name"))
+        title = _clean(r.get("Job Title"))
+        key = job_key(url=url, company=company, title=title,
+                      location=_clean(r.get("Location")))
+        if not key:
+            unkeyed += 1
+            continue
+        status = _SIMPLIFY_STATUS.get((r.get("Status") or "").strip().upper(), "Inbox")
+        applied = _clean(r.get("Applied Date")) or (
+            _clean(r.get("Status Date")) if status not in ("Inbox",) else "")
+        is_applied = schema.status_rank(status) >= schema.status_rank("Applied") \
+            and status not in schema.STATUS_TERMINAL
+
+        if key in have:
+            if not dry_run:
+                pipe.advance_status(key, status, evidence="simplify")
+                blanks = {"source": "simplify"}
+                if is_applied:
+                    blanks["applied_via"] = "simplify"
+                    if applied:
+                        blanks["applied_date"] = applied[:10]
+                pipe.set_by_key(key, blanks, only_if_blank=True)
+            advanced += 1
+            continue
+
+        have.add(key)
+        rec = {
+            schema.KEY: key, "company": company, "title": title, "url": url,
+            "location": _clean(r.get("Location")), "source": "simplify",
+            "status": status, "notes": _clean(r.get("Notes")),
+        }
+        if is_applied:
+            rec["applied_via"] = "simplify"
+            if applied:
+                rec["applied_date"] = applied[:10]
+        new_recs.append(rec)
+        created += 1
+    if not dry_run:
+        pipe.append_records(new_recs)
+    return {"rows": len(rows), "created": created,
+            "advanced_existing": advanced, "unkeyed": unkeyed}
+
+
 # ------------------------------------------------------------------- main
 
 def main(argv: list[str] | None = None) -> int:
@@ -313,17 +394,19 @@ def main(argv: list[str] | None = None) -> int:
                     metavar="OUT", help="LOCAL: workbook -> sanitized CSV; no credentials, no sheet access")
     ap.add_argument("--applog", nargs="?", const=DEFAULT_APPLOG, default=None,
                     metavar="PATH", help="applications-log.csv -> pipeline")
+    ap.add_argument("--simplify-csv", nargs="?", const=DEFAULT_SIMPLIFY_CSV, default=None,
+                    metavar="PATH", help="Simplify tracker CSV export -> pipeline")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
 
     if args.export_scout_csv:
         rep = export_scout_csv(args.scout_xlsx or DEFAULT_XLSX, args.export_scout_csv)
         print("[migrate] export_scout_csv: " + "  ".join(f"{k}={v}" for k, v in rep.items()))
-        if not (args.legacy or args.scout_csv or args.applog):
+        if not (args.legacy or args.scout_csv or args.applog or args.simplify_csv):
             return 0
 
-    if not (args.legacy or args.scout_xlsx or args.scout_csv or args.applog):
-        ap.error("pick at least one source: --legacy / --scout-xlsx / --scout-csv / --applog")
+    if not (args.legacy or args.scout_xlsx or args.scout_csv or args.applog or args.simplify_csv):
+        ap.error("pick at least one source: --legacy / --scout-xlsx / --scout-csv / --applog / --simplify-csv")
 
     hq = HQ.open()
     reports: dict[str, dict] = {}
@@ -335,6 +418,8 @@ def main(argv: list[str] | None = None) -> int:
         reports["scout_csv"] = migrate_scout_csv(hq, args.scout_csv, dry_run=args.dry_run)
     if args.applog:
         reports["applog"] = migrate_applog(hq, args.applog, dry_run=args.dry_run)
+    if args.simplify_csv:
+        reports["simplify_csv"] = migrate_simplify_csv(hq, args.simplify_csv, dry_run=args.dry_run)
 
     prefix = "DRY RUN " if args.dry_run else ""
     for src, rep in reports.items():

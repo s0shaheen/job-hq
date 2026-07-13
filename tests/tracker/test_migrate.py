@@ -149,3 +149,57 @@ def test_applog_dry_run(tmp_path):
     rep = migrate.migrate_applog(hq, _applog(tmp_path), dry_run=True)
     assert rep["appended"] == 2
     assert hq.tab("pipeline").records() == []
+
+
+_SIMPLIFY_CSV = (
+    "Job Title,Company Name,Location,Job URL,Applied Date,Status,Status Date,"
+    "Archived,Date Archived,Notes,job_type\n"
+    "PM,Garner Health,NY,https://job-boards.greenhouse.io/garnerhealth/jobs/6101768004,"
+    "2026-07-13,APPLIED,2026-07-13,No,N/A,,Full-time\n"
+    "PM,Plaid,SF,https://jobs.ashbyhq.com/plaid/8d2c62be-4fce-4e69-8335-6f15a2553b62,"
+    "N/A,SAVED,2026-07-10,No,N/A,,Full-time\n"
+    "PM,Ramp,NY,https://jobs.ashbyhq.com/ramp/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee,"
+    "2026-07-01,INTERVIEWING,2026-07-09,No,N/A,note here,Full-time\n"
+)
+
+
+def _simplify(tmp_path):
+    p = tmp_path / "simplify.csv"
+    p.write_text(_SIMPLIFY_CSV)
+    return str(p)
+
+
+def test_simplify_csv_maps_status_source_and_applied(tmp_path):
+    hq = fake_hq()
+    rep = migrate.migrate_simplify_csv(hq, _simplify(tmp_path), dry_run=False)
+    assert rep == {"rows": 3, "created": 3, "advanced_existing": 0, "unkeyed": 0}
+    rows = {r["company"]: r for r in hq.tab("pipeline").records()}
+    assert rows["Garner Health"]["status"] == "Applied"
+    assert rows["Garner Health"]["source"] == "simplify"
+    assert rows["Garner Health"]["applied_via"] == "simplify"
+    assert rows["Garner Health"]["applied_date"] == "2026-07-13"
+    assert rows["Plaid"]["status"] == "Inbox"          # SAVED -> Inbox, not applied
+    assert rows["Plaid"]["applied_via"] == ""
+    assert rows["Ramp"]["status"] == "Interview"
+    assert rows["Ramp"]["notes"] == "note here"
+
+
+def test_simplify_csv_idempotent_and_forward_only(tmp_path):
+    hq = fake_hq()
+    path = _simplify(tmp_path)
+    migrate.migrate_simplify_csv(hq, path, dry_run=False)
+    # a human already moved Garner to Offer — the re-import must not downgrade it
+    hq.tab("pipeline").set_by_key(
+        [r["key"] for r in hq.tab("pipeline").records() if r["company"] == "Garner Health"][0],
+        {"status": "Offer"})
+    rep = migrate.migrate_simplify_csv(hq, path, dry_run=False)
+    assert rep["created"] == 0 and rep["advanced_existing"] == 3
+    assert len(hq.tab("pipeline").records()) == 3        # no duplicates
+    garner = [r for r in hq.tab("pipeline").records() if r["company"] == "Garner Health"][0]
+    assert garner["status"] == "Offer"                   # forward-only, human wins
+
+
+def test_simplify_csv_missing_file_is_noop(tmp_path):
+    hq = fake_hq()
+    rep = migrate.migrate_simplify_csv(hq, str(tmp_path / "nope.csv"), dry_run=False)
+    assert rep["created"] == 0 and "missing" in rep
