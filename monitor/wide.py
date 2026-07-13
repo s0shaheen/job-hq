@@ -53,6 +53,7 @@ import requests
 from core import notify
 from core.jobkeys import is_strong, job_key
 from core.sheets import HQ, RowNotFound, today as _today
+from monitor import geo
 from monitor.filtering import title_matches
 from monitor.priority import known_keys, priority_companies
 
@@ -135,6 +136,7 @@ def map_cafe_item(item: dict, today: str) -> tuple[dict, str] | None:
         "seniority": str(proc.get("seniority_level") or "").strip(),
         "min_yoe": _cafe_min_yoe(proc),
     }
+    rec.update(geo.enrich(rec["location"], rec["work_model"]))
     return rec, posted_full
 
 
@@ -163,6 +165,7 @@ def map_theirstack_job(job: dict, today: str) -> tuple[dict, str] | None:
         "seniority": str(job.get("seniority") or "").strip(),
         "min_yoe": "",   # no numeric YoE in TheirStack's schema — review fills it
     }
+    rec.update(geo.enrich(rec["location"], rec["work_model"]))
     return rec, str(job.get("discovered_at") or "").strip()
 
 

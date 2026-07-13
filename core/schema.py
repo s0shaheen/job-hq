@@ -56,7 +56,8 @@ HEADERS = {
         "first_seen", "last_seen", "posted",
         "yoe", "seniority", "company_industry", "role_focus", "skills",
         "comp_range", "work_model", "tagged_at",
-        "min_yoe", "interested", "promoted_at", "pushed_at",
+        "min_yoe", "city", "state", "country", "remote", "market",
+        "interested", "promoted_at", "pushed_at",
     ],
     # The scout's historical columns, verbatim, then bot-owned helpers.
     "scout_jobs": [

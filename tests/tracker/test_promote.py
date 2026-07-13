@@ -20,7 +20,7 @@ def test_promotes_interested_row_with_feed_fields():
     hq = fake_hq()
     _feed(hq)
     counts = promote.run(hq)
-    assert counts == {"promoted": 1, "already": 0}
+    assert counts == {"promoted": 1, "already": 0, "demoted": 0}
     rows = _pipeline_rows(hq)
     assert len(rows) == 1
     row = rows[0]
@@ -40,7 +40,7 @@ def test_rerun_is_idempotent():
     _feed(hq)
     promote.run(hq)
     counts = promote.run(hq)                     # promoted_at latch skips the row
-    assert counts == {"promoted": 0, "already": 0}
+    assert counts == {"promoted": 0, "already": 0, "demoted": 0}
     assert len(_pipeline_rows(hq)) == 1
 
 
@@ -49,7 +49,7 @@ def test_key_already_in_pipeline_only_stamps_feed():
     hq.tab("pipeline").append_records([{"key": "greenhouse-1", "status": "Applied"}])
     _feed(hq)
     counts = promote.run(hq)
-    assert counts == {"promoted": 0, "already": 1}
+    assert counts == {"promoted": 0, "already": 1, "demoted": 0}
     rows = _pipeline_rows(hq)
     assert len(rows) == 1 and rows[0]["status"] == "Applied"   # untouched
     assert hq.tab("feed").records()[0]["promoted_at"] != ""
@@ -60,7 +60,7 @@ def test_not_interested_rows_untouched(interested):
     hq = fake_hq()
     _feed(hq, interested=interested)
     counts = promote.run(hq)
-    assert counts == {"promoted": 0, "already": 0}
+    assert counts == {"promoted": 0, "already": 0, "demoted": 0}
     assert not _pipeline_rows(hq)
     assert hq.tab("feed").records()[0]["promoted_at"] == ""
 
@@ -70,3 +70,26 @@ def test_checkbox_truthiness_variants(interested):
     hq = fake_hq()
     _feed(hq, interested=interested)
     assert promote.run(hq)["promoted"] == 1
+
+
+def test_unticking_removes_only_untouched_queued_row():
+    from core.fakes import fake_hq
+    from tracker import promote
+    hq = fake_hq()
+    feed, pipe = hq.tab("feed"), hq.tab("pipeline")
+    feed.append_records([
+        {"key": "greenhouse-1", "company": "A", "title": "PM", "interested": "TRUE"},
+        {"key": "greenhouse-2", "company": "B", "title": "PM", "interested": "TRUE"},
+    ])
+    promote.run(hq)
+    assert len(pipe.records()) == 2
+    # human advanced B; both get un-ticked
+    pipe.set_by_key("greenhouse-2", {"status": "Applied"})
+    feed.set_by_key("greenhouse-1", {"interested": "FALSE"})
+    feed.set_by_key("greenhouse-2", {"interested": "FALSE"})
+    counts = promote.run(hq)
+    assert counts["demoted"] == 1
+    keys = [r["key"] for r in pipe.records()]
+    assert keys == ["greenhouse-2"]                       # advanced row survives
+    f1 = [r for r in feed.records() if r["key"] == "greenhouse-1"][0]
+    assert f1["promoted_at"] == ""                        # latch re-armed for re-tick

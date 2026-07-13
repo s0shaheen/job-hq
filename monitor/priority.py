@@ -27,6 +27,7 @@ from core.sheets import HQ, today as _today
 from monitor import jobcontent, tagging
 from monitor.fetchers import get_jobs_for
 from monitor.filtering import title_matches
+from monitor import geo
 from monitor.models import Job
 
 _TRUEISH = ("TRUE", "1", "YES")
@@ -129,7 +130,7 @@ def run(hq: HQ, *, session: requests.Session | None = None, fetch=get_jobs_for,
             "key": j.id, "company": j.company or name, "title": j.title,
             "location": j.location or "", "url": j.url, "status": "New",
             "first_seen": today, "last_seen": today, "posted": j.posted or "",
-            "pushed_at": now,
+            "pushed_at": now, **geo.enrich(j.location or ""),
         } for j in fresh])
         for j in fresh:
             hq.log("priority", "new_role", key=j.id, detail=f"{name} — {j.title}")

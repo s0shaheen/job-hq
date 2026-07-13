@@ -85,6 +85,7 @@ function setupTriggers() {
   ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger("runCapture").timeBased().everyMinutes(15).create();
   ScriptApp.newTrigger("sendDigest").timeBased().everyDays(1).atHour(7).create();
+  ScriptApp.newTrigger("onFeedEdit").forSpreadsheet(SHEET_ID).onEdit().create();
 }
 
 /** The 15-minute pass over recent mail. */
@@ -545,4 +546,68 @@ function squish_(s) { return String(s || "").replace(/\s+/g, " ").trim(); }
 function cellStr_(v) {
   if (v instanceof Date) return Utilities.formatDate(v, "America/Chicago", "yyyy-MM-dd");
   return String(v || "").trim();
+}
+
+
+// ====================== INSTANT interested -> Pipeline ======================
+// Installable onEdit: ticking `interested` on Feed lands the job in Pipeline
+// the moment you tap it (the 2-hourly Python promote stays as the backstop —
+// both check the key first, so they can never double-add). Un-ticking removes
+// the Pipeline row ONLY while it is still an untouched bot row (source
+// monitor, status Queued); anything you advanced is never deleted.
+
+const FEED_GID = 441306220;   // hq.config.yaml: tabs.feed
+const PIPELINE_GID = 0;       // hq.config.yaml: tabs.pipeline
+
+function onFeedEdit(e) {
+  try {
+    if (!e || !e.range) return;
+    const sh = e.range.getSheet();
+    if (sh.getSheetId() !== FEED_GID || e.range.getRow() < 2) return;
+    const fh = sheetHeaderMap_(sh);
+    if (e.range.getColumn() !== fh["interested"]) return;
+    const row = e.range.getRow();
+    const key = String(sh.getRange(row, fh["key"]).getValue()).trim();
+    if (!key) return;
+    const checked = e.range.getValue() === true ||
+      String(e.range.getValue()).trim().toUpperCase() === "TRUE";
+
+    const pipe = getTabByGid_(PIPELINE_GID);
+    const ph = sheetHeaderMap_(pipe);
+    const last = pipe.getLastRow();
+    const keys = last > 1
+      ? pipe.getRange(2, ph["key"], last - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); })
+      : [];
+    const at = keys.indexOf(key);
+
+    if (checked && at === -1) {
+      const g = function (h) { return fh[h] ? String(sh.getRange(row, fh[h]).getValue()).trim() : ""; };
+      const out = new Array(Object.keys(ph).reduce(function (m, k) { return Math.max(m, ph[k]); }, 0)).fill("");
+      const set = function (h, v) { if (ph[h]) out[ph[h] - 1] = v; };
+      set("key", key); set("company", g("company")); set("title", g("title"));
+      set("url", g("url")); set("location", g("location")); set("source", "monitor");
+      set("status", "Queued"); set("min_yoe", g("min_yoe")); set("comp", g("comp_range"));
+      set("last_activity", Utilities.formatDate(new Date(), "America/Chicago", "yyyy-MM-dd"));
+      pipe.appendRow(out);
+      sh.getRange(row, fh["promoted_at"]).setValue(nowStamp_());
+    } else if (!checked && at !== -1) {
+      const prow = at + 2;
+      const st = String(pipe.getRange(prow, ph["status"]).getValue()).trim();
+      const src = String(pipe.getRange(prow, ph["source"]).getValue()).trim();
+      if (st === "Queued" && src === "monitor") {
+        pipe.deleteRow(prow);
+        if (fh["promoted_at"]) sh.getRange(row, fh["promoted_at"]).setValue("");
+      }
+    }
+  } catch (err) {
+    Logger.log("onFeedEdit: " + err);   // never throw from an edit trigger
+  }
+}
+
+/** Row-1 header map for any sheet (name -> 1-based column). */
+function sheetHeaderMap_(sh) {
+  const hdr = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  const map = {};
+  hdr.forEach(function (h, i) { h = String(h).trim(); if (h && !(h in map)) map[h] = i + 1; });
+  return map;
 }

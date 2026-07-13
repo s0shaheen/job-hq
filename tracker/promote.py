@@ -27,10 +27,28 @@ def run(hq: HQ) -> dict:
     feed = hq.tab("feed")
     pipeline = hq.tab("pipeline")
     present = set(pipeline.key_index())
-    counts = {"promoted": 0, "already": 0}
+    counts = {"promoted": 0, "already": 0, "demoted": 0}
     for r in feed.records():
         key = (r.get("key") or "").strip()
-        if not key or not _truthy(r.get("interested", "")) or (r.get("promoted_at") or "").strip():
+        if not key:
+            continue
+        # un-ticked after promotion -> withdraw, but ONLY an untouched bot row
+        # (source=monitor, still Queued). Anything a human advanced stays.
+        if not _truthy(r.get("interested", "")) and (r.get("promoted_at") or "").strip():
+            if key in present:
+                prow = next((p for p in pipeline.records() if p.get("key") == key), None)
+                if prow and prow.get("status") == "Queued" and prow.get("source") == "monitor":
+                    rownum = pipeline.key_index().get(key)
+                    if rownum:
+                        pipeline.ws.delete_rows(rownum)
+                        present.discard(key)
+                        counts["demoted"] += 1
+                        hq.log("promote", "demoted", key, r.get("company", ""))
+                        feed.set_by_key(key, {"promoted_at": ""})
+            else:
+                feed.set_by_key(key, {"promoted_at": ""})   # stale latch: re-arm
+            continue
+        if not _truthy(r.get("interested", "")) or (r.get("promoted_at") or "").strip():
             continue
         if key in present:
             counts["already"] += 1

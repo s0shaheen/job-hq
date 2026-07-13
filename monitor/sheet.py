@@ -17,6 +17,7 @@ from typing import Any, Protocol, TYPE_CHECKING
 
 from core import schema
 from core.sheets import RowNotFound, SchemaAnomaly
+from monitor import geo
 from monitor.models import Company, JobRecord
 
 if TYPE_CHECKING:
@@ -130,9 +131,30 @@ class HQFeedStore:
             if t is not None:   # discovery-time tags ride the append itself
                 row.update(_tag_values(t))
                 row["tagged_at"] = today
+            row.update(geo.enrich(r.location, row.get("work_model", "")))
             rows.append(row)
         self._hq.tab("feed").append_records(rows)
         self._hq.log("monitor", "feed_append", detail=f"{len(rows)} rows ({len(tags)} tagged inline)")
+
+    def fill_missing_geo(self, chunk: int = 400) -> int:
+        """Nightly backfill: derive city/state/country/remote/market for feed
+        rows that lack them (pre-geo rows, or work_model arrived after append).
+        Deterministic — no LLM. Chunked to keep batch payloads sane."""
+        rows = self._hq.tab("feed").records()
+        todo: dict[str, dict[str, Any]] = {}
+        for r in rows:
+            key = r.get(schema.KEY, "")
+            if not key or r.get("market", "").strip():
+                continue
+            if not (r.get("location", "").strip() or r.get("work_model", "").strip()):
+                continue
+            todo[key] = dict(geo.enrich(r.get("location", ""), r.get("work_model", "")))
+        keys = list(todo)
+        for i in range(0, len(keys), chunk):
+            self._bulk_set_by_key({k: todo[k] for k in keys[i:i + chunk]})
+        if todo:
+            self._hq.log("review", "geo_fill", detail=f"{len(todo)} rows")
+        return len(todo)
 
     def _bulk_set_by_key(self, values_by_key: dict[str, dict[str, Any]]) -> None:
         """Batched keyed writes on the feed tab: rows located fresh, one
