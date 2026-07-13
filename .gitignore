@@ -1,6 +1,7 @@
 # Secrets — never commit
 .env
 *.env
+!.env.example
 service-account*.json
 gcp-key*.json
 credentials.json
@@ -14,5 +15,25 @@ venv/
 .pytest_cache/
 *.egg-info/
 
-# OS
+# Node / editor app
+editor/node_modules/
+editor/.next/
+editor/.vercel/
+
+# Personal source conversations — local only, never push
+Claude-Exporter-Career-*/
+
+# Resume build artifacts
+resume/out/
+resume/out-alt/
+resume/.alt.cv.yaml
+**/.build/
+*.aux *.log *.fdb_latexmk *.fls *.synctex.gz
+
+# macOS / Drive noise
 .DS_Store
+Icon?
+.playwright-mcp/
+
+# Google Doc pointer (meaningless off this machine)
+*.gdoc
