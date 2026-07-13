@@ -98,7 +98,15 @@ def test_happy_path_maps_statuses(monkeypatch):
 
     cfg = [r["key"] for r in hq.tab("config").records()]
     assert "heartbeat_simplify" in cfg
-    assert any(r["actor"] == "simplify" for r in hq.tab("log").records())
+    log = hq.tab("log").records()
+    assert any(r["action"] == "sync" for r in log if r["actor"] == "simplify")
+    # per-key audit rows feed the digest's Status changes section
+    created = [r for r in log if r["actor"] == "simplify" and r["action"] == "created"]
+    assert [r["key"] for r in created] == ["greenhouse-333"]
+    assert "Interview" in created[0]["detail"]
+    suggested = [r for r in log if r["actor"] == "simplify" and r["action"] == "suggested"]
+    assert [r["key"] for r in suggested] == ["greenhouse-222"]
+    assert "Rejected" in suggested[0]["detail"]
 
     _, kw = session.posts[0]
     assert kw["headers"]["x-csrf-token"] == "tok"

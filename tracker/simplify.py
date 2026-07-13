@@ -156,11 +156,15 @@ def _apply(hq: HQ, items: list[dict]) -> dict:
                                 "applied_via": "simplify", "applied_date": x["date"]})
                 appended_keys.add(key)
                 counts["created"] += 1
+                hq.log("simplify", "created", key,
+                       f"{x['company']} — {CREATE_STATUS[name]}")
         elif name in SUGGEST_STATUS:
             if key in have:
                 pipe.set_by_key(key, {"suggested_status": SUGGEST_STATUS[name]},
                                 only_if_blank=True)
                 counts["suggested"] += 1
+                hq.log("simplify", "suggested", key,
+                       f"{x['company']} -> {SUGGEST_STATUS[name]}")
             else:
                 counts["skipped"] += 1   # never create a row just to bury it
         else:

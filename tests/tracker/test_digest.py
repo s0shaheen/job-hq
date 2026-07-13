@@ -37,9 +37,17 @@ def _seeded_hq():
         {"key": "greenhouse-5", "company": "SmallCo", "title": "PM Core",
          "url": "u5", "first_seen": TODAY, "min_yoe": ""}])        # unknown YoE passes
     hq.tab("log").append_records([
-        {"ts": "2026-07-13 11:00:00Z", "actor": "join", "action": "advance",
+        {"ts": "2026-07-13 11:00:00Z", "actor": "join", "action": "advanced_status",
          "key": "greenhouse-2", "detail": "Applied -> Screen"},
-        {"ts": "2026-07-11 11:00:00Z", "actor": "join", "action": "advance",
+        {"ts": "2026-07-13 09:00:00Z", "actor": "scout", "action": "applied_created",
+         "key": "greenhouse-7", "detail": "ScoutCo"},
+        {"ts": "2026-07-13 08:00:00Z", "actor": "simplify", "action": "suggested",
+         "key": "greenhouse-8", "detail": "GoneCo -> Rejected"},
+        {"ts": "2026-07-13 08:30:00Z", "actor": "join", "action": "kept_status",
+         "key": "greenhouse-2", "detail": "human status wins"},
+        {"ts": "2026-07-13 08:30:00Z", "actor": "simplify", "action": "sync",
+         "key": "", "detail": "counts summary, not a status event"},
+        {"ts": "2026-07-11 11:00:00Z", "actor": "join", "action": "advanced_status",
          "key": "greenhouse-2", "detail": "old"},
         {"ts": "2026-07-13 10:00:00Z", "actor": "monitor", "action": "append",
          "key": "greenhouse-9", "detail": "not a status event"}])
@@ -71,8 +79,12 @@ def test_digest_sections_and_row(spies):
     assert body.index("BigCo") < body.index("SmallCo")     # priority-first
     assert "★" in body
 
-    assert s["changes"] == 1
+    assert s["changes"] == 3                # join advance + scout create + simplify suggest
     assert "Applied -> Screen" in body and "old" not in body
+    assert "applied_created" in body and "greenhouse-7" in body
+    assert "GoneCo -> Rejected" in body
+    assert "kept_status" not in body and "human status wins" not in body
+    assert "counts summary" not in body     # simplify's sync roll-up stays out
 
     assert s["needs_review"] == 2
     assert "Thanks for applying" in body and "matched fine" not in body
@@ -91,7 +103,7 @@ def test_digest_sections_and_row(spies):
     assert rows[0]["sent_at"] == ""         # Apps Script's field, untouched
 
     title, _body, kw = pushes[0]
-    assert title == "HQ digest — 3 new roles, 1 updates"
+    assert title == "HQ digest — 3 new roles, 3 updates"
     assert kw["click"].endswith("/TESTID")
 
     assert s["capture_silent"] is True
@@ -119,6 +131,12 @@ def test_all_green_health_no_capture_alert(spies):
     fresh = "2026-07-13 11:45:00Z"
     hq.tab("config").append_records(
         [{"key": f"heartbeat_{n}", "value": fresh} for n in digest.CADENCE_HOURS])
+    # daily jobs run once a day: a ~23h-old monitor beat is healthy, not a warning
+    hq.tab("config").set_by_key(
+        "heartbeat_monitor", {"value": "2026-07-12 13:00:00Z"}, key_header="key")
+    # priority pauses overnight (~7h gap) — must not warn either
+    hq.tab("config").set_by_key(
+        "heartbeat_priority", {"value": "2026-07-13 04:45:00Z"}, key_header="key")
     s = digest.run(hq, now=NOW)
     assert "✅ all systems ran on schedule" in s["body"]
     assert "⚠" not in s["body"]

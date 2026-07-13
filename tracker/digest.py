@@ -20,9 +20,11 @@ from core.sheets import HQ, RowNotFound
 
 # Expected run cadence per heartbeat, in hours; a heartbeat older than 2x its
 # cadence is flagged. capture=1.5 so 2x aligns with the 3h ops watchdog.
+# priority=4 because its hourly cron pauses overnight (~7h max healthy gap);
+# 2x=8h absorbs that plus one dropped run without a false alarm.
 # Keep in sync with .github/workflows cron schedules.
 CADENCE_HOURS = {
-    "monitor": 2, "review": 24, "priority": 2, "tracker": 2, "wide": 24,
+    "monitor": 24, "review": 24, "priority": 4, "tracker": 2, "wide": 24,
     "simplify": 24, "selfheal": 24, "snapshot": 24, "capture": 1.5,
 }
 CAPTURE_ALERT_HOURS = 3
@@ -71,6 +73,10 @@ def _sec_new_roles(hq: HQ, cfg, today_s: str) -> tuple[list[str], int]:
 
 
 def _sec_status_changes(hq: HQ, now: _dt.datetime) -> list[str]:
+    """Substring (not prefix) match: the live actions are join's
+    advanced_status/suggested_status/created_from_email, scout's
+    applied_created, simplify's created/suggested — while kept_status,
+    matched, applied_backfilled and sync summaries stay out."""
     cutoff = now - _dt.timedelta(hours=24)
     lines = []
     for r in hq.tab("log").records():
@@ -79,7 +85,8 @@ def _sec_status_changes(hq: HQ, now: _dt.datetime) -> list[str]:
             continue
         if r.get("actor", "") not in ("join", "scout", "simplify"):
             continue
-        if not r.get("action", "").startswith(("advance", "suggest", "create")):
+        action = r.get("action", "")
+        if not any(tok in action for tok in ("advance", "suggest", "create")):
             continue
         key = f" `{r['key']}`" if r.get("key") else ""
         detail = r.get("detail", "").strip()

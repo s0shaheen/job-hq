@@ -165,8 +165,10 @@ function sendDigest() {
     const rows = tab.getDataRange().getValues();
     for (let r = rows.length - 1; r >= 1; r--) {
       const body = String(rows[r][hmap.body - 1] || "").trim();
-      const sent = String(rows[r][hmap.sent_at - 1] || "").trim();
-      if (!body || sent) continue;
+      if (!body) continue; // blank/partial row — keep scanning upward
+      // Only the NEWEST digest is ever a candidate: if it's already sent,
+      // stop — an older unsent row below it must never go out late.
+      if (String(rows[r][hmap.sent_at - 1] || "").trim()) break;
       const date = cellStr_(rows[r][hmap.date - 1]) ||
                    Utilities.formatDate(new Date(), "America/Chicago", "yyyy-MM-dd");
       MailApp.sendEmail(OWNER_EMAIL, "Job Search HQ — " + date, body,

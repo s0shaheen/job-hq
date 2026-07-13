@@ -54,7 +54,7 @@ from core import notify
 from core.jobkeys import is_strong, job_key
 from core.sheets import HQ, RowNotFound, today as _today
 from monitor.filtering import title_matches
-from monitor.priority import known_keys, min_yoe_of, priority_companies
+from monitor.priority import known_keys, priority_companies
 
 ACTOR_ID = "memo23/apify-hiring-cafe-scraper"
 MAX_TERMS = 6

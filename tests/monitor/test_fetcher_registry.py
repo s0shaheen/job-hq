@@ -29,6 +29,34 @@ def test_registry_routes_amazon_with_search(monkeypatch):
     assert captured["search"] == "product manager"
 
 
+def test_registry_covers_every_bigtech_family():
+    import monitor.fetchers as f
+    for ats in ("eightfold", "oraclehcm", "google", "apple", "goldman",
+                "radancy", "amazon", "workday"):
+        assert ats in f._REGISTRY
+        assert ats in f._SEARCH_ATS   # all corpus-wide boards take the search hint
+
+
+@pytest.mark.parametrize("ats,slug", [
+    ("eightfold", "paypal.eightfold.ai|paypal.com"),
+    ("oraclehcm", "eeho.fa.us2.oraclecloud.com|CX_45001"),
+    ("google", "google"),
+    ("apple", "apple"),
+    ("goldman", "goldman"),
+    ("radancy", "jobs.intuit.com"),
+])
+def test_registry_routes_bigtech_with_search(monkeypatch, ats, slug):
+    captured = {}
+    def fake(got_slug, company, session, search="product"):
+        captured["slug"], captured["search"] = got_slug, search
+        return []
+    import monitor.fetchers as f
+    monkeypatch.setitem(f._REGISTRY, ats, fake)
+    get_jobs_for(ats, slug, "X", session=None, workday_search="product manager")
+    assert captured["slug"] == slug
+    assert captured["search"] == "product manager"
+
+
 def test_registry_routes_apify(monkeypatch):
     captured = {}
     def fake_apify_get(slug, company, session, token):

@@ -25,12 +25,16 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     ("greenhouse", re.compile(r"[?&]gh_jid=(\d+)")),
     ("lever",      re.compile(rf"jobs(?:\.eu)?\.lever\.co/[^/]+/({_UUID})")),
     ("ashby",      re.compile(rf"jobs\.ashbyhq\.com/[^/]+/({_UUID})")),
-    ("smartrecruiters", re.compile(r"jobs\.smartrecruiters\.com/[^/]+/(\d{6,})")),
-    ("workday",    re.compile(r"myworkdayjobs\.com/.*[_/-](JR[-_]?\d+|R-?\d{4,}|REQ[-_]?\d{3,})(?:[/?#]|$)", re.I)),
+    # token "smartrec" matches the fetcher/seed-csv ats value (system-wide id vocabulary)
+    ("smartrec",   re.compile(r"jobs\.smartrecruiters\.com/[^/]+/(\d{6,})")),
+    # (?:-\d+)? swallows posting-variant suffixes (Adobe _R168260-1); REF\d+W = Visa-style ids
+    ("workday",    re.compile(r"myworkdayjobs\.com/.*[_/-](JR[-_]?\d+|R-?\d{4,}|REQ[-_]?\d{3,}|REF\d{4,}[A-Z]?)(?:-\d+)?(?:[/?#]|$)", re.I)),
     ("amazon",     re.compile(r"amazon\.jobs/(?:[a-z]{2}(?:-[a-z]{2})?/)?jobs/(\d{5,})")),
     ("oraclehcm",  re.compile(r"oraclecloud\.com/.*/job/(\d+)")),
     ("google",     re.compile(r"google\.com/about/careers/applications/jobs/results/(\d{9,})")),
     ("apple",      re.compile(r"jobs\.apple\.com/[a-z-]+/details/(\d{6,})")),
+    ("goldman",    re.compile(r"higher\.gs\.com/roles/(\d+)")),
+    ("radancy",    re.compile(r"jobs\.intuit\.com/job/(?:[^/]+/)+(\d{6,})(?:[/?#]|$)")),
     ("eightfold",  re.compile(r"eightfold\.ai/careers.*[?&]pid=(\d{10,})")),
     ("eightfold",  re.compile(r"(?:explore\.jobs\.netflix\.net|apply\.careers\.microsoft\.com)/careers.*[?&]pid=(\d{10,})")),
     ("eightfold",  re.compile(r"(?:eightfold\.ai|jobs\.netflix\.net)/careers/job/(\d{10,})")),

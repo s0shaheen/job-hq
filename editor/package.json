@@ -9,7 +9,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --test scripts/"
+    "test": "node --test \"scripts/**/*.test.mjs\""
   },
   "engines": {
     "node": ">=20.9"

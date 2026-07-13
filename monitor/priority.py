@@ -15,7 +15,6 @@ slow or failing JD fetch/LLM call must never delay the signal.
 from __future__ import annotations
 
 import os
-import re
 import sys
 import traceback
 from dataclasses import dataclass, field
@@ -38,12 +37,6 @@ Tagger = Callable[[Job, str], Optional[tagging.Tags]]
 def truthy(v: str | None) -> bool:
     """Sheet-checkbox truth, same parse the monitor has always used."""
     return str(v or "").strip().upper() in _TRUEISH
-
-
-def min_yoe_of(yoe: str) -> str:
-    """'5+' -> '5', '3-5' -> '3', 'unstated'/'' -> ''. Feeds the YoE push gate."""
-    m = re.search(r"\d+", yoe or "")
-    return m.group(0) if m else ""
 
 
 def known_keys(hq: HQ) -> set[str]:
@@ -160,7 +153,7 @@ def run(hq: HQ, *, session: requests.Session | None = None, fetch=get_jobs_for,
                     "yoe": t.yoe, "seniority": t.seniority,
                     "company_industry": t.company_industry, "role_focus": t.role_focus,
                     "skills": t.skills, "comp_range": t.comp_range,
-                    "work_model": t.work_model, "min_yoe": min_yoe_of(t.yoe),
+                    "work_model": t.work_model, "min_yoe": t.min_yoe,
                     "tagged_at": today,
                 })
                 s.tagged += 1

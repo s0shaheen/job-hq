@@ -10,12 +10,20 @@ priority,notes). Sources, in order:
      F500 tech). Hints pin known slugs so one request verifies instead of ~20
      guessing.
 
+Families probed: greenhouse, ashby, lever, smartrecruiters ("smartrec"),
+workday, oraclehcm, eightfold, radancy — each probe mirrors the corresponding
+monitor/fetchers/ endpoint so a resolved slug is guaranteed fetchable. Names
+verified as dead ends (acquired, shut down, or on unsupported ATS families)
+live in SKIP_KNOWN and are never probed.
+
 Politeness: <=1 req/s per host (every Workday tenant is its own host), browser
 UA, 10s timeouts. Parallel across hosts up to 8 workers.
 
 Checkpointing: the output csv itself is the resolved checkpoint and a sidecar
 state json caches unresolved names + reasons, so re-runs only probe new names.
-Delete the state file to force a full re-probe of past failures.
+Use --retry-unresolved (or delete the state file) to re-probe past failures —
+transient network errors are cached as unresolved, so a final retry pass is
+part of the normal workflow.
 
 False-positive guard: name-derived slug guesses that don't encode ~the whole
 name (first word, first two words) are only accepted when the ATS response
@@ -52,7 +60,8 @@ CATEGORIES = MON / "candidate_companies.csv"
 BIGTECH_CSV = MON / "companies.bigtech.csv"   # other agent's file; dedupe if present
 
 HEADER = ["name", "ats", "slug", "monitor", "seeded", "priority", "notes"]
-ALLOWED_ATS = {"greenhouse", "ashby", "lever", "smartrec", "workday", "oraclehcm"}
+ALLOWED_ATS = {"greenhouse", "ashby", "lever", "smartrec", "workday", "oraclehcm",
+               "eightfold", "radancy"}
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 TIMEOUT = 10
@@ -69,12 +78,57 @@ BIGTECH_NAMES = {
 
 # Stripe-tier obvious targets for a platform/fintech-infra PM, marked
 # priority=TRUE when (and only when) they resolve. Hard cap ~15.
+# (groq dropped 2026-07-13: board is live on job-boards.greenhouse.io but its
+# public Job Board API is disabled, so the pipeline can't monitor it.)
 PRIORITY_NAMES = {
-    "capital one", "xai", "groq", "circle", "kraken", "paxos", "chainalysis",
+    "capital one", "xai", "circle", "kraken", "paxos", "chainalysis",
     "trm labs", "checkout.com", "bill.com", "melio", "column", "increase",
     "highnote", "palantir",
 }
 PRIORITY_CAP = 15
+
+# Names we deliberately do NOT probe — verified dead ends (2026-07-13 audit).
+# The wide discovery layer still covers these employers' postings; they just
+# can't be first-class registry rows. Keys casefolded; values are the reason
+# reported in docs/companies-expansion.md.
+SKIP_KNOWN: dict[str, str] = {
+    "adept": "team acqui-hired into Amazon (2024); no independent job board",
+    "ai21 labs": "hires via Comeet (unsupported ATS family)",
+    "bamboohr": "runs hiring on its own ATS product (unsupported)",
+    "bilt rewards": "hires via Gem (jobs.gem.com/bilt) — unsupported family",
+    "census": "acquired by Fivetran (2025); Fivetran already in the registry",
+    "coda": "merged into Grammarly (2024); Grammarly row covers it",
+    "discover": "acquired by Capital One (2025); the Capital One row covers it",
+    "eigenlayer": "no API-accessible board (greenhouse eigenlabs/eigenlayer 404)",
+    "goodrx": "no API-accessible board found on any supported family",
+    "groq": "greenhouse board live but public Job Board API disabled (v1 404)",
+    "hashicorp": "acquired by IBM (2025); hiring moved into IBM Avature (unsupported)",
+    "grammarly": "greenhouse v1 API disabled (job-boards only; now under Superhuman)",
+    "hugging face": "hires via Workable (unsupported family)",
+    "joby aviation": "hires via iCIMS (careers-jobyaviation.icims.com) — unsupported",
+    "klarna": "hires via Deel-hosted careers (jobs.deel.com/klarna) — unsupported",
+    "moneylion": "acquired by Gen Digital (2025); no API-accessible board",
+    "moveworks": "acquired by ServiceNow (2025); ServiceNow already in seed",
+    "liveblocks": "no standard board found (tiny team, custom careers page)",
+    "modular": "greenhouse board (modularai) live but public Job Board API disabled",
+    "monday.com": "hires via Comeet (unsupported family)",
+    "outerbounds": "no standard board found (tiny team)",
+    "patronus ai": "no API-accessible board found",
+    "plenty": "wound down (Chapter 11, 2025)",
+    "privy": "acquired by Stripe (2025); Stripe already in the seed registry",
+    "qdrant": "hires via join.com (unsupported family)",
+    "replicate": "no API-accessible board found (custom careers page)",
+    "retool": "greenhouse board (retool) live on job-boards but public v1 API disabled",
+    "rippling": "runs hiring on its own ATS (unsupported)",
+    "sakana ai": "Japan-based, hires via Herp (unsupported; non-US)",
+    "shopify": "moved off SmartRecruiters to a custom careers platform",
+    "tome": "pivoted + tiny; former ashby board gone",
+    "turso": "no standard board found (tiny team)",
+    "verily": "no API-accessible board found (greenhouse verily 404)",
+    "weights & biases": "acquired by CoreWeave (2025); CoreWeave already in seed",
+    "windsurf": "acquired by Cognition (2025); Cognition already in seed",
+    "xata": "no standard board found (tiny team)",
+}
 
 # Words safe to drop when deriving slug guesses ("Patronus AI" -> patronus).
 STRIP_WORDS = {"inc", "llc", "corp", "corporation", "co", "company", "labs",
@@ -219,10 +273,13 @@ def probe_workday(slug: str) -> bool:
 
 
 def probe_oraclehcm(slug: str) -> bool:
-    """slug = '{host}|{CX_n}'. Bogus sites still 200 — require >=1 requisition."""
+    """slug = '{host}|{CX_n}'. Bogus sites still 200 — require >=1 requisition.
+    expand=requisitionList.secondaryLocations mirrors monitor/fetchers/oracle_hcm.py:
+    without exactly that expand the response omits requisitionList entirely."""
     host, site = slug.split("|", 1)
     r = _get(f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions"
-             f"?onlyData=true&expand=requisitionList&finder=findReqs;siteNumber={site},limit=1")
+             f"?onlyData=true&expand=requisitionList.secondaryLocations"
+             f"&finder=findReqs;siteNumber={site},limit=1")
     if r is None or r.status_code != 200:
         return False
     try:
@@ -230,6 +287,46 @@ def probe_oraclehcm(slug: str) -> bool:
     except ValueError:
         return False
     return bool(items and (items[0].get("requisitionList") or []))
+
+
+def probe_eightfold(slug: str) -> bool:
+    """slug = '{host}|{domain}' (monitor/fetchers/eightfold.py). SmartApply
+    tenants answer /api/apply/v2/jobs; PCSX-only tenants 403 there and answer
+    /api/pcsx/search instead — both count as a working tenant."""
+    host, domain = slug.split("|", 1)
+    r = _get(f"https://{host}/api/apply/v2/jobs?domain={domain}&query=product&start=0&num=1")
+    if r is not None and r.status_code == 200:
+        try:
+            d = r.json()
+        except ValueError:
+            return False
+        return isinstance(d, dict) and ("positions" in d or "count" in d)
+    if r is not None and r.status_code == 403 and "Not authorized for PCSX" in r.text:
+        r2 = _get(f"https://{host}/api/pcsx/search?domain={domain}&query=product&location=&start=0")
+        if r2 is None or r2.status_code != 200:
+            return False
+        try:
+            return isinstance(r2.json().get("data"), dict)
+        except ValueError:
+            return False
+    return False
+
+
+def probe_radancy(slug: str) -> bool:
+    """slug = site host (monitor/fetchers/radancy.py). SearchResultsModuleName
+    is load-bearing; a real Radancy site answers JSON with a 'results' key
+    (hasJobs may be false when the keyword has no hits — still a valid site)."""
+    r = _get(f"https://{slug}/search-jobs/results?ActiveFacetID=0&CurrentPage=1"
+             f"&RecordsPerPage=15&Keywords=product&SearchType=5&SortCriteria=0"
+             f"&SortDirection=1&SearchResultsModuleName=Search%20Results"
+             f"&SearchFiltersModuleName=Search%20Filters")
+    if r is None or r.status_code != 200:
+        return False
+    try:
+        d = r.json()
+    except ValueError:
+        return False
+    return isinstance(d, dict) and "results" in d
 
 
 PROBES = {"greenhouse": probe_greenhouse, "ashby": probe_ashby,
@@ -297,17 +394,20 @@ def resolve_workday_hint(hint: str) -> str | None:
     means instance right / site wrong (keep guessing sites here)."""
     hint = hint.strip().rstrip("/")
     if hint.startswith("http"):
-        m = re.search(r"(?:https?://)?([a-z0-9_-]+)\.(wd\d+)\.(?:myworkdayjobs|myworkdaysite)\.com/(?:[a-z]{2}-[A-Z]{2}/)?(?:recruiting/[a-z0-9._-]+/)?([^/?#]+)", hint)
+        # Two host shapes: {tenant}.wdN.myworkdayjobs.com/{site} and the
+        # tenant-less wdN.myworkdaysite.com/recruiting/{tenant}/{site} — the
+        # leading tenant group must be optional or the second never matches.
+        m = re.search(
+            r"(?:https?://)?(?:([a-z0-9_-]+)\.)?(wd\d+)\.(?:myworkdayjobs|myworkdaysite)\.com/"
+            r"(?:[a-z]{2}-[A-Z]{2}/)?(?:recruiting/([a-z0-9._-]+)/)?([^/?#]+)",
+            hint)
         if not m:
             return None
-        tenant, wd, site = m.group(1), m.group(2), m.group(3)
-        # myworkdaysite hosts look like wd1.myworkdaysite.com/recruiting/{tenant}/{site}
-        if tenant.startswith("wd"):
-            m2 = re.search(r"recruiting/([a-z0-9._-]+)/([^/?#]+)", hint)
-            if not m2:
+        tenant, wd, rec_tenant, site = m.groups()
+        if not tenant:
+            if not rec_tenant:
                 return None
-            tenant, site = m2.group(1), m2.group(2)
-            wd = m.group(2)
+            tenant = rec_tenant
         hint = f"{tenant}.{wd}.myworkdayjobs.com/{site}"
 
     host, _, site = hint.partition("/")
@@ -316,7 +416,7 @@ def resolve_workday_hint(hint: str) -> str | None:
     wd = parts[1] if len(parts) > 1 and re.fullmatch(r"wd\d+", parts[1]) else None
     instances = ([wd] + [i for i in WD_INSTANCES if i != wd]) if wd else list(WD_INSTANCES)
     sites = [site] if site else [
-        tenant.capitalize(), "External", "Careers", "External_Career_Site",
+        tenant.capitalize(), tenant, "External", "Careers", "External_Career_Site",
         f"{tenant}careers", "External_Careers", "Search", tenant.upper(),
     ]
 
@@ -348,6 +448,12 @@ def resolve_hints(name: str, hints: tuple[str, ...]) -> tuple[str, str] | None:
         elif kind == "oraclehcm":
             if probe_oraclehcm(val):
                 return "oraclehcm", val
+        elif kind == "eightfold":
+            if probe_eightfold(val):
+                return "eightfold", val
+        elif kind == "radancy":
+            if probe_radancy(val):
+                return "radancy", val
     return None
 
 
@@ -357,56 +463,29 @@ def resolve_hints(name: str, hints: tuple[str, ...]) -> tuple[str, str] | None:
 
 CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     # ---- re-probes of candidates_unresolved.csv with better guesses
+    # (names verified as dead ends live in SKIP_KNOWN, not here)
     ("DoorDash", "consumer-marketplace", ("greenhouse:doordashusa",)),
     ("Snap", "consumer-marketplace", ("workday:snapchat.wd1.myworkdayjobs.com/snap", "workday:snap.wd5.myworkdayjobs.com")),
-    ("Klarna", "fintech", ("lever:klarna", "smartrec:klarna")),
     ("Eventbrite", "consumer-marketplace", ("greenhouse:eventbriteinc",)),
-    ("GoodRx", "healthtech", ("greenhouse:goodrx",)),
     ("Sourcegraph", "dev-tools", ("greenhouse:sourcegraph91",)),
     ("Hims & Hers", "healthtech", ("greenhouse:himshers",)),
-    ("HashiCorp", "dev-tools", ("greenhouse:hashicorp",)),
     ("Pulumi", "dev-tools", ("greenhouse:pulumicorporation",)),
-    ("Census", "data-infra", ("ashby:census", "greenhouse:census")),
-    ("Outerbounds", "data-infra", ("ashby:outerbounds",)),
-    ("Replicate", "ai-infra", ("ashby:replicate",)),
-    ("Convex", "data-infra", ("ashby:convex",)),
-    ("Xata", "data-infra", ("ashby:xata",)),
-    ("Weights & Biases", "ai-infra", ("greenhouse:wandb", "ashby:wandb", "lever:wandb")),
-    ("Turso", "data-infra", ("ashby:turso",)),
+    ("Convex", "data-infra", ("ashby:convex-dev",)),
     ("Hinge", "consumer-marketplace", ("lever:hinge", "greenhouse:hinge")),
-    ("Liveblocks", "dev-tools", ("ashby:liveblocks",)),
-    ("Tome", "ai-apps", ("ashby:tome",)),
-    ("Sakana AI", "ai-labs", ("ashby:sakana-ai", "greenhouse:sakanaai")),
-    ("Adept", "ai-labs", ("greenhouse:adept",)),
-    ("Patronus AI", "ai-infra", ("ashby:patronusai", "greenhouse:patronusai")),
-    ("monday.com", "enterprise-saas", ("greenhouse:mondaycom",)),
-    ("Coda", "enterprise-saas", ("greenhouse:coda",)),
-    ("Rippling", "enterprise-saas", ()),
-    ("BambooHR", "enterprise-saas", ()),
-    ("Shopify", "enterprise-saas", ("smartrec:shopify",)),
-    ("Procore", "enterprise-saas", ("smartrec:procoretechnologies", "greenhouse:procoretechnologies")),
+    ("Procore", "enterprise-saas", ("workday:procore.wd12.myworkdayjobs.com/Procore_External_Careers",)),
     ("Box", "enterprise-saas", ("greenhouse:boxinc",)),
-    ("Pipe", "fintech", ("ashby:pipe",)),
-    ("Privy", "fintech-crypto", ("ashby:privy",)),
-    ("Bilt Rewards", "fintech", ("greenhouse:biltrewards", "ashby:bilt")),
+    ("Pipe", "fintech", ("greenhouse:pipetechnologies",)),
     ("Optimism", "fintech-crypto", ("greenhouse:oplabs", "ashby:oplabs")),
-    ("EigenLayer", "fintech-crypto", ("greenhouse:eigenlabs", "ashby:eigenlabs")),
-    ("Tempus AI", "healthtech", ("greenhouse:tempus", "workday:tempus.wd5.myworkdayjobs.com")),
+    ("Tempus AI", "healthtech", ("workday:tempus.wd5.myworkdayjobs.com/Tempus_Careers",)),
     ("Commonwealth Fusion Systems", "climate-frontier", ("lever:cfsenergy",)),
-    ("Joby Aviation", "climate-frontier", ("lever:jobyaviation", "greenhouse:jobyaviation")),
-    ("Plenty", "climate-frontier", ("greenhouse:plentyag", "lever:plenty")),
     ("Recursion Pharma", "healthtech", ("greenhouse:recursionpharmaceuticals",)),
-    ("Hugging Face", "ai-infra", ()),   # workable — unsupported family
 
     # ---- AI labs / AI infra
     ("xAI", "ai-labs", ("greenhouse:xai", "ashby:xai")),
-    ("Groq", "ai-infra", ("greenhouse:groq", "ashby:groq")),
     ("Baseten", "ai-infra", ("ashby:baseten",)),
     ("Fireworks AI", "ai-infra", ("ashby:fireworks-ai", "greenhouse:fireworksai")),
-    ("Modular", "ai-infra", ("ashby:modular", "greenhouse:modular")),
     ("SambaNova Systems", "ai-infra", ("greenhouse:sambanovasystems",)),
     ("Etched", "ai-infra", ("ashby:etched",)),
-    ("AI21 Labs", "ai-labs", ()),
     ("Contextual AI", "ai-labs", ("ashby:contextual-ai",)),
     ("Inflection AI", "ai-labs", ("greenhouse:inflectionai",)),
     ("Luma AI", "ai-labs", ("lever:luma-ai", "ashby:lumalabs")),
@@ -419,7 +498,6 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("Deepgram", "ai-infra", ("ashby:deepgram", "greenhouse:deepgram")),
     ("Weaviate", "ai-infra", ()),
     ("Chroma", "ai-infra", ("ashby:trychroma",)),
-    ("Qdrant", "ai-infra", ()),
     ("Zilliz", "ai-infra", ("greenhouse:zilliz",)),
     ("LanceDB", "ai-infra", ("ashby:lancedb",)),
     ("Galileo", "ai-infra", ("ashby:galileo", "greenhouse:rungalileo")),
@@ -446,11 +524,9 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("Vapi", "ai-apps", ("ashby:vapi",)),
     ("Sesame", "ai-labs", ("ashby:sesame",)),
     ("Speak", "ai-apps", ("ashby:speak",)),
-    ("Grammarly", "ai-apps", ("greenhouse:grammarly",)),
-    ("Moveworks", "ai-apps", ("greenhouse:moveworks",)),
     ("Aisera", "ai-apps", ("greenhouse:aiserajobs",)),
     ("Forethought", "ai-apps", ("ashby:forethought",)),
-    ("Ada", "ai-apps", ("greenhouse:adasupport", "lever:ada")),
+    ("Ada", "ai-apps", ("greenhouse:ada18",)),
     ("ASAPP", "ai-apps", ("greenhouse:asapp",)),
     ("Observe.AI", "ai-apps", ("greenhouse:observeai",)),
     ("Clari", "ai-apps", ("greenhouse:clari",)),
@@ -461,7 +537,6 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("Jasper", "ai-apps", ("greenhouse:jasperai", "lever:jasper")),
     ("Typeface", "ai-apps", ("ashby:typeface",)),
     ("Gamma", "ai-apps", ("ashby:gamma",)),
-    ("Windsurf", "ai-apps", ("ashby:codeium", "ashby:windsurf")),
     ("Lindy", "ai-apps", ("ashby:lindy",)),
     ("CrewAI", "ai-infra", ("ashby:crewai",)),
     ("OpenRouter", "ai-infra", ("ashby:openrouter",)),
@@ -469,10 +544,9 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("World Labs", "ai-labs", ("ashby:worldlabs",)),
     ("Skild AI", "ai-labs", ("ashby:skildai",)),
     ("Waymo", "ai-labs", ("greenhouse:waymo",)),
-    ("Verily", "healthtech", ("greenhouse:verily",)),
     ("Zoox", "ai-labs", ("lever:zoox", "greenhouse:zoox")),
     ("Aurora Innovation", "ai-labs", ("greenhouse:aurorainnovation",)),
-    ("Applied Intuition", "ai-infra", ("greenhouse:appliedintuition",)),
+    ("Applied Intuition", "ai-infra", ("ashby:applied",)),
     ("Nuro", "ai-labs", ("greenhouse:nuro",)),
     ("Shield AI", "defense", ("greenhouse:shieldai",)),
     ("Saronic", "defense", ("ashby:saronic",)),
@@ -480,20 +554,19 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
 
     # ---- fintech: payments / infra / banking-as-a-service
     ("Fiserv", "fintech-infra", ("workday:fiserv.wd5.myworkdayjobs.com/EXT",)),
-    ("FIS", "fintech-infra", ()),
+    ("FIS", "fintech-infra", ("workday:fis.wd5.myworkdayjobs.com/SearchJobs", "workday:fis.wd5.myworkdayjobs.com")),
     ("Global Payments", "fintech-infra", ("workday:globalpayments.wd5.myworkdayjobs.com", "workday:tsys.wd1.myworkdayjobs.com")),
-    ("Jack Henry", "fintech-infra", ("workday:jackhenry.wd5.myworkdayjobs.com", "workday:jackhenry.wd1.myworkdayjobs.com")),
+    ("Jack Henry", "fintech-infra", ("radancy:careers.jackhenry.com",)),
     ("nCino", "fintech-infra", ("workday:ncino.wd5.myworkdayjobs.com", "greenhouse:ncino")),
-    ("Q2", "fintech-infra", ("workday:q2ebanking.wd5.myworkdayjobs.com", "greenhouse:q2ebanking")),
-    ("Alkami", "fintech-infra", ("greenhouse:alkami", "lever:alkami")),
+    ("Q2", "fintech-infra", ("workday:q2ebanking.wd5.myworkdayjobs.com/Q2",)),
+    ("Alkami", "fintech-infra", ("workday:alkami.wd12.myworkdayjobs.com/Alkami",)),
     ("Blend", "fintech-infra", ("greenhouse:blend", "greenhouse:blendlabs")),
     ("Upstart", "fintech", ("greenhouse:upstart",)),
-    ("LendingClub", "fintech", ("greenhouse:lendingclub",)),
+    ("Happen (LendingClub)", "fintech", ("workday:lendingclub.wd1.myworkdayjobs.com/External",)),
     ("Oportun", "fintech", ("greenhouse:oportun",)),
     ("Self Financial", "fintech", ("greenhouse:self",)),
     ("Mission Lane", "fintech", ("greenhouse:missionlane",)),
     ("Dave", "fintech", ("greenhouse:dave", "lever:dave")),
-    ("MoneyLion", "fintech", ("greenhouse:moneylion", "lever:moneylion")),
     ("Empower Finance", "fintech", ("ashby:empower", "lever:empower")),
     ("Albert", "fintech", ("greenhouse:albert", "lever:albert")),
     ("Varo Bank", "fintech", ("greenhouse:varomoney", "lever:varomoney")),
@@ -515,7 +588,7 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("Kraken", "fintech-crypto", ("lever:kraken", "greenhouse:kraken123")),
     ("Gemini", "fintech-crypto", ("greenhouse:gemini",)),
     ("BitGo", "fintech-crypto", ("greenhouse:bitgo",)),
-    ("Chainalysis", "fintech-crypto", ("greenhouse:chainalysis",)),
+    ("Chainalysis", "fintech-crypto", ("ashby:chainalysis-careers",)),
     ("TRM Labs", "fintech-crypto", ("ashby:trm", "greenhouse:trmlabs")),
     ("CoinTracker", "fintech-crypto", ("ashby:cointracker",)),
     ("TaxBit", "fintech-crypto", ("greenhouse:taxbit",)),
@@ -546,7 +619,8 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("Treasury Prime", "fintech-infra", ("greenhouse:treasuryprime",)),
     ("Synctera", "fintech-infra", ("greenhouse:synctera", "ashby:synctera")),
     ("Highnote", "fintech-infra", ("greenhouse:highnote", "ashby:highnote")),
-    ("Zeta", "fintech-infra", ("greenhouse:zeta", "lever:zeta")),
+    # Zeta: greenhouse:zeta 404s and lever:zeta can't be identity-confirmed
+    # (lever exposes no org name; "zeta" could be Zeta Global) — left out.
     ("Green Dot", "fintech", ("workday:greendot.wd5.myworkdayjobs.com", "workday:greendotcorp.wd5.myworkdayjobs.com")),
     ("Pathward", "fintech", ("workday:pathward.wd5.myworkdayjobs.com",)),
     ("Worldpay", "fintech-infra", ("workday:worldpay.wd5.myworkdayjobs.com", "workday:worldpay.wd1.myworkdayjobs.com")),
@@ -609,20 +683,19 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("FNB Corp", "bank", ("workday:fnbcorp.wd1.myworkdayjobs.com/FNBCORP",)),
     ("PNC", "bank", ("workday:pnc.wd5.myworkdayjobs.com", "workday:pncbank.wd5.myworkdayjobs.com")),
     ("Truist", "bank", ("workday:truist.wd1.myworkdayjobs.com", "workday:truist.wd5.myworkdayjobs.com")),
-    ("Citizens", "bank", ("workday:citizens.wd5.myworkdayjobs.com", "workday:citizensbank.wd5.myworkdayjobs.com")),
-    ("Huntington National Bank", "bank", ("workday:huntington.wd5.myworkdayjobs.com", "workday:tcfbank.wd1.myworkdayjobs.com")),
-    ("Regions Bank", "bank", ("workday:regions.wd5.myworkdayjobs.com", "workday:regionsbank.wd5.myworkdayjobs.com")),
-    ("Synchrony", "bank", ("workday:synchrony.wd1.myworkdayjobs.com", "workday:synchrony.wd5.myworkdayjobs.com")),
+    ("Citizens", "bank", ("radancy:jobs.citizensbank.com",)),
+    ("Huntington National Bank", "bank", ("radancy:careers.huntington.com", "workday:huntington.wd5.myworkdayjobs.com")),
+    ("Regions Bank", "bank", ("radancy:careers.regions.com", "workday:regions.wd5.myworkdayjobs.com")),
+    ("Synchrony", "bank", ("radancy:careers.synchrony.com", "workday:synchrony.wd1.myworkdayjobs.com")),
     ("BMO US", "bank", ("workday:bmo.wd3.myworkdayjobs.com", "workday:bmo.wd1.myworkdayjobs.com")),
     ("HSBC US", "bank", ("workday:hsbc.wd3.myworkdayjobs.com", "workday:hsbc.wd1.myworkdayjobs.com")),
     ("Santander US", "bank", ("workday:santander.wd3.myworkdayjobs.com", "workday:santander.wd1.myworkdayjobs.com")),
-    ("USAA", "bank", ("workday:usaa.wd1.myworkdayjobs.com", "workday:usaa.wd5.myworkdayjobs.com")),
-    ("State Street", "bank", ("workday:statestreet.wd1.myworkdayjobs.com", "workday:statestreet.wd5.myworkdayjobs.com")),
+    ("USAA", "bank", ("workday:usaa.wd1.myworkdayjobs.com/USAAJOBSWD",)),
+    ("State Street", "bank", ("radancy:careers.statestreet.com", "workday:statestreet.wd1.myworkdayjobs.com")),
     ("First Citizens Bank", "bank", ("workday:fcb.wd1.myworkdayjobs.com", "workday:firstcitizens.wd5.myworkdayjobs.com")),
     ("Comerica", "bank", ("workday:comerica.wd5.myworkdayjobs.com", "workday:comerica.wd1.myworkdayjobs.com")),
-    ("Vanguard", "bank", ("workday:vanguard.wd5.myworkdayjobs.com", "workday:vanguard.wd1.myworkdayjobs.com")),
-    ("BlackRock", "bank", ("workday:blackrock.wd1.myworkdayjobs.com", "workday:blackrock.wd5.myworkdayjobs.com")),
-    ("Discover", "bank", ("workday:discover.wd5.myworkdayjobs.com", "workday:discover.wd1.myworkdayjobs.com")),
+    ("Vanguard", "bank", ("radancy:www.vanguardjobs.com", "radancy:vanguardjobs.com")),
+    ("BlackRock", "bank", ("radancy:careers.blackrock.com",)),
     ("BNY Mellon", "bank", ("oraclehcm:eofe.fa.us2.oraclecloud.com|CX_1001",)),
     ("Navy Federal Credit Union", "bank", ("oraclehcm:fa-etbx-saasfaprod1.fa.ocs.oraclecloud.com|CX_1",)),
     ("RLI Corp", "insurance", ("workday:rlicorp.wd1.myworkdayjobs.com/RLI_Corp_Careers",)),
@@ -634,10 +707,10 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("Northwestern Mutual", "insurance", ("workday:northwesternmutual.wd5.myworkdayjobs.com", "workday:nm.wd1.myworkdayjobs.com")),
     ("MetLife", "insurance", ("workday:metlife.wd5.myworkdayjobs.com", "workday:metlife.wd1.myworkdayjobs.com")),
     ("Prudential Financial", "insurance", ("workday:pru.wd5.myworkdayjobs.com", "workday:prudential.wd5.myworkdayjobs.com")),
-    ("The Hartford", "insurance", ("workday:thehartford.wd5.myworkdayjobs.com", "workday:thehartford.wd1.myworkdayjobs.com")),
+    ("The Hartford", "insurance", ("radancy:careers.thehartford.com", "workday:thehartford.wd5.myworkdayjobs.com")),
     ("Travelers", "insurance", ("workday:travelers.wd5.myworkdayjobs.com", "workday:travelers.wd1.myworkdayjobs.com")),
-    ("Nationwide", "insurance", ("workday:nationwide.wd1.myworkdayjobs.com", "workday:nationwide.wd5.myworkdayjobs.com")),
-    ("Humana", "insurance", ("workday:humana.wd5.myworkdayjobs.com", "workday:humana.wd1.myworkdayjobs.com")),
+    ("Nationwide", "insurance", ("radancy:careers.nationwide.com", "workday:nationwide.wd1.myworkdayjobs.com")),
+    ("Humana", "insurance", ("radancy:careers.humana.com", "workday:humana.wd5.myworkdayjobs.com")),
     ("Elevance Health", "insurance", ("workday:elevancehealth.wd1.myworkdayjobs.com", "workday:antheminc.wd1.myworkdayjobs.com")),
     ("Centene", "insurance", ("workday:centene.wd5.myworkdayjobs.com", "workday:centene.wd1.myworkdayjobs.com")),
     ("Root Insurance", "insurance", ("greenhouse:root", "lever:root")),
@@ -664,11 +737,11 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("Gilead Sciences", "pharma", ("workday:gilead.wd1.myworkdayjobs.com/gileadcareers",)),
     ("Vertex Pharmaceuticals", "pharma", ("workday:vrtx.wd5.myworkdayjobs.com/vertex_careers",)),
     ("Zoetis", "pharma", ("workday:zoetis.wd5.myworkdayjobs.com/zoetis",)),
-    ("Merck", "pharma", ("workday:merck.wd5.myworkdayjobs.com", "workday:msd.wd5.myworkdayjobs.com")),
+    ("Merck", "pharma", ("radancy:jobs.merck.com", "workday:merck.wd5.myworkdayjobs.com")),
     ("AbbVie", "pharma", ("workday:abbvie.wd5.myworkdayjobs.com", "workday:abbvie.wd1.myworkdayjobs.com")),
     ("Amgen", "pharma", ("workday:amgen.wd1.myworkdayjobs.com", "workday:amgen.wd5.myworkdayjobs.com")),
-    ("Bristol Myers Squibb", "pharma", ("workday:bristolmyerssquibb.wd5.myworkdayjobs.com", "workday:bms.wd5.myworkdayjobs.com")),
-    ("Moderna", "pharma", ("workday:modernatx.wd1.myworkdayjobs.com", "workday:modernatx.wd5.myworkdayjobs.com")),
+    ("Bristol Myers Squibb", "pharma", ("workday:bristolmyerssquibb.wd5.myworkdayjobs.com/BMS",)),
+    ("Moderna", "pharma", ("workday:modernatx.wd1.myworkdayjobs.com/M_tx",)),
     ("Regeneron", "pharma", ("workday:regeneron.wd1.myworkdayjobs.com", "workday:regeneron.wd5.myworkdayjobs.com")),
     ("Biogen", "pharma", ("workday:biogen.wd1.myworkdayjobs.com", "workday:biogen.wd5.myworkdayjobs.com")),
     ("CVS Health", "healthtech", ("workday:cvshealth.wd1.myworkdayjobs.com/CVS_Health_Careers",)),
@@ -719,7 +792,7 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("Orca Security", "security", ("greenhouse:orcasecurity",)),
     ("Sysdig", "security", ("greenhouse:sysdig",)),
     ("Aqua Security", "security", ("greenhouse:aquasecurity",)),
-    ("Palo Alto Networks", "security", ("smartrec:paloaltonetworks", "smartrec:PaloAltoNetworks3")),
+    ("Palo Alto Networks", "security", ("smartrec:PaloAltoNetworks2", "smartrec:paloaltonetworks", "smartrec:PaloAltoNetworks3")),
     ("Zscaler", "security", ("smartrec:zscaler", "greenhouse:zscaler")),
     ("Netskope", "security", ("greenhouse:netskope",)),
     ("Rapid7", "security", ("workday:rapid7.wd5.myworkdayjobs.com", "greenhouse:rapid7")),
@@ -796,7 +869,6 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("Dagster Labs", "data-infra", ("ashby:dagster", "greenhouse:dagsterlabs")),
     ("Astronomer", "data-infra", ("greenhouse:astronomer", "ashby:astronomer")),
     ("Temporal", "data-infra", ("greenhouse:temporaltechnologies", "ashby:temporal")),
-    ("Retool", "dev-tools", ("greenhouse:retool", "ashby:retool")),
     ("Superblocks", "dev-tools", ("ashby:superblocks",)),
     ("Paragon", "dev-tools", ("ashby:useparagon", "greenhouse:paragon")),
     ("New Relic", "observability", ("workday:newrelic.wd5.myworkdayjobs.com", "greenhouse:newrelic")),
@@ -928,7 +1000,7 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("Motorola Solutions", "f500-tech", ("workday:motorolasolutions.wd1.myworkdayjobs.com", "workday:motorolasolutions.wd5.myworkdayjobs.com")),
     ("HPE", "f500-tech", ("workday:hpe.wd5.myworkdayjobs.com", "workday:hpe.wd1.myworkdayjobs.com")),
     ("T-Mobile", "f500-tech", ("workday:tmobile.wd1.myworkdayjobs.com", "workday:tmobileusa.wd1.myworkdayjobs.com")),
-    ("Disney", "f500-tech", ("workday:disney.wd5.myworkdayjobs.com/disneycareer", "workday:disney.wd5.myworkdayjobs.com")),
+    ("Disney", "f500-tech", ("workday:disney.wd5.myworkdayjobs.com/disneycareer", "workday:disney.wd5.myworkdayjobs.com", "radancy:jobs.disneycareers.com")),
     ("Warner Bros. Discovery", "f500-tech", ("workday:wbd.wd5.myworkdayjobs.com/global", "workday:warnerbros.wd5.myworkdayjobs.com")),
     ("Electronic Arts", "f500-tech", ("workday:ea.wd1.myworkdayjobs.com/EA_Careers", "greenhouse:electronicarts")),
     ("Sonos", "f500-tech", ("greenhouse:sonos",)),
@@ -943,6 +1015,49 @@ CURATED: list[tuple[str, str, tuple[str, ...]]] = [
     ("Relativity Space", "defense", ("greenhouse:relativity",)),
     ("Vast", "defense", ("ashby:vast",)),
     ("Rivian", "f500-tech", ("workday:rivian.wd5.myworkdayjobs.com", "greenhouse:rivian")),
+
+    # ---- expansion round 2 (2026-07-13): xlsx re-audit, market infrastructure,
+    # credit bureaus, Chicago cluster, plus eightfold/radancy tenants verified
+    # against the fetchers' own endpoints.
+    ("Fidelity Investments", "fintech", ("workday:https://wd1.myworkdaysite.com/en-US/recruiting/fmr/FidelityCareers",)),
+    ("Charles Schwab", "bank", ("workday:schwab.wd1.myworkdayjobs.com", "workday:charlesschwab.wd1.myworkdayjobs.com")),
+    ("Morgan Stanley", "bank", ("eightfold:morganstanley.eightfold.ai|morganstanley.com",)),
+    ("CME Group", "fintech-infra", ("workday:cmegroup.wd1.myworkdayjobs.com", "workday:cmegroup.wd5.myworkdayjobs.com")),
+    ("Cboe Global Markets", "fintech-infra", ("workday:cboe.wd1.myworkdayjobs.com", "workday:cboe.wd5.myworkdayjobs.com")),
+    ("Nasdaq", "fintech-infra", ("workday:nasdaq.wd1.myworkdayjobs.com/Global_External_Site", "workday:nasdaq.wd1.myworkdayjobs.com")),
+    ("Intercontinental Exchange", "fintech-infra", ("workday:theice.wd5.myworkdayjobs.com", "workday:ice.wd5.myworkdayjobs.com")),
+    ("DTCC", "fintech-infra", ("workday:dtcc.wd1.myworkdayjobs.com", "workday:dtcc.wd5.myworkdayjobs.com")),
+    ("Broadridge", "fintech-infra", ("workday:broadridge.wd5.myworkdayjobs.com", "workday:broadridge.wd1.myworkdayjobs.com")),
+    ("Morningstar", "fintech-infra", ("workday:morningstar.wd5.myworkdayjobs.com", "workday:morningstar.wd1.myworkdayjobs.com")),
+    ("S&P Global", "fintech-infra", ("workday:spgi.wd5.myworkdayjobs.com", "workday:spglobal.wd5.myworkdayjobs.com")),
+    ("Moody's", "fintech-infra", ("workday:moodys.wd4.myworkdayjobs.com", "workday:moodys.wd1.myworkdayjobs.com")),
+    ("MSCI", "fintech-infra", ("workday:msci.wd1.myworkdayjobs.com", "workday:msci.wd5.myworkdayjobs.com")),
+    ("Tradeweb", "fintech-infra", ("workday:tradeweb.wd1.myworkdayjobs.com", "workday:tradeweb.wd5.myworkdayjobs.com")),
+    ("Experian", "fintech-infra", ("smartrec:experian",)),
+    ("Equifax", "fintech-infra", ("workday:equifax.wd5.myworkdayjobs.com", "workday:equifax.wd1.myworkdayjobs.com")),
+    ("TransUnion", "fintech-infra", ("workday:transunion.wd5.myworkdayjobs.com", "workday:transunion.wd1.myworkdayjobs.com")),
+    ("FICO", "fintech-infra", ("workday:fico.wd1.myworkdayjobs.com", "workday:fico.wd5.myworkdayjobs.com")),
+    ("Amount", "fintech-infra", ("greenhouse:amount",)),
+    ("Enova", "fintech", ("greenhouse:enova",)),
+    ("AlphaSense", "enterprise-saas", ("greenhouse:alphasense",)),
+    ("Sprout Social", "enterprise-saas", ("greenhouse:sproutsocial",)),
+    ("G2", "enterprise-saas", ("greenhouse:g2crowd",)),
+    ("Qualcomm", "f500-tech", ("eightfold:careers.qualcomm.com|qualcomm.com",)),
+    ("Boeing", "f500-tech", ("radancy:jobs.boeing.com",)),
+    ("AT&T", "f500-tech", ("radancy:www.att.jobs",)),
+    ("Verizon", "f500-tech", ("workday:verizon.wd12.myworkdayjobs.com", "workday:verizon.wd1.myworkdayjobs.com", "workday:verizon.wd5.myworkdayjobs.com")),
+    ("Eli Lilly", "pharma", ("workday:lilly.wd5.myworkdayjobs.com", "workday:elilillyandcompany.wd5.myworkdayjobs.com")),
+    ("Abbott", "healthtech", ("workday:abbott.wd5.myworkdayjobs.com/abbottcareers", "workday:abbott.wd5.myworkdayjobs.com")),
+    ("AstraZeneca", "pharma", ("workday:astrazeneca.wd3.myworkdayjobs.com/Careers", "workday:astrazeneca.wd3.myworkdayjobs.com")),
+    ("Takeda", "pharma", ("workday:takeda.wd3.myworkdayjobs.com/External", "workday:takeda.wd3.myworkdayjobs.com")),
+    ("Walgreens", "f500-tech", ("workday:wba.wd3.myworkdayjobs.com/External", "workday:wba.wd3.myworkdayjobs.com", "workday:walgreens.wd5.myworkdayjobs.com")),
+    ("McDonald's", "f500-tech", ("workday:mcdonalds.wd1.myworkdayjobs.com", "workday:mcd.wd1.myworkdayjobs.com")),
+    ("Applied Materials", "f500-tech", ("workday:amat.wd1.myworkdayjobs.com/External", "workday:amat.wd1.myworkdayjobs.com")),
+    ("Stryker", "healthtech", ("workday:stryker.wd1.myworkdayjobs.com", "workday:stryker.wd5.myworkdayjobs.com")),
+    ("Cigna", "insurance", ("workday:cigna.wd5.myworkdayjobs.com", "workday:cigna.wd1.myworkdayjobs.com")),
+    ("Marsh McLennan", "insurance", ("workday:mmc.wd1.myworkdayjobs.com", "workday:marshmclennan.wd1.myworkdayjobs.com")),
+    ("First National Bank of Omaha", "bank", ("workday:firstnational.wd5.myworkdayjobs.com/fnbocareers",)),
+    ("Johnson & Johnson", "pharma", ("workday:jj.wd5.myworkdayjobs.com/JJ",)),
 ]
 
 
@@ -1018,7 +1133,8 @@ def _work_items() -> list[tuple[str, str, tuple[str, ...]]]:
         name = (r.get("name") or "").strip()
         if name and name.casefold() not in items:
             items[name.casefold()] = (name, r.get("category", ""), ())
-    return list(items.values())
+    # verified dead ends never re-probe; docs/companies-expansion.md lists them
+    return [v for k, v in items.items() if k not in SKIP_KNOWN]
 
 
 def _resolve_one(name: str, hints: tuple[str, ...]) -> tuple[str, str] | None:
@@ -1132,6 +1248,10 @@ def cmd_validate(sample_frac: float) -> int:
             ok = probe_workday(slug)
         elif ats == "oraclehcm":
             ok = probe_oraclehcm(slug)
+        elif ats == "eightfold":
+            ok = probe_eightfold(slug)
+        elif ats == "radancy":
+            ok = probe_radancy(slug)
         else:
             ok = False
         print(f"  {name}: {ats}/{slug} -> {'OK' if ok else 'FAIL'}", file=sys.stderr)

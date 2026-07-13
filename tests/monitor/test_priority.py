@@ -1,6 +1,6 @@
 from core.fakes import fake_hq
 from monitor.models import Job
-from monitor.priority import known_keys, min_yoe_of, run, truthy
+from monitor.priority import known_keys, run, truthy
 from monitor.tagging import Tags
 
 TODAY = "2026-07-13"
@@ -45,13 +45,9 @@ class PushSpy:
         return True
 
 
-def test_truthy_and_min_yoe_helpers():
+def test_truthy_helper():
     assert truthy("TRUE") and truthy(" yes ") and truthy("1")
     assert not truthy("") and not truthy("FALSE") and not truthy(None)
-    assert min_yoe_of("5+") == "5"
-    assert min_yoe_of("3-5") == "3"
-    assert min_yoe_of("") == ""
-    assert min_yoe_of("unstated") == ""
 
 
 def test_new_role_appended_and_pushed_immediately():
@@ -141,6 +137,20 @@ def test_push_fires_before_tagging_and_ignores_yoe_gate():
     assert r["yoe"] == "10+" and r["min_yoe"] == "10"
     assert r["seniority"] == "Director" and r["skills"] == "APIs; SQL"
     assert r["tagged_at"] == TODAY
+
+
+def test_implausible_yoe_writes_blank_min_yoe():
+    """min_yoe comes from Tags.min_yoe (0-30 cap), same as the daily monitor
+    and nightly review — junk like a year must land as unknown, not 2026."""
+    hq = _hq(companies=[company()])
+    jobs = [Job("greenhouse", "4", "Plaid", "Product Manager", "SF", "http://4")]
+
+    def tagger(job, slug):
+        return Tags(yoe="class of 2026")
+
+    run(hq, fetch=_fetch({"Plaid": jobs}), push=PushSpy(), tagger=tagger, today=TODAY)
+    r = hq.tab("feed").records()[0]
+    assert r["min_yoe"] == "" and r["tagged_at"] == TODAY
 
 
 def test_tagging_failure_never_blocks_the_push():

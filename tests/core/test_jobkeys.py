@@ -19,6 +19,18 @@ def test_workday_requisition():
     assert k == "workday-JR-123456"
     k2 = job_key("https://blackrock.wd1.myworkdayjobs.com/en-US/BlackRock/job/Senior-Associate_R264872/")
     assert k2 == "workday-R264872"
+    # posting-variant suffix collapses to the base requisition (Adobe/Mastercard style)
+    k3 = job_key("https://adobe.wd5.myworkdayjobs.com/external_experienced/job/San-Jose/PM_R168260-1")
+    assert k3 == "workday-R168260"
+    # Visa-style REF ids
+    k4 = job_key("https://visa.wd5.myworkdayjobs.com/Visa/job/Austin/Product-Manager_REF085011W")
+    assert k4 == "workday-REF085011W"
+
+
+def test_goldman_radancy_smartrec():
+    assert job_key("https://higher.gs.com/roles/168945") == "goldman-168945"
+    assert job_key("https://jobs.intuit.com/job/san-diego/product-manager/27595/82412345") == "radancy-82412345"
+    assert job_key("https://jobs.smartrecruiters.com/Visa/743999912345678-product-manager") == "smartrec-743999912345678"
 
 
 def test_amazon_google_apple_oracle():
