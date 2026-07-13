@@ -80,6 +80,9 @@ def main() -> int:
         hq = HQ.open()
         store = HQFeedStore(hq)
         s = review_feed(store, session=session)
+        geo_n = store.fill_missing_geo()
+        if geo_n:
+            print(f"[review] geo_fill: {geo_n} rows", file=sys.stderr)
         print(f"[review] tagged={s.tagged} skipped_no_jd={s.skipped_no_jd} "
               f"failed={s.failed}", file=sys.stderr)
         hq.heartbeat("review")   # liveness: the sweep ran, whatever it found
