@@ -83,6 +83,10 @@ class FakeWorksheet:
             out.append([[v]] if v != "" else [])
         return out
 
+    def delete_rows(self, start: int, end: int | None = None):
+        end = end or start
+        del self._grid[start - 1:end]
+
     def update(self, values, range_name=None, value_input_option=None):
         # supports ws.update([row], "A1"-style) used by ensure_headers
         m = _A1.match((range_name or "A1").split(":")[0])

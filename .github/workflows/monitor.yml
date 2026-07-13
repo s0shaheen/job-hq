@@ -11,7 +11,7 @@ permissions:
   contents: write          # commits the daily snapshot (keeps cron alive too)
 
 concurrency:
-  group: hq-monitor
+  group: hq-feed-writers
   cancel-in-progress: false
 
 jobs:

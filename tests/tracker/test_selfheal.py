@@ -67,3 +67,22 @@ def test_first_run_without_registry_file_writes_one(tmp_path):
     selfheal.run(hq, reg_path=p)
     reg = yaml.safe_load(p.read_text())
     assert set(reg["tabs"]) == set(schema.TABS)
+
+
+def test_dedupe_keys_keeps_first_and_repairs(monkeypatch):
+    from core.fakes import fake_hq
+    from tracker import selfheal
+    hq = fake_hq(["feed", "pipeline", "log", "config"])
+    t = hq.tab("feed")
+    t.append_records([
+        {"key": "greenhouse-1", "company": "A", "title": "tagged first", "status": "New"},
+        {"key": "greenhouse-2", "company": "B", "status": "New"},
+        {"key": "greenhouse-1", "company": "A", "title": "raced dup", "status": "New"},
+        {"key": "greenhouse-2", "company": "B", "status": "New"},
+    ])
+    repairs = selfheal.dedupe_keys(hq, "feed")
+    assert len(repairs) == 2
+    rows = t.records()
+    assert [r["key"] for r in rows] == ["greenhouse-1", "greenhouse-2"]
+    assert rows[0]["title"] == "tagged first"      # first occurrence kept
+    t.key_index()                                   # no longer raises

@@ -126,6 +126,9 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.seed_jobs }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    concurrency:
+      group: hq-feed-writers   # serialize with monitor/priority/wide — one Feed appender at a time
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

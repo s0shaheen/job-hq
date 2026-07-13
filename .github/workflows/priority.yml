@@ -9,7 +9,7 @@ on:
   workflow_dispatch: {}
 
 concurrency:
-  group: hq-priority
+  group: hq-feed-writers
   cancel-in-progress: false
 
 jobs:

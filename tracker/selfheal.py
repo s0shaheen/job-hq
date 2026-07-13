@@ -19,6 +19,31 @@ from core.sheets import HQ
 from tracker import bootstrap
 
 
+# Tabs whose key column must be unique for keyed writes to work. Duplicate
+# keys freeze every keyed writer (key_index aborts loudly), so self-heal
+# repairs them: keep the FIRST occurrence (oldest — typically the enriched/
+# tagged row), delete later ones bottom-up.
+_KEYED_TABS = ("feed", "pipeline")
+
+
+def dedupe_keys(hq: HQ, logical: str) -> list[str]:
+    tab = hq.tab(logical)
+    kcol = tab.col(schema.KEY)
+    vals = tab.ws.col_values(kcol)
+    seen: set[str] = set()
+    dup_rows: list[tuple[int, str]] = []      # (rownum, key)
+    for rownum, v in enumerate(vals[1:], start=2):
+        v = str(v).strip()
+        if not v:
+            continue
+        if v in seen:
+            dup_rows.append((rownum, v))
+        seen.add(v)
+    for rownum, _ in sorted(dup_rows, reverse=True):   # bottom-up: indices stay valid
+        tab.ws.delete_rows(rownum)
+    return [f"[{logical}] removed duplicate row for key {k!r}" for _, k in dup_rows]
+
+
 def run(hq: HQ, *, reg_path: Path | None = None) -> list[str]:
     reg_path = reg_path or bootstrap.registry_path()
     sh = hq.sh
@@ -34,6 +59,9 @@ def run(hq: HQ, *, reg_path: Path | None = None) -> list[str]:
         owner=reg.get("owner_email", ""),
         sa_email=reg.get("service_account_email", ""),
     )
+
+    for logical in _KEYED_TABS:
+        repairs.extend(dedupe_keys(hq, logical))
 
     # Re-pin gids: assert_structure guarantees every tab exists (recreating by
     # title if a human deleted one), so the live title->gid map is the truth.
