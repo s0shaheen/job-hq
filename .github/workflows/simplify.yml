@@ -1,11 +1,13 @@
-# Daily best-effort Simplify import (saved queue -> Pipeline Inbox rows).
-# Never load-bearing: a dead token alerts once and everything else is
-# unaffected. Re-auth: docs/RUNBOOK.md § Simplify.
+# Twice-daily best-effort Simplify sync (cookie API -> Pipeline), plus the
+# committed CSV export as a second source when present. Ad-hoc trigger: GitHub
+# app -> Actions -> "Simplify import" -> Run workflow. Never load-bearing: a
+# dead token alerts once and everything else is unaffected.
+# Re-auth: docs/RUNBOOK.md § Simplify.
 name: Simplify import
 
 on:
   schedule:
-    - cron: "7 14 * * *"   # ~09:07 America/Chicago
+    - cron: "7 14,23 * * *"   # ~09:07 + ~18:07 America/Chicago
   workflow_dispatch: {}
 
 concurrency:
@@ -21,12 +23,16 @@ jobs:
       - uses: actions/setup-python@v6
         with: { python-version: "3.11", cache: pip }
       - run: pip install -r requirements.txt
-      - name: Import
+      - name: Import (cookie API; skips cleanly until secrets are set)
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SIMPLIFY_AUTH_COOKIE: ${{ secrets.SIMPLIFY_AUTH_COOKIE }}
           SIMPLIFY_CSRF: ${{ secrets.SIMPLIFY_CSRF }}
         run: python -m tracker.simplify
+      - name: Import (committed CSV export, second source)
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python -m tracker.migrate --simplify-csv
       - name: Ops alert on failure
         if: failure()
         run: |
