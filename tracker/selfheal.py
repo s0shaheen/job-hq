@@ -130,6 +130,9 @@ def run(hq: HQ, *, reg_path: Path | None = None) -> list[str]:
     if not reg:
         reg = dict(hq.registry)   # first run in a fresh checkout
 
+    print("[selfheal] live tabs: " +
+          ", ".join(f"{w.title!r}#{w.id}" for w in sh.worksheets()))
+
     repairs = reconcile_renamed(hq, reg)
     # the in-memory HQ must see reconciled gids before any tab access below
     hq.registry["tabs"] = dict(reg.get("tabs") or {})
