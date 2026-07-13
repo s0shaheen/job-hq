@@ -97,8 +97,19 @@ def reconcile_renamed(hq: HQ, reg: dict) -> list[str]:
         if len(cand) == 1:
             tabs["scout_prefs"] = cand[0].id
             sh.del_worksheet(w)
+            orphans.remove(cand[0])
             repairs.append(f"adopted renamed tab {cand[0].title!r} as scout_prefs; "
                            f"deleted its empty recreated duplicate")
+
+    # Stray empties: a tab carrying a logical's DEFAULT title while that
+    # logical's registered gid lives elsewhere — the fossil of a title-based
+    # recreation. Empty means safe to delete.
+    for logical, title in schema.TABS.items():
+        for o in list(orphans):
+            if o.title == title and o.id != tabs.get(logical) and _tab_empty(o):
+                sh.del_worksheet(o)
+                orphans.remove(o)
+                repairs.append(f"deleted stray empty duplicate {title!r}")
     return repairs
 
 
