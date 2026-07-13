@@ -32,14 +32,14 @@ jobs:
           MONITOR_OPS_NTFY_TOPIC: ${{ secrets.MONITOR_OPS_NTFY_TOPIC }}
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
         run: |
-          mkdir -p snapshots
-          python -m src.run
+          mkdir -p monitor/snapshots
+          python -m monitor.run
 
       - name: Commit snapshot (keeps repo active so cron isn't auto-disabled)
         run: |
           git config user.name "job-monitor-bot"
           git config user.email "bot@users.noreply.github.com"
-          git add snapshots/ || true
+          git add monitor/snapshots/ || true
           git commit -m "chore: daily snapshot $(date -u +%Y-%m-%d)" || echo "no changes"
           git push || echo "nothing to push"
 

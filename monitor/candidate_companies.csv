@@ -1,0 +1,131 @@
+name,category
+DoorDash,consumer-marketplace
+Lyft,consumer-marketplace
+Instacart,consumer-marketplace
+Toast,consumer-marketplace
+Klarna,consumer-marketplace
+Snap,consumer-marketplace
+Strava,consumer-marketplace
+Calm,consumer-marketplace
+Headway,consumer-marketplace
+BetterUp,consumer-marketplace
+Whoop,consumer-marketplace
+Sweetgreen,consumer-marketplace
+Klaviyo,consumer-marketplace
+Attentive,consumer-marketplace
+Bumble,consumer-marketplace
+Hinge,consumer-marketplace
+Eventbrite,consumer-marketplace
+GoodRx,consumer-marketplace
+Hims & Hers,consumer-marketplace
+Ro,consumer-marketplace
+Sentry,dev-tools
+Sourcegraph,dev-tools
+Postman,dev-tools
+Replit,dev-tools
+Render,dev-tools
+HashiCorp,dev-tools
+GitLab,dev-tools
+Bitwarden,dev-tools
+Honeycomb,dev-tools
+Grafana Labs,dev-tools
+Pulumi,dev-tools
+JFrog,dev-tools
+PlanetScale,data-infra
+MotherDuck,data-infra
+Cockroach Labs,data-infra
+ClickHouse,data-infra
+Tinybird,data-infra
+Materialize,data-infra
+Fivetran,data-infra
+Airbyte,data-infra
+Census,data-infra
+Sigma Computing,data-infra
+Weights & Biases,data-infra
+Lightning AI,data-infra
+Outerbounds,data-infra
+Replicate,data-infra
+Hugging Face,data-infra
+Convex,data-infra
+Xata,data-infra
+Turso,data-infra
+Inngest,data-infra
+Resend,data-infra
+Liveblocks,data-infra
+Knock,data-infra
+Trigger.dev,data-infra
+Character AI,ai
+Suno,ai
+Stability AI,ai
+Magic,ai
+Imbue,ai
+Sakana AI,ai
+Tome,ai
+Tavus,ai
+Liquid AI,ai
+Pika,ai
+Poolside,ai
+Patronus AI,ai
+Mercor,ai
+OpenEvidence,ai
+Krea,ai
+Adept,ai
+Asana,enterprise-saas
+Smartsheet,enterprise-saas
+monday.com,enterprise-saas
+ClickUp,enterprise-saas
+Coda,enterprise-saas
+Workato,enterprise-saas
+Zapier,enterprise-saas
+Rippling,enterprise-saas
+Remote,enterprise-saas
+BambooHR,enterprise-saas
+Justworks,enterprise-saas
+Iterable,enterprise-saas
+Braze,enterprise-saas
+Customer.io,enterprise-saas
+Calendly,enterprise-saas
+Webflow,enterprise-saas
+Squarespace,enterprise-saas
+Shopify,enterprise-saas
+Procore,enterprise-saas
+Box,enterprise-saas
+Dropbox,enterprise-saas
+Carta,fintech-crypto
+Pipe,fintech-crypto
+Bilt Rewards,fintech-crypto
+Anchorage Digital,fintech-crypto
+Fireblocks,fintech-crypto
+Alchemy,fintech-crypto
+Privy,fintech-crypto
+MoonPay,fintech-crypto
+Phantom,fintech-crypto
+Uniswap Labs,fintech-crypto
+Optimism,fintech-crypto
+Offchain Labs,fintech-crypto
+EigenLayer,fintech-crypto
+OpenSea,fintech-crypto
+Tempus AI,healthtech
+Recursion Pharma,healthtech
+Spring Health,healthtech
+Lyra Health,healthtech
+Maven Clinic,healthtech
+Devoted Health,healthtech
+Oscar Health,healthtech
+Komodo Health,healthtech
+Hinge Health,healthtech
+Omada Health,healthtech
+Watershed,climate-frontier
+Form Energy,climate-frontier
+Helion Energy,climate-frontier
+Commonwealth Fusion Systems,climate-frontier
+KoBold Metals,climate-frontier
+Joby Aviation,climate-frontier
+Archer Aviation,climate-frontier
+Boom Supersonic,climate-frontier
+Astranis,climate-frontier
+Rocket Lab,climate-frontier
+Planet Labs,climate-frontier
+Plenty,climate-frontier
+Twelve,climate-frontier
+Heart Aerospace,climate-frontier

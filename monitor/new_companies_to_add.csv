@@ -1,0 +1,5 @@
+name,ats,slug,monitor,seeded
+Cerebras,greenhouse,cerebrassystems,TRUE,FALSE
+Navan,greenhouse,tripactions,TRUE,FALSE
+Public.com,greenhouse,public,TRUE,FALSE
+Amazon,amazon,amazon,TRUE,FALSE

@@ -1,0 +1,136 @@
+name,ats,slug,monitor,seeded
+1Password,ashby,1password,TRUE,FALSE
+Abridge,ashby,abridge,TRUE,FALSE
+Airwallex,ashby,airwallex,TRUE,FALSE
+Anyscale,ashby,anyscale,TRUE,FALSE
+Ashby,ashby,ashby,TRUE,FALSE
+Braintrust,ashby,braintrust,TRUE,FALSE
+Cedar,ashby,cedar,TRUE,FALSE
+Clay,ashby,claylabs,TRUE,FALSE
+Cognition AI (Devin),ashby,cognition,TRUE,FALSE
+Cohere,ashby,cohere,TRUE,FALSE
+Confluent,ashby,confluent,TRUE,FALSE
+Crusoe,ashby,crusoe,TRUE,FALSE
+Cursor (Anysphere),ashby,cursor,TRUE,FALSE
+DailyPay,ashby,dailypay,TRUE,FALSE
+Decagon,ashby,decagon,TRUE,FALSE
+Deel,ashby,deel,TRUE,FALSE
+Distyl AI,ashby,distyl,TRUE,FALSE
+Drata,ashby,drata,TRUE,FALSE
+ElevenLabs,ashby,elevenlabs,TRUE,FALSE
+Front,ashby,frontcareers,TRUE,FALSE
+Granola,ashby,granola,TRUE,FALSE
+Harvey,ashby,harvey,TRUE,FALSE
+Hebbia,ashby,hebbia-ai,TRUE,FALSE
+Ironclad,ashby,ironcladhq,TRUE,FALSE
+Lambda Labs,ashby,lambda,TRUE,FALSE
+LangChain,ashby,langchain,TRUE,FALSE
+Lemonade,ashby,lemonade,TRUE,FALSE
+Linear,ashby,linear,TRUE,FALSE
+LlamaIndex,ashby,llamaindex,TRUE,FALSE
+Modal,ashby,modal,TRUE,FALSE
+Modern Treasury,ashby,moderntreasury,TRUE,FALSE
+Notable Health,ashby,notable,TRUE,FALSE
+Notion,ashby,notion,TRUE,FALSE
+OpenAI,ashby,openai,TRUE,FALSE
+Orb,ashby,orb,TRUE,FALSE
+Perplexity,ashby,perplexity,TRUE,FALSE
+Persona,ashby,persona,TRUE,FALSE
+Physical Intelligence (PI),ashby,physicalintelligence,TRUE,FALSE
+Pinecone,ashby,pinecone,TRUE,FALSE
+Plaid,ashby,plaid,TRUE,FALSE
+Polymarket,ashby,polymarket,TRUE,FALSE
+Pylon,ashby,pylon,TRUE,FALSE
+Ramp,ashby,ramp,TRUE,FALSE
+Rho,ashby,rho,TRUE,FALSE
+Rillet,ashby,rillet,TRUE,FALSE
+Runway,ashby,runway,TRUE,FALSE
+Sardine,ashby,sardine,TRUE,FALSE
+Sierra,ashby,sierra,TRUE,FALSE
+Skydio,ashby,skydio,TRUE,FALSE
+Socure,ashby,socure,TRUE,FALSE
+Statsig,ashby,statsig,TRUE,FALSE
+Supabase,ashby,supabase,TRUE,FALSE
+Synthesia,ashby,synthesia,TRUE,FALSE
+Tabs,ashby,tabs,TRUE,FALSE
+Unit,ashby,unit,TRUE,FALSE
+Vanta,ashby,vanta,TRUE,FALSE
+Writer,ashby,writer,TRUE,FALSE
+Abnormal Security,greenhouse,abnormalsecurity,TRUE,FALSE
+Adyen,greenhouse,adyen,TRUE,FALSE
+Affirm,greenhouse,affirm,TRUE,FALSE
+Airbnb,greenhouse,airbnb,TRUE,FALSE
+Airtable,greenhouse,airtable,TRUE,FALSE
+Alloy,greenhouse,alloy,TRUE,FALSE
+Amplitude,greenhouse,amplitude,TRUE,FALSE
+Anduril,greenhouse,andurilindustries,TRUE,FALSE
+Anthropic,greenhouse,anthropic,TRUE,FALSE
+Apollo.io,greenhouse,apolloio,TRUE,FALSE
+Arize AI,greenhouse,arizeai,TRUE,FALSE
+Block (Square),greenhouse,block,TRUE,FALSE
+Brex,greenhouse,brex,TRUE,FALSE
+Chime,greenhouse,chime,TRUE,FALSE
+Clear Street,greenhouse,clearstreet,TRUE,FALSE
+Cloudflare,greenhouse,cloudflare,TRUE,FALSE
+CoreWeave,greenhouse,coreweave,TRUE,FALSE
+Cresta,greenhouse,cresta,TRUE,FALSE
+Databricks,greenhouse,databricks,TRUE,FALSE
+Datadog,greenhouse,datadog,TRUE,FALSE
+Discord,greenhouse,discord,TRUE,FALSE
+Duolingo,greenhouse,duolingo,TRUE,FALSE
+Epic Games,greenhouse,epicgames,TRUE,FALSE
+Faire,greenhouse,faire,TRUE,FALSE
+Figma,greenhouse,figma,TRUE,FALSE
+Figure AI,greenhouse,figureai,TRUE,FALSE
+Flexport,greenhouse,flexport,TRUE,FALSE
+Glean,greenhouse,gleanwork,TRUE,FALSE
+Gong,greenhouse,gongio,TRUE,FALSE
+Gusto,greenhouse,gusto,TRUE,FALSE
+Hex,greenhouse,hextechnologies,TRUE,FALSE
+Hightouch,greenhouse,hightouch,TRUE,FALSE
+Intercom,greenhouse,intercom,TRUE,FALSE
+Kalshi,greenhouse,kalshi,TRUE,FALSE
+Lattice,greenhouse,lattice,TRUE,FALSE
+LaunchDarkly,greenhouse,launchdarkly,TRUE,FALSE
+Lithic,greenhouse,lithic,TRUE,FALSE
+Marqeta,greenhouse,marqeta,TRUE,FALSE
+Mercury,greenhouse,mercury,TRUE,FALSE
+Metronome,greenhouse,metronome,TRUE,FALSE
+Mixpanel,greenhouse,mixpanel,TRUE,FALSE
+MongoDB,greenhouse,mongodb,TRUE,FALSE
+Nubank,greenhouse,nubank,TRUE,FALSE
+Okta,greenhouse,okta,TRUE,FALSE
+Pendo,greenhouse,pendo,TRUE,FALSE
+Pinterest,greenhouse,pinterest,TRUE,FALSE
+Reddit,greenhouse,reddit,TRUE,FALSE
+Riot Games,greenhouse,riotgames,TRUE,FALSE
+Robinhood,greenhouse,robinhood,TRUE,FALSE
+Roblox,greenhouse,roblox,TRUE,FALSE
+Scale AI,greenhouse,scaleai,TRUE,FALSE
+SoFi,greenhouse,sofi,TRUE,FALSE
+Stripe,greenhouse,stripe,TRUE,FALSE
+Tailscale,greenhouse,tailscale,TRUE,FALSE
+Tines,greenhouse,tines,TRUE,FALSE
+Together AI,greenhouse,togetherai,TRUE,FALSE
+Trumid,greenhouse,trumid,TRUE,FALSE
+Vercel,greenhouse,vercel,TRUE,FALSE
+Wiz,greenhouse,wizinc,TRUE,FALSE
+dbt Labs,greenhouse,dbtlabsinc,TRUE,FALSE
+Mistral AI,lever,mistral,TRUE,FALSE
+Neon,lever,neon,TRUE,FALSE
+Spotify,lever,spotify,TRUE,FALSE
+Canva,smartrec,canva,TRUE,FALSE
+ServiceTitan,smartrec,servicetitan,TRUE,FALSE
+Snowflake,smartrec,snowflake,TRUE,FALSE
+Uber,smartrec,uber,TRUE,FALSE
+Wise,smartrec,wise,TRUE,FALSE
+Adobe,workday,adobe.wd5.myworkdayjobs.com/external_experienced,TRUE,FALSE
+Atlassian,workday,atlassian.wd5.myworkdayjobs.com/Atlassian,TRUE,FALSE
+CrowdStrike,workday,crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers,TRUE,FALSE
+Nvidia,workday,nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite,TRUE,FALSE
+Salesforce,workday,salesforce.wd12.myworkdayjobs.com/External_Career_Site,TRUE,FALSE
+ServiceNow,workday,servicenow.wd1.myworkdayjobs.com/ServiceNowCareers,TRUE,FALSE
+Cerebras,greenhouse,cerebrassystems,TRUE,FALSE
+Navan,greenhouse,tripactions,TRUE,FALSE
+Public.com,greenhouse,public,TRUE,FALSE
+Amazon,amazon,amazon,TRUE,FALSE

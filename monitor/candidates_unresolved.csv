@@ -1,0 +1,41 @@
+name,category
+DoorDash,consumer-marketplace
+Snap,consumer-marketplace
+Klarna,consumer-marketplace
+Eventbrite,consumer-marketplace
+GoodRx,consumer-marketplace
+Sourcegraph,dev-tools
+Hims & Hers,consumer-marketplace
+HashiCorp,dev-tools
+Pulumi,dev-tools
+Census,data-infra
+Outerbounds,data-infra
+Replicate,data-infra
+Convex,data-infra
+Xata,data-infra
+Weights & Biases,data-infra
+Turso,data-infra
+Hugging Face,data-infra
+Hinge,consumer-marketplace
+Liveblocks,data-infra
+Tome,ai
+Sakana AI,ai
+Adept,ai
+Patronus AI,ai
+monday.com,enterprise-saas
+Coda,enterprise-saas
+Rippling,enterprise-saas
+BambooHR,enterprise-saas
+Shopify,enterprise-saas
+Procore,enterprise-saas
+Box,enterprise-saas
+Pipe,fintech-crypto
+Privy,fintech-crypto
+Bilt Rewards,fintech-crypto
+Optimism,fintech-crypto
+EigenLayer,fintech-crypto
+Tempus AI,healthtech
+Commonwealth Fusion Systems,climate-frontier
+Joby Aviation,climate-frontier
+Plenty,climate-frontier
+Recursion Pharma,healthtech
