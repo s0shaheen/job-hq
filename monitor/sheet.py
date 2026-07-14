@@ -136,7 +136,7 @@ class HQFeedStore:
         self._hq.tab("feed").append_records(rows)
         self._hq.log("monitor", "feed_append", detail=f"{len(rows)} rows ({len(tags)} tagged inline)")
 
-    def fill_missing_geo(self, chunk: int = 400) -> int:
+    def fill_missing_geo(self, chunk: int = 120) -> int:
         """Nightly backfill: derive city/state/country/remote/market for feed
         rows that lack them (pre-geo rows, or work_model arrived after append).
         Deterministic — no LLM. Chunked to keep batch payloads sane."""
@@ -185,7 +185,12 @@ class HQFeedStore:
                 updates.append({"range": a1, "values": [[v]]})
                 checks.append((key, a1, v))
         t.ws.batch_update(updates, value_input_option="RAW")
-        got = t.ws.batch_get([a1 for _, a1, _ in checks])
+        # values_batch_get is a GET — too many ranges overflows the URL and
+        # Google answers with an HTML error page. Sub-batch the verify reads.
+        a1s = [a1 for _, a1, _ in checks]
+        got = []
+        for _i in range(0, len(a1s), 150):
+            got.extend(t.ws.batch_get(a1s[_i:_i + 150]))
         moved = set()
         for (key, _a1, want), cell in zip(checks, got):
             have = str(cell[0][0] if cell and cell[0] else "").strip()
