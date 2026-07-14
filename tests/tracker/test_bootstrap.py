@@ -55,7 +55,7 @@ def test_config_seeded_from_defaults_with_descriptions(tmp_path):
     sh = _fresh_sheet()
     _run(sh, tmp_path)
     rows = {r[0]: (r[1], r[2]) for r in sh.worksheet("Config").get_all_values()[1:]}
-    assert rows["yoe_push_max"][0] == "4"
+    assert rows["yoe_push_max"][0] == "3"
     assert rows["push_new_jobs"][0] == "true"
     assert rows["titles_include"][0].startswith("product manager, associate product manager")
     assert "Capital One" in rows["dna_companies"][0]

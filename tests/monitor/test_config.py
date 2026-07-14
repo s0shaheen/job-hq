@@ -7,7 +7,7 @@ def test_runtime_config_defaults_from_committed_file():
     assert "product manager" in cfg.include
     assert "product marketing" in cfg.exclude
     assert cfg.workday_search == "product"
-    assert cfg.yoe_push_max == 4
+    assert cfg.yoe_push_max == 3
     assert cfg.push_new_jobs is True
     assert cfg.problems == []
 
@@ -31,7 +31,7 @@ def test_runtime_config_invalid_value_falls_back_and_reports():
     hq = fake_hq(["config"])
     hq.tab("config").append_records([{"key": "yoe_push_max", "value": "banana"}])
     cfg = get_runtime_config(hq)
-    assert cfg.yoe_push_max == 4                       # committed default kept
+    assert cfg.yoe_push_max == 3                       # committed default kept
     assert any("yoe_push_max" in p for p in cfg.problems)
 
 

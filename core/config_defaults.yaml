@@ -1,7 +1,7 @@
 # Committed defaults for every Config-tab knob. The Config TAB in the sheet
 # overrides these (validated per key; invalid values fall back here and get
 # reported to ops). bootstrap seeds the Config tab from this file.
-yoe_push_max: 4            # push any new role whose min required YoE <= this
+yoe_push_max: 3            # push any new role whose min required YoE <= this (blank YoE never pushes)
 stale_days: 30             # Applied + this many silent days -> stale flag + digest nudge
 digest_hour_ct: 7          # daily digest hour, America/Chicago
 push_new_jobs: true
