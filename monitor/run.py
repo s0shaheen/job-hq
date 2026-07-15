@@ -21,7 +21,7 @@ from datetime import date
 import requests
 
 from core import notify
-from monitor import jobcontent, snapshot, tagging
+from monitor import jobcontent, snapshot, tagging, tagworker
 from monitor.config import RuntimeConfig, get_runtime_config, unconfigured_reason
 from monitor.dedup import reconcile_company
 from monitor.fetchers import get_jobs_for
@@ -30,8 +30,7 @@ from monitor.models import JobRecord
 from monitor.notify import format_new_jobs
 from monitor.sheet import HQFeedStore, SheetStore
 
-INLINE_TAG_MAX_ENV = "MONITOR_INLINE_TAG_MAX"
-INLINE_TAG_MAX_DEFAULT = 60          # cost cap on JD fetches + LLM calls per run
+INLINE_TAG_MAX_ENV = "MONITOR_INLINE_TAG_MAX"    # env override of the Config-tab inline_tag_max
 STALE_DAYS = 14                      # board days-missing before a role is Closed
 SNAPSHOT_PATH = "monitor/snapshots/hq.json"
 
@@ -48,23 +47,30 @@ class RunSummary:
     pushed: int = 0
 
 
-def _inline_tag_max() -> int:
+def _inline_tag_max(cfg_default: int) -> int:
+    """Env override wins (ops escape hatch); else the Config-tab knob."""
+    raw = os.environ.get(INLINE_TAG_MAX_ENV)
+    if raw is None:
+        return max(0, cfg_default)
     try:
-        return max(0, int(os.environ.get(INLINE_TAG_MAX_ENV, INLINE_TAG_MAX_DEFAULT)))
+        return max(0, int(raw))
     except ValueError:
-        return INLINE_TAG_MAX_DEFAULT
+        return max(0, cfg_default)
 
 
-def make_tagger(session: requests.Session, *, jd_fetch=None, extract=None):
+def make_tagger(session_factory=requests.Session, *, jd_fetch=None, extract=None):
     """(JobRecord, slug) -> Tags|None. None = no JD source (stays untagged;
     review.py retries nightly). Raises on fetch/LLM failure so the caller can
-    count it and move on — a tag failure never blocks the append."""
+    count it and move on — a tag failure never blocks the append. Runs under a
+    thread pool at discovery, so each worker thread gets its own session
+    (requests.Session is not thread-safe)."""
     jd_fetch = jd_fetch or jobcontent.fetch_description
     extract = extract or tagging.extract_tags
+    get_session = tagworker.session_pool(session_factory)
 
     def tag(rec: JobRecord, slug: str):
         ats, _, native_id = rec.id.partition("-")
-        jd = jd_fetch(ats, native_id, slug, rec.url, session)
+        jd = jd_fetch(ats, native_id, slug, rec.url, get_session())
         if not jd or not jd.strip():
             return None
         return extract(jd, rec.title, rec.company)
@@ -74,14 +80,16 @@ def make_tagger(session: requests.Session, *, jd_fetch=None, extract=None):
 def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
                 tagger=None, today: str | None = None,
                 session: requests.Session | None = None,
-                pusher=None, inline_tag_max: int | None = None) -> RunSummary:
+                pusher=None, inline_tag_max: int | None = None,
+                inline_tag_workers: int | None = None) -> RunSummary:
     """One reconcile pass. tagger=None disables inline tagging (no
     ANTHROPIC_API_KEY, or tests) — review.py catches untagged rows nightly.
     pusher defaults late to core.notify.push so monkeypatching works."""
     today = today or date.today().isoformat()
     session = session or requests.Session()
     pusher = pusher or notify.push
-    cap = _inline_tag_max() if inline_tag_max is None else inline_tag_max
+    cap = _inline_tag_max(cfg.inline_tag_max) if inline_tag_max is None else inline_tag_max
+    workers = cfg.inline_tag_workers if inline_tag_workers is None else inline_tag_workers
 
     companies = store.read_companies()
     history = store.read_history()
@@ -133,26 +141,33 @@ def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
         health.append({"company": c.name, "ats": c.ats, "result": label,
                        "count": len(jobs), "message": "", "checked_at": today})
 
-    # inline tagging at discovery, capped; attempts (success or fail) spend budget
+    # inline tagging at discovery: NEW roles only (never silent seeds), capped,
+    # fanned across a thread pool. Overflow beyond the cap stays untagged for the
+    # nightly review sweep, which now drains reliably. A tag failure never blocks
+    # the append. Seeds are the batch driver — they go straight to review.
     tags_by_id: dict[str, tagging.Tags] = {}
     if tagger is not None:
-        budget = cap
-        for rec in append_records:
-            if rec.status != "New":        # never burn LLM calls on silent seeds
-                continue
-            if budget <= 0:
-                break                      # overflow stays untagged for review.py
-            budget -= 1
+        new_recs = [r for r in append_records if r.status == "New"][:cap]
+
+        def _safe_tag(rec):
             try:
-                t = tagger(rec, slugs.get(rec.company, ""))
+                return ("ok", tagger(rec, slugs.get(rec.company, "")))
             except Exception as e:
-                summary.tag_failed += 1
-                print(f"[monitor] inline tag {rec.id} FAILED: {str(e)[:200]}",
-                      file=sys.stderr)
+                return ("fail", str(e)[:200])
+
+        results = tagworker.map_concurrent(new_recs, _safe_tag, workers=workers)
+        for i, rec in enumerate(new_recs):
+            out = results.get(i)
+            if out is None:
                 continue
-            if t is not None:
-                tags_by_id[rec.id] = t
+            kind, val = out
+            if kind == "fail":
+                summary.tag_failed += 1
+                print(f"[monitor] inline tag {rec.id} FAILED: {val}", file=sys.stderr)
+            elif val is not None:
+                tags_by_id[rec.id] = val
                 summary.tagged += 1
+            # val is None → no JD source; left for review.py
 
     # writes
     if append_records:
@@ -207,7 +222,7 @@ def main() -> int:
             notify.ops_alert("HQ config problems",
                              "\n".join(cfg.problems)[:1500], session=session)
         store = HQFeedStore(hq)
-        tagger = make_tagger(session) if os.environ.get("ANTHROPIC_API_KEY") else None
+        tagger = make_tagger() if os.environ.get("ANTHROPIC_API_KEY") else None
         s = run_monitor(store, cfg, session=session, tagger=tagger)
         print(f"[monitor] new={s.new_count} pushed={s.pushed} tagged={s.tagged} "
               f"ok={s.ok} zero={s.zero} errored={s.errored}", file=sys.stderr)

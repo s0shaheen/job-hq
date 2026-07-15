@@ -53,6 +53,7 @@ class SheetStore(Protocol):
     def write_health(self, rows: list[dict]) -> None: ...
     def read_jobs_for_tagging(self) -> list[tuple[JobRecord, str]]: ...
     def write_tags(self, id_to_tags: dict[str, "Tags"], today: str) -> None: ...
+    def mark_untaggable(self, ids: list[str], today: str, reason: str) -> None: ...
 
 
 class HQFeedStore:
@@ -230,6 +231,20 @@ class HQFeedStore:
         if id_to_tags:
             self._hq.log("review", "tags_written", detail=f"{len(id_to_tags)} rows")
 
+    def mark_untaggable(self, ids: list[str], today: str, reason: str) -> None:
+        """Stamp tagged_at with a sentinel ("no-jd:<date>" / "failed:<date>") so
+        the row drops out of the retry set. A permanent no-JD source or a
+        dead-lettered row must stop burning the nightly time budget — a row
+        retried forever with zero progress is what starves the whole sweep and
+        leaves later rows blank. tagged_at is a bot-owned cursor on a bot-only
+        tab, so a direct set is safe (same as write_tags); read_jobs_for_tagging
+        skips any non-blank value."""
+        if not ids:
+            return
+        stamp = f"{reason}:{today}"
+        self._bulk_set_by_key({jid: {"tagged_at": stamp} for jid in ids})
+        self._hq.log("review", "untaggable", detail=f"{len(ids)} rows ({reason})")
+
     def write_health(self, rows: list[dict]) -> None:
         """Full snapshot per run: rewrite the bot-only health tab in place,
         blank-padding to the previous extent so stale rows vanish without a
@@ -318,6 +333,10 @@ class FakeSheetStore:
             self._tags[jid] = tags
             self._tagged_at[jid] = today
             self._min_yoe[jid] = str(tags.min_yoe)
+
+    def mark_untaggable(self, ids, today, reason):
+        for jid in ids:
+            self._tagged_at[jid] = f"{reason}:{today}"
 
     def tags_for(self, jid):
         return self._tags.get(jid)

@@ -18,6 +18,8 @@ class RuntimeConfig:
     yoe_push_max: int = 4
     push_new_jobs: bool = True
     push_status_events: bool = True
+    inline_tag_max: int = 200
+    inline_tag_workers: int = 8
     problems: list[str] = field(default_factory=list)
 
 
@@ -30,6 +32,8 @@ def get_runtime_config(hq) -> RuntimeConfig:
         yoe_push_max=int(cfg["yoe_push_max"]),
         push_new_jobs=bool(cfg["push_new_jobs"]),
         push_status_events=bool(cfg["push_status_events"]),
+        inline_tag_max=int(cfg["inline_tag_max"]),
+        inline_tag_workers=int(cfg["inline_tag_workers"]),
         problems=list(cfg.problems),
     )
 
