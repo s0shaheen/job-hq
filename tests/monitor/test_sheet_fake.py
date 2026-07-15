@@ -73,6 +73,14 @@ def test_read_jobs_for_tagging_blank_when_untagged():
     assert rec.id == "greenhouse-1" and tagged_at == ""
 
 
+def test_mark_untaggable_mirrors_hqstore_sentinel():
+    store = _store_with([_rec("greenhouse-1"), _rec("greenhouse-2")])
+    store.mark_untaggable(["greenhouse-1"], "2026-07-13", "no-jd")
+    tagged_at = {r.id: t for r, t in store.read_jobs_for_tagging()}
+    assert tagged_at["greenhouse-1"] == "no-jd:2026-07-13"   # non-blank -> skipped next run
+    assert tagged_at["greenhouse-2"] == ""                   # a failed row stays pending
+
+
 def test_seedable_min_yoe_for_reopened_roles():
     store = _store_with([_rec("greenhouse-1", status="Closed")],
                         min_yoe={"greenhouse-1": "2"})

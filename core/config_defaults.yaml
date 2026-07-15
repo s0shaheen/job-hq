@@ -4,6 +4,13 @@
 yoe_push_max: 3            # push any new role whose min required YoE <= this (blank YoE never pushes)
 stale_days: 30             # Applied + this many silent days -> stale flag + digest nudge
 digest_hour_ct: 7          # daily digest hour, America/Chicago
+# --- job tagging throughput/resilience (monitor.review nightly sweep + inline) ---
+review_workers: 8          # concurrent JD-fetch+LLM workers in the nightly sweep
+tag_retry_max: 2           # in-run retries on a transient fetch/LLM failure (429/5xx/timeout)
+tag_deadletter_days: 4     # give up on a row still FAILING this many days after first_seen
+untagged_backlog_alert: 50 # ops-alert when this many open rows are still untagged after a sweep (0 = off)
+inline_tag_max: 200        # cap on inline JD-fetch+LLM at discovery per run; overflow drains in review
+inline_tag_workers: 8      # concurrent inline taggers at discovery
 push_new_jobs: true
 push_status_events: true
 simplify_enabled: true

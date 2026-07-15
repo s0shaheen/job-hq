@@ -51,6 +51,11 @@ HEADERS = {
         "stale", "notes",
     ],
     # Feed keeps the old Jobs-tab shape (id -> key) + tag columns + promotion helpers.
+    # tagged_at doubles as the tag-cursor: a real date when tags were written, or a
+    # sentinel ("no-jd:<date>" / "failed:<date>") when the row is un-taggable and must
+    # stop being retried (review.py). Dead-lettering keys off row age (first_seen), so
+    # no counter column is needed — adding a required column would abort every feed
+    # read/write until self-heal appended it, a far worse failure than it's worth.
     "feed": [
         KEY, "company", "title", "location", "url", "status",
         "first_seen", "last_seen", "posted",

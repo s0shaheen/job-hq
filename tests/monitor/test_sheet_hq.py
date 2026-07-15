@@ -179,6 +179,18 @@ def test_read_min_yoe_serves_from_feed():
     assert fresh.read_min_yoe()["greenhouse-1"] == "5"
 
 
+def test_mark_untaggable_stamps_sentinel_on_tagged_at():
+    hq = _hq()
+    store = HQFeedStore(hq)
+    store.append_jobs([_rec("amazon-1")])
+    store.mark_untaggable(["amazon-1"], TODAY, "no-jd")
+    row = _feed_row(hq, "amazon-1")
+    assert row["tagged_at"] == f"no-jd:{TODAY}"
+    # the sentinel makes the row non-blank, so read_jobs_for_tagging treats it done
+    tagged_at = {r.id: t for r, t in store.read_jobs_for_tagging()}
+    assert tagged_at["amazon-1"] == f"no-jd:{TODAY}"
+
+
 # ---- health
 
 def test_write_health_full_snapshot_replaces_previous_rows():

@@ -6,9 +6,9 @@ from monitor.tagging import Tags
 TODAY = "2026-07-13"
 
 
-def _rec(jid, company="Acme", status="New", url="http://x"):
+def _rec(jid, company="Acme", status="New", url="http://x", first_seen=TODAY):
     return JobRecord(id=jid, company=company, title="PM", location="NYC",
-                     url=url, status=status, first_seen=TODAY,
+                     url=url, status=status, first_seen=first_seen,
                      last_seen=TODAY, posted="")
 
 
@@ -59,13 +59,27 @@ def test_skips_already_tagged_without_calling_fetch():
     assert store.tags_for("greenhouse-1").yoe == "old"
 
 
-def test_empty_jd_is_skipped_not_tagged():
+def test_empty_jd_writes_no_jd_sentinel_so_it_stops_being_retried():
     store = _store([_rec("amazon-1")])
     summary = review_feed(store, today=TODAY,
                           fetch=_fetch_const(""), extract=_extract_echo)
     assert summary.tagged == 0
     assert summary.skipped_no_jd == 1
-    assert store.tags_for("amazon-1") is None   # left untagged -> retried next night
+    assert store.tags_for("amazon-1") is None      # no tags written
+    # sentinel stamped on tagged_at so the next sweep skips it (no more forever-retry)
+    tagged_at = {r.id: t for r, t in store.read_jobs_for_tagging()}
+    assert tagged_at["amazon-1"].startswith("no-jd:")
+
+
+def test_no_jd_sentinel_prevents_reprocessing_next_run():
+    store = _store([_rec("amazon-1")])
+    review_feed(store, today=TODAY, fetch=_fetch_const(""), extract=_extract_echo)
+
+    def boom(*a, **k):
+        raise AssertionError("a sentinel'd no-jd row must not be fetched again")
+
+    summary = review_feed(store, today="2026-07-14", fetch=boom, extract=_extract_echo)
+    assert summary.tagged == 0 and summary.skipped_no_jd == 0   # nothing pending
 
 
 def test_per_job_failure_is_isolated():
@@ -80,11 +94,14 @@ def test_per_job_failure_is_isolated():
             raise RuntimeError("boom")
         return "real jd"
 
-    summary = review_feed(store, today=TODAY, fetch=fetch, extract=_extract_echo)
+    summary = review_feed(store, today=TODAY, fetch=fetch, extract=_extract_echo,
+                          retry_max=0)
     assert summary.tagged == 1
     assert summary.failed == 1
     assert store.tags_for("greenhouse-1") is not None
-    assert store.tags_for("greenhouse-2") is None
+    assert store.tags_for("greenhouse-2") is None            # left untagged -> retried
+    tagged_at = {r.id: t for r, t in store.read_jobs_for_tagging()}
+    assert tagged_at["greenhouse-2"] == ""                   # young + failing -> stays pending
 
 
 def test_id_with_hyphenated_native_id_parses_ats_and_full_id():
@@ -100,6 +117,74 @@ def test_id_with_hyphenated_native_id_parses_ats_and_full_id():
     review_feed(store, today=TODAY, fetch=fetch, extract=_extract_echo)
     assert seen["ats"] == "lever"
     assert seen["native_id"] == "618c-cb22-baca"
+
+
+# ---- retry, dead-letter, backlog, concurrency
+
+def test_transient_failure_retries_in_run_then_succeeds():
+    store = _store([_rec("greenhouse-1")])
+    calls = {"n": 0}
+
+    def flaky(ats, native_id, slug, url, session):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("429 slow down")
+        return "real jd"
+
+    summary = review_feed(store, today=TODAY, fetch=flaky, extract=_extract_echo,
+                          retry_max=2, sleep=lambda _s: None)
+    assert calls["n"] == 2                       # failed once, retried, succeeded
+    assert summary.tagged == 1 and summary.failed == 0
+    assert store.tags_for("greenhouse-1") is not None
+
+
+def test_deadletters_a_row_stuck_past_the_grace_window():
+    # first_seen 12 days before today: it has failed every nightly sweep since
+    old = _rec("greenhouse-1", first_seen="2026-07-01")   # TODAY = 2026-07-13
+    store = _store([old])
+
+    def boom(*a, **k):
+        raise RuntimeError("delisted — 404 forever")
+
+    summary = review_feed(store, today=TODAY, fetch=boom, extract=_extract_echo,
+                          retry_max=0, deadletter_days=4)
+    assert summary.failed == 1 and summary.deadlettered == 1
+    tagged_at = {r.id: t for r, t in store.read_jobs_for_tagging()}
+    assert tagged_at["greenhouse-1"].startswith("failed:")   # given up on, stops retrying
+
+
+def test_young_failing_row_stays_pending_not_deadlettered():
+    store = _store([_rec("greenhouse-1", first_seen=TODAY),      # brand new
+                    _rec("greenhouse-2", first_seen=TODAY)])
+
+    def boom(*a, **k):
+        raise RuntimeError("down")
+
+    summary = review_feed(store, today=TODAY, fetch=boom, extract=_extract_echo,
+                          retry_max=0, deadletter_days=4)
+    assert summary.failed == 2 and summary.deadlettered == 0
+    assert summary.backlog == 2                  # both still pending, none resolved
+    tagged_at = {r.id: t for r, t in store.read_jobs_for_tagging()}
+    assert tagged_at["greenhouse-1"] == "" and tagged_at["greenhouse-2"] == ""
+
+
+def test_concurrency_tags_a_large_batch():
+    recs = [_rec(f"greenhouse-{i}") for i in range(50)]
+    store = _store(recs)
+    summary = review_feed(store, today=TODAY, workers=8,
+                          fetch=_fetch_const("own the roadmap"), extract=_extract_echo)
+    assert summary.tagged == 50 and summary.backlog == 0
+    assert all(store.tags_for(f"greenhouse-{i}") is not None for i in range(50))
+
+
+def test_time_budget_leaves_remainder_pending_as_backlog():
+    recs = [_rec(f"greenhouse-{i}") for i in range(5)]
+    store = _store(recs)
+    # zero budget: the deadline is already past, so no row is processed
+    summary = review_feed(store, today=TODAY, workers=1, time_budget_min=0,
+                          fetch=_fetch_const("jd"), extract=_extract_echo)
+    assert summary.tagged == 0
+    assert summary.backlog == 5                  # everything deferred to the next run
 
 
 # ---- main() wiring
@@ -143,6 +228,7 @@ def test_main_ops_pushes_on_systemic_failure(monkeypatch):
     hq.tab("feed").append_records(
         [{"key": "greenhouse-1", "company": "Acme", "title": "PM",
           "url": "http://x", "status": "New"}])
+    hq.tab("config").append_records([{"key": "tag_retry_max", "value": "0"}])  # no backoff sleeps in test
     monkeypatch.setattr(HQ, "open", classmethod(lambda cls: hq))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setenv("HQ_SHEET_ID", "test-sheet")
