@@ -182,6 +182,11 @@ def run(hq: HQ, *, session: requests.Session | None = None,
     if not cfg.get("simplify_enabled") or not (auth and csrf):
         why = "disabled in Config" if not cfg.get("simplify_enabled") else "secrets unset"
         print(f"[simplify] skipped ({why})")
+        if why == "secrets unset":
+            # a green run that did nothing must say so where the operator looks
+            print("::warning title=Simplify import skipped::SIMPLIFY_AUTH_COOKIE/"
+                  "SIMPLIFY_CSRF unset — channel contributing 0 rows (set the "
+                  "repo secrets, or set Config simplify_enabled=false to silence)")
         hq.heartbeat("simplify")
         return None
 

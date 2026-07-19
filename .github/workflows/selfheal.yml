@@ -40,7 +40,7 @@ jobs:
           git commit -m "chore: nightly HQ snapshot $(date -u +%Y-%m-%d)" || echo "no changes"
           git push || echo "nothing to push"
       - name: Ops alert on failure
-        if: failure()
+        if: failure() || cancelled()
         run: |
           curl -s -H "Title: Self-heal failed" -H "Priority: high" -H "Tags: warning" \
             -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \

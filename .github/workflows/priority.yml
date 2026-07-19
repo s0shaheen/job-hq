@@ -27,7 +27,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python -m monitor.priority
       - name: Ops alert on failure
-        if: failure()
+        if: failure() || cancelled()
         run: |
           curl -s -H "Title: Priority watch failed" -H "Priority: high" -H "Tags: warning" \
             -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \

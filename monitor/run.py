@@ -21,7 +21,7 @@ from datetime import date
 import requests
 
 from core import notify
-from monitor import jobcontent, snapshot, tagging, tagworker
+from monitor import gates, geo, jobcontent, snapshot, tagging, tagworker
 from monitor.config import RuntimeConfig, get_runtime_config, unconfigured_reason
 from monitor.dedup import reconcile_company
 from monitor.fetchers import get_jobs_for
@@ -45,6 +45,9 @@ class RunSummary:
     tagged: int = 0
     tag_failed: int = 0
     pushed: int = 0
+    boards_done: int = 0
+    boards_total: int = 0
+    partial: bool = False    # budget hit: unvisited boards resume next run
 
 
 def _inline_tag_max(cfg_default: int) -> int:
@@ -77,86 +80,82 @@ def make_tagger(session_factory=requests.Session, *, jd_fetch=None, extract=None
     return tag
 
 
+FETCH_CHUNK = 120        # boards per fetch-flush cycle; writes land per chunk
+
+
 def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
                 tagger=None, today: str | None = None,
                 session: requests.Session | None = None,
                 pusher=None, inline_tag_max: int | None = None,
-                inline_tag_workers: int | None = None) -> RunSummary:
-    """One reconcile pass. tagger=None disables inline tagging (no
-    ANTHROPIC_API_KEY, or tests) — review.py catches untagged rows nightly.
-    pusher defaults late to core.notify.push so monkeypatching works."""
+                inline_tag_workers: int | None = None,
+                fetch_workers: int | None = None,
+                budget_min: int | None = None) -> RunSummary:
+    """One reconcile pass, chunked: fetch FETCH_CHUNK boards concurrently
+    (network only — every sheet write stays on this thread, per the core.sheets
+    contract), reconcile serially, flush that chunk's writes, print progress,
+    repeat. A killed or budget-stopped run keeps every flushed chunk; unvisited
+    boards simply wait for the next run (reconcile is per-company, so partial
+    runs never mis-close anything).
+
+    tagger=None disables inline tagging (no ANTHROPIC_API_KEY, or tests) —
+    review.py catches untagged rows nightly. pusher defaults late to
+    core.notify.push so monkeypatching works."""
+    import time as _time
+
     today = today or date.today().isoformat()
     session = session or requests.Session()
     pusher = pusher or notify.push
     cap = _inline_tag_max(cfg.inline_tag_max) if inline_tag_max is None else inline_tag_max
     workers = cfg.inline_tag_workers if inline_tag_workers is None else inline_tag_workers
+    fworkers = cfg.fetch_workers if fetch_workers is None else fetch_workers
+    budget = cfg.run_budget_min if budget_min is None else budget_min
+    started = _time.monotonic()
+    deadline = started + budget * 60
 
     companies = store.read_companies()
+    # Resume rotation: a budget-stopped run parks a cursor; the next run
+    # starts there and wraps, so tail-of-sheet boards can never starve.
+    cursor = store.read_sweep_cursor()
+    if cursor:
+        names = [c.name for c in companies]
+        if cursor in names:
+            i = names.index(cursor)
+            companies = companies[i:] + companies[:i]
     history = store.read_history()
     known_min_yoe = store.read_min_yoe()   # for reopened roles tagged in a past run
     slugs = {c.name: c.slug for c in companies}
-    summary = RunSummary()
+    summary = RunSummary(boards_total=len(companies))
     health: list[dict] = []
+    next_cursor = ""
 
     all_new: list[JobRecord] = []          # fresh + reopened, discovery order
-    append_records: list[JobRecord] = []
-    status_changes: dict[str, str] = {}
-    last_seen_ids: list[str] = []
-    newly_seeded: list[str] = []
-
-    for c in companies:
-        chist = {jid: r for jid, r in history.items() if r.company == c.name}
-        try:
-            jobs = fetch(c.ats, c.slug, c.name, session, workday_search=cfg.workday_search)
-        except Exception as e:   # quarantine: one company never kills the run
-            summary.errored += 1
-            summary.error_companies.append(c.name)
-            health.append({"company": c.name, "ats": c.ats, "result": "ERROR",
-                           "count": 0, "message": str(e)[:200], "checked_at": today})
-            continue
-
-        jobs = [j for j in jobs if title_matches(j.title, cfg.include, cfg.exclude)]
-        result = reconcile_company(chist, jobs, seeded=c.seeded, today=today,
-                                   stale_days=STALE_DAYS)
-
-        append_records.extend(result.seed_records)
-        append_records.extend(result.new_records)
-        all_new.extend(result.new_records)
-        # new records carry last_seen=today in the append itself — no re-touch
-        last_seen_ids.extend(result.touched_ids)
-        last_seen_ids.extend(result.reopened_ids)
-        for rid in result.reopened_ids:
-            status_changes[rid] = "New"
-            all_new.append(history[rid])   # reopened roles surface in the push too
-        for rid in result.closed_ids:
-            status_changes[rid] = "Closed"
-        if not c.seeded:
-            newly_seeded.append(c.name)
-
-        label = "ZERO" if not jobs else "OK"
-        if label == "ZERO":
-            summary.zero += 1
-        else:
-            summary.ok += 1
-        health.append({"company": c.name, "ats": c.ats, "result": label,
-                       "count": len(jobs), "message": "", "checked_at": today})
-
-    # inline tagging at discovery: NEW roles only (never silent seeds), capped,
-    # fanned across a thread pool. Overflow beyond the cap stays untagged for the
-    # nightly review sweep, which now drains reliably. A tag failure never blocks
-    # the append. Seeds are the batch driver — they go straight to review.
     tags_by_id: dict[str, tagging.Tags] = {}
-    if tagger is not None:
-        new_recs = [r for r in append_records if r.status == "New"][:cap]
+    remaining_cap = cap
 
+    get_session = tagworker.session_pool(requests.Session)
+
+    def _fetch_one(c):
+        s = session if fworkers <= 1 else get_session()
+        try:
+            jobs = fetch(c.ats, c.slug, c.name, s, workday_search=cfg.workday_search)
+            return ("ok", [j for j in jobs
+                           if title_matches(j.title, cfg.include, cfg.exclude)])
+        except Exception as e:   # quarantine: one company never kills the run
+            return ("err", str(e)[:200])
+
+    def _inline_tag(new_recs):
+        nonlocal remaining_cap
+        take = new_recs[:max(0, remaining_cap)]
+        remaining_cap -= len(take)
+        if not take:
+            return
         def _safe_tag(rec):
             try:
                 return ("ok", tagger(rec, slugs.get(rec.company, "")))
             except Exception as e:
                 return ("fail", str(e)[:200])
-
-        results = tagworker.map_concurrent(new_recs, _safe_tag, workers=workers)
-        for i, rec in enumerate(new_recs):
+        results = tagworker.map_concurrent(take, _safe_tag, workers=workers)
+        for i, rec in enumerate(take):
             out = results.get(i)
             if out is None:
                 continue
@@ -169,20 +168,105 @@ def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
                 summary.tagged += 1
             # val is None → no JD source; left for review.py
 
-    # writes
-    if append_records:
-        store.append_jobs(append_records, tags=tags_by_id, today=today)
-    if status_changes:
-        store.set_status(status_changes)
-    if last_seen_ids:
-        store.set_last_seen(last_seen_ids, today)
-    if newly_seeded:
-        store.mark_seeded(newly_seeded)
-    store.write_health(health)
+    for start in range(0, len(companies), FETCH_CHUNK):
+        chunk = companies[start:start + FETCH_CHUNK]
+        if _time.monotonic() > deadline:
+            summary.partial = True
+            next_cursor = chunk[0].name
+            print(f"[monitor] budget {budget}m hit after "
+                  f"{summary.boards_done}/{summary.boards_total} boards — "
+                  f"flushed work is safe; next run resumes at {next_cursor!r}",
+                  file=sys.stderr)
+            break
+        # deadline passed through: past it the pool stops STARTING boards, so
+        # overshoot is bounded by the in-flight fetches, not a whole chunk
+        fetched = tagworker.map_concurrent(chunk, _fetch_one, workers=fworkers,
+                                           deadline=deadline)
+
+        append_records: list[JobRecord] = []
+        status_changes: dict[str, str] = {}
+        last_seen_ids: list[str] = []
+        newly_seeded: list[str] = []
+
+        for i, c in enumerate(chunk):
+            out = fetched.get(i)
+            if out is None:      # deadline inside map_concurrent: unvisited
+                continue
+            summary.boards_done += 1
+            kind, val = out
+            if kind == "err":
+                summary.errored += 1
+                summary.error_companies.append(c.name)
+                print(f"[monitor] {c.name} ({c.ats}) ERROR: {val}", file=sys.stderr)
+                health.append({"company": c.name, "ats": c.ats, "result": "ERROR",
+                               "count": 0, "message": val, "checked_at": today})
+                continue
+            jobs = val
+            chist = {jid: r for jid, r in history.items() if r.company == c.name}
+            result = reconcile_company(chist, jobs, seeded=c.seeded, today=today,
+                                       stale_days=STALE_DAYS)
+            append_records.extend(result.seed_records)
+            append_records.extend(result.new_records)
+            all_new.extend(result.new_records)
+            # new records carry last_seen=today in the append itself — no re-touch
+            last_seen_ids.extend(result.touched_ids)
+            last_seen_ids.extend(result.reopened_ids)
+            for rid in result.reopened_ids:
+                status_changes[rid] = "New"
+                all_new.append(history[rid])   # reopened roles surface in the push too
+            for rid in result.closed_ids:
+                status_changes[rid] = "Closed"
+            if not c.seeded:
+                newly_seeded.append(c.name)
+            label = "ZERO" if not jobs else "OK"
+            if label == "ZERO":
+                summary.zero += 1
+            else:
+                summary.ok += 1
+            health.append({"company": c.name, "ats": c.ats, "result": label,
+                           "count": len(jobs), "message": "", "checked_at": today})
+
+        # inline tagging BEFORE the append so tags (and the disposition they
+        # unlock) ride the append itself. NEW roles only — never silent seeds.
+        if tagger is not None and remaining_cap > 0:
+            _inline_tag([r for r in append_records if r.status == "New"])
+
+        # chunk flush: a timeout past this point can no longer lose this chunk
+        if append_records:
+            store.append_jobs(append_records, tags=tags_by_id, today=today)
+        if status_changes:
+            store.set_status(status_changes)
+        if last_seen_ids:
+            store.set_last_seen(last_seen_ids, today)
+        if newly_seeded:
+            store.mark_seeded(newly_seeded)
+        elapsed = int(_time.monotonic() - started)
+        print(f"[monitor] {summary.boards_done}/{summary.boards_total} boards · "
+              f"new={len(all_new)} err={summary.errored} · {elapsed}s", file=sys.stderr)
+
+        if len(fetched) < len(chunk):   # deadline hit inside the pool
+            summary.partial = True
+            missing = next(i for i in range(len(chunk)) if i not in fetched)
+            next_cursor = chunk[missing].name
+            print(f"[monitor] budget {budget}m hit mid-chunk — flushed work is "
+                  f"safe; next run resumes at {next_cursor!r}", file=sys.stderr)
+            break
+
+    # park/clear the resume cursor (write only on change: no-op runs stay free)
+    if summary.partial and next_cursor:
+        store.write_sweep_cursor(next_cursor)
+    elif cursor and not summary.partial:
+        store.write_sweep_cursor("")
+
+    # health is a full-tab rewrite: only safe when every board was visited,
+    # else yesterday's rows for unvisited boards would be blanked away.
+    if not summary.partial and summary.boards_done == summary.boards_total:
+        store.write_health(health)
     summary.new_count = len(all_new)
 
-    # push policy: one push, only roles whose min required YoE clears the bar;
-    # untagged/over-bar roles are a Feed count. Nothing new -> silence.
+    # push policy: one push, only QUALIFIED roles (gates: geo + YoE) whose min
+    # required YoE also clears the tighter push bar; untagged/over-bar roles
+    # are a Feed count. Nothing new -> silence.
     if all_new and cfg.push_new_jobs:
         def yoe_of(rec: JobRecord) -> int | str:
             t = tags_by_id.get(rec.id)
@@ -190,8 +274,18 @@ def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
                 return t.min_yoe
             return tagging.min_yoe_from(known_min_yoe.get(rec.id, ""))
 
+        def push_ok(rec: JobRecord, y) -> bool:
+            if cfg.gates is None:
+                return True
+            t = tags_by_id.get(rec.id)
+            row = dict(geo.enrich(rec.location, t.work_model if t else ""))
+            row.update({"min_yoe": y, "seniority": t.seniority if t else "",
+                        "tagged_at": today})
+            return gates.dispose(row, cfg.gates)[0] == gates.QUALIFIED
+
         matched = [r for r in all_new
-                   if (y := yoe_of(r)) != "" and y <= cfg.yoe_push_max]
+                   if (y := yoe_of(r)) != "" and y <= cfg.yoe_push_max
+                   and push_ok(r, y)]
         if matched:
             comp = {r.id: tags_by_id[r.id].comp_range
                     for r in matched if r.id in tags_by_id}
@@ -221,11 +315,21 @@ def main() -> int:
         if cfg.problems:
             notify.ops_alert("HQ config problems",
                              "\n".join(cfg.problems)[:1500], session=session)
-        store = HQFeedStore(hq)
+        disposer = gates.make_disposer(cfg.gates) if cfg.gates else None
+        store = HQFeedStore(hq, disposer=disposer)
         tagger = make_tagger() if os.environ.get("ANTHROPIC_API_KEY") else None
+        if tagger is None:
+            print("::warning title=Monitor tagging skipped::ANTHROPIC_API_KEY unset — "
+                  "new rows land untagged (review.py will drain them if the key "
+                  "exists there)")
         s = run_monitor(store, cfg, session=session, tagger=tagger)
-        print(f"[monitor] new={s.new_count} pushed={s.pushed} tagged={s.tagged} "
-              f"ok={s.ok} zero={s.zero} errored={s.errored}", file=sys.stderr)
+        print(f"[monitor] boards={s.boards_done}/{s.boards_total} new={s.new_count} "
+              f"pushed={s.pushed} tagged={s.tagged} ok={s.ok} zero={s.zero} "
+              f"errored={s.errored} partial={s.partial}", file=sys.stderr)
+        if s.partial:
+            print(f"::warning title=Monitor partial run::budget hit at "
+                  f"{s.boards_done}/{s.boards_total} boards — flushed work kept; "
+                  f"rest resumes next run")
         snapshot.write_snapshot(SNAPSHOT_PATH, "hq", store.read_history())
         hq.heartbeat("monitor")
         return 0

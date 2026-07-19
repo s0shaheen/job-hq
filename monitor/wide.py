@@ -53,7 +53,7 @@ import requests
 from core import notify
 from core.jobkeys import is_strong, job_key
 from core.sheets import HQ, RowNotFound, today as _today
-from monitor import geo
+from monitor import gates, geo
 from monitor.filtering import title_matches
 from monitor.priority import known_keys, priority_companies
 
@@ -241,6 +241,7 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
     if cfg.problems:
         hq.log("wide", "config_problem", detail="; ".join(cfg.problems)[:450])
     include, exclude = cfg["titles_include"], cfg["titles_exclude"]
+    gate_cfg = gates.GateConfig.from_user_config(cfg)
     terms = search_terms(include)
     if not terms:
         hq.log("wide", "skip", detail="titles_include empty — nothing to sweep")
@@ -293,6 +294,12 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
     ts_ok = False
     ts_cursor = ts_max = ""
     ts_key = os.environ.get("THEIRSTACK_API_KEY", "")
+    if not ts_key:
+        # green-but-dead is banned: an unconfigured channel must say so in CI,
+        # not just in the sheet's Log tab
+        print("::warning title=TheirStack skipped::THEIRSTACK_API_KEY unset — "
+              "channel contributing 0 jobs (add the repo secret to activate)")
+        hq.log("wide", "theirstack_skip", detail="THEIRSTACK_API_KEY unset")
     if ts_key:
         names = [c.get("name", "") for c in priority_companies(hq) if c.get("name")]
         if not names:
@@ -326,6 +333,9 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
         return s   # nothing swept: no heartbeat, so the watchdog fires; main ops-alerts
 
     if new_records:
+        for rec in new_records:   # gates at append (cafe rows often carry min_yoe)
+            d, r = gates.dispose(rec, gate_cfg)
+            rec["disposition"], rec["disposition_reason"] = d, r
         hq.tab("feed").append_records(new_records)
         s.appended = len(new_records)
 
@@ -341,7 +351,8 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
         hq.log("wide", "cursor_write_failed", detail=str(e)[:200])
 
     pushable = [r for r in new_records
-                if r["min_yoe"] and int(r["min_yoe"]) <= cfg["yoe_push_max"]]
+                if r.get("disposition") != gates.FILTERED   # qualified-only pushes (WS1)
+                and r["min_yoe"] and int(r["min_yoe"]) <= cfg["yoe_push_max"]]
     if pushable and cfg["push_new_jobs"]:   # same YoE gate as the daily monitor, ONE summary push
         lines = [f"• {r['title']} — {r['company']}" if r["company"] else f"• {r['title']}"
                  for r in pushable[:PUSH_MAX_LINES]]

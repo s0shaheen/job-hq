@@ -19,7 +19,7 @@ import re
 import sys
 
 from core import jobkeys, schema
-from core.sheets import HQ, today
+from core.sheets import HQ, RowNotFound, today
 
 NEEDS_REVIEW = "NEEDS_REVIEW"
 TITLE_RATIO = 0.6
@@ -152,18 +152,69 @@ def run(hq: HQ) -> dict:
     return counts
 
 
+CAPTURE_STALE_HOURS = 48
+_ALERT_LATCH = "capture_alert_date"
+
+
+def check_capture_liveness(hq: HQ, *, now=None) -> str:
+    """Gmail capture is the status ground truth, and its Apps Script runs in
+    an account this repo can't see — the only proof of life is the
+    heartbeat_capture stamp Code.gs upserts daily. Missing or >48h stale ->
+    one ops alert per day (latched via Config, same pattern as simplify's
+    cookie alert). Returns a status string for the run log."""
+    import datetime as dt
+    now = now or dt.datetime.now(dt.timezone.utc)
+    t = hq.tab("config")
+    vals = {r.get("key", ""): r.get("value", "") for r in t.records()}
+    raw = (vals.get("heartbeat_capture") or "").strip()
+
+    stale_reason = ""
+    if not raw:
+        stale_reason = ("no heartbeat_capture in Config — the capture Apps "
+                        "Script has never checked in (not deployed, or the "
+                        "current Code.gs predates heartbeats)")
+    else:
+        try:
+            seen = dt.datetime.strptime(raw, "%Y-%m-%d %H:%M:%SZ").replace(
+                tzinfo=dt.timezone.utc)
+            age_h = (now - seen).total_seconds() / 3600
+            if age_h > CAPTURE_STALE_HOURS:
+                stale_reason = (f"heartbeat_capture is {age_h:.0f}h old "
+                                f"(threshold {CAPTURE_STALE_HOURS}h) — the "
+                                f"capture trigger has stopped firing")
+        except ValueError:
+            stale_reason = f"heartbeat_capture unparseable: {raw!r}"
+
+    if not stale_reason:
+        return "alive"
+    today_s = now.date().isoformat()
+    if vals.get(_ALERT_LATCH) == today_s:
+        return "stale (already alerted today)"
+    from core import notify
+    notify.ops_alert("Gmail capture silent",
+                     stale_reason + " — statuses are NOT auto-advancing. "
+                     "Re-deploy appsscript/capture per appsscript/README.md.")
+    try:
+        t.set_by_key(_ALERT_LATCH, {"value": today_s}, key_header="key")
+    except RowNotFound:
+        t.append_records([{"key": _ALERT_LATCH, "value": today_s,
+                           "description": "(auto) last capture-silent ops alert"}])
+    return "stale (alerted)"
+
+
 def main() -> int:
     import traceback
     from core import notify
     try:
         hq = HQ.open()
         counts = run(hq)
+        capture = check_capture_liveness(hq)
         hq.heartbeat("tracker")   # join runs last: this vouches for the whole chain
     except Exception as e:
         print(f"[join] FAILED:\n{traceback.format_exc()}", file=sys.stderr)
         notify.ops_alert("tracker/join failed", str(e)[:300])
         return 1
-    print(f"[join] {counts}")
+    print(f"[join] {counts} capture={capture}")
     return 0
 
 

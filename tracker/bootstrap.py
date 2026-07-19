@@ -80,6 +80,13 @@ CONFIG_DESCRIPTIONS = {
     "titles_include": "Job titles to match, comma-separated",
     "titles_exclude": "Job titles to skip, comma-separated",
     "dna_companies": "Do-not-apply companies, comma-separated (scout guard)",
+    "filter_countries": "Countries a row may be anchored in, comma-separated (remote w/ no country passes)",
+    "filter_geo_unknown": "filter | keep — rows whose location can't be placed",
+    "filter_yoe_max": "Min required YoE above this -> row filtered (invisible, recoverable)",
+    "filter_yoe_unknown": "seniority-proxy | keep — tagged rows without a stated YoE",
+    "filter_seniority_exclude": "Seniority tags treated as over-bar when YoE unknown, comma-separated",
+    "fetch_workers": "Concurrent board fetches in the daily sweep (1-32)",
+    "run_budget_min": "Daily sweep soft time budget in minutes; unfinished boards resume next run",
 }
 
 _REGISTRY_HEADER = """\

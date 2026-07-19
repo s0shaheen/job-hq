@@ -26,7 +26,7 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python -m tracker.digest
       - name: Ops alert on failure
-        if: failure()
+        if: failure() || cancelled()
         run: |
           curl -s -H "Title: Digest failed" -H "Priority: high" -H "Tags: warning" \
             -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \

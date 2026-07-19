@@ -160,6 +160,12 @@ def run(hq: HQ, *, reg_path: Path | None = None) -> list[str]:
     for logical in _TRIM_TABS:
         repairs.extend(trim_leading_blanks(hq, logical))
 
+    # new committed knobs materialize as editable Config rows without waiting
+    # for a bootstrap run; existing rows (human edits) are never touched
+    seeded = bootstrap.seed_config(sh)
+    if seeded:
+        repairs.append(f"seeded {seeded} missing Config knob row(s)")
+
     # Re-pin gids, gid-first: a live registered gid stays canonical whatever
     # its title (renames are the same tab); only dead gids fall back to the
     # default title, which assert_structure guarantees exists.

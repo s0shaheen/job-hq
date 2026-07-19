@@ -361,10 +361,26 @@ default (`core/config_defaults.yaml`) and pushes the problem to ops.
 | `push_status_events` | true | true/false | *(reserved — no job acts on it yet; instant status pushes come from the Apps Script)* | — |
 | `digest_hour_ct` | 7 | int 0–23 | *(reserved — compose time is the digest workflow cron, send time the Apps Script trigger)* | — |
 | `ghost_suggest` | true | true/false | *(reserved — ghost-closing suggestions not implemented; `stale_days` flagging is live)* | — |
+| `filter_countries` | United States | comma-separated | monitor, priority, wide, review | Geo gate: rows anchored elsewhere get `disposition=filtered` (invisible, recoverable). Remote rows with no stated country pass |
+| `filter_geo_unknown` | filter | filter / keep | same | Rows whose location can't be placed: hide (`filter`) or let through (`keep`). Priority companies always get `keep` |
+| `filter_yoe_max` | 4 | int 0–30 | same | Min required YoE above this → `filtered`. (`yoe_push_max` stays the tighter phone-push bar) |
+| `filter_yoe_unknown` | seniority-proxy | seniority-proxy / keep | same | Tagged rows without a stated YoE: gate on the seniority tag, or keep |
+| `filter_seniority_exclude` | Senior, Staff, GPM, Director, VP | comma-separated | same | Seniority tags treated as over-bar when YoE is unknown |
+| `fetch_workers` | 8 | int 1–32 | monitor | Concurrent board fetches in the daily sweep (network only; sheet writes stay serial) |
+| `run_budget_min` | 30 | int 5–120 | monitor | Soft wall-clock budget; a budget-stopped sweep flushes, parks a resume cursor, and continues next run |
+
+After changing any `filter_*` knob, re-stamp existing rows: Actions → Tagging review →
+Run workflow with **regate = true** (or `python -m monitor.regate` locally; `--dry-run`
+first prints the would-be counts).
 
 **Machine-maintained Config keys — never edit:** every `heartbeat_*`, `wide_cursor`,
-`wide_theirstack_cursor`, `simplify_alert_date`. (Blanking a `wide_*` cursor is harmless —
-keys re-dedupe — but pointless.)
+`wide_theirstack_cursor`, `monitor_sweep_cursor`, `simplify_alert_date`,
+`capture_alert_date`. (Blanking a cursor is harmless — keys re-dedupe — but pointless.)
+
+**Capture watchdog:** `heartbeat_capture` is written by the Gmail Apps Script on every
+successful capture run; `tracker/join` ops-alerts (once per day) when it is missing or
+more than 48h stale — that alert means statuses are NOT auto-advancing and the capture script
+needs re-deploying per `appsscript/README.md`.
 
 Two thresholds that are code, not Config, by design: the Feed board-stale window (a role
 missing from its board 14 days → Closed; `monitor/run.py STALE_DAYS`) and the inline-tag

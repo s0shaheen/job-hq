@@ -227,7 +227,8 @@ def test_main_ops_pushes_on_systemic_failure(monkeypatch):
         [{"name": "Acme", "ats": "greenhouse", "slug": "acme", "monitor": "TRUE"}])
     hq.tab("feed").append_records(
         [{"key": "greenhouse-1", "company": "Acme", "title": "PM",
-          "url": "http://x", "status": "New"}])
+          "url": "http://x", "status": "New",
+          "location": "New York, NY"}])   # US row: stays in the tagging set post-gates
     hq.tab("config").append_records([{"key": "tag_retry_max", "value": "0"}])  # no backoff sleeps in test
     monkeypatch.setattr(HQ, "open", classmethod(lambda cls: hq))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
@@ -242,3 +243,73 @@ def test_main_ops_pushes_on_systemic_failure(monkeypatch):
                         lambda title, body, session=None: ops.append((title, body)))
     assert review_mod.main() == 1
     assert ops and "failed" in ops[0][1]
+
+
+# ---- gate-aware tagging (WS1): the stored disposition is the authority
+
+def _gate_cfg():
+    from monitor.gates import GateConfig
+    return GateConfig(countries=["United States"],
+                      seniority_exclude=["Senior", "Staff", "GPM", "Director", "VP"])
+
+
+def test_stored_filtered_disposition_skips_tagging_entirely():
+    store = _store([_rec("greenhouse-1")])
+    store.tag_ctx = {"greenhouse-1": {"disposition": "filtered",
+                                      "country": "India", "remote": "",
+                                      "market": "India", "work_model": "",
+                                      "seniority": ""}}
+    calls = []
+    s = review_feed(store, today=TODAY, fetch=lambda *a: calls.append(a) or "jd",
+                    extract=lambda *a: Tags(yoe="2"), workers=1,
+                    gate_cfg=_gate_cfg())
+    assert calls == [] and s.tagged == 0
+
+
+def test_producer_needs_info_disposition_is_tagged_even_if_geo_unparseable():
+    # priority admits geo-unknown rows under keep; review must honor that
+    # stamp instead of re-deriving geo blind and starving the row
+    rec = _rec("greenhouse-2")
+    rec.location = "HQ - Anywhere"
+    store = _store([rec])
+    store.tag_ctx = {"greenhouse-2": {"disposition": "needs-info",
+                                      "country": "", "remote": "",
+                                      "market": "", "work_model": "",
+                                      "seniority": ""}}
+    s = review_feed(store, today=TODAY, fetch=lambda *a: "jd",
+                    extract=lambda *a: Tags(yoe="2"), workers=1,
+                    gate_cfg=_gate_cfg())
+    assert s.tagged == 1
+
+
+def test_legacy_remote_row_kept_via_stored_geo_columns():
+    # pre-disposition row whose remoteness lives in stored geo (work_model
+    # arrived at append): the pre-tag gate must use stored geo, not re-enrich
+    rec = _rec("greenhouse-3")
+    rec.location = ""
+    store = _store([rec])
+    store.tag_ctx = {"greenhouse-3": {"disposition": "",
+                                      "country": "", "remote": "TRUE",
+                                      "market": "Remote", "work_model": "Remote",
+                                      "seniority": ""}}
+    s = review_feed(store, today=TODAY, fetch=lambda *a: "jd",
+                    extract=lambda *a: Tags(yoe="1"), workers=1,
+                    gate_cfg=_gate_cfg())
+    assert s.tagged == 1
+
+
+def test_untaggable_regate_uses_stored_geo_and_seniority():
+    rec = _rec("greenhouse-4")
+    rec.location = ""
+    store = _store([rec])
+    store.tag_ctx = {"greenhouse-4": {"disposition": "needs-info",
+                                      "country": "", "remote": "TRUE",
+                                      "market": "Remote", "work_model": "Remote",
+                                      "seniority": "Director"}}
+    s = review_feed(store, today=TODAY, fetch=lambda *a: "",   # no JD -> untaggable
+                    extract=lambda *a: None, workers=1, gate_cfg=_gate_cfg())
+    assert s.skipped_no_jd == 1
+    # remote row stays geo-qualified, but Director seniority + unknown YoE
+    # falls to the seniority proxy -> filtered, NOT geo-unknown
+    d, reason = store.dispositions["greenhouse-4"]
+    assert d == "filtered" and reason == "seniority:Director"

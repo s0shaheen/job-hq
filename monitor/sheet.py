@@ -52,16 +52,28 @@ class SheetStore(Protocol):
     def mark_pushed(self, ids: list[str], today: str) -> None: ...
     def write_health(self, rows: list[dict]) -> None: ...
     def read_jobs_for_tagging(self) -> list[tuple[JobRecord, str]]: ...
-    def write_tags(self, id_to_tags: dict[str, "Tags"], today: str) -> None: ...
+    def tagging_context(self) -> dict[str, dict]: ...
+    def write_tags(self, id_to_tags: dict[str, "Tags"], today: str,
+                   locations: dict[str, str] | None = None) -> None: ...
     def mark_untaggable(self, ids: list[str], today: str, reason: str) -> None: ...
+    def set_disposition(self, updates: dict[str, tuple[str, str]]) -> None: ...
+    def read_sweep_cursor(self) -> str: ...
+    def write_sweep_cursor(self, name: str) -> None: ...
 
 
 class HQFeedStore:
-    """SheetStore over the HQ spreadsheet's feed/companies/health tabs."""
+    """SheetStore over the HQ spreadsheet's feed/companies/health tabs.
 
-    def __init__(self, hq: "HQ"):
+    disposer (gates.make_disposer(...)) stamps disposition/disposition_reason
+    on every row this store writes — at append, at tag-write (YoE just became
+    known), and via set_disposition for regate sweeps. None = no stamping
+    (tests, or a caller that gates upstream)."""
+
+    def __init__(self, hq: "HQ", disposer=None):
         self._hq = hq
+        self._disposer = disposer
         self._min_yoe: dict[str, str] | None = None
+        self._tag_ctx: dict[str, dict] | None = None
 
     # ---- reads
 
@@ -107,11 +119,45 @@ class HQFeedStore:
 
     def read_jobs_for_tagging(self) -> list[tuple[JobRecord, str]]:
         out = []
+        ctx: dict[str, dict] = {}
         for r in self._hq.tab("feed").records():
             rec = self._feed_record(r)
             if rec.id:
                 out.append((rec, r.get("tagged_at", "")))
+                ctx[rec.id] = {k: r.get(k, "") for k in
+                               ("work_model", "country", "remote", "market",
+                                "seniority", "disposition")}
+        self._tag_ctx = ctx   # same read serves tagging_context — no second fetch
         return out
+
+    def tagging_context(self) -> dict[str, dict]:
+        """id -> stored gate-relevant columns (work_model/geo/seniority/
+        disposition) from the same read as read_jobs_for_tagging. JobRecord
+        deliberately stays lean; the gates need this context so review never
+        re-derives geo blind (a location-blank remote row must not read as
+        geo-unknown just because remoteness lives in work_model)."""
+        if getattr(self, "_tag_ctx", None) is None:
+            self.read_jobs_for_tagging()
+        return dict(self._tag_ctx or {})
+
+    SWEEP_CURSOR_KEY = "monitor_sweep_cursor"
+
+    def read_sweep_cursor(self) -> str:
+        for r in self._hq.tab("config").records():
+            if (r.get("key") or "").strip() == self.SWEEP_CURSOR_KEY:
+                return (r.get("value") or "").strip()
+        return ""
+
+    def write_sweep_cursor(self, name: str) -> None:
+        """Machine state, not a knob (same pattern as wide_theirstack_cursor):
+        where a budget-stopped sweep resumes so tail boards never starve."""
+        t = self._hq.tab("config")
+        try:
+            t.set_by_key(self.SWEEP_CURSOR_KEY, {"value": name}, key_header="key")
+        except RowNotFound:
+            t.append_records([{"key": self.SWEEP_CURSOR_KEY, "value": name,
+                               "description": "(auto) daily sweep resume point "
+                                              "after a budget-stopped run"}])
 
     # ---- writes
 
@@ -133,6 +179,8 @@ class HQFeedStore:
                 row.update(_tag_values(t))
                 row["tagged_at"] = today
             row.update(geo.enrich(r.location, row.get("work_model", "")))
+            if self._disposer is not None:
+                row.update(self._disposer(row))
             rows.append(row)
         self._hq.tab("feed").append_records(rows)
         self._hq.log("monitor", "feed_append", detail=f"{len(rows)} rows ({len(tags)} tagged inline)")
@@ -221,15 +269,36 @@ class HQFeedStore:
         for jid in ids:
             t.set_by_key(jid, {"pushed_at": today}, only_if_blank=True)
 
-    def write_tags(self, id_to_tags: dict[str, "Tags"], today: str) -> None:
+    def write_tags(self, id_to_tags: dict[str, "Tags"], today: str,
+                   locations: dict[str, str] | None = None) -> None:
+        """locations (id -> raw location string) lets the disposer re-gate a
+        row in the same write its YoE became known — one bulk update, no
+        second pass. Absent locations (or no disposer) = tags only."""
+        locations = locations or {}
         updates = {}
         for jid, tags in id_to_tags.items():
             vals = _tag_values(tags)
             vals["tagged_at"] = today
+            if self._disposer is not None and jid in locations:
+                ctx = dict(geo.enrich(locations[jid], tags.work_model))
+                ctx.update(vals)
+                vals.update(self._disposer(ctx))
             updates[jid] = vals
         self._bulk_set_by_key(updates)
         if id_to_tags:
             self._hq.log("review", "tags_written", detail=f"{len(id_to_tags)} rows")
+
+    def set_disposition(self, updates: dict[str, tuple[str, str]],
+                        chunk: int = 150) -> None:
+        """Bulk disposition stamp (regate sweeps, untaggable fallout). Chunked
+        like fill_missing_geo to keep batch payloads sane."""
+        keys = list(updates)
+        for i in range(0, len(keys), chunk):
+            self._bulk_set_by_key({
+                k: {"disposition": updates[k][0], "disposition_reason": updates[k][1]}
+                for k in keys[i:i + chunk]})
+        if updates:
+            self._hq.log("review", "disposition", detail=f"{len(updates)} rows")
 
     def mark_untaggable(self, ids: list[str], today: str, reason: str) -> None:
         """Stamp tagged_at with a sentinel ("no-jd:<date>" / "failed:<date>") so
@@ -328,7 +397,7 @@ class FakeSheetStore:
     def read_jobs_for_tagging(self):
         return [(r, self._tagged_at.get(r.id, "")) for r in self._history.values()]
 
-    def write_tags(self, id_to_tags, today):
+    def write_tags(self, id_to_tags, today, locations=None):
         for jid, tags in id_to_tags.items():
             self._tags[jid] = tags
             self._tagged_at[jid] = today
@@ -337,6 +406,19 @@ class FakeSheetStore:
     def mark_untaggable(self, ids, today, reason):
         for jid in ids:
             self._tagged_at[jid] = f"{reason}:{today}"
+
+    def set_disposition(self, updates):
+        self.dispositions = {**getattr(self, "dispositions", {}),
+                             **{k: v for k, v in updates.items()}}
+
+    def tagging_context(self):
+        return dict(getattr(self, "tag_ctx", {}) or {})
+
+    def read_sweep_cursor(self):
+        return getattr(self, "sweep_cursor", "")
+
+    def write_sweep_cursor(self, name):
+        self.sweep_cursor = name
 
     def tags_for(self, jid):
         return self._tags.get(jid)

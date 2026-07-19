@@ -5,7 +5,12 @@ name: Tagging review
 on:
   schedule:
     - cron: "0 15 * * *"   # ~10:00 America/Chicago
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      regate:
+        description: "Re-gate every feed row against the current filter_* knobs first"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -23,13 +28,20 @@ jobs:
       - uses: actions/setup-python@v6
         with: { python-version: "3.11", cache: pip }
       - run: pip install -r requirements.txt
+      - name: Re-gate feed (dispatch only)
+        if: inputs.regate
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          PYTHONUNBUFFERED: "1"
+        run: python -m monitor.regate
       - name: Tag untagged roles
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PYTHONUNBUFFERED: "1"
         run: python -m monitor.review
       - name: Ops alert on failure
-        if: failure()
+        if: failure() || cancelled()
         run: |
           curl -s -H "Title: Tagging review failed" -H "Priority: high" -H "Tags: warning" \
             -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \

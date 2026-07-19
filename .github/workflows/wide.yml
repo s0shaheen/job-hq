@@ -29,7 +29,7 @@ jobs:
           THEIRSTACK_API_KEY: ${{ secrets.THEIRSTACK_API_KEY }}
         run: python -m monitor.wide
       - name: Ops alert on failure
-        if: failure()
+        if: failure() || cancelled()
         run: |
           curl -s -H "Title: Wide sweep failed" -H "Priority: high" -H "Tags: warning" \
             -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \

@@ -55,6 +55,11 @@ def _sec_new_roles(hq: HQ, cfg, today_s: str) -> tuple[list[str], int]:
         if r.get("first_seen", "") != today_s:
             continue
         pri = r.get("company", "").casefold() in priority
+        # gates own visibility now: filtered rows never reach the digest
+        # (priority companies exempt — handpicked beats the profile).
+        # Blank disposition = pre-gates row; the legacy YoE check covers it.
+        if r.get("disposition", "") == "filtered" and not pri:
+            continue
         my = r.get("min_yoe", "").strip()
         # blank min_yoe = unknown; never hide a role for a number we don't have
         if my.isdigit() and int(my) > yoe_max and not pri:

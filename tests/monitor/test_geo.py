@@ -29,3 +29,16 @@ def test_foreign_and_unknown():
 def test_state_full_name_and_hybrid_work_model():
     g = enrich("Austin, Texas", "Hybrid — Austin")
     assert g["state"] == "TX" and g["market"] == "US" and g["remote"] == ""
+
+
+def test_us_city_shorthands_resolve_country_without_state_token():
+    for loc in ("NYC", "San Francisco Bay Area", "Chicagoland", "Washington, D.C."):
+        assert enrich(loc)["country"] == "United States", loc
+
+
+def test_city_hint_never_blanks_a_real_city():
+    g = enrich("San Francisco, CA")
+    assert g["city"] == "San Francisco" and g["state"] == "CA" \
+        and g["country"] == "United States"
+    g2 = enrich("New York City, NY")
+    assert g2["city"] == "New York City" and g2["country"] == "United States"

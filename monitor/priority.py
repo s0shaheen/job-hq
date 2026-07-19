@@ -27,7 +27,7 @@ from core.sheets import HQ, today as _today
 from monitor import jobcontent, tagging
 from monitor.fetchers import get_jobs_for
 from monitor.filtering import title_matches
-from monitor import geo
+from monitor import gates, geo
 from monitor.models import Job
 
 _TRUEISH = ("TRUE", "1", "YES")
@@ -101,6 +101,9 @@ def run(hq: HQ, *, session: requests.Session | None = None, fetch=get_jobs_for,
     if cfg.problems:  # value already fell back to default; daily monitor ops-alerts
         hq.log("priority", "config_problem", detail="; ".join(cfg.problems)[:450])
     include, exclude = cfg["titles_include"], cfg["titles_exclude"]
+    import dataclasses
+    gate_cfg = dataclasses.replace(gates.GateConfig.from_user_config(cfg),
+                                   geo_unknown="keep")
 
     feed = hq.tab("feed")
     known = known_keys(hq)
@@ -126,20 +129,35 @@ def run(hq: HQ, *, session: requests.Session | None = None, fetch=get_jobs_for,
         if not fresh:
             continue
         known.update(j.id for j in fresh)
-        feed.append_records([{
-            "key": j.id, "company": j.company or name, "title": j.title,
-            "location": j.location or "", "url": j.url, "status": "New",
-            "first_seen": today, "last_seen": today, "posted": j.posted or "",
-            "pushed_at": now, **geo.enrich(j.location or ""),
-        } for j in fresh])
+        # gates at append: geo decides now (free); YoE arrives with tags, so
+        # geo-passing rows park as needs-info and review re-gates them. The
+        # push stays speed-first but skips rows the profile already excludes.
+        # Handpicked companies get benefit of the doubt on UNPARSEABLE geo
+        # (geo_unknown=keep below) — only a definite foreign anchor blocks.
+        rows, pushable = [], []
+        for j in fresh:
+            row = {
+                "key": j.id, "company": j.company or name, "title": j.title,
+                "location": j.location or "", "url": j.url, "status": "New",
+                "first_seen": today, "last_seen": today, "posted": j.posted or "",
+                **geo.enrich(j.location or ""),
+            }
+            d, r = gates.dispose(row, gate_cfg)
+            row["disposition"], row["disposition_reason"] = d, r
+            if d != gates.FILTERED:
+                row["pushed_at"] = now
+                pushable.append(j)
+            rows.append(row)
+        feed.append_records(rows)
         for j in fresh:
             hq.log("priority", "new_role", key=j.id, detail=f"{name} — {j.title}")
-        sent = push(f"Priority: {name} posted {len(fresh)} role(s)", _lines(fresh),
-                    kind="jobs", tags=["dart"], priority="high",
-                    click=fresh[0].url, session=session)
-        if not sent:
-            hq.log("priority", "push_failed", key=fresh[0].id, detail=name)
-        s.pushes += 1
+        if pushable:
+            sent = push(f"Priority: {name} posted {len(pushable)} role(s)",
+                        _lines(pushable), kind="jobs", tags=["dart"], priority="high",
+                        click=pushable[0].url, session=session)
+            if not sent:
+                hq.log("priority", "push_failed", key=pushable[0].id, detail=name)
+            s.pushes += 1
         s.new += len(fresh)
         pending.extend((j, slug) for j in fresh)
 
@@ -150,13 +168,19 @@ def run(hq: HQ, *, session: requests.Session | None = None, fetch=get_jobs_for,
                 t = tag(j, slug)
                 if t is None:
                     continue
-                feed.set_by_key(j.id, {
+                vals = {
                     "yoe": t.yoe, "seniority": t.seniority,
                     "company_industry": t.company_industry, "role_focus": t.role_focus,
                     "skills": t.skills, "comp_range": t.comp_range,
                     "work_model": t.work_model, "min_yoe": t.min_yoe,
                     "tagged_at": today,
-                })
+                }
+                # YoE just became known — re-gate in the same write
+                ctx = dict(geo.enrich(j.location or "", t.work_model))
+                ctx.update(vals)
+                d, r = gates.dispose(ctx, gate_cfg)
+                vals["disposition"], vals["disposition_reason"] = d, r
+                feed.set_by_key(j.id, vals)
                 s.tagged += 1
             except Exception as e:  # push already went out; review retries tonight
                 hq.log("priority", "tag_error", key=j.id, detail=str(e)[:200])

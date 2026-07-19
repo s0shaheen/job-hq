@@ -35,7 +35,7 @@ from datetime import date
 import requests
 
 from core import notify
-from monitor import jobcontent, tagging, tagworker
+from monitor import gates, geo, jobcontent, tagging, tagworker
 from monitor.config import unconfigured_reason
 from monitor.sheet import HQFeedStore, SheetStore
 
@@ -79,7 +79,8 @@ def review_feed(store: SheetStore, *, today: str | None = None,
                 workers: int | None = None,
                 retry_max: int | None = None,
                 deadletter_days: int | None = None,
-                sleep=None, backoff=None, session_factory=None) -> ReviewSummary:
+                sleep=None, backoff=None, session_factory=None,
+                gate_cfg=None) -> ReviewSummary:
     """Drain the untagged-open Feed rows.
 
     fetch/extract default late (None) so tests can monkeypatch the modules.
@@ -107,6 +108,36 @@ def review_feed(store: SheetStore, *, today: str | None = None,
 
     pending = [rec for rec, tagged_at in store.read_jobs_for_tagging()
                if not tagged_at and rec.status != "Closed"]
+    ctx_by_id = store.tagging_context()
+    # Tag only rows that can still qualify: a row already gated out never
+    # needs a Haiku call — with ~half the feed non-US this halves LLM spend
+    # and the backlog drains twice as fast. The STORED disposition is the
+    # authority (each producer stamped it under its own policy — priority's
+    # geo-unknown benefit-of-the-doubt included); only legacy rows with no
+    # stamp yet are gated here, from stored geo first, enrich as fallback.
+    if gate_cfg is not None:
+        skipped = 0
+        kept = []
+        for rec in pending:
+            ctx = ctx_by_id.get(rec.id, {})
+            d = (ctx.get("disposition") or "").strip()
+            if d == gates.FILTERED:
+                skipped += 1
+                continue
+            if not d:   # pre-disposition row (the legacy 4,500 until regate runs)
+                g = {k: ctx.get(k, "") for k in ("country", "remote", "market")}
+                if not any(v.strip() for v in g.values()):
+                    g = geo.enrich(rec.location, ctx.get("work_model", ""))
+                if gates.dispose({**g, "min_yoe": "", "tagged_at": ""},
+                                 gate_cfg)[0] == gates.FILTERED:
+                    skipped += 1
+                    continue
+            kept.append(rec)
+        if skipped:
+            print(f"[review] {skipped} filtered row(s) excluded from "
+                  f"tagging (no LLM spend on filtered rows)", file=sys.stderr)
+        pending = kept
+    locations = {rec.id: rec.location for rec in pending}
 
     # One session per worker thread (requests.Session is not thread-safe); the
     # serial fast-path reuses the passed session so behaviour is identical to
@@ -140,7 +171,7 @@ def review_feed(store: SheetStore, *, today: str | None = None,
 
     def flush():
         if updates:
-            store.write_tags(dict(updates), today)
+            store.write_tags(dict(updates), today, locations=locations)
             updates.clear()
 
     # Chunk so a huge backlog writes durably as it goes and the deadline is
@@ -184,6 +215,26 @@ def review_feed(store: SheetStore, *, today: str | None = None,
         store.mark_untaggable(no_jd_ids, today, "no-jd")
     if deadletter_ids:
         store.mark_untaggable(deadletter_ids, today, "failed")
+    if gate_cfg is not None and (no_jd_ids or deadletter_ids):
+        # tagging gave up on these — re-gate under the yoe-unknown policy so a
+        # fetch failure never leaves a real geo-qualified posting invisible.
+        # Stored geo/seniority win (append-time enrich saw work_model; wide
+        # rows carry seniority without tags); enrich is only the legacy fallback.
+        by_id = {rec.id: rec for rec in pending}
+        dispo = {}
+        for jid in no_jd_ids + deadletter_ids:
+            rec = by_id.get(jid)
+            if rec is None:
+                continue
+            stored = ctx_by_id.get(jid, {})
+            g = {k: stored.get(k, "") for k in ("country", "remote", "market")}
+            if not any(v.strip() for v in g.values()):
+                g = dict(geo.enrich(rec.location, stored.get("work_model", "")))
+            g.update({"min_yoe": "", "seniority": stored.get("seniority", ""),
+                      "tagged_at": "x"})
+            dispo[jid] = gates.dispose(g, gate_cfg)
+        if dispo:
+            store.set_disposition(dispo)
 
     resolved = summary.tagged + summary.skipped_no_jd + summary.deadlettered
     summary.backlog = max(0, len(pending) - resolved)
@@ -208,15 +259,17 @@ def main() -> int:
     try:
         from core.sheets import HQ
         hq = HQ.open()
-        store = HQFeedStore(hq)
         cfg = hq.user_config()
+        gate_cfg = gates.GateConfig.from_user_config(cfg)
+        store = HQFeedStore(hq, disposer=gates.make_disposer(gate_cfg))
         geo_n = store.fill_missing_geo()
         if geo_n:
             print(f"[review] geo_fill: {geo_n} rows", file=sys.stderr)
         s = review_feed(store, session=session,
                         workers=cfg["review_workers"],
                         retry_max=cfg["tag_retry_max"],
-                        deadletter_days=cfg["tag_deadletter_days"])
+                        deadletter_days=cfg["tag_deadletter_days"],
+                        gate_cfg=gate_cfg)
         print(f"[review] tagged={s.tagged} skipped_no_jd={s.skipped_no_jd} "
               f"failed={s.failed} deadlettered={s.deadlettered} "
               f"backlog={s.backlog}", file=sys.stderr)

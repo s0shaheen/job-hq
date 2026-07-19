@@ -28,6 +28,13 @@ _STATES = {
 _STATE_BY_NAME = {v.casefold(): k for k, v in _STATES.items()}
 
 _US_TOKENS = re.compile(r"\b(usa|u\.s\.a?\.?|us|united states)\b", re.I)
+# Unambiguous US city shorthands ATSs use without a state token — each one
+# left unrecognized turns a real US posting into a geo-unknown row. Country
+# detection ONLY: these must never join the city-extraction skip guard, or
+# "San Francisco, CA" would parse with a blank city.
+_US_CITY_HINTS = re.compile(
+    r"\b(nyc|new york city|sf|san francisco|bay area|silicon valley"
+    r"|chicagoland|washington,? d\.?c\.?)\b", re.I)
 _REMOTE = re.compile(r"\bremote\b", re.I)
 _COUNTRIES = {
     "canada": "Canada", "united kingdom": "United Kingdom", "uk": "United Kingdom",
@@ -45,7 +52,7 @@ def enrich(location: str, work_model: str = "") -> dict[str, str]:
     remote = bool(_REMOTE.search(blob))
 
     country = ""
-    if _US_TOKENS.search(loc):
+    if _US_TOKENS.search(loc) or _US_CITY_HINTS.search(loc):
         country = "United States"
     else:
         low = loc.casefold()

@@ -216,3 +216,52 @@ def test_already_matched_events_are_skipped():
     counts = join.run(hq)
     assert counts == {"matched": 0, "created": 0, "needs_review": 0}
     assert _pipe_row(hq, "greenhouse-123")["status"] == "Queued"
+
+
+# ---- capture liveness watchdog (WS0): heartbeat_capture staleness
+
+def _cfg_vals(hq):
+    return {r.get("key", ""): r.get("value", "") for r in hq.tab("config").records()}
+
+
+def test_capture_never_checked_in_alerts_once_and_latches(monkeypatch):
+    import datetime as dt
+    import core.notify
+    from tracker.join import check_capture_liveness
+
+    hq = fake_hq()
+    ops = []
+    monkeypatch.setattr(core.notify, "ops_alert",
+                        lambda title, body, session=None: ops.append(title))
+    now = dt.datetime(2026, 7, 19, 12, 0, tzinfo=dt.timezone.utc)
+
+    # first-deploy state: no heartbeat row, no latch row — the exact path
+    # where an unimported RowNotFound would have crashed join
+    assert check_capture_liveness(hq, now=now) == "stale (alerted)"
+    assert ops == ["Gmail capture silent"]
+    assert _cfg_vals(hq)["capture_alert_date"] == "2026-07-19"
+
+    # same day: latched, no second page
+    assert check_capture_liveness(hq, now=now) == "stale (already alerted today)"
+    assert ops == ["Gmail capture silent"]
+
+
+def test_fresh_heartbeat_is_alive_and_stale_one_realerts(monkeypatch):
+    import datetime as dt
+    import core.notify
+    from tracker.join import check_capture_liveness
+
+    hq = fake_hq()
+    ops = []
+    monkeypatch.setattr(core.notify, "ops_alert",
+                        lambda title, body, session=None: ops.append(title))
+    now = dt.datetime(2026, 7, 19, 12, 0, tzinfo=dt.timezone.utc)
+
+    hq.tab("config").append_records(
+        [{"key": "heartbeat_capture", "value": "2026-07-19 08:00:00Z"}])
+    assert check_capture_liveness(hq, now=now) == "alive" and ops == []
+
+    hq.tab("config").set_by_key("heartbeat_capture",
+                                {"value": "2026-07-16 08:00:00Z"}, key_header="key")
+    assert check_capture_liveness(hq, now=now) == "stale (alerted)"
+    assert ops == ["Gmail capture silent"]

@@ -17,7 +17,9 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # run_budget_min (Config, default 30) stops the sweep cleanly and flushes;
+    # this outer timeout is the never-hit backstop, not the working limit.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -27,6 +29,7 @@ jobs:
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PYTHONUNBUFFERED: "1"
         run: |
           mkdir -p monitor/snapshots
           python -m monitor.run
@@ -38,7 +41,9 @@ jobs:
           git commit -m "chore: daily snapshot $(date -u +%Y-%m-%d)" || echo "no changes"
           git push || echo "nothing to push"
       - name: Ops alert on failure
-        if: failure()
+        # cancelled() covers the timeout-minutes kill — a cancelled job is NOT
+        # failure(), which is how six days of dead runs never paged anyone.
+        if: failure() || cancelled()
         run: |
           curl -s -H "Title: Job monitor failed" -H "Priority: high" -H "Tags: warning" \
             -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \

@@ -20,10 +20,14 @@ class RuntimeConfig:
     push_status_events: bool = True
     inline_tag_max: int = 200
     inline_tag_workers: int = 8
+    fetch_workers: int = 8
+    run_budget_min: int = 30
+    gates: "object" = None               # gates.GateConfig; None in bare tests
     problems: list[str] = field(default_factory=list)
 
 
 def get_runtime_config(hq) -> RuntimeConfig:
+    from monitor.gates import GateConfig
     cfg = hq.user_config()
     return RuntimeConfig(
         include=list(cfg["titles_include"]),
@@ -34,6 +38,9 @@ def get_runtime_config(hq) -> RuntimeConfig:
         push_status_events=bool(cfg["push_status_events"]),
         inline_tag_max=int(cfg["inline_tag_max"]),
         inline_tag_workers=int(cfg["inline_tag_workers"]),
+        fetch_workers=int(cfg["fetch_workers"]),
+        run_budget_min=int(cfg["run_budget_min"]),
+        gates=GateConfig.from_user_config(cfg),
         problems=list(cfg.problems),
     )
 

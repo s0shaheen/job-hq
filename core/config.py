@@ -60,8 +60,24 @@ def _csv(s: str) -> list[str]:
     return [x for x in parts if x]
 
 
+def _choice(*allowed: str):
+    def p(s: str) -> str:
+        v = str(s).strip().casefold()
+        if v not in allowed:
+            raise ValueError(f"{s!r} not one of {allowed}")
+        return v
+    return p
+
+
 VALIDATORS = {
     "yoe_push_max":       _int(0, 30),
+    "filter_countries":   _csv,
+    "filter_geo_unknown": _choice("filter", "keep"),
+    "filter_yoe_max":     _int(0, 30),
+    "filter_yoe_unknown": _choice("seniority-proxy", "keep"),
+    "filter_seniority_exclude": _csv,
+    "fetch_workers":      _int(1, 32),
+    "run_budget_min":     _int(5, 120),
     "stale_days":         _int(3, 365),
     "digest_hour_ct":     _int(0, 23),
     "review_workers":       _int(1, 32),
