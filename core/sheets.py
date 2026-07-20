@@ -323,10 +323,20 @@ class HQ:
 # ----------------------------------------------------- structure operations
 # Used ONLY by tracker/bootstrap.py and tracker/selfheal.py.
 
-def ensure_tab(sh, title: str, rows: int = 200, cols: int = 26):
+GRID_HEADROOM = 6      # spare columns so the next schema addition needs no widen
+
+
+def ensure_tab(sh, title: str, rows: int = 200, cols: int = 26,
+               headers: list[str] | None = None):
+    """Create the tab if absent. The grid is sized to the SCHEMA, not to
+    Sheets' 26-column default: a tab narrower than its header row cannot be
+    written at all ("exceeds grid limits"), which silently blocks every writer
+    on that tab until someone widens it by hand."""
     for ws in sh.worksheets():
         if ws.title == title:
             return ws, False
+    if headers:
+        cols = max(cols, len(headers) + GRID_HEADROOM)
     return sh.add_worksheet(title=title, rows=rows, cols=cols), True
 
 
@@ -345,7 +355,22 @@ def ensure_headers(ws, headers: list[str]) -> list[str]:
     missing = [h for h in headers if h not in current]
     if missing:
         start = len(current) + 1
-        rng = f"{rowcol_to_a1(1, start)}:{rowcol_to_a1(1, start + len(missing) - 1)}"
+        end = start + len(missing) - 1
+        # A worksheet's grid has a fixed width (a fresh sheet is 26 columns).
+        # Writing past it is a 400 "exceeds grid limits", NOT an auto-grow —
+        # which means self-heal cannot add a new schema column to a full-width
+        # tab, and every writer stays blocked on the missing header. Widen the
+        # grid first.
+        col_count = getattr(ws, "col_count", None)
+        if isinstance(col_count, int) and end > col_count:
+            try:
+                ws.add_cols(end - col_count)
+                repairs.append(f"widened grid to {end} columns")
+            except Exception as e:      # loud, not silent: the header write
+                raise SchemaAnomaly(    # below would fail anyway
+                    f"[{ws.title}] cannot widen grid to {end} columns for "
+                    f"{missing}: {e}")
+        rng = f"{rowcol_to_a1(1, start)}:{rowcol_to_a1(1, end)}"
         ws.update([missing], rng, value_input_option="RAW")
         repairs.append(f"appended missing headers {missing}")
     counts = {h: current.count(h) for h in headers}
