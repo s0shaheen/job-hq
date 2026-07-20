@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import re
 
+from monitor import metros
+
 _STATES = {
     "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
     "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "FL": "Florida", "GA": "Georgia",
@@ -26,6 +28,12 @@ _STATES = {
     "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming", "DC": "District of Columbia",
 }
 _STATE_BY_NAME = {v.casefold(): k for k, v in _STATES.items()}
+# Names that are BOTH a major city and a state. In a multi-part location the
+# state comes from the OTHER part ("New York, NY" / "Washington, DC"), so
+# these must not be consumed as the state — that's what left the city blank
+# on two of the densest job markets there are. Alone ("Illinois", but also
+# "Washington"), the state reading still wins.
+_CITY_ALSO_STATE = {"new york", "washington"}
 
 _US_TOKENS = re.compile(r"\b(usa|u\.s\.a?\.?|us|united states)\b", re.I)
 # Unambiguous US city shorthands ATSs use without a state token — each one
@@ -64,21 +72,59 @@ def enrich(location: str, work_model: str = "") -> dict[str, str]:
     # first listed location carries city/state
     first = re.split(r"[|;/]| or ", loc)[0].strip()
     parts = [p.strip() for p in first.split(",") if p.strip()]
-    city, state = "", ""
-    for p in parts:
-        up = p.upper()
-        if up in _STATES:
-            state = up
-        elif p.casefold() in _STATE_BY_NAME:
-            state = _STATE_BY_NAME[p.casefold()]
-        elif not city and not _US_TOKENS.fullmatch(p) and not _REMOTE.search(p) \
-                and p.casefold() not in _COUNTRIES:
-            city = p
+
+    # A part that is BOTH a city and a state name ("New York", "Washington")
+    # is only the city when some OTHER part supplies the state: "New York, NY"
+    # and "Washington, DC" are city-first, but "Seattle, Washington" and
+    # "New York, New York" have no other state token, so the collision name
+    # must still be read as the state (dropping it blanks state AND country,
+    # which then reads as geo-unknown and filters the row out entirely).
+    def _is_state_token(p: str) -> bool:
+        cf = p.casefold()
+        return p.upper() in _STATES or cf in _STATE_BY_NAME
+
+    def _other_part_supplies_state(idx: int) -> bool:
+        return any(_is_state_token(q) and q.casefold() not in _CITY_ALSO_STATE
+                   for j, q in enumerate(parts) if j != idx)
+
+    state = ""
+    city_collision_idx = -1
+    for i, p in enumerate(parts):
+        cf = p.casefold()
+        if p.upper() in _STATES:
+            state = p.upper()
+        elif cf in _STATE_BY_NAME:
+            if cf in _CITY_ALSO_STATE and _other_part_supplies_state(i):
+                city_collision_idx = i      # it's the city; the state is elsewhere
+                continue
+            state = _STATE_BY_NAME[cf]
+
+    def _skip_for_city(i: int, p: str) -> bool:
+        if i == city_collision_idx:
+            return False                     # "New York" in "New York, NY"
+        cf = p.casefold()
+        return (p.upper() in _STATES or cf in _STATE_BY_NAME
+                or bool(_US_TOKENS.fullmatch(p)) or bool(_REMOTE.search(p))
+                or cf in _COUNTRIES)
+
+    city = next((p for i, p in enumerate(parts) if not _skip_for_city(i, p)), "")
+    # "New York, New York": every part is the collision name, so the state
+    # loop consumed them all. With the state already known, the leading part
+    # is the city. A LONE collision name is the city only when it names a
+    # major metro ("New York"); bare "Washington" stays the state.
+    if not city and parts and parts[0].casefold() in _CITY_ALSO_STATE \
+            and (len(parts) > 1 or metros.is_anchor(parts[0])):
+        city = parts[0]
     if state and not country:
         country = "United States"
     if city.casefold() in ("remote", "anywhere"):
         city = ""
 
     market = "Remote" if remote else ("US" if country == "United States" else country)
+    # metro is the grain a LOCAL search needs: "Chicago area" spans IL, IN and
+    # WI suburbs that never carry the word Chicago, while state=IL admits
+    # Peoria. Blank whenever the city can't be placed confidently — a guess
+    # here would quietly admit the wrong city to someone's whole feed.
     return {"city": city, "state": state, "country": country,
-            "remote": "TRUE" if remote else "", "market": market}
+            "remote": "TRUE" if remote else "", "market": market,
+            "metro": metros.metro_for(city, state)}

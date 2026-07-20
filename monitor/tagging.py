@@ -4,24 +4,60 @@ from dataclasses import dataclass
 
 MODEL = "claude-haiku-4-5"
 
-SYSTEM = (
-    "You tag product-manager job postings for a job seeker. "
-    "Extract ONLY what the posting actually states. When a field is not stated, "
-    "return an empty string (or an empty list for skills) — never guess or invent. "
-    "Condense each requirement/qualification to at most 5 words. "
-    "Normalize seniority to exactly one of: APM, PM, Senior, Staff, GPM, Director, VP."
-)
+# Seniority ladders differ by field: a PM ladder (APM..VP) is meaningless for
+# an FP&A or SWE search, and forcing one produces junk that the YoE-unknown
+# gate then acts on. Each profile names its own.
+SENIORITY_LADDERS = {
+    "product-manager": "APM, PM, Senior, Staff, GPM, Director, VP",
+    "finance": "Analyst, Senior Analyst, Manager, Senior Manager, Director, VP, CFO",
+    "software-engineering": "Intern, Junior, Mid, Senior, Staff, Principal, Manager, Director",
+    "generic": "Entry, Mid, Senior, Lead, Manager, Director, VP",
+}
+DEFAULT_DOMAIN = "product-manager"
+
+
+def _domain_label(domain: str) -> str:
+    return (domain or DEFAULT_DOMAIN).replace("-", " ")
+
+
+def system_prompt(domain: str = DEFAULT_DOMAIN) -> str:
+    """The tagger is domain-parameterized: the same extraction, told what kind
+    of posting it is reading. Hardcoding 'product-manager' here is exactly what
+    blocked a second user."""
+    ladder = SENIORITY_LADDERS.get(domain, SENIORITY_LADDERS["generic"])
+    return (
+        f"You tag {_domain_label(domain)} job postings for a job seeker. "
+        "Extract ONLY what the posting actually states. When a field is not stated, "
+        "return an empty string (or an empty list for skills) — never guess or invent. "
+        "Condense each requirement/qualification to at most 5 words. "
+        f"Normalize seniority to exactly one of: {ladder}."
+    )
+
+
+def tag_tool(domain: str = DEFAULT_DOMAIN) -> dict:
+    ladder = SENIORITY_LADDERS.get(domain, SENIORITY_LADDERS["generic"])
+    tool = {k: (dict(v) if isinstance(v, dict) else v) for k, v in _TAG_TOOL.items()}
+    tool["description"] = (f"Emit structured tags extracted from a "
+                           f"{_domain_label(domain)} job description.")
+    props = {k: dict(v) for k, v in _TAG_TOOL["input_schema"]["properties"].items()}
+    props["seniority"] = dict(props["seniority"],
+                              description=f"One of {ladder}. Empty if unclear.")
+    tool["input_schema"] = dict(_TAG_TOOL["input_schema"], properties=props)
+    return tool
+
+
+SYSTEM = None  # set at call time from the profile's domain (see system_prompt)
 
 _TAG_TOOL = {
     "name": "emit_tags",
-    "description": "Emit structured tags extracted from a product-manager job description.",
+    "description": "Emit structured tags extracted from a job description.",
     "input_schema": {
         "type": "object",
         "properties": {
             "yoe": {"type": "string",
                     "description": "Years of experience requested, e.g. '5+' or '3-5'. Empty if unstated."},
             "seniority": {"type": "string",
-                          "description": "One of APM, PM, Senior, Staff, GPM, Director, VP. Empty if unclear."},
+                          "description": "The posting's seniority level. Empty if unclear."},
             "company_industry": {"type": "string",
                                  "description": "Industry + main products, e.g. 'Fintech — payments/cards'."},
             "role_focus": {"type": "string",
@@ -91,7 +127,8 @@ def _tool_input(message) -> dict:
     raise ValueError("emit_tags tool block not found in model response")
 
 
-def extract_tags(jd_text: str, title: str, company: str, *, client=None) -> Tags:
+def extract_tags(jd_text: str, title: str, company: str, *, client=None,
+                 domain: str = DEFAULT_DOMAIN) -> Tags:
     if not jd_text or not jd_text.strip():
         return Tags()
     client = client or _default_client()
@@ -99,8 +136,8 @@ def extract_tags(jd_text: str, title: str, company: str, *, client=None) -> Tags
         model=MODEL,
         max_tokens=1024,
         temperature=0,
-        system=SYSTEM,
-        tools=[_TAG_TOOL],
+        system=system_prompt(domain),
+        tools=[tag_tool(domain)],
         tool_choice={"type": "tool", "name": "emit_tags"},
         messages=[{"role": "user",
                    "content": f"Company: {company}\nTitle: {title}\n\nJob description:\n{jd_text}"}],

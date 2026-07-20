@@ -21,7 +21,7 @@ from core import pg, schema
 
 TAG_FIELDS = ["yoe", "seniority", "company_industry", "role_focus",
               "skills", "comp_range", "work_model", "min_yoe", "tagged_at"]
-GEO_FIELDS = ["city", "state", "country", "remote", "market"]
+GEO_FIELDS = ["city", "state", "country", "remote", "market", "metro"]
 
 _ISO = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
 _EPOCH = re.compile(r"^\d{10,13}$")

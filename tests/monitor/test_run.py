@@ -231,7 +231,7 @@ def test_main_pushes_config_problems_to_ops_and_heartbeats(monkeypatch, tmp_path
     monkeypatch.setattr(HQ, "open", classmethod(lambda cls: hq))
     monkeypatch.setenv("HQ_SHEET_ID", "test-sheet")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setattr(run_mod, "SNAPSHOT_PATH", str(tmp_path / "hq.json"))
+    monkeypatch.setattr(run_mod, "snapshot_path", lambda user="": str(tmp_path / "hq.json"))
     ops, pushes = [], []
     monkeypatch.setattr(core.notify, "ops_alert",
                         lambda title, body, session=None: ops.append((title, body)))

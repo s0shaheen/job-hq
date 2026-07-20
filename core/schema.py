@@ -61,7 +61,7 @@ HEADERS = {
         "first_seen", "last_seen", "posted",
         "yoe", "seniority", "company_industry", "role_focus", "skills",
         "comp_range", "work_model", "tagged_at",
-        "min_yoe", "city", "state", "country", "remote", "market",
+        "min_yoe", "city", "state", "country", "remote", "market", "metro",
         "disposition", "disposition_reason",
         "interested", "promoted_at", "pushed_at",
     ],

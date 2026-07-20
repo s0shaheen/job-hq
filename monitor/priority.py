@@ -66,7 +66,8 @@ def _lines(jobs: list[Job]) -> str:
     return "\n".join(lines)
 
 
-def _default_tagger(session: requests.Session) -> Tagger | None:
+def _default_tagger(session: requests.Session,
+                    domain: str = tagging.DEFAULT_DOMAIN) -> Tagger | None:
     """Inline tagging so the Feed row lands complete; review.py sweeps rows
     without tagged_at nightly either way, so failure here costs nothing."""
     if not os.environ.get("ANTHROPIC_API_KEY"):
@@ -76,7 +77,7 @@ def _default_tagger(session: requests.Session) -> Tagger | None:
         jd = jobcontent.fetch_description(job.ats, job.native_id, slug, job.url, session)
         if not jd or not jd.strip():
             return None
-        return tagging.extract_tags(jd, job.title, job.company)
+        return tagging.extract_tags(jd, job.title, job.company, domain=domain)
     return tag
 
 
@@ -102,8 +103,9 @@ def run(hq: HQ, *, session: requests.Session | None = None, fetch=get_jobs_for,
         hq.log("priority", "config_problem", detail="; ".join(cfg.problems)[:450])
     include, exclude = cfg["titles_include"], cfg["titles_exclude"]
     import dataclasses
-    gate_cfg = dataclasses.replace(gates.GateConfig.from_user_config(cfg),
-                                   geo_unknown="keep")
+    from core.profile import Profile
+    prof = Profile.load(getattr(hq, "user", ""), cfg=cfg)
+    gate_cfg = dataclasses.replace(prof.gate_config(), geo_unknown="keep")
 
     feed = hq.tab("feed")
     known = known_keys(hq)
@@ -151,7 +153,7 @@ def run(hq: HQ, *, session: requests.Session | None = None, fetch=get_jobs_for,
         feed.append_records(rows)
         for j in fresh:
             hq.log("priority", "new_role", key=j.id, detail=f"{name} — {j.title}")
-        if pushable:
+        if pushable and prof.notify_channel == "ntfy":
             sent = push(f"Priority: {name} posted {len(pushable)} role(s)",
                         _lines(pushable), kind="jobs", tags=["dart"], priority="high",
                         click=pushable[0].url, session=session)
@@ -161,7 +163,7 @@ def run(hq: HQ, *, session: requests.Session | None = None, fetch=get_jobs_for,
         s.new += len(fresh)
         pending.extend((j, slug) for j in fresh)
 
-    tag = _default_tagger(session) if tagger == "auto" else tagger
+    tag = _default_tagger(session, prof.tag_domain) if tagger == "auto" else tagger
     if tag:
         for j, slug in pending:
             try:

@@ -5,6 +5,7 @@ yoe_push_max: 3            # push any new role whose min required YoE <= this (b
 # --- intake gates (WS1): disposition stamped on every feed row at write time ---
 filter_countries:          # rows anchored elsewhere are filtered (remote w/ no stated country passes)
   - United States
+filter_metros: []          # empty = anywhere in filter_countries; e.g. [Chicago] for a local search
 filter_geo_unknown: filter # blank-geo non-remote rows: filter (invisible, recoverable) | keep
 filter_yoe_max: 4          # min required YoE above this -> filtered
 filter_yoe_unknown: seniority-proxy  # tagged rows w/o stated YoE: seniority-proxy | keep
@@ -16,6 +17,10 @@ filter_seniority_exclude:  # seniority tags treated as over-bar when YoE is unkn
   - VP
 # --- daily sweep throughput (monitor.run) ---
 fetch_workers: 8           # concurrent board fetches in the daily sweep (network only; sheet writes stay serial)
+# --- geo-first aggregator sweep (WS4): "any employer in this metro" ---
+wide_location_ids: []      # TheirStack catalog location IDs (blank = company-fenced mode)
+wide_credit_budget: 25     # max jobs TheirStack may RETURN per run (1 credit each) — hard spend cap.
+                           # 25 = the free tier's per-page cap; paid tiers allow up to 500
 run_budget_min: 30         # soft wall-clock budget; the sweep stops starting new chunks past this and flushes
 stale_days: 30             # Applied + this many silent days -> stale flag + digest nudge
 digest_hour_ct: 7          # daily digest hour, America/Chicago

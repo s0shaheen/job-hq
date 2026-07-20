@@ -21,6 +21,7 @@ from datetime import date
 import requests
 
 from core import notify
+from core.profile import Profile
 from monitor import gates, geo, jobcontent, snapshot, tagging, tagworker
 from monitor.config import RuntimeConfig, get_runtime_config, unconfigured_reason
 from monitor.dedup import reconcile_company
@@ -32,7 +33,10 @@ from monitor.sheet import HQFeedStore, SheetStore
 
 INLINE_TAG_MAX_ENV = "MONITOR_INLINE_TAG_MAX"    # env override of the Config-tab inline_tag_max
 STALE_DAYS = 14                      # board days-missing before a role is Closed
-SNAPSHOT_PATH = "monitor/snapshots/hq.json"
+def snapshot_path(user: str = "") -> str:
+    """Per-user snapshot file. A shared path would have three matrix legs
+    overwriting each other's history every morning."""
+    return f"monitor/snapshots/{user or 'hq'}.json"
 
 
 @dataclass
@@ -61,7 +65,8 @@ def _inline_tag_max(cfg_default: int) -> int:
         return max(0, cfg_default)
 
 
-def make_tagger(session_factory=requests.Session, *, jd_fetch=None, extract=None):
+def make_tagger(session_factory=requests.Session, *, jd_fetch=None, extract=None,
+                domain: str = tagging.DEFAULT_DOMAIN):
     """(JobRecord, slug) -> Tags|None. None = no JD source (stays untagged;
     review.py retries nightly). Raises on fetch/LLM failure so the caller can
     count it and move on — a tag failure never blocks the append. Runs under a
@@ -76,7 +81,7 @@ def make_tagger(session_factory=requests.Session, *, jd_fetch=None, extract=None
         jd = jd_fetch(ats, native_id, slug, rec.url, get_session())
         if not jd or not jd.strip():
             return None
-        return extract(jd, rec.title, rec.company)
+        return extract(jd, rec.title, rec.company, domain=domain)
     return tag
 
 
@@ -89,7 +94,8 @@ def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
                 pusher=None, inline_tag_max: int | None = None,
                 inline_tag_workers: int | None = None,
                 fetch_workers: int | None = None,
-                budget_min: int | None = None) -> RunSummary:
+                budget_min: int | None = None,
+                push_channel: str = "ntfy") -> RunSummary:
     """One reconcile pass, chunked: fetch FETCH_CHUNK boards concurrently
     (network only — every sheet write stays on this thread, per the core.sheets
     contract), reconcile serially, flush that chunk's writes, print progress,
@@ -266,8 +272,9 @@ def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
 
     # push policy: one push, only QUALIFIED roles (gates: geo + YoE) whose min
     # required YoE also clears the tighter push bar; untagged/over-bar roles
-    # are a Feed count. Nothing new -> silence.
-    if all_new and cfg.push_new_jobs:
+    # are a Feed count. Nothing new -> silence. A user whose profile says
+    # email (or none) never gets a phone push — their digest carries it.
+    if all_new and cfg.push_new_jobs and push_channel == "ntfy":
         def yoe_of(rec: JobRecord) -> int | str:
             t = tags_by_id.get(rec.id)
             if t is not None:
@@ -312,17 +319,20 @@ def main() -> int:
         from core.sheets import HQ
         hq = HQ.open()
         cfg = get_runtime_config(hq)
+        prof = Profile.load(hq.user, cfg=hq.user_config())
         if cfg.problems:
             notify.ops_alert("HQ config problems",
                              "\n".join(cfg.problems)[:1500], session=session)
         disposer = gates.make_disposer(cfg.gates) if cfg.gates else None
         store = HQFeedStore(hq, disposer=disposer)
-        tagger = make_tagger() if os.environ.get("ANTHROPIC_API_KEY") else None
+        tagger = (make_tagger(domain=prof.tag_domain)
+                  if os.environ.get("ANTHROPIC_API_KEY") else None)
         if tagger is None:
             print("::warning title=Monitor tagging skipped::ANTHROPIC_API_KEY unset — "
                   "new rows land untagged (review.py will drain them if the key "
                   "exists there)")
-        s = run_monitor(store, cfg, session=session, tagger=tagger)
+        s = run_monitor(store, cfg, session=session, tagger=tagger,
+                        push_channel=prof.notify_channel)
         print(f"[monitor] boards={s.boards_done}/{s.boards_total} new={s.new_count} "
               f"pushed={s.pushed} tagged={s.tagged} ok={s.ok} zero={s.zero} "
               f"errored={s.errored} partial={s.partial}", file=sys.stderr)
@@ -330,7 +340,8 @@ def main() -> int:
             print(f"::warning title=Monitor partial run::budget hit at "
                   f"{s.boards_done}/{s.boards_total} boards — flushed work kept; "
                   f"rest resumes next run")
-        snapshot.write_snapshot(SNAPSHOT_PATH, "hq", store.read_history())
+        snapshot.write_snapshot(snapshot_path(hq.user), hq.user or "hq",
+                                store.read_history())
         hq.heartbeat("monitor")
         return 0
     except Exception as e:   # whole-run failure: real cause to the log, ping ops

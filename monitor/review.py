@@ -35,6 +35,7 @@ from datetime import date
 import requests
 
 from core import notify
+from core.profile import Profile
 from monitor import gates, geo, jobcontent, tagging, tagworker
 from monitor.config import unconfigured_reason
 from monitor.sheet import HQFeedStore, SheetStore
@@ -80,7 +81,7 @@ def review_feed(store: SheetStore, *, today: str | None = None,
                 retry_max: int | None = None,
                 deadletter_days: int | None = None,
                 sleep=None, backoff=None, session_factory=None,
-                gate_cfg=None) -> ReviewSummary:
+                gate_cfg=None, domain: str = None) -> ReviewSummary:
     """Drain the untagged-open Feed rows.
 
     fetch/extract default late (None) so tests can monkeypatch the modules.
@@ -94,6 +95,7 @@ def review_feed(store: SheetStore, *, today: str | None = None,
     session = session or requests.Session()
     fetch = fetch or jobcontent.fetch_description
     extract = extract or tagging.extract_tags
+    domain = domain or tagging.DEFAULT_DOMAIN
     if time_budget_min is None:
         time_budget_min = float(os.environ.get("REVIEW_TIME_BUDGET_MIN", "40"))
     workers = _int_arg(workers, "REVIEW_WORKERS", 8)
@@ -158,7 +160,7 @@ def review_feed(store: SheetStore, *, today: str | None = None,
                 jd = fetch(ats, native_id, slug, rec.url, _session())
                 if not jd or not jd.strip():
                     return ("nojd", None)
-                return ("ok", extract(jd, rec.title, rec.company))
+                return ("ok", extract(jd, rec.title, rec.company, domain=domain))
             except Exception as e:
                 last = str(e)[:200]
                 if attempt < retry_max:
@@ -260,7 +262,8 @@ def main() -> int:
         from core.sheets import HQ
         hq = HQ.open()
         cfg = hq.user_config()
-        gate_cfg = gates.GateConfig.from_user_config(cfg)
+        prof = Profile.load(hq.user, cfg=cfg)
+        gate_cfg = prof.gate_config()
         store = HQFeedStore(hq, disposer=gates.make_disposer(gate_cfg))
         geo_n = store.fill_missing_geo()
         if geo_n:
@@ -269,7 +272,7 @@ def main() -> int:
                         workers=cfg["review_workers"],
                         retry_max=cfg["tag_retry_max"],
                         deadletter_days=cfg["tag_deadletter_days"],
-                        gate_cfg=gate_cfg)
+                        gate_cfg=gate_cfg, domain=prof.tag_domain)
         print(f"[review] tagged={s.tagged} skipped_no_jd={s.skipped_no_jd} "
               f"failed={s.failed} deadlettered={s.deadlettered} "
               f"backlog={s.backlog}", file=sys.stderr)

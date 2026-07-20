@@ -193,15 +193,49 @@ def _default_cursor(today: str) -> str:
     return f"{d.isoformat()}T00:00:00Z"
 
 
+def theirstack_body(cursor: str, terms: list[str], *,
+                    companies: list[str] | None = None,
+                    location_ids: list[int] | None = None,
+                    limit: int = TS_LIMIT, preview: bool = False) -> dict:
+    """Request body for either search shape.
+
+    company-fenced (the original): "new jobs at these N employers".
+    geo-first (a local search like Chicagoland FP&A): "every matching job in
+    this metro, ANY employer" — `job_location_or` takes structured catalog IDs
+    (the older location *pattern* params are deprecated).
+
+    TheirStack REQUIRES a date filter on any query not fenced by a company
+    identifier, so the discovered_at cursor is mandatory here — which is also
+    what stops us re-buying yesterday's rows: billing is 1 credit per job
+    RETURNED, and a repeat pull is charged again.
+
+    preview=True asks for blurred company data, which the API serves WITHOUT
+    consuming credits — the way to size a query before paying for it.
+    """
+    body: dict = {"limit": limit, "offset": 0,
+                  "discovered_at_gte": cursor,
+                  "job_title_or": list(terms)}
+    if companies:
+        body["company_name_case_insensitive_or"] = list(companies)
+    if location_ids:
+        body["job_location_or"] = [{"id": int(i)} for i in location_ids]
+    if preview:
+        # blur is incompatible with company-identifier filters (vendor docs)
+        body.pop("company_name_case_insensitive_or", None)
+        body["blur_company_data"] = True
+    return body
+
+
 def _theirstack_fetch(session: requests.Session, api_key: str, cursor: str,
-                      companies: list[str], terms: list[str]) -> list[dict]:
-    r = session.post(TS_URL, json={
-        "limit": TS_LIMIT, "offset": 0,
-        "discovered_at_gte": cursor,
-        "company_name_case_insensitive_or": companies,
-        "job_title_or": terms,
-    }, headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-        timeout=60)
+                      companies: list[str], terms: list[str],
+                      location_ids: list[int] | None = None,
+                      limit: int = TS_LIMIT, preview: bool = False) -> list[dict]:
+    body = theirstack_body(cursor, terms, companies=companies,
+                           location_ids=location_ids, limit=limit, preview=preview)
+    r = session.post(TS_URL, json=body,
+                     headers={"Authorization": f"Bearer {api_key}",
+                              "Accept": "application/json"},
+                     timeout=60)
     r.raise_for_status()
     return (r.json() or {}).get("data") or []
 
@@ -217,6 +251,8 @@ class WideSummary:
     ok: bool = False             # at least one source swept successfully
     fetched: int = 0             # hiring.cafe items returned by the actor
     ts_fetched: int = 0
+    ts_mode: str = ""            # "geo" | "companies" | "" (not run)
+    ts_truncated: bool = False   # budget capped the window; cursor held back
     appended: int = 0
     pushed: int = 0
     cursor: str = ""
@@ -240,8 +276,10 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
     cfg = hq.user_config()
     if cfg.problems:
         hq.log("wide", "config_problem", detail="; ".join(cfg.problems)[:450])
-    include, exclude = cfg["titles_include"], cfg["titles_exclude"]
-    gate_cfg = gates.GateConfig.from_user_config(cfg)
+    from core.profile import Profile
+    prof = Profile.load(getattr(hq, "user", ""), cfg=cfg)
+    include, exclude = prof.titles_include, prof.titles_exclude
+    gate_cfg = prof.gate_config()
     terms = search_terms(include)
     if not terms:
         hq.log("wide", "skip", detail="titles_include empty — nothing to sweep")
@@ -290,7 +328,8 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
         known.add(rec["key"])
         new_records.append(rec)
 
-    # -- TheirStack: priority companies only (free tier = 200 credits/mo)
+    # -- TheirStack: geo-first when the profile names location IDs (a local
+    # search: "any employer in this metro"), else fenced to priority companies.
     ts_ok = False
     ts_cursor = ts_max = ""
     ts_key = os.environ.get("THEIRSTACK_API_KEY", "")
@@ -301,14 +340,41 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
               "channel contributing 0 jobs (add the repo secret to activate)")
         hq.log("wide", "theirstack_skip", detail="THEIRSTACK_API_KEY unset")
     if ts_key:
+        raw_ids = list(cfg.get("wide_location_ids") or [])
+        loc_ids = [int(x) for x in raw_ids if str(x).strip().isdigit()]
+        if raw_ids and not loc_ids:
+            # silently falling back to a company-fenced query would spend
+            # credits on the wrong search and look healthy doing it
+            print("::warning title=wide_location_ids invalid::"
+                  f"{raw_ids!r} are not numeric TheirStack catalog IDs — "
+                  f"geo-first sweep NOT active (GET /v0/catalog/locations)")
+            hq.log("wide", "bad_location_ids", detail=str(raw_ids)[:200])
+        budget = int(cfg.get("wide_credit_budget", TS_LIMIT) or 0)
         names = [c.get("name", "") for c in priority_companies(hq) if c.get("name")]
-        if not names:
+        if not loc_ids and not names:
             hq.log("wide", "theirstack_skip",
-                   detail="no priority companies — not spending credits market-wide")
+                   detail="no location ids and no priority companies — "
+                          "not spending credits market-wide")
+        elif budget <= 0:
+            hq.log("wide", "theirstack_skip", detail="wide_credit_budget is 0")
         else:
             ts_cursor = _config_value(hq, TS_CURSOR) or _default_cursor(today)
             try:
-                jobs = _theirstack_fetch(session, ts_key, ts_cursor, names, terms)
+                # 1 credit per job RETURNED, so the budget is enforced as the
+                # request limit — the API can never hand back more than we
+                # agreed to pay for. Geo-first drops the company fence.
+                jobs = _theirstack_fetch(
+                    session, ts_key, ts_cursor,
+                    [] if loc_ids else names, terms,
+                    location_ids=loc_ids or None, limit=min(budget, 500))
+                s.ts_mode = "geo" if loc_ids else "companies"
+                # A FULL page means the window held more than the budget
+                # bought. The API does not promise an order, so advancing the
+                # cursor past a truncated page would skip the remainder
+                # forever — a metro-wide query routinely matches far more than
+                # one page. Keep the cursor; the next run re-reads the same
+                # window (bounded, deduped by key) instead of losing jobs.
+                s.ts_truncated = len(jobs) >= min(budget, 500)
                 ts_ok = True
                 ts_max = ts_cursor
                 for job in jobs:
@@ -344,9 +410,16 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
             _upsert_config(hq, CAFE_CURSOR, max_seen,
                            "(auto) wide sweep — newest hiring.cafe publish date ingested")
             s.cursor = max_seen
-        if ts_ok and ts_max and ts_max != ts_cursor:
+        if ts_ok and ts_max and ts_max != ts_cursor and not s.ts_truncated:
             _upsert_config(hq, TS_CURSOR, ts_max,
                            "(auto) wide sweep — TheirStack discovered_at cursor")
+        elif s.ts_truncated:
+            print(f"::warning title=TheirStack window truncated::the budget "
+                  f"({s.ts_fetched} jobs) filled the page, so more matched than "
+                  f"was fetched; cursor held so nothing is skipped. Raise "
+                  f"wide_credit_budget or narrow the query.")
+            hq.log("wide", "theirstack_truncated",
+                   detail=f"{s.ts_fetched} returned = budget; cursor held")
     except Exception as e:  # cursor is an optimization; next run re-pulls, keys dedupe
         hq.log("wide", "cursor_write_failed", detail=str(e)[:200])
 

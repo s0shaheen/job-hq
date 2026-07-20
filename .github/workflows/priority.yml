@@ -8,12 +8,17 @@ on:
     - cron: "17 11-23,0-4 * * *"   # hourly at :17, ~06:00-23:00 America/Chicago
   workflow_dispatch: {}
 
-concurrency:
-  group: hq-feed-writers
-  cancel-in-progress: false
 
 jobs:
   run:
+    strategy:
+      fail-fast: false   # one user's failure must never cancel another's run
+      matrix:
+        user: ${{ fromJSON(vars.HQ_USERS || '["salman"]') }}
+
+    concurrency:
+      group: hq-feed-writers-${{ matrix.user }}   # per-user lane: users never queue behind each other
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -24,11 +29,12 @@ jobs:
       - name: Watch priority companies
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          HQ_USER: ${{ matrix.user }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python -m monitor.priority
       - name: Ops alert on failure
         if: failure() || cancelled()
         run: |
-          curl -s -H "Title: Priority watch failed" -H "Priority: high" -H "Tags: warning" \
+          curl -s -H "Title: [${{ matrix.user }}] Priority watch failed" -H "Priority: high" -H "Tags: warning" \
             -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             "https://ntfy.sh/REDACTED-NTFY-TOPIC" || true

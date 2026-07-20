@@ -81,11 +81,14 @@ CONFIG_DESCRIPTIONS = {
     "titles_exclude": "Job titles to skip, comma-separated",
     "dna_companies": "Do-not-apply companies, comma-separated (scout guard)",
     "filter_countries": "Countries a row may be anchored in, comma-separated (remote w/ no country passes)",
+    "filter_metros": "Metros to accept (e.g. Chicago); blank = anywhere in filter_countries",
     "filter_geo_unknown": "filter | keep — rows whose location can't be placed",
     "filter_yoe_max": "Min required YoE above this -> row filtered (invisible, recoverable)",
     "filter_yoe_unknown": "seniority-proxy | keep — tagged rows without a stated YoE",
     "filter_seniority_exclude": "Seniority tags treated as over-bar when YoE unknown, comma-separated",
     "fetch_workers": "Concurrent board fetches in the daily sweep (1-32)",
+    "wide_location_ids": "TheirStack location IDs for a metro-wide search; blank = only priority companies",
+    "wide_credit_budget": "Max jobs TheirStack may return per run (1 API credit each) — hard spend cap",
     "run_budget_min": "Daily sweep soft time budget in minutes; unfinished boards resume next run",
 }
 
@@ -104,6 +107,10 @@ def registry_path() -> Path:
 
 def write_registry(reg: dict, path: Path) -> None:
     path.write_text(_REGISTRY_HEADER + yaml.safe_dump(reg, sort_keys=False))
+    # BOTH caches: the parsed document and the per-user instance views. Missing
+    # the document cache would leave a just-provisioned user invisible to the
+    # same process that created them.
+    config._registry_doc.cache_clear()
     config.registry.cache_clear()   # subsequent HQ.open() must see the new gids
 
 
@@ -221,13 +228,27 @@ def _fmt_default(v) -> str:
     return str(v)
 
 
-def seed_config(sh) -> int:
-    """Append any missing knob rows; existing rows (Salman's edits) untouched."""
+def seed_config(sh, user: str = "") -> int:
+    """Append any missing knob rows; existing rows (human edits) untouched.
+
+    Seeded FROM THAT USER'S PROFILE where one applies. Seeding the committed
+    defaults for everyone would put one person's PM titles and YoE bar into
+    every other user's sheet — visibly wrong to them, and (because a Config
+    row that differs from the profile is treated as a deliberate override)
+    functionally wrong too."""
     t = Tab(sh.worksheet(schema.TABS["config"]), "config")
     have = {r["key"] for r in t.records() if r.get("key")}
+    vals = dict(config.defaults())
+    if user:
+        from core.profile import Profile
+        prof = Profile.load(user)
+        for cfg_key, attr in Profile.OVERLAY:
+            pv = getattr(prof, attr, None)
+            if pv not in (None, "", []):
+                vals[cfg_key] = pv
     recs = [{"key": k, "value": _fmt_default(v),
              "description": CONFIG_DESCRIPTIONS.get(k, "")}
-            for k, v in config.defaults().items() if k not in have]
+            for k, v in vals.items() if k not in have]
     t.append_records(recs)
     return len(recs)
 
@@ -343,18 +364,34 @@ def run(sh, *, sheet_id: str, owner: str, sa_email: str,
     if renamed:
         actions.append(renamed)
     actions += assert_structure(sh, owner=owner, sa_email=sa_email)
-    n_cfg = seed_config(sh)
+    n_cfg = seed_config(sh, os.environ.get(config.USER_ENV, ""))
     n_companies = seed_companies(sh, csv_dir) if seed_companies_flag else 0
-    write_scout_prefs(sh)
+    # The scout page carries one specific person's details; only that
+    # instance gets it. A second user's sheet keeps the empty tab.
+    if not os.environ.get(config.USER_ENV) or \
+            os.environ.get(config.USER_ENV) == "salman":
+        write_scout_prefs(sh)
 
     reg = {}
     if reg_path.exists():
         reg = yaml.safe_load(reg_path.read_text()) or {}
-    reg["sheet_id"] = sheet_id
-    reg["tabs"] = {logical: sh.worksheet(title).id
-                   for logical, title in schema.TABS.items()}
-    reg["owner_email"] = owner
-    reg["service_account_email"] = sa_email
+    inst = {
+        "sheet_id": sheet_id,
+        "tabs": {logical: sh.worksheet(title).id
+                 for logical, title in schema.TABS.items()},
+        "owner_email": owner,
+    }
+    # Multi-user registries keep each instance under users:<name>; writing
+    # these keys at the root would shadow every user with this one's sheet.
+    user = os.environ.get(config.USER_ENV, "").strip()
+    if reg.get("users") is not None and user:
+        block = dict((reg.get("users") or {}).get(user) or {})
+        block.update(inst)
+        reg.setdefault("users", {})[user] = block
+        reg["service_account_email"] = sa_email      # shared, stated once
+    else:
+        reg.update(inst)
+        reg["service_account_email"] = sa_email
     write_registry(reg, reg_path)
 
     print(f"{'logical':<14}{'gid':>12}  title")
