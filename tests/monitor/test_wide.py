@@ -351,3 +351,40 @@ def test_first_activation_defaults_cursor_and_upserts(monkeypatch):
     cur = [r for r in hq.tab("config").records() if r["key"] == "wide_cursor"]
     assert len(cur) == 1 and cur[0]["value"] == "2026-07-13T04:00:00.000Z"
     assert cur[0]["description"].startswith("(auto)")
+
+
+# ---- geo-first mode (WS4): "any employer in this metro"
+
+def test_geo_first_body_drops_the_company_fence_and_sends_location_ids():
+    from monitor.wide import theirstack_body
+    b = theirstack_body("2026-07-01T00:00:00Z", ["fp&a", "treasury"],
+                        companies=["Acme"], location_ids=[4887398], limit=50)
+    assert b["job_location_or"] == [{"id": 4887398}]
+    assert b["limit"] == 50
+    assert b["discovered_at_gte"] == "2026-07-01T00:00:00Z"
+    assert b["job_title_or"] == ["fp&a", "treasury"]
+    assert b["company_name_case_insensitive_or"] == ["Acme"]
+
+
+def test_company_fenced_body_unchanged_when_no_location_ids():
+    from monitor.wide import theirstack_body
+    b = theirstack_body("cur", ["pm"], companies=["Acme"])
+    assert "job_location_or" not in b
+    assert b["company_name_case_insensitive_or"] == ["Acme"]
+
+
+def test_preview_mode_blurs_and_drops_company_filter():
+    # blurred previews are free (no credits) and are how a query gets sized
+    # before it is paid for; the vendor rejects blur + company identifiers
+    from monitor.wide import theirstack_body
+    b = theirstack_body("cur", ["fp&a"], companies=["Acme"],
+                        location_ids=[1], preview=True)
+    assert b["blur_company_data"] is True
+    assert "company_name_case_insensitive_or" not in b
+
+
+def test_date_cursor_is_always_present():
+    # TheirStack REQUIRES a date filter on any non-company-fenced query, and
+    # the cursor is also what stops us re-buying yesterday's rows
+    from monitor.wide import theirstack_body
+    assert theirstack_body("cur", ["x"], location_ids=[1])["discovered_at_gte"] == "cur"

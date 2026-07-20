@@ -191,3 +191,18 @@ def test_mid_chunk_deadline_flushes_and_parks_cursor(monkeypatch):
     assert len(store.read_history()) == 2
     assert store.sweep_cursor == "Co2"             # first unfetched board
     assert store.health_rows == []                 # partial -> no health rewrite
+
+
+def test_email_only_user_never_gets_a_phone_push():
+    # dad's profile says notify_channel: email — the digest carries his
+    # matches; an ntfy push would go to a topic he does not watch
+    cos = [Company(name="Acme", ats="greenhouse", slug="a", monitor=True, seeded=True)]
+    jobs = {"Acme": [Job("greenhouse", "1", "Acme", "Product Manager",
+                         "Chicago, IL", "http://x")]}
+    pusher = _Pusher()
+    store = FakeSheetStore(cos, {})
+    s = run_monitor(store, _cfg(), fetch=_fetch_returns(jobs),
+                    tagger=lambda rec, slug: Tags(yoe="2+ years"),
+                    today=TODAY, session=object(), pusher=pusher,
+                    fetch_workers=1, push_channel="email")
+    assert s.new_count == 1 and s.pushed == 0 and pusher.calls == []

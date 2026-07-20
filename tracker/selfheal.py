@@ -15,7 +15,7 @@ from pathlib import Path
 import yaml
 
 from core import notify, schema
-from core.sheets import HQ
+from core.sheets import HQ, SchemaAnomaly
 from tracker import bootstrap
 
 
@@ -131,15 +131,37 @@ def dedupe_keys(hq: HQ, logical: str) -> list[str]:
     return [f"[{logical}] removed duplicate row for key {k!r}" for _, k in dup_rows]
 
 
+def _instance(doc: dict, user: str) -> dict:
+    """The block self-heal owns for THIS user.
+
+    In a multi-user registry the gids, owner and ntfy topics live under
+    users:<name>; reading/writing them at the document root would leave every
+    user's gids permanently unpinned (the exact split-brain the gid pinning
+    exists to prevent) and let each matrix leg overwrite the last one's.
+    """
+    umap = doc.get("users")
+    if not umap:
+        return doc                      # flat single-user file, unchanged
+    name = user or str(doc.get("default_user") or "")
+    if name not in umap:
+        raise SchemaAnomaly(
+            f"[selfheal] registry has users: but no block for {name!r} — "
+            f"run tracker.provision for this user first")
+    return umap.setdefault(name, {})
+
+
 def run(hq: HQ, *, reg_path: Path | None = None) -> list[str]:
     reg_path = reg_path or bootstrap.registry_path()
     sh = hq.sh
 
-    reg: dict = {}
+    doc: dict = {}
     if reg_path.exists():
-        reg = yaml.safe_load(reg_path.read_text()) or {}
-    if not reg:
-        reg = dict(hq.registry)   # first run in a fresh checkout
+        doc = yaml.safe_load(reg_path.read_text()) or {}
+    if not doc:
+        doc = dict(hq.registry)   # first run in a fresh checkout
+    reg = _instance(doc, getattr(hq, "user", ""))
+    # shared infrastructure is stated once at the root
+    sa_email = reg.get("service_account_email") or doc.get("service_account_email", "")
 
     print("[selfheal] live tabs: " +
           ", ".join(f"{w.title!r}#{w.id}" for w in sh.worksheets()))
@@ -151,7 +173,7 @@ def run(hq: HQ, *, reg_path: Path | None = None) -> list[str]:
     repairs += bootstrap.assert_structure(
         sh,
         owner=reg.get("owner_email", ""),
-        sa_email=reg.get("service_account_email", ""),
+        sa_email=sa_email,
         tabs_gids=reg.get("tabs"),
     )
 
@@ -162,7 +184,7 @@ def run(hq: HQ, *, reg_path: Path | None = None) -> list[str]:
 
     # new committed knobs materialize as editable Config rows without waiting
     # for a bootstrap run; existing rows (human edits) are never touched
-    seeded = bootstrap.seed_config(sh)
+    seeded = bootstrap.seed_config(sh, getattr(hq, "user", ""))
     if seeded:
         repairs.append(f"seeded {seeded} missing Config knob row(s)")
 
@@ -176,13 +198,15 @@ def run(hq: HQ, *, reg_path: Path | None = None) -> list[str]:
     if stale or reg.get("tabs") != live:
         reg["tabs"] = live
         repairs.append(f"registry gids re-pinned: {sorted(stale) or 'initial'}")
-    bootstrap.write_registry(reg, reg_path)
+    bootstrap.write_registry(doc, reg_path)   # doc contains reg (same object)
     print(yaml.safe_dump(reg, sort_keys=False))
 
     if repairs:
         detail = "; ".join(repairs)
         hq.log("selfheal", "repair", detail=detail)
-        notify.ops_alert("HQ self-heal made repairs", "\n".join(f"- {r}" for r in repairs))
+        who = f" [{hq.user}]" if getattr(hq, "user", "") else ""
+        notify.ops_alert(f"HQ self-heal made repairs{who}",
+                         "\n".join(f"- {r}" for r in repairs))
         print(f"[selfheal] {len(repairs)} repair(s): {detail}")
     else:
         print("[selfheal] structure clean, nothing to repair")

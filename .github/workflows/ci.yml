@@ -127,7 +127,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     concurrency:
-      group: hq-feed-writers   # serialize with monitor/priority/wide — one Feed appender at a time
+      # feed lanes are per-user now; this manual seed targets the default user
+      group: hq-feed-writers-${{ vars.HQ_DEFAULT_USER || 'salman' }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v5

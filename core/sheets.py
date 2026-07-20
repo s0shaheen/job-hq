@@ -256,18 +256,24 @@ class HQ:
     def __init__(self, spreadsheet, registry: dict):
         self.sh = spreadsheet
         self.registry = registry
+        self.user = registry.get("user", "")   # "" in single-user mode
         self._tabs: dict[str, Tab] = {}
 
     @classmethod
-    def open(cls) -> "HQ":
-        from core.config import registry
-        reg = registry()
-        sheet_id = os.environ.get("HQ_SHEET_ID") or reg.get("sheet_id", "")
-        if not sheet_id:
+    def open(cls, user: str | None = None) -> "HQ":
+        """Open a user's spreadsheet (env HQ_USER / default_user when None).
+        Single-user registries ignore `user` entirely — the original call
+        `HQ.open()` keeps working unchanged."""
+        from core.config import registry, sheet_id as _sheet_id
+        reg = registry(user)
+        sid = _sheet_id(user)
+        if not sid:
             raise SchemaAnomaly("HQ sheet_id unset — run tracker.bootstrap first "
                                 "(hq.config.yaml: sheet_id)")
         gc = _client()
-        return cls(gc.open_by_key(sheet_id), reg)
+        hq = cls(gc.open_by_key(sid), reg)
+        hq.user = reg.get("user", "")
+        return hq
 
     def tab(self, logical: str) -> Tab:
         if logical in self._tabs:

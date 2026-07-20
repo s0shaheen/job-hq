@@ -4,7 +4,7 @@
 
 Sheets version history is the second line of defense; a diffable snapshot the
 owner controls is the first — restores from any human catastrophe without a
-Mac. The calling workflow commits snapshots/hq/*.csv.
+Mac. The calling workflow commits snapshots/<user>/*.csv.
 """
 from __future__ import annotations
 
@@ -30,9 +30,13 @@ def run(hq: HQ, out_dir: Path) -> dict[str, int]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(prog="python -m tracker.snapshot")
-    ap.add_argument("--out", default=str(config.REPO_ROOT / "snapshots" / "hq"))
+    ap.add_argument("--out", default="")   # default resolves per user below
     args = ap.parse_args()
-    counts = run(HQ.open(), Path(args.out))
+    hq = HQ.open()
+    # snapshots/<user>/ so matrix legs never overwrite each other's backup
+    out = Path(args.out) if args.out else (
+        config.REPO_ROOT / "snapshots" / (hq.user or "hq"))
+    counts = run(hq, out)
     print("[snapshot] " + "  ".join(f"{k}:{v}" for k, v in counts.items()))
     return 0
 

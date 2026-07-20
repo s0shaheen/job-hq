@@ -185,19 +185,42 @@ class HQFeedStore:
         self._hq.tab("feed").append_records(rows)
         self._hq.log("monitor", "feed_append", detail=f"{len(rows)} rows ({len(tags)} tagged inline)")
 
-    def fill_missing_geo(self, chunk: int = 120) -> int:
-        """Nightly backfill: derive city/state/country/remote/market for feed
-        rows that lack them (pre-geo rows, or work_model arrived after append).
-        Deterministic — no LLM. Chunked to keep batch payloads sane."""
+    GEO_COLS = ("city", "state", "country", "remote", "market", "metro")
+
+    def fill_missing_geo(self, chunk: int = 120, max_rows: int = 1500) -> int:
+        """Nightly geo backfill — DIFF-based, not blank-based.
+
+        Recomputes geo for every row and writes only the cells that actually
+        differ. That covers the original case (pre-geo rows, work_model
+        arriving after append) and one the blank-check missed entirely: a
+        PARSER improvement. When a new metro column lands, or the city parser
+        stops swallowing "New York, NY" as a state, thousands of already-
+        stamped rows are silently wrong and a blank-check would never revisit
+        them. Deterministic, so this converges: once a row matches, it diffs
+        to nothing and costs no writes forever after.
+
+        max_rows caps a single night's repair so a big parser change can't
+        eat the write quota; the remainder lands the next night.
+        """
         rows = self._hq.tab("feed").records()
         todo: dict[str, dict[str, Any]] = {}
         for r in rows:
             key = r.get(schema.KEY, "")
-            if not key or r.get("market", "").strip():
+            if not key:
                 continue
             if not (r.get("location", "").strip() or r.get("work_model", "").strip()):
                 continue
-            todo[key] = dict(geo.enrich(r.get("location", ""), r.get("work_model", "")))
+            fresh = geo.enrich(r.get("location", ""), r.get("work_model", ""))
+            # Fill blanks and IMPROVE values, but never blank a populated
+            # cell: a parser that temporarily fails to place a location must
+            # not erase geo that is already correct ("bots fill blanks;
+            # humans win" — and a bot must not undo its own better past self).
+            diff = {c: fresh[c] for c in self.GEO_COLS
+                    if fresh[c] and fresh[c] != (r.get(c, "") or "").strip()}
+            if diff:
+                todo[key] = diff
+            if len(todo) >= max_rows:
+                break
         keys = list(todo)
         for i in range(0, len(keys), chunk):
             self._bulk_set_by_key({k: todo[k] for k in keys[i:i + chunk]})

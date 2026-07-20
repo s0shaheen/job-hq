@@ -45,6 +45,11 @@ def _canon_country(name: str) -> str:
 @dataclass
 class GateConfig:
     countries: list[str] = field(default_factory=lambda: ["United States"])
+    # metros: empty = anywhere within `countries`. Non-empty narrows to those
+    # metros (plus remote, which is location-independent) — the grain a local
+    # search needs, where a country filter is useless and a state filter is
+    # wrong (Chicago spans IL/IN/WI; IL includes Peoria).
+    metros: list[str] = field(default_factory=list)
     geo_unknown: str = "filter"          # filter | keep — rows geo.enrich can't place
     yoe_max: int = 4
     yoe_unknown: str = "seniority-proxy"  # seniority-proxy | keep — tagged rows w/o a stated YoE
@@ -52,6 +57,7 @@ class GateConfig:
 
     def __post_init__(self):
         self.countries = [_canon_country(c) for c in self.countries if str(c).strip()]
+        self.metros = [str(m).strip() for m in self.metros if str(m).strip()]
         self.seniority_exclude = [str(s).strip().casefold()
                                   for s in self.seniority_exclude if str(s).strip()]
 
@@ -59,6 +65,7 @@ class GateConfig:
     def from_user_config(cls, cfg) -> "GateConfig":
         return cls(
             countries=list(cfg["filter_countries"]),
+            metros=list(cfg.get("filter_metros", []) or []),
             geo_unknown=str(cfg["filter_geo_unknown"]),
             yoe_max=int(cfg["filter_yoe_max"]),
             yoe_unknown=str(cfg["filter_yoe_unknown"]),
@@ -84,6 +91,16 @@ def dispose(row: dict, g: GateConfig) -> tuple[str, str]:
         # keep -> fall through to YoE
     # blank country + remote passes: a remote role with no stated origin is
     # worth a look; foreign-anchored remote carries its country and was caught.
+
+    # --- metro (only when the profile names metros: a LOCAL search)
+    if g.metros and not remote:
+        metro = str(row.get("metro", "")).strip()
+        if not metro:
+            # in-country but unplaceable: same policy the user chose for geo
+            if g.geo_unknown == "filter":
+                return FILTERED, "metro-unknown"
+        elif metro not in g.metros:
+            return FILTERED, f"metro:{metro}"
 
     # --- YoE (needs the tag block)
     raw_yoe = str(row.get("min_yoe", "")).strip()

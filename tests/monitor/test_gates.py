@@ -110,3 +110,49 @@ def test_regate_uses_stored_geo_and_skips_unchanged_rows():
     ]
     changes = regate_rows(rows, G)
     assert changes == {"a-1": (FILTERED, "geo:India"), "a-2": (QUALIFIED, "")}
+
+
+# ---- metro gate (a LOCAL search: dad's Chicagoland FP&A)
+
+CHI = GateConfig(countries=["United States"], metros=["Chicago"], yoe_max=30,
+                 yoe_unknown="keep")
+
+
+def _chi_row(**kw):
+    base = {"country": "United States", "remote": "", "metro": "Chicago",
+            "min_yoe": "", "seniority": "", "tagged_at": "x"}
+    base.update(kw)
+    return base
+
+
+def test_in_metro_qualifies():
+    assert dispose(_chi_row(), CHI)[0] == QUALIFIED
+
+
+def test_other_metro_filtered_with_reason():
+    d, r = dispose(_chi_row(metro="Denver"), CHI)
+    assert d == FILTERED and r == "metro:Denver"
+
+
+def test_in_country_but_unplaceable_follows_the_geo_unknown_policy():
+    d, r = dispose(_chi_row(metro=""), CHI)
+    assert d == FILTERED and r == "metro-unknown"
+    keep = GateConfig(countries=["United States"], metros=["Chicago"],
+                      geo_unknown="keep", yoe_max=30, yoe_unknown="keep")
+    assert dispose(_chi_row(metro=""), keep)[0] == QUALIFIED
+
+
+def test_remote_bypasses_the_metro_gate():
+    # a remote role is location-independent; a local search still wants it
+    d, _ = dispose(_chi_row(metro="", remote="TRUE", country=""), CHI)
+    assert d == QUALIFIED
+
+
+def test_no_metros_configured_means_anywhere_in_country():
+    national = GateConfig(countries=["United States"])
+    assert dispose(_chi_row(metro="Denver", min_yoe="2"), national)[0] == QUALIFIED
+
+
+def test_foreign_row_still_filtered_before_metro_is_considered():
+    d, r = dispose(_chi_row(country="India", metro=""), CHI)
+    assert d == FILTERED and r == "geo:India"

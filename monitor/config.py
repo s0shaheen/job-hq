@@ -27,12 +27,13 @@ class RuntimeConfig:
 
 
 def get_runtime_config(hq) -> RuntimeConfig:
-    from monitor.gates import GateConfig
+    from core.profile import Profile
     cfg = hq.user_config()
+    prof = Profile.load(getattr(hq, "user", ""), cfg=cfg)
     return RuntimeConfig(
-        include=list(cfg["titles_include"]),
-        exclude=list(cfg["titles_exclude"]),
-        workday_search=str(cfg["workday_search"]),
+        include=list(prof.titles_include or cfg["titles_include"]),
+        exclude=list(prof.titles_exclude or cfg["titles_exclude"]),
+        workday_search=str(prof.board_search_term or cfg["workday_search"]),
         yoe_push_max=int(cfg["yoe_push_max"]),
         push_new_jobs=bool(cfg["push_new_jobs"]),
         push_status_events=bool(cfg["push_status_events"]),
@@ -40,7 +41,7 @@ def get_runtime_config(hq) -> RuntimeConfig:
         inline_tag_workers=int(cfg["inline_tag_workers"]),
         fetch_workers=int(cfg["fetch_workers"]),
         run_budget_min=int(cfg["run_budget_min"]),
-        gates=GateConfig.from_user_config(cfg),
+        gates=prof.gate_config(),
         problems=list(cfg.problems),
     )
 

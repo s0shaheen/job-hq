@@ -11,12 +11,17 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: hq-selfheal
-  cancel-in-progress: false
 
 jobs:
   run:
+    strategy:
+      fail-fast: false   # one user's failure must never cancel another's run
+      matrix:
+        user: ${{ fromJSON(vars.HQ_USERS || '["salman"]') }}
+
+    concurrency:
+      group: hq-selfheal-${{ matrix.user }}   # per-user lane: users never queue behind each other
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -27,21 +32,26 @@ jobs:
       - name: Self-heal schema
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          HQ_USER: ${{ matrix.user }}
         run: python -m tracker.selfheal
       - name: Snapshot tabs to CSV
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          HQ_USER: ${{ matrix.user }}
         run: python -m tracker.snapshot
       - name: Commit snapshots + registry re-pins
         run: |
           git config user.name "hq-bot"
           git config user.email "bot@users.noreply.github.com"
-          git add snapshots/hq/ hq.config.yaml || true
-          git commit -m "chore: nightly HQ snapshot $(date -u +%Y-%m-%d)" || echo "no changes"
-          git push || echo "nothing to push"
+          git add snapshots/ hq.config.yaml || true
+          git commit -m "chore: nightly HQ snapshot ${{ matrix.user }} $(date -u +%Y-%m-%d)" || echo "no changes"
+          for i in 1 2 3; do
+            git push && break
+            echo "push rejected (matrix leg race) — rebasing"; git pull --rebase origin "${GITHUB_REF_NAME}"
+          done
       - name: Ops alert on failure
         if: failure() || cancelled()
         run: |
-          curl -s -H "Title: Self-heal failed" -H "Priority: high" -H "Tags: warning" \
+          curl -s -H "Title: [${{ matrix.user }}] Self-heal failed" -H "Priority: high" -H "Tags: warning" \
             -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             "https://ntfy.sh/REDACTED-NTFY-TOPIC" || true

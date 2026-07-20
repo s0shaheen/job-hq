@@ -23,7 +23,7 @@ def _fetch_const(text):
     return fetch
 
 
-def _extract_echo(jd, title, company, *, client=None):
+def _extract_echo(jd, title, company, *, client=None, domain=None):
     return Tags(yoe="5+", role_focus=jd[:10])
 
 
@@ -260,8 +260,8 @@ def test_stored_filtered_disposition_skips_tagging_entirely():
                                       "market": "India", "work_model": "",
                                       "seniority": ""}}
     calls = []
-    s = review_feed(store, today=TODAY, fetch=lambda *a: calls.append(a) or "jd",
-                    extract=lambda *a: Tags(yoe="2"), workers=1,
+    s = review_feed(store, today=TODAY, fetch=lambda *a, **k: calls.append(a) or "jd",
+                    extract=lambda *a, **k: Tags(yoe="2"), workers=1,
                     gate_cfg=_gate_cfg())
     assert calls == [] and s.tagged == 0
 
@@ -276,8 +276,8 @@ def test_producer_needs_info_disposition_is_tagged_even_if_geo_unparseable():
                                       "country": "", "remote": "",
                                       "market": "", "work_model": "",
                                       "seniority": ""}}
-    s = review_feed(store, today=TODAY, fetch=lambda *a: "jd",
-                    extract=lambda *a: Tags(yoe="2"), workers=1,
+    s = review_feed(store, today=TODAY, fetch=lambda *a, **k: "jd",
+                    extract=lambda *a, **k: Tags(yoe="2"), workers=1,
                     gate_cfg=_gate_cfg())
     assert s.tagged == 1
 
@@ -292,8 +292,8 @@ def test_legacy_remote_row_kept_via_stored_geo_columns():
                                       "country": "", "remote": "TRUE",
                                       "market": "Remote", "work_model": "Remote",
                                       "seniority": ""}}
-    s = review_feed(store, today=TODAY, fetch=lambda *a: "jd",
-                    extract=lambda *a: Tags(yoe="1"), workers=1,
+    s = review_feed(store, today=TODAY, fetch=lambda *a, **k: "jd",
+                    extract=lambda *a, **k: Tags(yoe="1"), workers=1,
                     gate_cfg=_gate_cfg())
     assert s.tagged == 1
 
@@ -306,8 +306,8 @@ def test_untaggable_regate_uses_stored_geo_and_seniority():
                                       "country": "", "remote": "TRUE",
                                       "market": "Remote", "work_model": "Remote",
                                       "seniority": "Director"}}
-    s = review_feed(store, today=TODAY, fetch=lambda *a: "",   # no JD -> untaggable
-                    extract=lambda *a: None, workers=1, gate_cfg=_gate_cfg())
+    s = review_feed(store, today=TODAY, fetch=lambda *a, **k: "",   # no JD -> untaggable
+                    extract=lambda *a, **k: None, workers=1, gate_cfg=_gate_cfg())
     assert s.skipped_no_jd == 1
     # remote row stays geo-qualified, but Director seniority + unknown YoE
     # falls to the seniority proxy -> filtered, NOT geo-unknown

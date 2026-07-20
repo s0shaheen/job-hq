@@ -10,12 +10,17 @@ on:
     - cron: "7 14,23 * * *"   # ~09:07 + ~18:07 America/Chicago
   workflow_dispatch: {}
 
-concurrency:
-  group: hq-simplify
-  cancel-in-progress: false
 
 jobs:
   run:
+    strategy:
+      fail-fast: false   # one user's failure must never cancel another's run
+      matrix:
+        user: ${{ fromJSON(vars.HQ_USERS || '["salman"]') }}
+
+    concurrency:
+      group: hq-simplify-${{ matrix.user }}   # per-user lane: users never queue behind each other
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -26,16 +31,18 @@ jobs:
       - name: Import (cookie API; skips cleanly until secrets are set)
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          HQ_USER: ${{ matrix.user }}
           SIMPLIFY_AUTH_COOKIE: ${{ secrets.SIMPLIFY_AUTH_COOKIE }}
           SIMPLIFY_CSRF: ${{ secrets.SIMPLIFY_CSRF }}
         run: python -m tracker.simplify
       - name: Import (committed CSV export, second source)
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          HQ_USER: ${{ matrix.user }}
         run: python -m tracker.migrate --simplify-csv
       - name: Ops alert on failure
         if: failure() || cancelled()
         run: |
-          curl -s -H "Title: Simplify import failed" -H "Priority: high" -H "Tags: warning" \
+          curl -s -H "Title: [${{ matrix.user }}] Simplify import failed" -H "Priority: high" -H "Tags: warning" \
             -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             "https://ntfy.sh/REDACTED-NTFY-TOPIC" || true

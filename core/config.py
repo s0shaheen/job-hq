@@ -1,13 +1,25 @@
 """Configuration, two layers:
 
-1. `registry()` — the committed hq.config.yaml at repo root: spreadsheet id,
-   tab gids (pinned by bootstrap, re-pinned by self-heal), ntfy topics, Drive
-   folder ids, service-account email. Machine-owned; humans don't edit it.
+1. `registry(user)` — the committed hq.config.yaml at repo root: spreadsheet
+   id, tab gids (pinned by bootstrap, re-pinned by self-heal), ntfy topics,
+   Drive folder ids, service-account email. Machine-owned; humans don't edit it.
 
-2. `UserConfig` — the Config TAB of the spreadsheet: every knob Salman may
-   turn from his phone. Read fresh each run, validated key-by-key; an invalid
-   value falls back to the committed default and is reported (the caller
-   pushes the problem list to ops) — a typo can never take the system down.
+2. `UserConfig` — the Config TAB of a user's spreadsheet: every knob that user
+   may turn from their phone. Read fresh each run, validated key-by-key; an
+   invalid value falls back to the committed default and is reported (the
+   caller pushes the problem list to ops) — a typo can never take the system
+   down.
+
+Multi-user: hq.config.yaml may either be a single flat instance (the original
+shape, still valid) or carry a `users:` mapping of name -> that same instance
+shape. `registry()` with no argument returns the flat doc or, when a `users:`
+map exists, its `default_user`. Nothing about the single-user file has to
+change for it to keep working — that backwards compatibility is the point.
+
+Selecting a user: `registry("dad")`, or the HQ_USER env var (what the Actions
+matrix sets). Registry reads are cached PER USER, never as a single global —
+a per-user cache keyed on nothing is how a 3-user loop would silently write
+one person's rows into another's sheet.
 """
 from __future__ import annotations
 
@@ -19,14 +31,61 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+USER_ENV = "HQ_USER"
+
 
 @functools.lru_cache(maxsize=1)
-def registry() -> dict:
-    p = REPO_ROOT / "hq.config.yaml"
+def _registry_doc() -> dict:
+    p = Path(os.environ.get("HQ_REGISTRY_PATH") or (REPO_ROOT / "hq.config.yaml"))
     if not p.exists():
         return {}
     with open(p) as f:
         return yaml.safe_load(f) or {}
+
+
+def users() -> list[str]:
+    """Configured user names. Empty list = single-user (flat) registry."""
+    return sorted((_registry_doc().get("users") or {}).keys())
+
+
+def current_user() -> str:
+    """Which user this process is acting for ("" = the flat single-user doc)."""
+    doc = _registry_doc()
+    umap = doc.get("users") or {}
+    if not umap:
+        return ""
+    env = os.environ.get(USER_ENV, "").strip()
+    if env:
+        return env
+    return str(doc.get("default_user") or "")
+
+
+@functools.lru_cache(maxsize=16)
+def registry(user: str | None = None) -> dict:
+    """The instance block for `user` (env/default when None).
+
+    Cached per user — deliberately NOT a single global slot, so a process that
+    loops over users can never serve one user's sheet id to another.
+    """
+    doc = _registry_doc()
+    umap = doc.get("users") or {}
+    if not umap:
+        return doc                      # flat single-user file, unchanged
+    name = (user or current_user() or "").strip()
+    if not name:
+        raise KeyError(
+            "hq.config.yaml defines users: but no user was selected — set "
+            f"{USER_ENV} or a default_user")
+    if name not in umap:
+        raise KeyError(f"unknown HQ user {name!r}; configured: {sorted(umap)}")
+    inst = dict(umap[name] or {})
+    # instance-level keys win; anything shared (e.g. service_account_email)
+    # falls back to the document root so it is stated once.
+    for k, v in doc.items():
+        if k not in ("users", "default_user") and k not in inst:
+            inst[k] = v
+    inst["user"] = name
+    return inst
 
 
 @functools.lru_cache(maxsize=1)
@@ -72,11 +131,14 @@ def _choice(*allowed: str):
 VALIDATORS = {
     "yoe_push_max":       _int(0, 30),
     "filter_countries":   _csv,
+    "filter_metros":      _csv,
     "filter_geo_unknown": _choice("filter", "keep"),
     "filter_yoe_max":     _int(0, 30),
     "filter_yoe_unknown": _choice("seniority-proxy", "keep"),
     "filter_seniority_exclude": _csv,
     "fetch_workers":      _int(1, 32),
+    "wide_location_ids":  _csv,
+    "wide_credit_budget": _int(0, 5000),
     "run_budget_min":     _int(5, 120),
     "stale_days":         _int(3, 365),
     "digest_hour_ct":     _int(0, 23),
@@ -129,5 +191,10 @@ class UserConfig:
         return cls(vals, problems)
 
 
-def sheet_id() -> str:
-    return os.environ.get("HQ_SHEET_ID") or registry().get("sheet_id", "")
+def sheet_id(user: str | None = None) -> str:
+    """HQ_SHEET_ID wins ONLY in single-user mode. Once a users: map exists an
+    env override would silently point every matrix leg at one sheet, so the
+    registry is authoritative there."""
+    if not (_registry_doc().get("users") or {}):
+        return os.environ.get("HQ_SHEET_ID") or registry().get("sheet_id", "")
+    return registry(user).get("sheet_id", "")

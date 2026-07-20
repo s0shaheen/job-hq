@@ -1,0 +1,132 @@
+"""Search Profile — what a user is looking for, in one declarative object.
+
+The engine used to encode ONE person's search in code: a tagging prompt that
+says "product-manager job postings", a title list in the committed defaults,
+a company universe curated for fintech PM roles. That is fine for one user
+and a wall for three. A profile makes the search data:
+
+    role_family     "product manager" | "financial planning & analysis" | ...
+    titles_include/exclude, seniority_exclude
+    countries, metros, remote policy, yoe range
+    industries, comp_floor
+
+Where a profile lives, in precedence order:
+  1. the user's Config TAB (per-key, phone-editable, validated) — wins
+  2. users/<name>/profile.yaml (committed; the operator sets it up once)
+  3. core/config_defaults.yaml (the committed fallback)
+
+That ordering is deliberate: a user can always adjust their own search from
+the spreadsheet without a commit, and the committed file is the durable
+record the operator maintains. Nothing here talks to a sheet or a network —
+callers pass in the already-loaded UserConfig.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+
+from core.config import REPO_ROOT
+
+PROFILE_DIRNAME = "users"
+
+
+@dataclass
+class Profile:
+    name: str = ""
+    role_family: str = "product manager"
+    # what the tagger is told it is reading; keeps the LLM prompt honest for
+    # non-PM searches without a code change
+    tag_domain: str = "product-manager"
+    titles_include: list[str] = field(default_factory=list)
+    titles_exclude: list[str] = field(default_factory=list)
+    seniority_exclude: list[str] = field(default_factory=list)
+    countries: list[str] = field(default_factory=lambda: ["United States"])
+    metros: list[str] = field(default_factory=list)   # empty = anywhere in countries
+    yoe_max: int = 4
+    geo_unknown: str = "filter"
+    yoe_unknown: str = "seniority-proxy"
+    board_search_term: str = "product"    # corpus-wide boards (Workday et al)
+    notify_channel: str = "ntfy"          # ntfy | email | none
+    notify_email: str = ""
+
+    @classmethod
+    def load(cls, user: str = "", cfg=None) -> "Profile":
+        """Three layers, lowest first:
+
+          1. core/config_defaults.yaml — the committed baseline. Without this
+             a deployment that has no profile file at all (the original
+             single-user setup) would come back with EMPTY titles and match
+             nothing.
+          2. users/<name>/profile.yaml — what this person is looking for.
+          3. their Config tab, but only the cells they actually changed
+             (see overlay_config).
+        """
+        from core.config import defaults as _committed
+        base = _committed()
+        prof = cls(name=user)
+        for cfg_key, attr in cls.OVERLAY:
+            if cfg_key in base and base[cfg_key] not in (None, "", []):
+                setattr(prof, attr, base[cfg_key])
+
+        if user:
+            p = REPO_ROOT / PROFILE_DIRNAME / user / "profile.yaml"
+            if p.exists():
+                with open(p) as f:
+                    data = yaml.safe_load(f) or {}
+                for k, v in data.items():
+                    if k in cls.__dataclass_fields__ and k != "name":
+                        setattr(prof, k, v)
+
+        if cfg is not None:
+            prof.overlay_config(cfg)
+        return prof
+
+    # Config key -> Profile attribute
+    OVERLAY = (("titles_include", "titles_include"),
+               ("titles_exclude", "titles_exclude"),
+               ("filter_seniority_exclude", "seniority_exclude"),
+               ("filter_countries", "countries"),
+               ("filter_metros", "metros"),
+               ("filter_yoe_max", "yoe_max"),
+               ("filter_geo_unknown", "geo_unknown"),
+               ("filter_yoe_unknown", "yoe_unknown"),
+               ("workday_search", "board_search_term"))
+
+    def overlay_config(self, cfg) -> None:
+        """Apply ONLY the knobs this user actually changed in their sheet.
+
+        The subtlety that makes this necessary: `UserConfig` starts from
+        core/config_defaults.yaml and bootstrap materializes every default as
+        a real Config row, so `cfg[key]` always has a value. Treating any
+        value as an override would mean the committed defaults (which encode
+        ONE person's PM search) silently overwrite every other user's
+        profile — their instance would quietly run somebody else's search.
+
+        So a Config value only wins when it DIFFERS from the committed
+        default, i.e. when a human deliberately changed that cell. Values
+        that still equal the default leave the profile alone.
+        """
+        from core.config import defaults as _committed
+        base = _committed()
+        for key, attr in self.OVERLAY:
+            try:
+                val = cfg[key]
+            except (KeyError, TypeError):
+                continue
+            if val is None or val == "" or val == []:
+                continue
+            if key in base and val == base[key]:
+                continue          # untouched default — the profile is the truth
+            setattr(self, attr, val)
+
+    def gate_config(self):
+        """The intake gates for this profile (monitor.gates.GateConfig)."""
+        from monitor.gates import GateConfig
+        return GateConfig(countries=list(self.countries),
+                          metros=list(self.metros),
+                          geo_unknown=self.geo_unknown,
+                          yoe_max=int(self.yoe_max),
+                          yoe_unknown=self.yoe_unknown,
+                          seniority_exclude=list(self.seniority_exclude))
