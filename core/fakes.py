@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 from core import schema
+from core import sheets as sheets_mod
 from core.sheets import HQ, Tab
 
 _A1 = re.compile(r"^([A-Z]+)(\d+)$")
@@ -23,14 +24,34 @@ def _col_to_idx(letters: str) -> int:
     return n
 
 
+class GridLimitError(RuntimeError):
+    """What Sheets returns (HTTP 400) for a write past the grid's width —
+    modelled here because the real API does NOT auto-grow the grid."""
+
+
 class FakeWorksheet:
     _next_id = 1000
 
-    def __init__(self, title: str, rows: list[list[str]] | None = None):
+    def __init__(self, title: str, rows: list[list[str]] | None = None,
+                 col_count: int = 26, row_count: int = 200):
         self.title = title
         self._grid: list[list[str]] = [list(map(str, r)) for r in (rows or [])]
+        # Real worksheets have a FIXED grid width (26 by default) and reject
+        # writes past it with a 400 rather than auto-growing. Modelling that
+        # here is what turns "self-heal cannot add a new column" into a test
+        # failure instead of a production outage.
+        self.col_count = col_count
+        self.row_count = row_count
         FakeWorksheet._next_id += 1
         self.id = FakeWorksheet._next_id
+
+    def add_cols(self, n: int) -> None:
+        self.col_count += int(n)
+
+    def _check_width(self, col: int) -> None:
+        if col > self.col_count:
+            raise GridLimitError(
+                f"Range exceeds grid limits. Max columns: {self.col_count}")
 
     # -- helpers
     def _ensure(self, row: int, col: int) -> None:
@@ -91,6 +112,8 @@ class FakeWorksheet:
         # supports ws.update([row], "A1"-style) used by ensure_headers
         m = _A1.match((range_name or "A1").split(":")[0])
         row, col = int(m.group(2)), _col_to_idx(m.group(1))
+        widest = max((col + len(r) - 1) for r in values) if values else col
+        self._check_width(widest)      # real sheets 400 here; do not auto-grow
         for dr, values_row in enumerate(values):
             for dc, v in enumerate(values_row):
                 self._ensure(row + dr, col + dc)
@@ -124,7 +147,7 @@ class FakeSpreadsheet:
         raise KeyError(gid)
 
     def add_worksheet(self, title: str, rows: int = 100, cols: int = 26):
-        ws = FakeWorksheet(title)
+        ws = FakeWorksheet(title, col_count=cols, row_count=rows)
         self._sheets.append(ws)
         return ws
 
@@ -143,7 +166,11 @@ def fake_hq(with_tabs: list[str] | None = None) -> HQ:
     sh = FakeSpreadsheet()
     reg: dict = {"tabs": {}, "ntfy": {"jobs": "", "ops": ""}}
     for logical in (with_tabs or list(schema.TABS)):
-        ws = sh.add_worksheet(schema.TABS[logical])
+        headers_ = schema.HEADERS.get(logical) or []
+        # size the grid from the schema, exactly as sheets.ensure_tab does —
+        # a 26-column default cannot hold the 28-column Feed header row
+        ws = sh.add_worksheet(schema.TABS[logical],
+                              cols=max(26, len(headers_) + sheets_mod.GRID_HEADROOM))
         headers = schema.HEADERS.get(logical) or []
         if headers:
             ws.update([headers], "A1")
