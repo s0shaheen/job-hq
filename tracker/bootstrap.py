@@ -185,7 +185,8 @@ def assert_structure(sh, *, owner: str, sa_email: str,
     for logical, title in schema.TABS.items():
         ws = wss[logical]
         if ws is None:
-            ws, created = sheets.ensure_tab(sh, title)
+            ws, created = sheets.ensure_tab(
+                sh, title, headers=schema.HEADERS.get(logical, []))
             if created:
                 repairs.append(f"created tab {title!r}")
             wss[logical] = ws
