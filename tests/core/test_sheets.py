@@ -136,3 +136,42 @@ def test_user_config_validation_falls_back():
     assert cfg["yoe_push_max"] == 6
     assert cfg["stale_days"] == 30            # default kept
     assert any("stale_days" in p for p in cfg.problems)
+
+
+# ---- grid width: a worksheet's column count is FIXED, not auto-growing.
+# This is what blocked self-heal in production: the Feed schema grew past the
+# 26-column default, so the header write returned 400 "exceeds grid limits" —
+# and until the header exists, every writer on that tab aborts.
+
+def test_ensure_headers_widens_the_grid_before_writing_past_it():
+    from core import fakes, schema, sheets
+    ws = fakes.FakeWorksheet("Feed", col_count=26)
+    ws.update([["key", "company"]], "A1")
+    headers = schema.HEADERS["feed"]
+    assert len(headers) > 26, "this test is only meaningful past the default width"
+
+    repairs = sheets.ensure_headers(ws, headers)
+
+    assert ws.col_count >= len(headers)
+    assert any("widened" in r for r in repairs)
+    live = [h for h in ws.row_values(1) if h]
+    for h in headers:
+        assert h in live, h
+
+
+def test_a_narrow_grid_rejects_writes_instead_of_growing():
+    # the fake models the real API: without the widen above, this is a 400
+    from core import fakes
+    ws = fakes.FakeWorksheet("Feed", col_count=26)
+    with pytest.raises(fakes.GridLimitError):
+        ws.update([["x"]], "AA1")
+
+
+def test_new_tabs_are_created_wide_enough_for_their_schema():
+    # provisioning a fresh sheet must not create a tab too narrow to hold its
+    # own header row (which would fail on the very first write)
+    from core import fakes, schema, sheets
+    sh = fakes.FakeSpreadsheet()
+    ws, created = sheets.ensure_tab(sh, "Feed", headers=schema.HEADERS["feed"])
+    assert created and ws.col_count >= len(schema.HEADERS["feed"])
+    sheets.ensure_headers(ws, schema.HEADERS["feed"])   # must not raise
