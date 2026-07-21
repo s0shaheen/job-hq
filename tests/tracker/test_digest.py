@@ -131,12 +131,10 @@ def test_all_green_health_no_capture_alert(spies):
     fresh = "2026-07-13 11:45:00Z"
     hq.tab("config").append_records(
         [{"key": f"heartbeat_{n}", "value": fresh} for n in digest.CADENCE_HOURS])
-    # daily jobs run once a day: a ~23h-old monitor beat is healthy, not a warning
+    # the sweep runs twice daily (cadence 12h): a beat from this morning's run
+    # is healthy at midday, not a warning
     hq.tab("config").set_by_key(
-        "heartbeat_monitor", {"value": "2026-07-12 13:00:00Z"}, key_header="key")
-    # priority pauses overnight (~7h gap) — must not warn either
-    hq.tab("config").set_by_key(
-        "heartbeat_priority", {"value": "2026-07-13 04:45:00Z"}, key_header="key")
+        "heartbeat_monitor", {"value": "2026-07-13 01:00:00Z"}, key_header="key")
     s = digest.run(hq, now=NOW)
     assert "✅ all systems ran on schedule" in s["body"]
     assert "⚠" not in s["body"]
@@ -203,3 +201,36 @@ def test_qualified_rows_are_unlabelled():
                    disposition_reason="")])
     lines, n = _sec_new_roles(hq, {"yoe_push_max": 4}, "2026-07-20")
     assert n == 1 and "outside your filters" not in lines[0]
+
+
+def test_retired_priority_watch_is_not_watched(spies):
+    """A dispatch-only job must not be in CADENCE_HOURS: watching a heartbeat
+    that will never be written again means a stale warning every single day,
+    and a briefing that cries wolf daily is one you stop reading."""
+    assert "priority" not in digest.CADENCE_HOURS
+    hq = fake_hq()
+    hq.registry["sheet_id"] = "TESTID"
+    fresh = "2026-07-13 11:45:00Z"
+    hq.tab("config").append_records(
+        [{"key": f"heartbeat_{n}", "value": fresh} for n in digest.CADENCE_HOURS])
+    # a long-dead priority heartbeat must not produce a warning
+    hq.tab("config").append_records(
+        [{"key": "heartbeat_priority", "value": "2026-01-01 00:00:00Z"}])
+    s = digest.run(hq, now=NOW)
+    assert "⚠" not in s["body"] and "priority" not in s["body"]
+
+
+def test_a_missed_second_sweep_is_still_healthy_but_a_missed_day_warns(spies):
+    hq = fake_hq()
+    hq.registry["sheet_id"] = "TESTID"
+    fresh = "2026-07-13 11:45:00Z"
+    hq.tab("config").append_records(
+        [{"key": f"heartbeat_{n}", "value": fresh} for n in digest.CADENCE_HOURS])
+    # 18h old: one sweep missed, within 2x the 12h cadence -> quiet
+    hq.tab("config").set_by_key(
+        "heartbeat_monitor", {"value": "2026-07-12 18:00:00Z"}, key_header="key")
+    assert "⚠ monitor" not in digest.run(hq, now=NOW)["body"]
+    # 30h old: more than a full day of sweeps missed -> warn
+    hq.tab("config").set_by_key(
+        "heartbeat_monitor", {"value": "2026-07-12 06:00:00Z"}, key_header="key")
+    assert "⚠ monitor" in digest.run(hq, now=NOW)["body"]

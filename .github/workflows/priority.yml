@@ -1,11 +1,14 @@
-# Hourly watch on priority-tier companies (Companies tab, priority=TRUE):
-# push within the hour a role posts. Skips overnight CT (no one reads a 3am
-# alert; the 6am run and the daily sweep catch anything posted overnight).
+# Watch on priority-tier companies (Companies tab, priority=TRUE).
+#
+# UNSCHEDULED as of 2026-07-21. The company-list-driven fast watch is retired:
+# the main sweep now covers EVERY company twice a day, which is the same
+# freshness for the 99% of the universe this watch ignored, at a fraction of
+# the Actions minutes (this ran 18x/day). The mechanism is kept — dispatchable
+# on demand, and ready if a genuinely time-critical tier is ever defined by
+# something better than a hand-maintained company flag.
 name: Priority watch
 
 on:
-  schedule:
-    - cron: "17 11-23,0-4 * * *"   # hourly at :17, ~06:00-23:00 America/Chicago
   workflow_dispatch: {}
 
 

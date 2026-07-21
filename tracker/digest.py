@@ -20,11 +20,13 @@ from core.sheets import HQ, RowNotFound
 
 # Expected run cadence per heartbeat, in hours; a heartbeat older than 2x its
 # cadence is flagged. capture=1.5 so 2x aligns with the 3h ops watchdog.
-# priority=4 because its hourly cron pauses overnight (~7h max healthy gap);
-# 2x=8h absorbs that plus one dropped run without a false alarm.
+# monitor=12 since the sweep runs twice daily (07:00 and 18:00 CT).
+# `priority` is deliberately ABSENT: that watch is dispatch-only now, so
+# watching its heartbeat would print a stale warning every single day — and a
+# briefing that cries wolf daily is one you stop reading.
 # Keep in sync with .github/workflows cron schedules.
 CADENCE_HOURS = {
-    "monitor": 24, "review": 24, "priority": 4, "tracker": 2, "wide": 24,
+    "monitor": 12, "review": 24, "tracker": 2, "wide": 24,
     "simplify": 24, "selfheal": 24, "snapshot": 24, "capture": 1.5,
 }
 CAPTURE_ALERT_HOURS = 3

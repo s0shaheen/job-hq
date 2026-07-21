@@ -22,7 +22,7 @@ heartbeat older than **2× its cadence**; a job that never ran shows "no heartbe
 |---|---|---|---|
 | `heartbeat_capture` | Apps Script (Gmail) | 15 min trigger (cadence 1.5 h) | 3 h → **ops alert** from digest |
 | `heartbeat_tracker` | `tracker.join` (end of chain) | every 2 h | 4 h |
-| `heartbeat_priority` | `monitor.priority` | hourly 06:00–23:00 CT | 8 h (absorbs the overnight pause) |
+| `heartbeat_priority` | `monitor.priority` | dispatch only (retired) | not watched |
 | `heartbeat_monitor` | `monitor.run` | daily 07:00 CT | 48 h |
 | `heartbeat_review` | `monitor.review` | daily 10:00 CT | 48 h |
 | `heartbeat_wide` | `monitor.wide` | daily 08:30 CT | 48 h |
@@ -31,14 +31,14 @@ heartbeat older than **2× its cadence**; a job that never ran shows "no heartbe
 | `heartbeat_snapshot` | `tracker.snapshot` | nightly 03:23 CT | 48 h |
 | `heartbeat_digest` | `tracker.digest` | daily 06:40 CT | (digest is the watchdog; its workflow alert covers it) |
 
-Deliberate heartbeat gaps (so the watchdog can catch real death): `priority` skips its
+Deliberate heartbeat gaps (so the watchdog can catch real death): `priority` is unscheduled and unwatched; the old note below applies only if it is re-scheduled — `priority` skips its
 heartbeat when *every* company fetch failed; `wide` skips it when no source swept;
 `simplify` skips it on auth failure. A clean "not activated / disabled" skip DOES
 heartbeat — pre-activation silence is healthy, failure is not.
 
 Daily rhythm (America/Chicago): 03:23 self-heal + snapshot → 06:40 digest composed →
 ~7:00 digest email (Apps Script) → 07:00 daily monitor sweep → 08:30 wide sweep → 09:07
-Simplify → 10:00 tagging review → priority watch hourly at :17 06:00–23:00 → tracker chain
+Simplify → 10:00 tagging review → 18:00 second sweep → tracker chain
 every 2 h at :31 → Gmail capture every 15 min around the clock.
 
 Also healthy: the digest's "Automation health" section printing

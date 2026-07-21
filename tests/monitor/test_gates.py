@@ -156,3 +156,63 @@ def test_no_metros_configured_means_anywhere_in_country():
 def test_foreign_row_still_filtered_before_metro_is_considered():
     d, r = dispose(_chi_row(country="India", metro=""), CHI)
     assert d == FILTERED and r == "geo:India"
+
+
+# ---- compensation gate: "I shouldn't even see jobs that pay $75k"
+
+PAY = GateConfig(countries=["United States"], comp_min=120, yoe_max=30,
+                 yoe_unknown="keep")
+
+
+def _pay_row(comp, **kw):
+    base = {"country": "United States", "remote": "", "metro": "",
+            "min_yoe": "", "seniority": "", "tagged_at": "x",
+            "work_model": "", "comp_range": comp}
+    base.update(kw)
+    return base
+
+
+def test_band_below_the_floor_is_filtered():
+    d, r = dispose(_pay_row("$75,000 - $85,000"), PAY)
+    assert d == FILTERED and r == "comp:<120k"
+
+
+def test_band_whose_top_clears_the_floor_is_kept():
+    # a $110-160k posting can pay 120k; judging on the bottom of the band
+    # would filter out most real negotiating ranges
+    assert dispose(_pay_row("$110,000 - $160,000"), PAY)[0] == QUALIFIED
+
+
+def test_unstated_comp_is_kept_by_default():
+    # ~48% of live postings state no comp — defaulting to filter would
+    # delete most of the feed
+    assert dispose(_pay_row(""), PAY)[0] == QUALIFIED
+    assert dispose(_pay_row("Competitive"), PAY)[0] == QUALIFIED
+
+
+def test_unstated_comp_can_be_filtered_by_policy_once_tagged():
+    strict = GateConfig(countries=["United States"], comp_min=120,
+                        comp_unknown="filter", yoe_max=30, yoe_unknown="keep")
+    assert dispose(_pay_row(""), strict) == (FILTERED, "comp-unknown")
+    # ...but an UNTAGGED row is not judged on comp it hasn't been given yet
+    assert dispose(_pay_row("", tagged_at=""), strict)[0] == NEEDS_INFO
+
+
+def test_hourly_rates_are_never_read_as_salaries():
+    assert dispose(_pay_row("$45/hour"), PAY)[0] == QUALIFIED   # unknown, not $45k
+
+
+def test_comp_gate_off_by_default():
+    off = GateConfig(countries=["United States"], yoe_max=30, yoe_unknown="keep")
+    assert dispose(_pay_row("$40,000 - $50,000"), off)[0] == QUALIFIED
+
+
+# ---- work-model gate
+
+def test_work_model_exclusion():
+    g = GateConfig(countries=["United States"], work_model_exclude=["onsite"],
+                   yoe_max=30, yoe_unknown="keep")
+    assert dispose(_pay_row("", work_model="Onsite — Austin, TX"), g) == \
+        (FILTERED, "work-model:onsite")
+    assert dispose(_pay_row("", work_model="Remote (US)"), g)[0] == QUALIFIED
+    assert dispose(_pay_row("", work_model="Hybrid — Chicago"), g)[0] == QUALIFIED

@@ -45,6 +45,9 @@ class Profile:
     countries: list[str] = field(default_factory=lambda: ["United States"])
     metros: list[str] = field(default_factory=list)   # empty = anywhere in countries
     yoe_max: int = 4
+    comp_min: float = 0
+    comp_unknown: str = "keep"
+    work_model_exclude: list = field(default_factory=list)
     geo_unknown: str = "filter"
     yoe_unknown: str = "seniority-proxy"
     board_search_term: str = "product"    # corpus-wide boards (Workday et al)
@@ -90,6 +93,9 @@ class Profile:
                ("filter_countries", "countries"),
                ("filter_metros", "metros"),
                ("filter_yoe_max", "yoe_max"),
+               ("filter_comp_min", "comp_min"),
+               ("filter_comp_unknown", "comp_unknown"),
+               ("filter_work_model_exclude", "work_model_exclude"),
                ("filter_geo_unknown", "geo_unknown"),
                ("filter_yoe_unknown", "yoe_unknown"),
                ("workday_search", "board_search_term"))
@@ -128,5 +134,8 @@ class Profile:
                           metros=list(self.metros),
                           geo_unknown=self.geo_unknown,
                           yoe_max=int(self.yoe_max),
+                          comp_min=float(self.comp_min or 0),
+                          comp_unknown=self.comp_unknown,
+                          work_model_exclude=list(self.work_model_exclude),
                           yoe_unknown=self.yoe_unknown,
                           seniority_exclude=list(self.seniority_exclude))

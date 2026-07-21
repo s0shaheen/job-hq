@@ -72,8 +72,8 @@ a new column, add it to `core/schema.py` and let bootstrap/self-heal create it.
 
 | Workflow | Cron (UTC) | ~CT | Runs |
 |---|---|---|---|
-| `monitor.yml` Job monitor | `0 12 * * *` | 07:00 daily | `python -m monitor.run` + snapshot commit |
-| `priority.yml` Priority watch | `17 11-23,0-4 * * *` | hourly 06–23 | `python -m monitor.priority` |
+| `monitor.yml` Job monitor | `0 12,23 * * *` | 07:00 + 18:00 daily | `python -m monitor.run` + snapshot commit |
+| `priority.yml` Priority watch | dispatch only | — | `python -m monitor.priority` (retired 2026-07-21; the 2x/day sweep covers every company) |
 | `review.yml` Tagging review | `0 15 * * *` | 10:00 daily | `python -m monitor.review` |
 | `wide.yml` Wide sweep | `30 13 * * *` | 08:30 daily | `python -m monitor.wide` |
 | `tracker.yml` Tracker | `31 */2 * * *` | every 2 h | promote → quickadd → scout → stale → join |
