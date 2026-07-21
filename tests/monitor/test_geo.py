@@ -116,3 +116,34 @@ def test_anchor_city_names_resolve_without_a_state():
     for loc, metro in (("Chicago", "Chicago"), ("New York", "New York"),
                        ("San Francisco", "San Francisco Bay Area")):
         assert enrich(loc)["metro"] == metro, loc
+
+
+def test_a_resolved_metro_settles_the_country():
+    # ATSs emit bare city names constantly; every metro in metros.py is a US
+    # metro, so placing one settles the country. Without this, "Chicago" was
+    # filtered as UNPLACEABLE — silently hiding real domestic jobs.
+    for loc in ("Chicago", "Seattle", "New York", "Boston", "Denver"):
+        g = enrich(loc)
+        assert g["country"] == "United States", loc
+        assert g["market"] == "US", loc
+
+
+def test_iso3_country_codes_and_known_foreign_cities_read_as_foreign():
+    # same outcome as unplaceable under filter_geo_unknown=filter, but a user
+    # whose policy is `keep` would otherwise be shown these foreign roles
+    for loc, country in (("Bengaluru, Karnataka, IND", "India"),
+                         ("Tokyo, JPN", "Japan"),
+                         ("Shanghai, CHN", "China"),
+                         ("Luxembourg, LUX", "Luxembourg"),
+                         ("Noida", "India"),
+                         ("Dublin", "Ireland")):
+        assert enrich(loc)["country"] == country, loc
+
+
+def test_ats_placeholder_locations_stay_unplaceable():
+    # "2 Locations" is a Workday/Amazon UI placeholder — the real locations
+    # live behind a click. Guessing here would be worse than admitting we
+    # don't know.
+    for loc in ("2 Locations", "3 Locations", "Multiple Locations", ""):
+        g = enrich(loc)
+        assert g["country"] == "" and g["metro"] == "", loc
