@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isDemoMode } from "@/lib/data/source";
 import { getSupabaseEnv } from "@/lib/env";
 
 /** Routes reachable without a session. */
@@ -17,10 +18,30 @@ function isPublicPath(pathname: string): boolean {
  * - always return the response object carrying the refreshed cookies.
  */
 export async function updateSession(request: NextRequest) {
-  // Unconfigured deployment: let everything through — every page renders the
-  // setup notice instead of crashing. Never gate on env we don't have.
+  // Demo mode is a deliberate choice by whoever deployed it: fixtures, no auth,
+  // and the app says so. Nothing to gate.
+  if (isDemoMode()) return NextResponse.next({ request });
+
+  // Unconfigured and NOT demo: send every route to /setup.
+  //
+  // This used to `return NextResponse.next()` — "never gate on env we don't
+  // have" — and the reasoning was backwards. `NEXT_PUBLIC_SUPABASE_*` are
+  // inlined at build time, so a build that did not receive them produced an app
+  // with no auth gate at all, which then fell through to the fixture data
+  // source and served invented jobs to anyone who found the URL, with nothing
+  // on screen saying the data was fake. An unconfigured deployment must look
+  // broken rather than look like somebody's job search.
   const env = getSupabaseEnv();
-  if (!env) return NextResponse.next({ request });
+  if (!env) {
+    const { pathname } = request.nextUrl;
+    if (pathname === "/setup" || pathname.startsWith("/setup/")) {
+      return NextResponse.next({ request });
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = "/setup";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
 
   let supabaseResponse = NextResponse.next({ request });
 

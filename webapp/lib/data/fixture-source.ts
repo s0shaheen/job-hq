@@ -28,6 +28,23 @@ import type { ApplicationView, ChannelHealthView, JobView } from "./view-models"
 
 const DEFAULT_QUEUE_LIMIT = 20;
 
+/**
+ * The queue contract, in one place: freshest first by firstSeen, key
+ * descending on a tie. This used to stop at firstSeen while production
+ * ordered by a different column with no tiebreak at all, so demo order was
+ * stable and production order was whatever the query plan produced — the
+ * divergence tests/unit/parity.test.ts now pins. The tie direction is
+ * arbitrary but load-bearing once chosen (visual baselines encode it);
+ * descending happens to keep the order the fixture set has always shown.
+ * A missing date sorts last rather than crashing.
+ */
+function byFreshness(a: JobView, b: JobView): number {
+  return (
+    (b.firstSeen ?? "").localeCompare(a.firstSeen ?? "") ||
+    (a.key < b.key ? 1 : a.key > b.key ? -1 : 0)
+  );
+}
+
 export class FixtureDataSource implements DataSource {
   private jobsByKey = new Map<string, JobView>();
   private apps: ApplicationView[];
@@ -66,14 +83,13 @@ export class FixtureDataSource implements DataSource {
     const limit = opts.limit ?? DEFAULT_QUEUE_LIMIT;
     return [...this.jobsByKey.values()]
       .filter((j) => j.disposition === "qualified" && j.triage === "")
-      // freshest first; a missing date sorts last rather than crashing
-      .sort((a, b) => (b.firstSeen ?? "").localeCompare(a.firstSeen ?? ""))
+      .sort(byFreshness)
       .slice(0, limit)
       .map((j) => ({ ...j }));
   }
 
   async jobs(): Promise<JobView[]> {
-    return [...this.jobsByKey.values()].map((j) => ({ ...j }));
+    return [...this.jobsByKey.values()].sort(byFreshness).map((j) => ({ ...j }));
   }
 
   async applications(): Promise<ApplicationView[]> {
@@ -94,6 +110,18 @@ export class FixtureDataSource implements DataSource {
       return { ok: false, kind: "error", message: msg };
     }
 
+    // The database refuses these before touching the row — 0003_write_path.sql
+    // validates and 0002's snooze_has_a_date CHECK backstops it. The fixture
+    // accepted them, so the UI could ship gestures production rejects. The
+    // messages are the migration's own, verbatim: parity.test.ts pins them to
+    // the SQL so the fake and the database cannot drift apart silently.
+    if (!["", "interested", "dismissed", "snoozed"].includes(input.triage)) {
+      return { ok: false, kind: "error", message: `invalid triage value: ${input.triage}` };
+    }
+    if (input.triage === "snoozed" && input.snoozeUntil == null) {
+      return { ok: false, kind: "error", message: "snoozed requires a wake date" };
+    }
+
     const current = this.jobsByKey.get(input.postingKey);
     if (!current) {
       return { ok: false, kind: "error", message: `Unknown posting ${input.postingKey}` };
@@ -109,7 +137,10 @@ export class FixtureDataSource implements DataSource {
     const updated: JobView = {
       ...current,
       triage: input.triage,
-      snoozeUntil: input.snoozeUntil ?? null,
+      // Only a snooze keeps its wake date, exactly as app_set_triage writes
+      // it — a dismissed row carrying a stale snooze date is a row that
+      // reanimates itself.
+      snoozeUntil: input.triage === "snoozed" ? input.snoozeUntil ?? null : null,
       updatedAt: new Date(
         new Date(current.updatedAt ?? FIXTURE_NOW).getTime() + 1000,
       ).toISOString(),

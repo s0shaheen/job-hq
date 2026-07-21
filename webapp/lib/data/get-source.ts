@@ -62,7 +62,33 @@ function buildStore(seed: SeedName): DataSource {
   return new FixtureDataSource();
 }
 
-const stores = new Map<string, DataSource>();
+/**
+ * One store map per PROCESS, not per module graph.
+ *
+ * A plain `const stores = new Map()` at module scope looks like a singleton and
+ * is not one. Next compiles pages, server actions and route handlers into
+ * separate server bundles, so each got its own copy of this module and its own
+ * Map — three isolated stores behind one process. The result, in the mode the
+ * owner is shown and the entire E2E suite runs in: a triage decision returns a
+ * server-confirmed "Saved …" toast, is written into a store nothing else reads,
+ * and reappears untriaged on the next page load. The export dialog counted rows
+ * from a third copy, so it could promise 5 and deliver 8 — the exact "top-tier
+ * trust bug" the spec names.
+ *
+ * Hanging it off globalThis is the standard Next answer (the same reason the
+ * Prisma client is cached there) and makes the sharing explicit rather than
+ * accidental. It survives module duplication; it does not survive a restart,
+ * which is correct — demo data is meant to be ephemeral.
+ *
+ * Nothing caught this: every E2E test that triages goes on to assert against
+ * client state, and none of them reload the page afterwards. `offline.spec.ts`
+ * came closest and still only checked that the banner cleared.
+ */
+const globalForDemo = globalThis as typeof globalThis & {
+  __hqDemoStores?: Map<string, DataSource>;
+};
+
+const stores: Map<string, DataSource> = (globalForDemo.__hqDemoStores ??= new Map());
 
 function demoStore(id: string, seed: SeedName): DataSource {
   // The seed is part of the key: the same browser switching seeds must get a
@@ -78,19 +104,53 @@ function demoStore(id: string, seed: SeedName): DataSource {
   return s;
 }
 
+/**
+ * Thrown when the app is neither configured nor explicitly in demo mode.
+ *
+ * This used to fall back to fixtures, and that was a security hole rather than
+ * a convenience. `NEXT_PUBLIC_SUPABASE_*` are inlined at BUILD time, so a build
+ * made without them — a preview environment that did not inherit its secrets,
+ * a misconfigured deploy — produced an app that answered every route with 200,
+ * no auth gate (middleware also opts out when the env is missing), and a
+ * complete set of invented jobs presented as real. Nothing anywhere said the
+ * data was fake.
+ *
+ * Failing loudly is the house rule: "a skipped run is recoverable; a guessed
+ * write is corruption." An unconfigured deployment must look broken, because
+ * it is.
+ */
+export class NotConfiguredError extends Error {
+  constructor() {
+    super(
+      "Supabase is not configured and HQ_DEMO is not set. Refusing to serve " +
+        "fixture data as if it were real.",
+    );
+    this.name = "NotConfiguredError";
+  }
+}
+
+export function isConfigured(): boolean {
+  return isDemoMode() || Boolean(getSupabaseEnv());
+}
+
 export async function getDataSource(): Promise<DataSource> {
-  if (isDemoMode() || !getSupabaseEnv()) {
+  // Demo mode is the ONLY route to fixtures, and it is opt-in via an env var
+  // the deployer sets deliberately. Missing configuration is not demo mode.
+  if (isDemoMode()) {
     let id = "shared";
     let seed: SeedName = "full";
     try {
       const jar = await cookies();
       id = jar.get(DEMO_COOKIE)?.value || "shared";
-      if (isDemoMode()) seed = parseSeed(jar.get(SEED_COOKIE)?.value);
+      seed = parseSeed(jar.get(SEED_COOKIE)?.value);
     } catch {
       // cookies() is unavailable in some contexts; the shared store is fine
     }
     return demoStore(id, seed);
   }
+
+  if (!getSupabaseEnv()) throw new NotConfiguredError();
+
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const userId = typeof data?.claims?.sub === "string" ? data.claims.sub : "";

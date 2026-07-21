@@ -36,8 +36,12 @@ export default async function PipelinePage() {
   return (
     <div className="min-w-0">
       <header className="border-b border-border px-4 py-3 sm:px-6">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="min-w-0 truncate text-lg font-semibold">Pipeline</h1>
+        {/* flex-wrap, not truncate: truncating next to the non-shrinking
+            Export button rendered this title as a bare ellipsis at 200% zoom
+            on a 320px phone. When the pair cannot share the line, the button
+            drops below instead. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <h1 className="min-w-0 break-words text-lg font-semibold">Pipeline</h1>
           <ExportDialog dataset="applications" />
         </div>
         <p className="text-xs text-muted">

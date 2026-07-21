@@ -10,6 +10,7 @@ import type {
 
 const POSTING_COLS =
   "key, company, title, location, url, posted, first_seen, last_seen, status, tags, geo, source";
+const CHANNEL_RUN_COLS = "channel, ran_at, fetched, new_rows, filtered, tagged, errors";
 
 /** jsonb fields arrive untyped; coerce narrowly and never guess a value. */
 function num(v: unknown): number | null {
@@ -25,6 +26,58 @@ function bool(v: unknown): boolean {
   return v === true || v === "TRUE" || v === "true" || v === 1;
 }
 
+/**
+ * comp_range -> [min_k, max_k] in thousands of dollars.
+ *
+ * A port of monitor/comp.py `parse_comp` — the engine's parser is the
+ * authority on the feed's formats and this must track it. It exists because
+ * nothing in the database carries a parsed band: tags hold only the
+ * `comp_range` string, and hardcoding these to null left the two numeric comp
+ * columns in every export permanently blank in production while demo showed
+ * numbers. Same conservatism as the original: anything that does not parse
+ * cleanly is (null, null), never a guess.
+ *
+ * One deliberate departure: a band in a non-dollar currency stays null. The
+ * export column header says "$k", and £85k written under it as if it were
+ * dollars is a lie — monitor/comp.py can afford to be looser because it only
+ * judges a floor. The fixture's Wise row (£85,000–£110,000 → null) pins this.
+ */
+const MONEY = /\$?\s*(\d[\d,]*\.?\d*)\s*([kK])?/g;
+const NON_ANNUAL = /\b(hour|hourly|\/hr|per hour|day|daily|week|weekly|month|monthly)\b/i;
+const NON_DOLLAR = /[£€¥₹]|\b(GBP|EUR|CAD|AUD|CHF|JPY|INR|SGD)\b/;
+const MIN_PLAUSIBLE_K = 10; // below this it isn't an annual salary in $k
+const MAX_PLAUSIBLE_K = 2000; // above this it's a typo or equity, not base
+
+function toK(raw: string, kSuffix: boolean): number | null {
+  const v = Number(raw.replace(/,/g, ""));
+  if (!Number.isFinite(v)) return null;
+  if (kSuffix) return v; // "150k" -> 150
+  if (v >= 1000) return v / 1000; // "150000" -> 150
+  return v; // bare "150" already reads as $150k
+}
+
+function parseCompRange(text: string | null): [number | null, number | null] {
+  const s = (text ?? "").trim();
+  if (!s || NON_ANNUAL.test(s) || NON_DOLLAR.test(s)) return [null, null];
+
+  const vals: number[] = [];
+  for (const m of s.matchAll(MONEY)) {
+    const v = toK(m[1], Boolean(m[2]));
+    if (v !== null && v >= MIN_PLAUSIBLE_K && v <= MAX_PLAUSIBLE_K) vals.push(v);
+  }
+  if (!vals.length) return [null, null];
+
+  const low = s.toLowerCase();
+  if (vals.length === 1) {
+    const v = vals[0];
+    if (low.includes("up to") || /^(max|under|below)/.test(low)) return [null, v]; // ceiling only
+    if (s.includes("+") || low.includes("at least") || low.includes("starting") || low.includes("from"))
+      return [v, null]; // floor only
+    return [v, v]; // a single stated figure
+  }
+  return [Math.min(...vals), Math.max(...vals)];
+}
+
 export function toJobView(up: Record<string, unknown>): JobView | null {
   const p = (Array.isArray(up.postings) ? up.postings[0] : up.postings) as
     | Record<string, unknown>
@@ -33,6 +86,7 @@ export function toJobView(up: Record<string, unknown>): JobView | null {
   const tags = (p.tags ?? {}) as Record<string, unknown>;
   const geo = (p.geo ?? {}) as Record<string, unknown>;
   const skills = str(tags.skills);
+  const [compMinK, compMaxK] = parseCompRange(str(tags.comp_range));
 
   return {
     key: String(p.key ?? ""),
@@ -45,8 +99,8 @@ export function toJobView(up: Record<string, unknown>): JobView | null {
     remote: bool(geo.remote),
     workModel: str(tags.work_model),
     compRange: str(tags.comp_range),
-    compMinK: null, // parsed server-side by the engine; not needed to render
-    compMaxK: null,
+    compMinK,
+    compMaxK,
     minYoe: num(tags.min_yoe),
     seniority: str(tags.seniority),
     industry: str(tags.company_industry),
@@ -90,14 +144,26 @@ export class SupabaseDataSource implements DataSource {
         .eq("disposition", "qualified")
         .eq("triage", "")
         .neq("postings.status", "Closed")
-        .order("postings(last_seen)", { ascending: false, nullsFirst: false })
+        // "Freshest first" means first_seen — the column JobView carries and
+        // the fixture sorts by. This ordered by last_seen, which every sweep
+        // bumps on a posting it still sees, so the queue reshuffled twice a
+        // day and demo order never matched production. The key tiebreak
+        // exists because Postgres returns tied rows in whatever order the
+        // plan produced — nondeterminism the stable demo could not show.
+        .order("postings(first_seen)", { ascending: false, nullsFirst: false })
+        .order("posting_key", { ascending: false })
         .limit(opts.limit ?? 20),
     );
   }
 
   jobs(): Promise<JobView[]> {
+    // Same order as queue(): the 5000 cap means the ordering decides WHICH
+    // rows survive it, so it cannot be left undefined on a tie either.
     return this.userPostings((q) =>
-      q.order("postings(last_seen)", { ascending: false, nullsFirst: false }).limit(5000),
+      q
+        .order("postings(first_seen)", { ascending: false, nullsFirst: false })
+        .order("posting_key", { ascending: false })
+        .limit(5000),
     );
   }
 
@@ -130,7 +196,7 @@ export class SupabaseDataSource implements DataSource {
   async health(): Promise<ChannelHealthView[]> {
     const { data, error } = await this.supabase
       .from("channel_runs")
-      .select("channel, ran_at, fetched, new_rows, filtered, tagged, errors")
+      .select(CHANNEL_RUN_COLS)
       .order("ran_at", { ascending: false })
       .limit(200);
     if (error) throw new Error(error.message);
@@ -138,19 +204,48 @@ export class SupabaseDataSource implements DataSource {
     for (const r of (data ?? []) as Record<string, unknown>[]) {
       const channel = String(r.channel ?? "");
       if (latest.has(channel)) continue; // ordered desc: first is newest
-      const ranAt = str(r.ran_at);
-      latest.set(channel, {
-        channel,
-        ranAt,
-        fetched: Number(r.fetched ?? 0),
-        newRows: Number(r.new_rows ?? 0),
-        filtered: Number(r.filtered ?? 0),
-        tagged: Number(r.tagged ?? 0),
-        errors: Number(r.errors ?? 0),
-        ageHours: ranAt ? (Date.now() - new Date(ranAt).getTime()) / 3_600_000 : null,
-        cadenceHours: CADENCE[channel] ?? 24,
-      });
+      latest.set(channel, toHealthView(channel, r));
     }
+
+    // At real cadences the 200 newest rows span ~5.5 days, so a channel dead
+    // longer than that had scrolled out of the window and vanished from
+    // /health entirely — the page whose whole job is "is the machinery alive"
+    // answered "fine" by omission. Every expected channel missing from the
+    // window gets a targeted latest-row lookup, and one that has never run at
+    // all still appears, as never-ran (ranAt null renders "never" + stale;
+    // digest.py reports the same state as "no heartbeat yet").
+    const missing = Object.keys(CADENCE).filter((c) => !latest.has(c));
+    const lookups = await Promise.all(
+      missing.map((channel) =>
+        this.supabase
+          .from("channel_runs")
+          .select(CHANNEL_RUN_COLS)
+          .eq("channel", channel)
+          .order("ran_at", { ascending: false })
+          .limit(1),
+      ),
+    );
+    missing.forEach((channel, i) => {
+      const { data: rows, error: err } = lookups[i];
+      if (err) throw new Error(err.message);
+      const r = (rows?.[0] ?? null) as Record<string, unknown> | null;
+      latest.set(
+        channel,
+        r
+          ? toHealthView(channel, r)
+          : {
+              channel,
+              ranAt: null,
+              fetched: 0,
+              newRows: 0,
+              filtered: 0,
+              tagged: 0,
+              errors: 0,
+              ageHours: null,
+              cadenceHours: CADENCE[channel] ?? 24,
+            },
+      );
+    });
     return [...latest.values()];
   }
 
@@ -188,7 +283,22 @@ export class SupabaseDataSource implements DataSource {
 }
 
 /** Mirrors tracker/digest.py CADENCE_HOURS — keep in step. */
-const CADENCE: Record<string, number> = {
+export const CADENCE: Record<string, number> = {
   monitor: 12, review: 24, tracker: 2, cafe: 24, theirstack: 24,
   simplify: 24, selfheal: 24, snapshot: 24, capture: 1.5,
 };
+
+function toHealthView(channel: string, r: Record<string, unknown>): ChannelHealthView {
+  const ranAt = str(r.ran_at);
+  return {
+    channel,
+    ranAt,
+    fetched: Number(r.fetched ?? 0),
+    newRows: Number(r.new_rows ?? 0),
+    filtered: Number(r.filtered ?? 0),
+    tagged: Number(r.tagged ?? 0),
+    errors: Number(r.errors ?? 0),
+    ageHours: ranAt ? (Date.now() - new Date(ranAt).getTime()) / 3_600_000 : null,
+    cadenceHours: CADENCE[channel] ?? 24,
+  };
+}

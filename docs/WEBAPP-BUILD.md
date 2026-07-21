@@ -118,6 +118,16 @@ not the requirement. This is the actual list, with what enforces each.
 | 28 | Malformed or oversized export request | Closed-set parser rejects instead of defaulting; key count is bounded | ✅ |
 | 29 | Export hangs on a slow response | `AbortSignal.timeout`; the dialog stays open with the chosen scope intact and offers retry | ✅ |
 | 30 | Decorative text fails contrast because of an opacity multiplier | `Kbd` carries no opacity; it is exactly as legible as the text it sits in. Caught by axe on the Export button | ✅ |
+| 31 | **The store exists once per server bundle, so acknowledged writes vanish** | Demo store hung off `globalThis`; `persistence.spec.ts` reloads after a decision, checks it reached `/pipeline`, and cross-checks the export's row count against the screen | ✅ |
+| 32 | **Undo restores the pre-write row, so the card conflicts forever** | The undo and conflict paths re-insert the row the SERVER returned, never the captured one; `persistence.spec.ts` runs triage → undo → decide again | ✅ |
+| 33 | **A failed or offline Undo is silently swallowed** | The undo branches on its `WriteResult` and falls back to the outbox instead of a bare `.then()` | ✅ |
+| 34 | **Triage hotkeys fire behind an open modal** | The window handler ignores keys while a Radix dialog is open | ✅ |
+| 35 | **Snooze stores the UTC day, not the local one** (AC 14) | `lib/dates.ts` + `dates.test.ts` against a pinned clock *and* a pinned timezone, incl. a DST boundary | ✅ |
+| 36 | **A missing env var serves fixtures as real data, with no auth gate** | Fixtures require explicit `HQ_DEMO`; middleware sends an unconfigured deployment to `/setup`; `getDataSource` throws rather than guessing | ✅ |
+| 37 | **An expired session on export dead-ends on "the server returned 405"** | The route answers 401 itself; middleware redirecting a POST sends `fetch` to `POST /login`, which 405s | ✅ |
+| 38 | Server action accepts any payload the client sends | Closed-set validation at the boundary — a server action is a public endpoint and `TriageInput` is erased at runtime | ✅ |
+| 39 | **The RPC the app calls exists in no migration** | `0003_write_path.sql`, plus `tests/core/test_migrations.py` parsing every `supabase.rpc()` call against the SQL | ✅ |
+| 40 | **Migration logic has never been executed** | CI job `db` applies the schema to a real Postgres and runs the write path (AC 9, 10, 11, 26) | ✅ |
 
 Row 21 is the rule working as intended. A Linux CI runner failed the keyboard
 test that had always passed on the Mac: `goto` resolves when the server HTML
@@ -165,6 +175,37 @@ store built with no data still reported six healthy channels. A zero-row
 is exactly why that page shipped broken. **Every collection a fake owns must
 come from its constructor** — an injectable that is injectable "except for one
 field" is the field that will be wrong.
+
+### What an adversarial sweep found that 133 green tests did not
+
+Eight agents were pointed at the app with one instruction each — break this —
+and every finding was then handed to an independent skeptic whose job was to
+refute it. 45 findings, 32 survived refutation. The suite was green throughout.
+
+The single most valuable one is worth stating plainly, because it invalidates a
+whole class of confidence: **the demo/fixture store existed three times over.**
+`const stores = new Map()` at module scope looks like a singleton and is not
+one — Next compiles pages, server actions and route handlers into separate
+bundles, each with its own copy of the module. So a triage decision returned a
+server-confirmed "Saved …" toast, landed in a store nothing else read, and the
+card was back on the next page load. The export dialog counted rows from a third
+copy, so it could promise 5 rows and hand over 8.
+
+Every E2E test passed anyway, for one reason: they all assert against client
+state immediately after a gesture, and **not one of them reloads.** The fix is
+three lines. The lesson is not.
+
+The other pattern worth keeping: three separate findings were tests that cannot
+fail. `layout.spec.ts` enforced the owner's number-one constraint by asserting
+`document.documentElement.scrollWidth`, while `globals.css` sets
+`overflow-x: hidden` on html and body — which converts "hangs off the page" into
+"silently clipped" and pins that number at the viewport width forever. The guard
+would have passed with content overflowing by 1000px. Matrix rows 8, 9 and 10
+were likewise marked ✅ while nothing anywhere exercised them: `failNextWrite()`
+had zero callers.
+
+**A test that cannot fail is worse than no test, because it is counted.** When
+adding a row to this table, make the test fail first, on purpose, and say so.
 
 ### Three corrections this phase made to claims written above
 

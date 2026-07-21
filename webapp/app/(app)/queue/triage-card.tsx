@@ -25,8 +25,13 @@ export function TriageCard({ job, mismatch }: { job: JobView; mismatch?: string 
 
   return (
     <article className="rounded-lg border border-border bg-surface p-4 sm:p-5">
+      {/* min-w-0 + break-words on the headings: company and title arrive from
+          ATS boards unsanitised, and an unbroken token (a product name, a
+          pasted slug) otherwise paints past the card edge, where the page's
+          overflow-x:hidden clips it out of reach. The flex-item heading also
+          needs min-w-0, or its min-content width is the whole token. */}
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <h2 className="text-sm font-semibold">{job.company}</h2>
+        <h2 className="min-w-0 break-words text-sm font-semibold">{job.company}</h2>
         {job.industry ? <Badge tone="info">{job.industry}</Badge> : null}
         <a
           href={job.url}
@@ -39,7 +44,9 @@ export function TriageCard({ job, mismatch }: { job: JobView; mismatch?: string 
         </a>
       </div>
 
-      <h3 className="mt-1 text-xl font-semibold tracking-tight text-balance">{job.title}</h3>
+      <h3 className="mt-1 break-words text-xl font-semibold tracking-tight text-balance">
+        {job.title}
+      </h3>
 
       <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-4">
         {tiles.map((t) => (

@@ -5,17 +5,33 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-const PRIMARY = [
-  { href: "/queue", label: "Triage", icon: Inbox },
-  { href: "/jobs", label: "Jobs", icon: LayoutGrid },
-  { href: "/pipeline", label: "Pipeline", icon: ListChecks },
-  { href: "/add", label: "Add", icon: Plus },
-] as const;
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof Inbox;
+  /**
+   * The destination is an honest placeholder, not a live surface. Marked in
+   * the nav — not discovered on arrival — because these three links spent a
+   * whole phase returning a bare 404 while looking exactly like the live
+   * ones, and a user learns "half this app is dead" from one such click. The
+   * links stay links (not removed, not disabled): the nav is the product's
+   * map, and each placeholder says where that job happens today. Delete the
+   * flag when the surface's phase ships.
+   */
+  soon?: true;
+};
 
-const SECONDARY = [
+const PRIMARY: readonly NavItem[] = [
+  { href: "/queue", label: "Triage", icon: Inbox },
+  { href: "/jobs", label: "Jobs", icon: LayoutGrid, soon: true },
+  { href: "/pipeline", label: "Pipeline", icon: ListChecks },
+  { href: "/add", label: "Add", icon: Plus, soon: true },
+];
+
+const SECONDARY: readonly NavItem[] = [
   { href: "/health", label: "Health", icon: Activity },
-  { href: "/settings", label: "Search profile", icon: Settings },
-] as const;
+  { href: "/settings", label: "Search profile", icon: Settings, soon: true },
+];
 
 export type NavCounts = Partial<Record<string, number>>;
 
@@ -35,7 +51,7 @@ export type NavCounts = Partial<Record<string, number>>;
 export default function NavLinks({ counts = {} }: { counts?: NavCounts }) {
   const pathname = usePathname();
 
-  const item = (href: string, label: string, Icon: typeof Inbox) => {
+  const item = ({ href, label, icon: Icon, soon }: NavItem) => {
     const active = pathname === href || pathname.startsWith(href + "/");
     const count = counts[href];
     return (
@@ -52,6 +68,15 @@ export default function NavLinks({ counts = {} }: { counts?: NavCounts }) {
       >
         <Icon aria-hidden="true" className="size-4 shrink-0" />
         <span className="truncate">{label}</span>
+        {soon ? (
+          // No colour class and no opacity, on purpose: the chip inherits
+          // currentColor, so it is exactly as legible as the label beside it
+          // on every background this row can have — the Kbd lessons (matrix
+          // rows 23 and 30). De-emphasis comes from size and border alone.
+          <span className="rounded border border-border-strong px-1 text-2xs leading-4">
+            Soon
+          </span>
+        ) : null}
         {typeof count === "number" && count > 0 ? (
           // ml-auto pins the count to the right edge of a sidebar row; in the
           // horizontal strip there is no right edge to pin to.
@@ -66,12 +91,12 @@ export default function NavLinks({ counts = {} }: { counts?: NavCounts }) {
       aria-label="Sections"
       className="flex gap-0.5 overflow-x-auto lg:flex-col lg:overflow-x-visible"
     >
-      {PRIMARY.map((n) => item(n.href, n.label, n.icon))}
+      {PRIMARY.map(item)}
       {/* A group heading only reads as a heading in a vertical list. */}
       <p className="hidden px-2.5 pt-4 pb-1 text-2xs font-semibold uppercase tracking-wider text-muted lg:block">
         Account
       </p>
-      {SECONDARY.map((n) => item(n.href, n.label, n.icon))}
+      {SECONDARY.map(item)}
     </nav>
   );
 }

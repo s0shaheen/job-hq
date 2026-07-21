@@ -53,9 +53,51 @@ async function hasSession(): Promise<boolean> {
   return Boolean(data?.claims);
 }
 
+const TRIAGE_VALUES = ["", "interested", "dismissed", "snoozed"] as const;
+
+/**
+ * Validate the payload before it reaches the store.
+ *
+ * A server action is a public HTTP endpoint with a generated name — anyone with
+ * a session can invoke it with any body, and the `TriageInput` type is erased at
+ * runtime. Without this, `triage` could be any string at all. Today the
+ * Postgres CHECK constraint would reject most of it (loudly, as a raw
+ * constraint violation shown to the user), and the fixture store accepts it
+ * happily; neither is an answer. Validating here means the closed sets in the
+ * spec are enforced at the boundary, in the one place both data sources share.
+ */
+function validate(input: TriageInput): string | null {
+  if (typeof input !== "object" || input === null) return "Malformed request.";
+  if (typeof input.postingKey !== "string" || !input.postingKey || input.postingKey.length > 200) {
+    return "Invalid posting.";
+  }
+  if (!(TRIAGE_VALUES as readonly string[]).includes(input.triage)) {
+    return `Invalid decision: ${String(input.triage)}`;
+  }
+  if (typeof input.idempotencyKey !== "string" || !input.idempotencyKey ||
+      input.idempotencyKey.length > 200) {
+    return "Invalid idempotency key.";
+  }
+  // A snooze with no wake date is a row that leaves the queue and never returns.
+  if (input.triage === "snoozed") {
+    if (typeof input.snoozeUntil !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(input.snoozeUntil)) {
+      return "A snooze needs a wake date.";
+    }
+  } else if (input.snoozeUntil != null && typeof input.snoozeUntil !== "string") {
+    return "Invalid snooze date.";
+  }
+  if (input.expectedUpdatedAt != null && typeof input.expectedUpdatedAt !== "string") {
+    return "Invalid version token.";
+  }
+  return null;
+}
+
 export async function setTriageAction(input: TriageInput): Promise<WriteResult> {
   if (await demoSessionExpired()) return { ok: false, kind: "auth" };
   if (!(await hasSession())) return { ok: false, kind: "auth" };
+
+  const invalid = validate(input);
+  if (invalid) return { ok: false, kind: "error", message: invalid };
 
   const src = await getDataSource();
   const result = await src.setTriage(input);

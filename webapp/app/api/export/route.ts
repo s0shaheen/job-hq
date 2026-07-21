@@ -1,5 +1,7 @@
 import { getDataSource } from "@/lib/data/get-source";
-import type { DataSource } from "@/lib/data/source";
+import { isDemoMode, type DataSource } from "@/lib/data/source";
+import { getSupabaseEnv } from "@/lib/env";
+import { createClient } from "@/lib/supabase/server";
 import type { ApplicationView, JobView } from "@/lib/data/view-models";
 import { APPLICATION_COLUMNS, JOB_COLUMNS, type Column } from "@/lib/export/columns";
 import { toCsv } from "@/lib/export/delimited";
@@ -60,6 +62,19 @@ function fail(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
 }
 
+/**
+ * Is there still a session? Mirrors the check in the triage server action.
+ *
+ * Demo mode has no auth to expire, and an unconfigured deployment never reaches
+ * here — middleware sends it to /setup.
+ */
+async function hasSession(): Promise<boolean> {
+  if (isDemoMode() || !getSupabaseEnv()) return true;
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+  return Boolean(data?.claims);
+}
+
 async function rowsFor<T>(
   spec: Spec<T>,
   req: ExportRequest,
@@ -89,6 +104,17 @@ async function build<T>(
 }
 
 export async function POST(request: Request): Promise<Response> {
+  // Answer the auth question here rather than letting middleware do it.
+  //
+  // Middleware resolves a missing session by redirecting to /login. For a page
+  // navigation that is right; for this fetch it is a dead end — a 307 preserves
+  // the method, `fetch` follows it automatically, `POST /login` answers 405, and
+  // the user is told "The server returned 405" while their session quietly
+  // expired. A JSON 401 lets the dialog say something true.
+  if (!(await hasSession())) {
+    return fail("Your session expired. Sign in again to export.", 401);
+  }
+
   let raw: unknown;
   try {
     raw = await request.json();

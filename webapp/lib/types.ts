@@ -3,6 +3,14 @@
  * do not invent columns here; schema changes land in the database first.
  * We keep hand-written types (no generated Database types yet) and cast query
  * results in lib/queries.ts.
+ *
+ * "Exactly" is enforced: tests/unit/types-contract.test.ts parses
+ * db/migrations/*.sql and fails on any column, nullability, or serialized-kind
+ * divergence — this file had drifted (missing columns, `| null` on NOT NULL
+ * columns) and nothing noticed, because a cast through `unknown` cannot.
+ * Dates and timestamps arrive as strings; NOT NULL text columns arrive as ""
+ * when unset, never null — the two are different claims and consumers write
+ * different fallbacks for them.
  */
 
 /** postings.tags — jsonb written by the tagging pipeline. */
@@ -26,27 +34,30 @@ export type Posting = {
   key: string;
   company: string;
   title: string;
-  location: string | null;
+  location: string;
   url: string;
   posted: string | null;
-  first_seen: string | null;
-  last_seen: string | null;
-  status: string | null;
-  tags: PostingTags | null;
-  geo: PostingGeo | null;
-  source: string | null;
+  first_seen: string;
+  last_seen: string;
+  status: string;
+  tags: PostingTags;
+  geo: PostingGeo;
+  source: string;
+  created_at: string;
+  updated_at: string;
 };
 
 export type UserPosting = {
   user_id: string;
   posting_key: string;
-  disposition: string | null;
-  disposition_reason: string | null;
-  triage: string | null;
-  triage_reason: string | null;
+  disposition: string;
+  disposition_reason: string;
+  triage: string;
+  triage_reason: string;
   snooze_until: string | null;
   score: number | null;
-  updated_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 /** A queue row: user_postings joined to its (to-one) posting. */
@@ -64,15 +75,20 @@ export type Application = {
   posting_key: string | null;
   company: string;
   title: string;
-  url: string | null;
+  url: string;
+  source: string;
   status: string;
-  suggested_status: string | null;
-  evidence: string | null;
+  suggested_status: string;
+  evidence: string;
   applied_date: string | null;
-  next_action: string | null;
+  applied_via: string;
+  applied_email: string;
+  last_activity: string | null;
+  next_action: string;
   next_action_date: string | null;
-  notes: string | null;
-  updated_at: string | null;
+  notes: string;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ChannelRun = {
@@ -81,16 +97,18 @@ export type ChannelRun = {
   user_id: string | null;
   channel: string;
   ran_at: string;
-  fetched: number | null;
-  new_rows: number | null;
-  filtered: number | null;
-  tagged: number | null;
-  errors: number | string | null;
+  fetched: number;
+  new_rows: number;
+  filtered: number;
+  tagged: number;
+  errors: number;
+  detail: Record<string, unknown>;
 };
 
 export type UserRow = {
   id: string;
   email: string;
-  name: string | null;
+  name: string;
   is_operator: boolean;
+  created_at: string;
 };

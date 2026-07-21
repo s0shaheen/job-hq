@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ui/empty";
 import { Kbd } from "@/components/ui/kbd";
 import type { WriteResult } from "@/lib/data/source";
 import type { BindingConstraint, JobView, Triage } from "@/lib/data/view-models";
+import { localIsoDaysFromNow } from "@/lib/dates";
 import { dequeue, enqueue } from "@/lib/outbox";
 import { setTriageAction } from "./actions";
 import { TriageCard } from "./triage-card";
@@ -18,9 +19,11 @@ const UNDO_MS = 8000;
 /** Days until a snooze wakes, by shortcut. */
 const SNOOZE_DAYS = 3;
 
-function isoDaysFromNow(days: number): string {
-  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
-}
+/**
+ * The wake date, on the user's LOCAL calendar — see lib/dates.ts for why this
+ * is not `toISOString().slice(0, 10)` (acceptance criterion 14).
+ */
+const isoDaysFromNow = (days: number) => localIsoDaysFromNow(days);
 
 /** Flags the exact gaps that caused abandoned shortlists, without auto-rejecting. */
 function mismatchFor(job: JobView, yoeMax: number | null): string | null {
@@ -130,19 +133,72 @@ export default function TriageQueue({
       setBusy(false);
 
       if (result.ok) {
+        // `result.job` — NOT the `job` this closure captured.
+        //
+        // Restoring the stale object put a card back carrying the updated_at it
+        // had BEFORE the write. The next gesture on it therefore sent a version
+        // the server had already moved past, conflicted, and restored the same
+        // stale object again: triage, undo, change your mind, and the card is
+        // permanently un-triageable until a reload, with a toast claiming
+        // somebody else changed it. Nothing else had changed it.
+        const written = result.job;
         toast(labelFor(triage, job), {
           action: {
             label: "Undo",
             onClick: () => {
-              void setTriageAction({
-                postingKey: job.key,
-                triage: "",
-                idempotencyKey: crypto.randomUUID(),
-                expectedUpdatedAt: result.job.updatedAt,
-              }).then(() => {
-                setQueue((q) => [job, ...q]);
-                setDone((d) => Math.max(0, d - 1));
-              });
+              void (async () => {
+                let undo: WriteResult;
+                try {
+                  undo = await setTriageAction({
+                    postingKey: written.key,
+                    triage: "",
+                    idempotencyKey: crypto.randomUUID(),
+                    expectedUpdatedAt: written.updatedAt,
+                  });
+                } catch {
+                  // The undo never reached the server. It is a decision like
+                  // any other, so it goes to the outbox rather than being
+                  // dropped — previously this threw into an unhandled rejection
+                  // and the card came back on screen while the server kept the
+                  // original decision.
+                  const idem = crypto.randomUUID();
+                  enqueue({
+                    id: idem,
+                    input: {
+                      postingKey: written.key,
+                      triage: "",
+                      snoozeUntil: null,
+                      idempotencyKey: idem,
+                      expectedUpdatedAt: written.updatedAt,
+                    },
+                    label: `Undo ${labelFor(triage, job)}`,
+                    queuedAt: Date.now(),
+                    reason: "offline",
+                  });
+                  setQueue((q) => [written, ...q]);
+                  setDone((d) => Math.max(0, d - 1));
+                  return;
+                }
+
+                if (undo.ok) {
+                  setQueue((q) => [undo.job, ...q]);
+                  setDone((d) => Math.max(0, d - 1));
+                  return;
+                }
+                // An undo that failed must say so. Silently restoring the card
+                // told the user it was undone while the server kept the
+                // decision — the screen and the database disagreeing, with
+                // nothing on screen admitting it.
+                if (undo.kind === "auth") {
+                  toast.error("Couldn't undo — your session expired.", {
+                    description: "Sign in and try again.",
+                  });
+                } else if (undo.kind === "conflict") {
+                  toast.warning("Couldn't undo — this was changed somewhere else.");
+                } else {
+                  toast.error("Couldn't undo that.", { description: undo.message });
+                }
+              })();
             },
           },
           duration: UNDO_MS,
@@ -151,11 +207,16 @@ export default function TriageQueue({
       }
 
       // put it back — an optimistic removal must never outlive a failed write
-      setQueue((q) => [job, ...q]);
-      setDone((d) => Math.max(0, d - 1));
       if (result.kind === "conflict") {
+        // Re-insert the row the SERVER has, not the one we tried to write over.
+        // The toast says "showing the latest"; putting the stale object back
+        // made that a lie and left the card unable to accept another gesture.
+        setQueue((q) => [result.current, ...q]);
+        setDone((d) => Math.max(0, d - 1));
         toast.warning("This was changed somewhere else — showing the latest.");
       } else {
+        setQueue((q) => [job, ...q]);
+        setDone((d) => Math.max(0, d - 1));
         toast.error("Couldn't save that.", {
           description: result.message,
           action: { label: "Retry", onClick: () => void decide(job, triage, snooze) },
@@ -170,6 +231,11 @@ export default function TriageQueue({
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const el = e.target as HTMLElement | null;
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+      // A modal is modal. This handler is on `window`, so with the export
+      // dialog open a plain `i` still triaged the card hidden behind it — the
+      // user is reading a dialog and a decision happens on a row they cannot
+      // see. Radix marks the open dialog; nothing else needs to know about it.
+      if (document.querySelector('[role="dialog"][data-state="open"]')) return;
       if (!current) return;
 
       switch (e.key) {

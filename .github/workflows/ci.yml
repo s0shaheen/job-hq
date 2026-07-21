@@ -90,6 +90,41 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pytest -q
 
+  # The migrations, actually executed. tests/core/test_migrations.py reads the
+  # SQL as text — enough to catch a function the app calls but nobody defined,
+  # and blind to every logic error in the function body. This job applies the
+  # schema to a real Postgres and runs the write path: idempotent replay,
+  # optimistic concurrency, and the two-concurrent-writers race that acceptance
+  # criterion 26 describes. None of that had ever been executed anywhere.
+  db:
+    name: db (migrations on real Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        # Without this the job races the container and fails on connect.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt "psycopg[binary]==3.2.3"
+      - name: Apply migrations and exercise the write path
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          # Turns a missing DATABASE_URL into a hard failure instead of a
+          # suite that skips every test and reports green.
+          HQ_REQUIRE_DB: "1"
+        run: pytest tests/db -q
+
   smoke:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.smoke }}
     runs-on: ubuntu-latest

@@ -9,9 +9,29 @@ import { expect, test, type Page } from "@playwright/test";
  * without them having to make it again. A test that only checks "a banner
  * appeared" would pass on an implementation that shows a warning and throws the
  * decision away, which is the bug.
+ *
+ * The second half of that invariant: no decision leaves the outbox in silence.
+ * A rejected or conflicted replay must become a visible notice, a malformed
+ * entry must not starve the valid ones behind it, a full localStorage must not
+ * turn "saved on this device" into a lie, and Undo must stay a genuine undo
+ * even when the network returns while the toast is still up.
  */
 
 const FIXTURE_NOW = new Date("2026-07-21T15:00:00.000Z");
+
+const OUTBOX_KEY = "hq.outbox.v1";
+
+/** Inject queued gestures as a previous session would have left them. */
+async function seedOutbox(page: Page, entries: Record<string, unknown>[]) {
+  await page.evaluate(
+    ([key, json]) => window.localStorage.setItem(key as string, json as string),
+    [OUTBOX_KEY, JSON.stringify(entries)] as const,
+  );
+}
+
+function pendingEntry(id: string, input: Record<string, unknown>, label: string) {
+  return { id, input, label, queuedAt: 1, reason: "offline" };
+}
 
 async function setup(page: Page, context: import("@playwright/test").BrowserContext, extra: { name: string; value: string }[] = []) {
   await page.clock.setFixedTime(FIXTURE_NOW);
@@ -76,7 +96,9 @@ test.describe("offline", () => {
     await expect(page.getByTestId("pending-work")).toBeVisible();
 
     await context.setOffline(false);
-    // No click: coming back online is the trigger. The banner clearing is the
+    // No click: coming back online is the trigger. Delivery waits out the 8s
+    // undo hold first — while the Undo toast is live the decision stays local
+    // — which is why the timeout is generous. The banner clearing is the
     // app's own statement that the work was delivered.
     await expect(page.getByTestId("pending-work")).toHaveCount(0, { timeout: 20_000 });
 
@@ -145,4 +167,155 @@ test.describe("expired session", () => {
 
     await expect(page.getByTestId("pending-work")).toHaveCount(0, { timeout: 15_000 });
   });
+});
+
+test.describe("failed deliveries are never silent", () => {
+  test("a rejected replay leaves a visible notice, not a vanished banner", async ({ page, context }) => {
+    await setup(page, context);
+    await gotoQueue(page);
+    // A queued decision whose posting the server does not know: the replay is
+    // genuinely rejected. The old code dequeued it and moved on — the banner
+    // disappeared, which reads as "delivered", and the decision was gone.
+    await seedOutbox(page, [
+      pendingEntry(
+        "e2e-rejected",
+        {
+          postingKey: "greenhouse-0000000",
+          triage: "dismissed",
+          snoozeUntil: null,
+          idempotencyKey: "e2e-rejected",
+          expectedUpdatedAt: null,
+        },
+        "Passed on Nowhere — Product Manager",
+      ),
+    ]);
+    await page.reload();
+
+    const notice = page.getByTestId("failed-work");
+    await expect(notice).toBeVisible({ timeout: 15_000 });
+    await expect(notice).toContainText("Passed on Nowhere — Product Manager");
+    await expect(page.getByTestId("pending-work")).toHaveCount(0);
+    // The notice is dismissible — actionable, not a permanent scar.
+    await notice.getByRole("button", { name: "Dismiss" }).click();
+    await expect(notice).toHaveCount(0);
+  });
+
+  test("a conflict on replay says the decision lost, instead of pretending it landed", async ({ page, context }) => {
+    await setup(page, context);
+    await gotoQueue(page);
+    // A stale expectedUpdatedAt: someone decided on another device after this
+    // gesture was queued. The server keeps the newer decision — sometimes the
+    // right outcome, but the user must hear that theirs lost.
+    await seedOutbox(page, [
+      pendingEntry(
+        "e2e-conflict",
+        {
+          postingKey: "greenhouse-1120044",
+          triage: "dismissed",
+          snoozeUntil: null,
+          idempotencyKey: "e2e-conflict",
+          expectedUpdatedAt: "2000-01-01T00:00:00.000Z",
+        },
+        "Passed on Modern Treasury — Product Manager, Ledgers",
+      ),
+    ]);
+    await page.reload();
+
+    const notice = page.getByTestId("failed-work");
+    await expect(notice).toBeVisible({ timeout: 15_000 });
+    await expect(notice).toContainText("Passed on Modern Treasury — Product Manager, Ledgers");
+    await expect(notice).toContainText(/another device/i);
+    await expect(page.getByTestId("pending-work")).toHaveCount(0);
+  });
+
+  test("a malformed entry is quarantined and the valid decision behind it still delivers", async ({ page, context }) => {
+    await setup(page, context);
+    await gotoQueue(page);
+    // The poison entry has no `input`. It used to throw inside the replay loop
+    // on every pass, so the valid decision behind it was never delivered and
+    // the "will sync automatically" banner could never be satisfied.
+    await seedOutbox(page, [
+      { id: "e2e-poison", label: "A poisoned entry", queuedAt: 1, reason: "offline" },
+      pendingEntry(
+        "e2e-valid",
+        {
+          postingKey: "ashby-c7d9e001",
+          triage: "dismissed",
+          snoozeUntil: null,
+          idempotencyKey: "e2e-valid",
+          expectedUpdatedAt: null,
+        },
+        "Passed on Brex — Product Manager, Spend",
+      ),
+    ]);
+    await page.reload();
+
+    // The valid decision made it out: the pending banner clears.
+    await expect(page.getByTestId("pending-work")).toHaveCount(0, { timeout: 15_000 });
+    // And the poison one did not vanish in silence.
+    const notice = page.getByTestId("failed-work");
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText("A poisoned entry");
+  });
+});
+
+test("a full localStorage still holds the decision for this tab, and says so", async ({ page, context }) => {
+  // Quota exhaustion, scoped to the outbox keys so the rest of the app is
+  // undisturbed. The old code swallowed the throw: the toast said "Saved on
+  // this device", read() re-read localStorage, and the decision existed
+  // nowhere at all.
+  await page.addInitScript(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (String(key).startsWith("hq.outbox")) {
+        throw new DOMException("quota exceeded", "QuotaExceededError");
+      }
+      return original.call(this, key, value);
+    };
+  });
+  await setup(page, context);
+  await gotoQueue(page);
+  const first = await page.locator("article h3").first().innerText();
+
+  await context.setOffline(true);
+  await page.getByTestId("pass").click();
+
+  const banner = page.getByTestId("pending-work");
+  await expect(banner).toBeVisible();
+  // Honest about the degraded durability: held in this tab, not "saved".
+  await expect(banner).toHaveAttribute("data-durable", "false");
+  await expect(banner).toContainText(/held in this tab/i);
+
+  // Reconnecting delivers it from memory (after the undo hold passes).
+  await context.setOffline(false);
+  await expect(banner).toHaveCount(0, { timeout: 20_000 });
+
+  // And it truly reached the server: the passed card is gone after a reload.
+  await page.reload();
+  await expect(page.locator("article h3").first()).not.toHaveText(first);
+});
+
+test("undo still works when the network returns inside the undo window", async ({ page, context }) => {
+  await setup(page, context);
+  await gotoQueue(page);
+  const first = await page.locator("article h3").first().innerText();
+
+  await context.setOffline(true);
+  await page.getByTestId("pass").click();
+  await expect(page.getByTestId("pending-work")).toBeVisible();
+
+  await context.setOffline(false);
+  // Give the reconnect flush the window in which it used to deliver the
+  // decision out from under the live Undo toast. The hold must keep the
+  // gesture local for the length of the Undo window instead.
+  await page.waitForTimeout(1500);
+  await expect(page.getByTestId("pending-work")).toBeVisible();
+
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator("article h3").first()).toHaveText(first);
+  await expect(page.getByTestId("pending-work")).toHaveCount(0);
+
+  // The server never saw the pass: after a reload the card is still first.
+  await page.reload();
+  await expect(page.locator("article h3").first()).toHaveText(first);
 });

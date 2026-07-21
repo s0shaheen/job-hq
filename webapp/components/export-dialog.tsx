@@ -1,6 +1,6 @@
 "use client";
 
-import { Download } from "lucide-react";
+import { Check, Download } from "lucide-react";
 import { RadioGroup } from "radix-ui";
 import * as React from "react";
 import { toast } from "sonner";
@@ -250,12 +250,15 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
                 <span className="min-w-0">
                   <span className="flex items-baseline gap-1.5 text-sm font-medium text-text">
                     {opt.label}
-                    <span className="tabular text-xs font-normal text-muted">
+                    {/* text-2, not muted: a card is always selected, and on
+                        accent-subtle the muted token measures 4.28:1 (light) /
+                        4.45:1 (dark) — under the AA 4.5 floor for this size. */}
+                    <span className="tabular text-xs font-normal text-text-2">
                       {counts ? `${opt.count(counts)} ${copy.noun}` : "counting…"}
                     </span>
                   </span>
                   {/* The scope is spelled out, including what it leaves behind. */}
-                  <span className="mt-0.5 block text-xs text-muted">
+                  <span className="mt-0.5 block text-xs text-text-2">
                     {counts ? opt.detail(counts) : " "}
                   </span>
                 </span>
@@ -279,14 +282,35 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
                 data-testid={`format-${f.value}`}
                 className={cn(
                   "cursor-pointer rounded-lg border p-2.5 transition-colors",
+                  // The radio inside is sr-only, so its focus ring is computed
+                  // on a clipped 1x1 box and paints nothing — a keyboard user
+                  // tabbing in saw no change on screen. The card is the visible
+                  // thing, so the card carries the ring.
+                  "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring",
                   format === f.value
                     ? "border-accent bg-accent-subtle"
                     : "border-border hover:bg-raised",
                 )}
               >
                 <RadioGroup.Item value={f.value} className="sr-only" />
-                <span className="block text-sm font-medium text-text">{f.label}</span>
-                <span className="mt-0.5 block text-xs text-muted">{f.detail}</span>
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-text">{f.label}</span>
+                  {/* A real element, not colour: forced-colors (Windows High
+                      Contrast) strips the selected card's background and
+                      repaints both borders alike, so colour alone left the
+                      selection invisible. `invisible` rather than conditional
+                      render keeps the card height stable. */}
+                  <Check
+                    aria-hidden="true"
+                    className={cn(
+                      "size-3.5 shrink-0 text-accent",
+                      format !== f.value && "invisible",
+                    )}
+                  />
+                </span>
+                {/* text-2, not muted — same AA-floor failure as the scope
+                    cards above. */}
+                <span className="mt-0.5 block text-xs text-text-2">{f.detail}</span>
               </label>
             ))}
           </RadioGroup.Root>

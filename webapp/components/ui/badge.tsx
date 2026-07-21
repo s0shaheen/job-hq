@@ -7,8 +7,13 @@ import { cn } from "@/lib/utils";
  * carries meaning, both for colour-blind readers and for anyone skimming a
  * dense grid where a lone hue is noise.
  */
+// No whitespace-nowrap here: at 200% text zoom on a phone it pushed the
+// industry badge past the page edge, where html's overflow-x:hidden clips it
+// unreachably. A context that wants a one-line badge sets nowrap on the
+// container (the pipeline's table cells do); the badge itself must never be
+// wider than the space it is given.
 const badge = cva(
-  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap",
+  "inline-flex min-w-0 max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium break-words",
   {
     variants: {
       tone: {

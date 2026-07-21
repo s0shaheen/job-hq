@@ -21,10 +21,14 @@ export default async function QueuePage() {
       {/* The action sits on the title's line, not below the subtitle: on a
           phone a wrapped button is another row of chrome between the user and
           the first card, which is the fold problem this layout already fixed
-          once. */}
+          once. flex-wrap, not truncate: when large text on a narrow phone
+          means the pair genuinely cannot share the line, the button drops
+          below and the title wraps. Truncating instead rendered the title as
+          the single letter "T" at 200% zoom on a 320px phone — for the
+          non-technical large-text user this app is for. */}
       <header className="border-b border-border px-4 py-3 sm:px-6">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="min-w-0 truncate text-lg font-semibold">Today&rsquo;s queue</h1>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <h1 className="min-w-0 break-words text-lg font-semibold">Today&rsquo;s queue</h1>
           <ExportDialog dataset="jobs" />
         </div>
         <p className="text-xs text-muted">
