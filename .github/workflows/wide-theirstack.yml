@@ -34,7 +34,7 @@ jobs:
           HQ_USER: ${{ matrix.user }}
           PYTHONUNBUFFERED: "1"
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-                    THEIRSTACK_API_KEY: ${{ secrets.THEIRSTACK_API_KEY }}
+          THEIRSTACK_API_KEY: ${{ secrets.THEIRSTACK_API_KEY }}
         run: python -m monitor.wide --source theirstack
       - name: Ops alert on failure
         if: failure() || cancelled()
