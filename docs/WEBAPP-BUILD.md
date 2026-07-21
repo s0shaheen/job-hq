@@ -100,6 +100,9 @@ not the requirement. This is the actual list, with what enforces each.
 | 19 | Back/forward + deep links | URL-addressable views | ⬜ (grid phase) |
 | 20 | Types drift from the DB | Contract test: schema ↔ `lib/types.ts` | ⬜ |
 | 21 | **Keystroke before hydration is silently dropped** | Queue publishes `data-ready`; hints stay dim until the handler is attached; tests wait on the flag | ✅ |
+| 22 | **Dark OS preference ignored entirely** | `theme.spec.ts` drives `colorScheme` and asserts the rendered background, not the class | ✅ |
+| 23 | **Decorative text invisible on a non-default background** | `Kbd` inherits `currentColor` by construction — axe cannot catch this, the element is `aria-hidden` | ✅ |
+| 24 | **Chrome pushes content below the fold on a phone** | Nav is a horizontal strip under `lg`; test asserts the first card sits in the top half of the viewport | ✅ |
 
 Row 21 is the rule working as intended. A Linux CI runner failed the keyboard
 test that had always passed on the Mac: `goto` resolves when the server HTML
@@ -110,8 +113,21 @@ advertises a capability it does not yet have — a fast human hits the same gap.
 The queue now says when it is interactive, the hints dim until then, and the
 tests wait on that flag rather than racing it.
 
-**Rule going forward: a bug found by a human — or by a slower machine —
-becomes a row in this table with a test, not just a fix.**
+Rows 22–24 came from one habit worth keeping: **open the app and look at it.**
+The full suite was green — 76 tests, axe clean in both themes, no overflow at
+any width — while three things were plainly wrong on screen. Dark mode had
+never been wired up at all (the class-driven palette had nothing applying the
+class, and the "dark" visual baselines were light-theme images). The `i` hint
+on the primary button rendered invisible, which axe skips by design because the
+element is `aria-hidden`. And on a phone the nav filled the first screen, so
+the app opened on its own menu.
+
+The common thread: **a test suite only asserts what someone thought to assert.**
+Screenshots are cheap and catch the class of bug that passes every check.
+
+**Rule going forward: a bug found by a human — or by a slower machine, or by
+looking at a screenshot — becomes a row in this table with a test, not just a
+fix.**
 
 The web app **was not in CI at all** before this phase.
 

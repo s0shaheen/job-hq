@@ -1,7 +1,11 @@
 @import "tailwindcss";
 
 /* Dark mode is class-driven so a user toggle can beat the OS preference.
-   The root layout sets `dark` before paint, so there is no flash. */
+   The class is applied by the blocking bootstrap script in app/layout.tsx,
+   which reads the stored choice and falls back to the OS. Class-driven only
+   works while something sets the class: when that script did not exist, every
+   dark-OS visitor got the light theme and no test noticed, because the tests
+   set the class themselves. tests/e2e/theme.spec.ts now checks the wiring. */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ---------------------------------------------------------------------------

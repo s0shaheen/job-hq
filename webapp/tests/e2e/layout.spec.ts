@@ -65,3 +65,24 @@ test("long titles and long company names do not break the triage card", async ({
   const box = await card.boundingBox();
   expect(box!.width).toBeLessThanOrEqual(375);
 });
+
+test("on a phone, the first job is on the first screen", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile", "phone-viewport concern");
+
+  // Chrome is not free. The nav used to render as six stacked rows, which
+  // filled the entire first screen — the app opened on a menu, and the job it
+  // exists to show you was below the fold. Asserting the card's position is
+  // what keeps navigation from quietly reclaiming that space again.
+  await page.goto("/queue");
+  const card = page.locator("article").first();
+  await expect(card).toBeVisible();
+
+  const box = await card.boundingBox();
+  const viewport = page.viewportSize();
+  if (!box || !viewport) throw new Error("no layout box");
+
+  expect(
+    box.y,
+    `the first card starts ${Math.round(box.y)}px down a ${viewport.height}px screen`,
+  ).toBeLessThan(viewport.height * 0.5);
+});

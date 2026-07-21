@@ -32,12 +32,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         className="shrink-0 border-b border-border bg-surface p-3 lg:h-dvh lg:w-56
                    lg:border-r lg:border-b-0 lg:sticky lg:top-0"
       >
-        <div className="flex items-center justify-between pb-3 lg:block">
+        {/* The wordmark is a full row on desktop; on a phone that is another
+            line of chrome above the content, so it sits inline with the nav. */}
+        <div className="hidden items-center justify-between pb-3 lg:block">
           <span className="px-1 text-sm font-bold">Job Search HQ</span>
         </div>
         <NavLinks counts={{ "/queue": queueCount }} />
         {email ? (
-          <div className="mt-4 border-t border-border pt-3 lg:absolute lg:bottom-3 lg:w-[12.5rem]">
+          <div className="mt-3 hidden border-t border-border pt-3 lg:absolute lg:bottom-3 lg:block lg:w-[12.5rem]">
             <p className="truncate px-1 pb-1.5 text-2xs text-muted" title={email}>
               {email}
             </p>
