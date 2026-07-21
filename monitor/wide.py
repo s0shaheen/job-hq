@@ -75,6 +75,16 @@ CAFE_WAIT = 150             # seconds we will wait for it before giving up
 PUSH_MAX_LINES = 12
 
 
+def _beat(sources: tuple[str, ...]) -> str:
+    """Heartbeat name per source, so a dead cafe and a dead TheirStack are
+    distinguishable in the digest instead of one ambiguous `wide` gap."""
+    if tuple(sources) == ("cafe",):
+        return "cafe"
+    if tuple(sources) == ("theirstack",):
+        return "theirstack"
+    return "wide"
+
+
 def search_terms(include: list[str], cap: int = MAX_TERMS) -> list[str]:
     """Top query terms. A term containing an already-kept term is subsumed by
     it in a keyword engine ('senior product manager' ⊂ 'product manager'), so
@@ -267,16 +277,33 @@ class WideSummary:
     errors: list[str] = field(default_factory=list)
 
 
+SOURCES = ("cafe", "theirstack")
+
+
 def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
-        push=notify.push, today: str | None = None) -> WideSummary:
+        push=notify.push, today: str | None = None,
+        sources: tuple[str, ...] = SOURCES) -> WideSummary:
+    """Sweep the aggregator layer.
+
+    `sources` selects which to run. They are scheduled as SEPARATE workflows
+    on purpose: hiring.cafe (a blocking Apify actor run) and TheirStack (a
+    plain HTTP API) have nothing in common but a destination — different
+    vendors, cost models, failure modes and latencies. Sharing one process
+    meant a queued Apify run consumed the whole workflow budget and TheirStack
+    never got called at all. Independent sources get independent jobs,
+    independent timeouts and independent alerts; they share only the feed
+    concurrency lane, so their appends still serialize.
+    """
     today = today or _today()
     s = WideSummary()
+    want_cafe = "cafe" in sources
+    want_ts = "theirstack" in sources
 
-    token = os.environ.get("APIFY_TOKEN", "")
-    if not token:  # system must be healthy before activation — skip is a clean state
-        print("[wide] APIFY_TOKEN unset — wide layer not activated; skipping", file=sys.stderr)
+    token = os.environ.get("APIFY_TOKEN", "") if want_cafe else "skip"
+    if want_cafe and not token:  # healthy pre-activation state, not a failure
+        print("[wide] APIFY_TOKEN unset — cafe not activated; skipping", file=sys.stderr)
         hq.log("wide", "skip", detail="APIFY_TOKEN unset — sweep not activated")
-        hq.heartbeat("wide")
+        hq.heartbeat(_beat(sources))
         s.skipped = True
         return s
 
@@ -291,7 +318,7 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
     terms = search_terms(include)
     if not terms:
         hq.log("wide", "skip", detail="titles_include empty — nothing to sweep")
-        hq.heartbeat("wide")
+        hq.heartbeat(_beat(sources))
         s.skipped = True
         return s
 
@@ -303,7 +330,7 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
     client = (client_factory or _default_client_factory)(token)
     items: list[dict] = []
     cafe_failed = 0
-    for term in terms:
+    for term in (terms if want_cafe else []):
         print(f"[wide] cafe: querying {term!r}", file=sys.stderr)
         try:
             info = client.actor(ACTOR_ID).call(
@@ -326,7 +353,7 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
             s.errors.append(f"cafe[{term}]: {e}")
             print(f"[wide] cafe[{term}] FAILED: {str(e)[:200]}", file=sys.stderr)
             hq.log("wide", "cafe_error", detail=f"{term}: {str(e)[:200]}")
-    cafe_ok = cafe_failed < len(terms)
+    cafe_ok = (cafe_failed < len(terms)) if want_cafe else False
 
     new_records: list[dict] = []
     max_seen = cursor
@@ -351,8 +378,8 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
     # search: "any employer in this metro"), else fenced to priority companies.
     ts_ok = False
     ts_cursor = ts_max = ""
-    ts_key = os.environ.get("THEIRSTACK_API_KEY", "")
-    if not ts_key:
+    ts_key = os.environ.get("THEIRSTACK_API_KEY", "") if want_ts else ""
+    if want_ts and not ts_key:
         # green-but-dead is banned: an unconfigured channel must say so in CI,
         # not just in the sheet's Log tab
         print("::warning title=TheirStack skipped::THEIRSTACK_API_KEY unset — "
@@ -419,8 +446,11 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
                       file=sys.stderr)
                 hq.log("wide", "theirstack_error", detail=str(e)[:200])
 
-    if not cafe_ok and not ts_ok:
-        return s   # nothing swept: no heartbeat, so the watchdog fires; main ops-alerts
+    # failure = NONE of the sources we were asked to run succeeded. No
+    # heartbeat, so the watchdog fires and main() ops-alerts.
+    attempted = [ok for want, ok in ((want_cafe, cafe_ok), (want_ts, ts_ok)) if want]
+    if attempted and not any(attempted):
+        return s
 
     if new_records:
         for rec in new_records:   # gates at append (cafe rows often carry min_yoe)
@@ -461,19 +491,27 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
 
     hq.log("wide", "sweep", detail=f"cafe={s.fetched} theirstack={s.ts_fetched} "
                                    f"appended={s.appended} pushed={s.pushed}")
-    hq.heartbeat("wide")
+    hq.heartbeat(_beat(sources))
     s.ok = True
     return s
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(prog="python -m monitor.wide")
+    ap.add_argument("--source", choices=[*SOURCES, "all"], default="all",
+                    help="run ONE aggregator; they are scheduled separately so "
+                         "one vendor stalling cannot starve the other")
+    a = ap.parse_args(sys.argv[1:] if argv is None else argv)
+    sources = SOURCES if a.source == "all" else (a.source,)
+
     session = requests.Session()
     try:
         hq = HQ.open()
-        s = run(hq, session=session)
+        s = run(hq, session=session, sources=sources)
     except Exception as e:
         print(f"[wide] FAILED:\n{traceback.format_exc()}", file=sys.stderr)
-        notify.ops_alert("Wide sweep failed", str(e)[:250], session=session)
+        notify.ops_alert(f"Wide sweep failed ({a.source})", str(e)[:250], session=session)
         return 1
     print(f"[wide] skipped={s.skipped} cafe={s.fetched} theirstack={s.ts_fetched} "
           f"appended={s.appended} pushed={s.pushed} errors={len(s.errors)}", file=sys.stderr)
@@ -481,7 +519,7 @@ def main() -> int:
         print(f"[wide] errors: {'; '.join(s.errors)}", file=sys.stderr)
     if s.skipped or s.ok:
         return 0
-    notify.ops_alert("Wide sweep failed",
+    notify.ops_alert(f"Wide sweep failed ({a.source})",
                      "; ".join(s.errors)[:250] or "no source succeeded", session=session)
     return 1
 

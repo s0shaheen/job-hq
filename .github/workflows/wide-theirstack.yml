@@ -1,0 +1,44 @@
+# TheirStack coverage sweep (contractual HTTP API, billed per job
+# RETURNED — the budget is enforced as the request limit).
+#
+# SEPARATE from hiring.cafe on purpose: see wide-cafe.yml. Scheduled 20
+# minutes later so the two never contend for the feed lane.
+name: Wide sweep — TheirStack
+
+on:
+  schedule:
+    - cron: "50 13 * * *"   # ~08:50 America/Chicago
+  workflow_dispatch: {}
+
+
+jobs:
+  run:
+    strategy:
+      fail-fast: false   # one user's failure must never cancel another's run
+      matrix:
+        user: ${{ fromJSON(vars.HQ_USERS || '["salman"]') }}
+
+    concurrency:
+      group: hq-feed-writers-${{ matrix.user }}   # shared feed lane: appends serialize, failures don't
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10   # a plain HTTP API; it has no business taking longer
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Sweep
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          HQ_USER: ${{ matrix.user }}
+          PYTHONUNBUFFERED: "1"
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                    THEIRSTACK_API_KEY: ${{ secrets.THEIRSTACK_API_KEY }}
+        run: python -m monitor.wide --source theirstack
+      - name: Ops alert on failure
+        if: failure() || cancelled()
+        run: |
+          curl -s -H "Title: [${{ matrix.user }}] Wide sweep failed" -H "Priority: high" -H "Tags: warning" \
+            -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "https://ntfy.sh/REDACTED-NTFY-TOPIC" || true

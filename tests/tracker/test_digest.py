@@ -95,7 +95,10 @@ def test_digest_sections_and_row(spies):
     assert "Added 7 job(s), applied 3, 1 duplicate(s) flagged." in body
 
     assert "⚠ capture" in body              # 5h > 2 x 1.5h cadence
-    assert "⚠ wide: no heartbeat yet" in body
+    # cafe and theirstack are separate channels: a dead TheirStack must not
+    # hide behind a healthy hiring.cafe
+    assert "⚠ cafe: no heartbeat yet" in body
+    assert "⚠ theirstack: no heartbeat yet" in body
     assert "✅" not in body
 
     rows = [r for r in hq.tab("digest").records() if r["date"] == TODAY]

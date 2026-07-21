@@ -420,3 +420,47 @@ def test_actor_that_never_finishes_is_a_logged_miss_not_a_hang(monkeypatch):
     # ...and the sweep completed instead of hanging, with the reason recorded
     assert s.errors and "did not finish" in s.errors[0]
     assert s.appended == 0
+
+
+# ---- independent sources (they share a destination and nothing else)
+
+def test_cafe_only_never_touches_theirstack(monkeypatch):
+    monkeypatch.setenv("APIFY_TOKEN", "tok")
+    monkeypatch.setenv("THEIRSTACK_API_KEY", "tsk")
+    hq = _hq(config=[{"key": "wide_cursor", "value": CURSOR}])
+    session = FakeSession()
+    s = wide.run(hq, session=session, client_factory=lambda t: FakeApify(items=[]),
+                 push=lambda *a, **k: True, today=TODAY, sources=("cafe",))
+    assert session.calls == []            # no TheirStack HTTP at all
+    assert s.ts_fetched == 0
+
+
+def test_theirstack_only_never_starts_an_apify_run(monkeypatch):
+    monkeypatch.setenv("APIFY_TOKEN", "tok")
+    monkeypatch.setenv("THEIRSTACK_API_KEY", "tsk")
+    hq = _hq(config=[{"key": "wide_cursor", "value": CURSOR}])
+
+    class Boom:
+        def actor(self, _i):
+            raise AssertionError("theirstack-only run must not call Apify")
+    s = wide.run(hq, session=FakeSession(), client_factory=lambda t: Boom(),
+                 push=lambda *a, **k: True, today=TODAY, sources=("theirstack",))
+    assert s.fetched == 0
+
+
+def test_theirstack_runs_even_when_apify_is_unset(monkeypatch):
+    """The coupling bug in one line: with both sources in one job, a missing
+    or stalled Apify meant TheirStack never ran."""
+    monkeypatch.delenv("APIFY_TOKEN", raising=False)
+    monkeypatch.setenv("THEIRSTACK_API_KEY", "tsk")
+    hq = _hq(config=[{"key": "wide_cursor", "value": CURSOR}])
+    s = wide.run(hq, session=FakeSession(), client_factory=lambda t: None,
+                 push=lambda *a, **k: True, today=TODAY, sources=("theirstack",))
+    assert s.skipped is False             # NOT skipped for someone else's token
+
+
+def test_each_source_writes_its_own_heartbeat():
+    from monitor.wide import _beat
+    assert _beat(("cafe",)) == "cafe"
+    assert _beat(("theirstack",)) == "theirstack"
+    assert _beat(("cafe", "theirstack")) == "wide"
