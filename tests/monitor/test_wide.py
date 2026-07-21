@@ -388,3 +388,35 @@ def test_date_cursor_is_always_present():
     # the cursor is also what stops us re-buying yesterday's rows
     from monitor.wide import theirstack_body
     assert theirstack_body("cur", ["x"], location_ids=[1])["discovered_at_gte"] == "cur"
+
+
+# ---- the Apify call must never block the sweep indefinitely
+
+def test_actor_that_never_finishes_is_a_logged_miss_not_a_hang(monkeypatch):
+    """Apify's .call() blocks until the run finishes, and on the free tier a
+    run can sit QUEUED forever waiting for credit — which is how this sweep
+    went from 2-4 minutes to hitting the workflow timeout with no output."""
+    monkeypatch.setenv("APIFY_TOKEN", "tok")
+    monkeypatch.delenv("THEIRSTACK_API_KEY", raising=False)
+    hq = _hq(config=[{"key": "wide_cursor", "value": CURSOR}])
+
+    class QueuedForever:
+        """Returns a run that never produced a dataset (still QUEUED)."""
+        def actor(self, _id):
+            outer = self
+            class A:
+                def call(self, run_input=None, timeout_secs=None, wait_secs=None):
+                    outer.bounds = (timeout_secs, wait_secs)
+                    return {"status": "RUNNING"}      # no defaultDatasetId
+            return A()
+        def dataset(self, _id):
+            raise AssertionError("must not read a dataset that never existed")
+
+    client = QueuedForever()
+    s = _run(hq, client, session=FakeSession())
+
+    # every bound was actually passed — an unbounded call is the bug
+    assert client.bounds == (wide.CAFE_RUN_TIMEOUT, wide.CAFE_WAIT)
+    # ...and the sweep completed instead of hanging, with the reason recorded
+    assert s.errors and "did not finish" in s.errors[0]
+    assert s.appended == 0
