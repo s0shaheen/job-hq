@@ -1,7 +1,13 @@
-# Daily wide-coverage sweep: hiring.cafe (via Apify actor) + optional
-# TheirStack safety net. Catches everything outside the curated list and
-# anything a broken adapter misses. Skips cleanly until APIFY_TOKEN is set.
-name: Wide sweep
+# hiring.cafe coverage sweep (via the Apify actor).
+#
+# SEPARATE from TheirStack on purpose. They share nothing but a
+# destination — different vendor, cost model, latency and failure mode.
+# Apify's .call() blocks on a server-side run that can sit QUEUED for
+# minutes; when both sources lived in one job, one queued run consumed the
+# entire budget and TheirStack was never called at all. Independent
+# sources get independent jobs, timeouts and alerts. They still share the
+# per-user feed concurrency lane, so their appends serialize.
+name: Wide sweep — hiring.cafe
 
 on:
   schedule:
@@ -17,10 +23,10 @@ jobs:
         user: ${{ fromJSON(vars.HQ_USERS || '["salman"]') }}
 
     concurrency:
-      group: hq-feed-writers-${{ matrix.user }}   # per-user lane: users never queue behind each other
+      group: hq-feed-writers-${{ matrix.user }}   # shared feed lane: appends serialize, failures don't
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 15   # its own budget; a stall here cannot starve TheirStack
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -34,7 +40,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
           THEIRSTACK_API_KEY: ${{ secrets.THEIRSTACK_API_KEY }}
-        run: python -m monitor.wide
+        run: python -m monitor.wide --source cafe
       - name: Ops alert on failure
         if: failure() || cancelled()
         run: |

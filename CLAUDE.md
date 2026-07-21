@@ -75,7 +75,8 @@ a new column, add it to `core/schema.py` and let bootstrap/self-heal create it.
 | `monitor.yml` Job monitor | `0 12,23 * * *` | 07:00 + 18:00 daily | `python -m monitor.run` + snapshot commit |
 | `priority.yml` Priority watch | dispatch only | — | `python -m monitor.priority` (retired 2026-07-21; the 2x/day sweep covers every company) |
 | `review.yml` Tagging review | `0 15 * * *` | 10:00 daily | `python -m monitor.review` |
-| `wide.yml` Wide sweep | `30 13 * * *` | 08:30 daily | `python -m monitor.wide` |
+| `wide-cafe.yml` hiring.cafe | `30 13 * * *` | 08:30 daily | `python -m monitor.wide --source cafe` |
+| `wide-theirstack.yml` TheirStack | `50 13 * * *` | 08:50 daily | `python -m monitor.wide --source theirstack` |
 | `tracker.yml` Tracker | `31 */2 * * *` | every 2 h | promote → quickadd → scout → stale → join |
 | `simplify.yml` Simplify import | `7 14 * * *` | 09:07 daily | `python -m tracker.simplify` |
 | `digest.yml` Daily digest | `40 11 * * *` | 06:40 daily | `python -m tracker.digest` |

@@ -25,7 +25,8 @@ heartbeat older than **2× its cadence**; a job that never ran shows "no heartbe
 | `heartbeat_priority` | `monitor.priority` | dispatch only (retired) | not watched |
 | `heartbeat_monitor` | `monitor.run` | daily 07:00 CT | 48 h |
 | `heartbeat_review` | `monitor.review` | daily 10:00 CT | 48 h |
-| `heartbeat_wide` | `monitor.wide` | daily 08:30 CT | 48 h |
+| `heartbeat_cafe` | `monitor.wide --source cafe` | daily 08:30 CT | 48 h |
+| `heartbeat_theirstack` | `monitor.wide --source theirstack` | daily 08:50 CT | 48 h |
 | `heartbeat_simplify` | `tracker.simplify` | daily 09:07 CT | 48 h |
 | `heartbeat_selfheal` | `tracker.selfheal` | nightly 03:23 CT | 48 h |
 | `heartbeat_snapshot` | `tracker.snapshot` | nightly 03:23 CT | 48 h |

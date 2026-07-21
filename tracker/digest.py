@@ -26,7 +26,11 @@ from core.sheets import HQ, RowNotFound
 # briefing that cries wolf daily is one you stop reading.
 # Keep in sync with .github/workflows cron schedules.
 CADENCE_HOURS = {
-    "monitor": 12, "review": 24, "tracker": 2, "wide": 24,
+    "monitor": 12, "review": 24, "tracker": 2,
+    # cafe and theirstack are SEPARATE channels, not one "wide": they are
+    # separate vendors in separate jobs, and a dead TheirStack must not hide
+    # behind a healthy hiring.cafe.
+    "cafe": 24, "theirstack": 24,
     "simplify": 24, "selfheal": 24, "snapshot": 24, "capture": 1.5,
 }
 CAPTURE_ALERT_HOURS = 3
