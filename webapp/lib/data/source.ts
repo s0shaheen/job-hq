@@ -1,0 +1,65 @@
+/**
+ * The data boundary. One interface, two implementations.
+ *
+ * Everything the UI needs comes through `DataSource`, so the app can run
+ * against Postgres in production and against deterministic fixtures in tests
+ * and demo mode. Two things fall out of that, and both are load-bearing:
+ *
+ *   1. End-to-end tests need no database. Playwright drives the real UI over
+ *      known data, which is what makes visual-regression snapshots stable and
+ *      lets CI run without a Supabase project.
+ *   2. The app can be looked at before anything is provisioned. Demo mode is
+ *      a working preview rather than a mockup.
+ *
+ * The Python side has the same shape (`core/fakes.py`), and it has already
+ * paid for itself — including the time the fake was MORE FORGIVING than the
+ * real API (it grew a spreadsheet grid that Google refuses to grow), so the
+ * whole suite passed while production could not write a column. A fake earns
+ * its keep by reproducing failure modes, not just happy paths.
+ */
+import type {
+  ApplicationView,
+  ChannelHealthView,
+  JobView,
+  Triage,
+} from "./view-models";
+
+export type QueueOptions = {
+  /** Hard cap. A queue that cannot be finished is just another inbox. */
+  limit?: number;
+};
+
+export type TriageInput = {
+  postingKey: string;
+  triage: Triage;
+  snoozeUntil?: string | null;
+  reason?: string;
+  /** Client-generated; makes a double-tap or a retry free. */
+  idempotencyKey: string;
+  /** The value the client last read. A mismatch is a conflict, not a clobber. */
+  expectedUpdatedAt: string | null;
+};
+
+export type WriteResult =
+  | { ok: true; job: JobView }
+  | { ok: false; kind: "conflict"; current: JobView }
+  | { ok: false; kind: "error"; message: string };
+
+export interface DataSource {
+  /** Qualified, untriaged, freshest first. */
+  queue(opts?: QueueOptions): Promise<JobView[]>;
+  /** Everything, for the grid — filtering happens client-side over this. */
+  jobs(): Promise<JobView[]>;
+  applications(): Promise<ApplicationView[]>;
+  health(): Promise<ChannelHealthView[]>;
+  setTriage(input: TriageInput): Promise<WriteResult>;
+}
+
+/**
+ * Demo mode is opt-in and never the default: a production deployment that
+ * silently served fixtures would be indistinguishable from a working app
+ * while showing invented jobs, which is worse than an error page.
+ */
+export function isDemoMode(): boolean {
+  return process.env.HQ_DEMO === "1" || process.env.NEXT_PUBLIC_HQ_DEMO === "1";
+}

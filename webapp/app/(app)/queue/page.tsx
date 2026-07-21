@@ -1,48 +1,22 @@
-import { redirect } from "next/navigation";
-import SetupNotice from "@/components/setup-notice";
-import { getSupabaseEnv } from "@/lib/env";
-import { fetchQueue } from "@/lib/queries";
-import { createClient } from "@/lib/supabase/server";
-import QueueList from "./queue-list";
+import { getDataSource } from "@/lib/data/get-source";
+import TriageQueue from "./triage-queue";
 
-export const metadata = { title: "Queue — Job Search HQ" };
+export const metadata = { title: "Triage — Job Search HQ" };
+export const dynamic = "force-dynamic";
 
 export default async function QueuePage() {
-  if (!getSupabaseEnv()) return <SetupNotice />;
-
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-  const userId = typeof data?.claims?.sub === "string" ? data.claims.sub : null;
-  if (!userId) redirect("/login"); // middleware normally catches this first
-
-  const { rows, error } = await fetchQueue(supabase, userId);
+  const src = await getDataSource();
+  const rows = await src.queue({ limit: 20 });
 
   return (
-    <>
-      <div className="page-head">
-        <h1>Today&apos;s queue</h1>
-        <span className="page-sub">
-          {rows.length} qualified, untriaged {rows.length === 1 ? "posting" : "postings"}
-        </span>
-      </div>
-
-      {error ? (
-        <div className="error-box">
-          <strong>Couldn&apos;t load the queue.</strong>
-          <p>
-            <code>{error}</code>
-          </p>
-          <p>Refresh to retry; if it persists, check /health and the Supabase logs.</p>
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="empty">
-          <strong>Queue&apos;s clear.</strong>
-          Nothing qualified and untriaged right now — the discovery channels will
-          refill it. Check <a href="/pipeline">the pipeline</a> in the meantime.
-        </div>
-      ) : (
-        <QueueList items={rows} />
-      )}
-    </>
+    <div className="min-w-0">
+      <header className="border-b border-border px-4 py-3 sm:px-6">
+        <h1 className="text-lg font-semibold">Today&rsquo;s queue</h1>
+        <p className="text-xs text-muted">
+          Roles that match your search and haven&rsquo;t been decided yet.
+        </p>
+      </header>
+      <TriageQueue initial={rows} yoeMax={4} />
+    </div>
   );
 }

@@ -1,0 +1,192 @@
+# Web app build — living log and session handoff
+
+**Read this first if you are picking up the web app work.** It is the
+compaction anchor: it carries the decisions, the current state, and the
+constraints that are easy to lose between context windows.
+
+Companion docs: `docs/PRODUCT-SPEC.md` (what to build and the 26 acceptance
+criteria), `db/migrations/0001_init.sql` + `0002_invariants.sql` (the store),
+`db/README.md` (provisioning).
+
+---
+
+## Goal for this phase
+
+**Foundation → Triage → Export.** Those three make the app worth opening for
+the owner and immediately useful to the other two users via export alone,
+before the grid, pipeline, or import exist.
+
+Then: plans/specs for the remaining phases, and a path to opening this up more
+widely (public repo, invite + onboard strangers) — **researched, not
+implemented**, unless there is a clean upgrade path from what exists.
+
+## Hard constraints from the owner
+
+1. **It must not visually break.** Stated fear, verbatim: *"Don't be mad when I
+   come back and yell at you that the table looks off or is hanging off the
+   edge of the page."* This is answered mechanically, not by promises — see
+   Testing below.
+2. **Pull from proven libraries.** Do not hand-roll a data grid, a focus trap,
+   a dropdown, or an XLSX writer.
+3. Standard, minimalist, scalable conventions — the reference points are
+   Airtable, Linear, Superhuman, Stripe/Vercel consoles.
+4. Non-technical users (his dad). Nothing may require debugging by the user.
+5. Pause if 50% of weekly model usage is hit. *(Note: the assistant cannot
+   query its own usage; flag rather than silently assume.)*
+
+---
+
+## Architecture decisions (and why)
+
+### Data layer is injectable — this is the keystone
+
+`lib/data/` exposes one interface with two implementations:
+
+| Implementation | Used by | Why |
+|---|---|---|
+| Supabase-backed | production | the real store, RLS-enforced |
+| Fixture-backed | tests, and a demo mode | hermetic, instant, deterministic |
+
+Two things fall out of this, and both matter:
+
+- **E2E tests need no database.** Playwright drives the real UI against
+  deterministic data, so visual-regression snapshots are stable and CI needs
+  no Supabase project.
+- **The owner can see the app before provisioning anything.** Demo mode is a
+  real preview, not a mockup. It is opt-in (`HQ_DEMO=1`) and never the default.
+
+This mirrors `core/fakes.py` on the Python side, which is the pattern that has
+already caught real bugs — including one where the fake was *too forgiving*
+(it auto-grew a sheet grid that the real API refuses to grow). **A fake must
+reproduce the real thing's failure modes, not just its happy path.**
+
+### Writes never come from the browser
+
+Every gesture is a server action calling one Postgres function that writes the
+row *and* its audit event in one transaction. The browser holds the anon key
+and has no insert/update policy (`0001_init.sql` ends by saying so; keep it
+that way). Each gesture carries an idempotency key, and the `updated_at` it
+read, so a double-tap is free and a second device gets a conflict rather than
+a silent clobber.
+
+---
+
+## Frontend failure modes — the matrix
+
+The owner's ask was **"figure out how to build it so it doesn't break in any of
+the KNOWN failure ways."** Horizontal overflow was one hypothetical example,
+not the requirement. This is the actual list, with what enforces each.
+
+| # | Failure mode | Enforced by | Status |
+|---|---|---|---|
+| 1 | Page scrolls sideways | `layout.spec.ts` — 3 pages × 6 widths, names the offending element | ✅ |
+| 2 | Hydration mismatch (silent; page still renders) | `resilience.spec.ts` asserts **zero console errors** per page | ✅ |
+| 3 | Thrown component → **white screen** | `app/error.tsx` per route + `app/global-error.tsx` (self-contained, inline styles) | ✅ |
+| 4 | Unreadable contrast | axe `wcag2a/wcag2aa` per page **per theme**. Caught a real one: muted text at 4.12:1 on 548 elements | ✅ |
+| 5 | Keyboard trap / focus off-screen | Tab-walk asserts every focused element is visible and in-viewport | ✅ |
+| 6 | Breaks at 200% text zoom | Doubles root font size, re-asserts no overflow | ✅ |
+| 7 | Blank screen while loading | `loading.tsx` skeleton with the **same dimensions** as the real card (no layout shift) | ✅ |
+| 8 | Failed write leaves a phantom row | Fixture `failNextWrite()` + revert-and-toast path | ✅ |
+| 9 | Two devices → silent clobber | `expectedUpdatedAt` conflict path, modelled in the fake | ✅ |
+| 10 | Double-tap applies twice | Idempotency key, replayed result | ✅ |
+| 11 | Long content blows out layout | Fixtures carry a deliberately huge title + company | ✅ |
+| 12 | Webfont fails / renders differently per machine | **No webfont.** System stack only | ✅ |
+| 13 | Motion sickness | `prefers-reduced-motion` zeroes transitions | ✅ |
+| 14 | Visual drift | `toHaveScreenshot` per theme — **needs Linux baselines recorded on a runner** | ◐ |
+| 15 | Empty states unrendered | Per-surface zero-row test | ⬜ |
+| 16 | Session expires mid-action | Re-auth path without losing the in-flight gesture | ⬜ |
+| 17 | Offline / flaky network | Queue the gesture locally, banner, retry | ⬜ |
+| 18 | Perf collapse at 5k rows | Virtualization + a render-budget assertion | ⬜ (grid phase) |
+| 19 | Back/forward + deep links | URL-addressable views | ⬜ (grid phase) |
+| 20 | Types drift from the DB | Contract test: schema ↔ `lib/types.ts` | ⬜ |
+| 21 | **Keystroke before hydration is silently dropped** | Queue publishes `data-ready`; hints stay dim until the handler is attached; tests wait on the flag | ✅ |
+
+Row 21 is the rule working as intended. A Linux CI runner failed the keyboard
+test that had always passed on the Mac: `goto` resolves when the server HTML
+paints, which is *before* React attaches the keydown listener, so a key pressed
+in that window does nothing. The tempting fix is a sleep in the test. The real
+one is that the card renders its shortcut hints from the server and therefore
+advertises a capability it does not yet have — a fast human hits the same gap.
+The queue now says when it is interactive, the hints dim until then, and the
+tests wait on that flag rather than racing it.
+
+**Rule going forward: a bug found by a human — or by a slower machine —
+becomes a row in this table with a test, not just a fix.**
+
+The web app **was not in CI at all** before this phase.
+
+---
+
+## Current state
+
+- [x] Handoff doc created
+- [x] Stack verified against live npm (2026-07-21) — see "Stack" below
+- [x] **Foundation** — Tailwind v4 tokens, Radix primitives, app shell, data
+      layer, Vitest + Playwright, webapp now in CI (it was not before)
+- [x] **Triage** — decision bar, keyboard, optimistic writes with undo
+- [x] **Export** — CSV/TSV core with RFC-4180 quoting + BOM (XLSX writer next)
+- [ ] Export dialog UI + XLSX file
+- [ ] Remaining-phase plans + scaling research
+
+## Stack (verified live 2026-07-21, not from memory)
+
+| Package | Version | Why |
+|---|---|---|
+| tailwindcss + @tailwindcss/postcss | 4.3.3 | CSS-first `@theme`; no tailwind.config.ts |
+| radix-ui (unified) | 1.6.4 | accessibility + focus management we must not hand-roll |
+| sonner | 2.0.7 | toasts with a first-class undo action |
+| @tanstack/react-table | 8.21.3 | v9 is beta-only; v8 is the stable grid |
+| @tanstack/react-virtual | 3.14.7 | row virtualization for the grid phase |
+| write-excel-file | 4.1.1 | **not `xlsx`** — npm's SheetJS is frozen at 0.18.5 (2022) with CVE-2023-30533 |
+| vitest 4.1.10 / playwright 1.61.1 | | unit + E2E |
+
+**Landmines already avoided:** `shadcn init` now defaults to Base UI (an RC) —
+must pass `--base radix`; Vite 8 needs Node ≥ 20.19 (engines bumped);
+`tailwind-merge` must be 3.x for Tailwind v4; jsdom has no layout engine, so
+anything virtualized is tested in Playwright, never Vitest.
+
+## Design decisions worth not re-litigating
+
+1. **The queue owns its working set.** `revalidatePath("/queue")` after each
+   decision was removed: refetching mid-session reorders cards under the
+   user's cursor and fights the optimistic update. Only `/pipeline` is
+   revalidated. The queue re-reads on next visit, which is when a fresh list
+   is actually wanted.
+2. **Demo stores are keyed by cookie.** One shared store meant parallel tests
+   drained each other's queues; per-session also matches how the real app
+   behaves.
+3. **CI uses `npm install`, not `npm ci`.** Tailwind v4's native oxide binary
+   resolves a different platform-optional tree on linux-x64 than darwin-arm64,
+   and npm cannot record both cleanly in one lockfile (esbuild, rollup and
+   sharp all share this friction). `npm ci` failed on a lockfile that was
+   otherwise correct. Versions remain pinned; only the strict in-sync
+   assertion is given up, and here it only ever fired as a false alarm.
+4. **Visual snapshots are platform-specific.** macOS baselines are guaranteed
+   to fail on Linux CI, so they are opt-in (`PLAYWRIGHT_VISUAL=1`) until
+   baselines are recorded on a runner. A permanently-red check teaches people
+   to ignore checks.
+
+## How to work on it
+
+```sh
+cd webapp
+npm install
+npm run dev            # http://localhost:3000
+HQ_DEMO=1 npm run dev  # with fixture data, no Supabase needed
+npm run typecheck
+npm run test           # vitest (unit)
+npm run test:e2e       # playwright (journeys, overflow, visual)
+```
+
+Python side is unchanged and must stay green:
+`uv run --python 3.11 --with-requirements requirements.txt --no-project -- pytest`
+
+## Rules that already cost a production incident
+
+1. Every external call gets a **bound** (timeout). Three outages in one day
+   traced to unbounded waits inside jobs with hard timeouts.
+2. **One job per external dependency.** Two vendors in one workflow meant one
+   vendor's stall was the other's outage.
+3. A fake that is more forgiving than the real API hides the bug it exists to
+   catch.
+4. Workflows are code: `tests/core/test_workflows.py` parses them all.

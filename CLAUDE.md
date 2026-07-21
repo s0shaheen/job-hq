@@ -29,6 +29,9 @@ built and populated; tab gids are pinned in `hq.config.yaml`.
   events→Pipeline statuses), `simplify` (best-effort import), `digest` (daily briefing),
   `selfheal` + `snapshot` (nightly structure re-assert + CSV backup).
 - `editor/` — phone-first Next.js editor for the resume YAMLs (Vercel). `editor/README.md`.
+- `webapp/` — the human surface replacing the spreadsheet (queue/triage, pipeline,
+  export). **Building now: read `docs/WEBAPP-BUILD.md` FIRST** — it is the living
+  build log and session handoff. Spec: `docs/PRODUCT-SPEC.md`.
 - `appsscript/` — sources for the two Apps Script projects: `capture/` (Gmail → Email
   Events tab) and `drive-upload/` (resume publish web app). Provisioning: `appsscript/README.md`.
 - `resume/` — `base.yaml` + `design.yaml`, **the resume source of truth**.

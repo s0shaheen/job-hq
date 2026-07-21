@@ -1,111 +1,106 @@
-import { redirect } from "next/navigation";
-import SetupNotice from "@/components/setup-notice";
-import { getSupabaseEnv } from "@/lib/env";
-import { fmtDay } from "@/lib/format";
-import { fetchPipeline } from "@/lib/queries";
-import { createClient } from "@/lib/supabase/server";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty";
+import { getDataSource } from "@/lib/data/get-source";
+import type { ApplicationView } from "@/lib/data/view-models";
 
 export const metadata = { title: "Pipeline — Job Search HQ" };
+export const dynamic = "force-dynamic";
 
-/** Chip tone by status keyword — unknown statuses stay neutral. */
-function statusTone(status: string): "ok" | "warn" | "danger" | "accent" | undefined {
-  const s = status.toLowerCase();
-  if (s.includes("offer")) return "ok";
-  if (s.includes("interview") || s.includes("onsite")) return "accent";
-  if (s.includes("oa") || s.includes("assessment") || s.includes("screen")) return "warn";
-  if (s.includes("reject") || s.includes("withdrawn") || s.includes("closed")) return "danger";
-  return undefined;
-}
+/** Pipeline order, not alphabetical — Postgres would sort "Applied" above
+ *  "Inbox" and bury the early stages. Mirrors core/schema.py STATUS_ORDER. */
+const ORDER = [
+  "Inbox", "Queued", "Applied", "OA", "Screen", "Interview", "Final", "Offer",
+  "Rejected", "Withdrawn", "Closed",
+];
 
-function isUrl(v: string | null): v is string {
-  return typeof v === "string" && /^https?:\/\//i.test(v);
+function tone(status: string) {
+  if (status === "Offer") return "ok" as const;
+  if (["OA", "Screen", "Interview", "Final"].includes(status)) return "accent" as const;
+  if (status === "Applied") return "info" as const;
+  if (["Rejected", "Withdrawn", "Closed"].includes(status)) return "neutral" as const;
+  return "neutral" as const;
 }
 
 export default async function PipelinePage() {
-  if (!getSupabaseEnv()) return <SetupNotice />;
-
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-  const userId = typeof data?.claims?.sub === "string" ? data.claims.sub : null;
-  if (!userId) redirect("/login");
-
-  const { rows, error } = await fetchPipeline(supabase, userId);
+  const rows = await (await getDataSource()).applications();
+  const rank = (s: string) => {
+    const i = ORDER.indexOf(s);
+    return i === -1 ? ORDER.length : i; // a human-invented status sorts last, never vanishes
+  };
+  const sorted = [...rows].sort((a, b) => rank(a.status) - rank(b.status));
 
   return (
-    <>
-      <div className="page-head">
-        <h1>Pipeline</h1>
-        <span className="page-sub">
+    <div className="min-w-0">
+      <header className="border-b border-border px-4 py-3 sm:px-6">
+        <h1 className="text-lg font-semibold">Pipeline</h1>
+        <p className="text-xs text-muted">
           {rows.length} {rows.length === 1 ? "application" : "applications"}
-        </span>
-      </div>
+        </p>
+      </header>
 
-      {error ? (
-        <div className="error-box">
-          <strong>Couldn&apos;t load the pipeline.</strong>
-          <p>
-            <code>{error}</code>
-          </p>
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="empty">
-          <strong>No applications yet.</strong>
-          Rows land here from Gmail capture once confirmation emails arrive —
-          nothing is entered by hand.
-        </div>
+      {sorted.length === 0 ? (
+        <EmptyState
+          title="No applications yet"
+          body="Applications appear here when you mark a role interesting, or when a confirmation email arrives."
+        />
       ) : (
-        <div className="table-wrap">
-          <table>
+        // The table scrolls INSIDE this container. The page itself never
+        // scrolls sideways — asserted at every breakpoint in tests/e2e.
+        // tabIndex + role make the scroll region reachable by keyboard.
+        // Containing the scroll here is what keeps the PAGE from scrolling
+        // sideways, but a scrollable box nobody can focus is just a different
+        // accessibility bug — axe caught this one.
+        <div
+          className="w-full overflow-x-auto focus-visible:outline-2 focus-visible:outline-ring"
+          tabIndex={0}
+          role="region"
+          aria-label="Applications table, scrollable"
+        >
+          <table className="w-full min-w-[52rem] border-collapse text-sm">
             <thead>
-              <tr>
-                <th>Company</th>
-                <th>Title</th>
-                <th>Status</th>
-                <th>Applied</th>
-                <th>Next action</th>
-                <th>Evidence</th>
+              <tr className="border-b border-border-strong bg-raised text-left">
+                {["Company", "Title", "Status", "Applied", "Next action"].map((h) => (
+                  <th
+                    key={h}
+                    scope="col"
+                    className="px-3 py-2 text-2xs font-semibold uppercase tracking-wider text-muted whitespace-nowrap"
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {rows.map((a) => (
-                <tr key={a.id}>
-                  <td>
-                    {isUrl(a.url) ? (
-                      <a href={a.url} target="_blank" rel="noopener noreferrer">
-                        {a.company}
+              {sorted.map((a: ApplicationView) => (
+                <tr key={a.id} className="border-b border-border hover:bg-raised">
+                  <td className="px-3 py-2 font-medium whitespace-nowrap">{a.company}</td>
+                  <td className="px-3 py-2">
+                    {a.url ? (
+                      <a href={a.url} target="_blank" rel="noopener noreferrer" className="hover:text-accent">
+                        {a.title}
                       </a>
                     ) : (
-                      a.company
+                      a.title
                     )}
                   </td>
-                  <td>{a.title}</td>
-                  <td>
-                    <span className="status-chip" data-tone={statusTone(a.status)}>
-                      {a.status}
-                    </span>
-                  </td>
-                  <td className="mono">{fmtDay(a.applied_date)}</td>
-                  <td>
-                    {a.next_action ?? "—"}
-                    {a.next_action_date ? (
-                      <span className="page-sub"> ({fmtDay(a.next_action_date)})</span>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <Badge tone={tone(a.status)}>{a.status}</Badge>
+                    {a.suggestedStatus ? (
+                      <Badge tone="warn" className="ml-1.5">
+                        suggests {a.suggestedStatus}
+                      </Badge>
                     ) : null}
                   </td>
-                  <td>
-                    {isUrl(a.evidence) ? (
-                      <a href={a.evidence} target="_blank" rel="noopener noreferrer">
-                        evidence
-                      </a>
-                    ) : (
-                      a.evidence ?? "—"
-                    )}
+                  <td className="tabular px-3 py-2 whitespace-nowrap text-muted">
+                    {a.appliedDate ?? "—"}
                   </td>
+                  <td className="px-3 py-2 text-text-2">{a.nextAction ?? "—"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-    </>
+    </div>
   );
 }

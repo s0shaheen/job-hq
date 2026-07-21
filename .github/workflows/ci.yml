@@ -40,6 +40,46 @@ on:
         default: false
 
 jobs:
+
+  webapp:
+    name: webapp
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: webapp
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm, cache-dependency-path: webapp/package-lock.json }
+      # `npm install`, not `npm ci`, on purpose. Tailwind v4's native oxide
+      # binary pulls a DIFFERENT set of platform-optional packages on
+      # linux-x64 than on darwin-arm64 (the @emnapi/* tree), and npm cannot
+      # reliably record both in one lockfile — the same friction esbuild,
+      # rollup and sharp all hit. `npm ci` therefore fails on a lockfile that
+      # is otherwise correct. Versions stay pinned by the lockfile; what is
+      # given up is the strict in-sync assertion, which here only ever fired
+      # as a false alarm.
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+        env:
+          HQ_DEMO: "1"
+      - run: npm test
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      # The layout suite is the guarantee that no page ever scrolls sideways,
+      # at six widths on three pages. Visual snapshots are skipped until Linux
+      # baselines are recorded (see tests/e2e/visual.spec.ts).
+      - run: npx playwright test
+        env:
+          HQ_DEMO: "1"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: webapp/playwright-report/
+          retention-days: 7
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10

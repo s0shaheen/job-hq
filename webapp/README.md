@@ -1,5 +1,18 @@
 # Job Search HQ — web app
 
+## See it right now (no database needed)
+
+```sh
+cd webapp
+npm install
+npm run demo      # http://localhost:3000
+```
+
+`npm run demo` runs against deterministic fixture data. Nothing to provision,
+nothing to sign into. It is the same code path the tests drive, so what you
+see is what CI checks.
+
+
 The human surface for the family job-search system: today's queue, the
 application pipeline, and the operator health view. Next.js (app router) +
 Supabase (Google sign-in, RLS-scoped reads).

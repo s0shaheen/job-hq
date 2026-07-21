@@ -1,16 +1,17 @@
 import { getSupabaseEnv } from "@/lib/env";
+import { getDataSource } from "@/lib/data/get-source";
 import { createClient } from "@/lib/supabase/server";
+import { Toaster } from "@/components/ui/toaster";
 import NavLinks from "./nav-links";
+import SignOut from "./sign-out";
 
 /**
- * Shell for the signed-in surface: sticky header with nav, the user's email,
- * and sign-out (a plain form post — no client JS required).
+ * App shell: fixed sidebar, scrolling content. The sidebar collapses to a top
+ * strip under 1024px rather than becoming a hamburger — with six destinations
+ * and no deep hierarchy, hiding navigation behind a tap costs more than the
+ * space it saves.
  */
-export default async function AppLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
   let email: string | null = null;
   if (getSupabaseEnv()) {
     const supabase = await createClient();
@@ -18,27 +19,35 @@ export default async function AppLayout({
     email = typeof data?.claims?.email === "string" ? data.claims.email : null;
   }
 
+  let queueCount = 0;
+  try {
+    queueCount = (await (await getDataSource()).queue({ limit: 999 })).length;
+  } catch {
+    queueCount = 0; // a count is decoration; it must never break the shell
+  }
+
   return (
-    <>
-      <header className="app-header">
-        <div className="header-inner">
-          <span className="brand">Job Search HQ</span>
-          <NavLinks />
-          <div className="header-right">
-            {email ? (
-              <>
-                <span className="user-email">{email}</span>
-                <form action="/auth/signout" method="post">
-                  <button type="submit" className="btn btn-ghost">
-                    Sign out
-                  </button>
-                </form>
-              </>
-            ) : null}
-          </div>
+    <div className="flex min-h-dvh flex-col lg:flex-row">
+      <aside
+        className="shrink-0 border-b border-border bg-surface p-3 lg:h-dvh lg:w-56
+                   lg:border-r lg:border-b-0 lg:sticky lg:top-0"
+      >
+        <div className="flex items-center justify-between pb-3 lg:block">
+          <span className="px-1 text-sm font-bold">Job Search HQ</span>
         </div>
-      </header>
-      <main className="container">{children}</main>
-    </>
+        <NavLinks counts={{ "/queue": queueCount }} />
+        {email ? (
+          <div className="mt-4 border-t border-border pt-3 lg:absolute lg:bottom-3 lg:w-[12.5rem]">
+            <p className="truncate px-1 pb-1.5 text-2xs text-muted" title={email}>
+              {email}
+            </p>
+            <SignOut />
+          </div>
+        ) : null}
+      </aside>
+
+      <main className="min-w-0 flex-1">{children}</main>
+      <Toaster />
+    </div>
   );
 }
