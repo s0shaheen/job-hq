@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from monitor import comp as _comp
+
 QUALIFIED = "qualified"
 FILTERED = "filtered"
 NEEDS_INFO = "needs-info"
@@ -51,6 +53,13 @@ class GateConfig:
     # wrong (Chicago spans IL/IN/WI; IL includes Peoria).
     metros: list[str] = field(default_factory=list)
     geo_unknown: str = "filter"          # filter | keep — rows geo.enrich can't place
+    # comp floor in $k. 0 = off. ~52% of live postings state a range, so this
+    # gate genuinely bites; the other ~48% are governed by comp_unknown.
+    comp_min: float = 0
+    comp_unknown: str = "keep"           # keep | filter — postings that state no comp
+    # substrings matched against work_model, e.g. ["onsite"] to never see
+    # on-site roles. Case-insensitive.
+    work_model_exclude: list[str] = field(default_factory=list)
     yoe_max: int = 4
     yoe_unknown: str = "seniority-proxy"  # seniority-proxy | keep — tagged rows w/o a stated YoE
     seniority_exclude: list[str] = field(default_factory=list)
@@ -60,12 +69,21 @@ class GateConfig:
         self.metros = [str(m).strip() for m in self.metros if str(m).strip()]
         self.seniority_exclude = [str(s).strip().casefold()
                                   for s in self.seniority_exclude if str(s).strip()]
+        self.work_model_exclude = [str(w).strip().casefold()
+                                   for w in self.work_model_exclude if str(w).strip()]
+        try:
+            self.comp_min = float(self.comp_min or 0)
+        except (TypeError, ValueError):
+            self.comp_min = 0
 
     @classmethod
     def from_user_config(cls, cfg) -> "GateConfig":
         return cls(
             countries=list(cfg["filter_countries"]),
             metros=list(cfg.get("filter_metros", []) or []),
+            comp_min=float(cfg.get("filter_comp_min", 0) or 0),
+            comp_unknown=str(cfg.get("filter_comp_unknown", "keep")),
+            work_model_exclude=list(cfg.get("filter_work_model_exclude", []) or []),
             geo_unknown=str(cfg["filter_geo_unknown"]),
             yoe_max=int(cfg["filter_yoe_max"]),
             yoe_unknown=str(cfg["filter_yoe_unknown"]),
@@ -101,6 +119,25 @@ def dispose(row: dict, g: GateConfig) -> tuple[str, str]:
                 return FILTERED, "metro-unknown"
         elif metro not in g.metros:
             return FILTERED, f"metro:{metro}"
+
+    # --- work model (free once tagged: "never show me on-site")
+    wm = str(row.get("work_model", "")).casefold()
+    if wm and g.work_model_exclude:
+        for tok in g.work_model_exclude:
+            if tok in wm:
+                return FILTERED, f"work-model:{tok}"
+
+    # --- compensation. Judged on the TOP of the stated band, so a
+    # $110-160k posting clears a $120k floor. Unknown comp follows an explicit
+    # policy: with ~half of postings stating nothing, defaulting to `filter`
+    # here would delete most of the feed.
+    tagged = bool(str(row.get("tagged_at", "")).strip())
+    if g.comp_min:
+        clears = _comp.meets_floor(row.get("comp_range", ""), g.comp_min)
+        if clears is False:
+            return FILTERED, f"comp:<{g.comp_min:g}k"
+        if clears is None and tagged and g.comp_unknown == "filter":
+            return FILTERED, "comp-unknown"
 
     # --- YoE (needs the tag block)
     raw_yoe = str(row.get("min_yoe", "")).strip()

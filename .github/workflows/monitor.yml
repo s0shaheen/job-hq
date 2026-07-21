@@ -1,10 +1,17 @@
-# Daily full discovery sweep across every monitored company (Companies tab),
-# with inline tagging of new roles and YoE-filtered pushes.
+# Full discovery sweep across every monitored company (Companies tab), twice
+# a day, with inline tagging of new roles and gate-filtered pushes.
+#
+# Twice daily over ALL companies replaced the old split of one daily sweep +
+# an hourly watch over a handful of "priority" companies. The watch cost 18
+# runs/day of billable Actions minutes to surface a posting a few hours
+# sooner, and 6 of its 8 companies were unseeded and skipped every run
+# anyway. Same-day discovery for the whole universe is the better trade.
 name: Job monitor
 
 on:
   schedule:
-    - cron: "0 12 * * *"   # ~07:00 America/Chicago
+    - cron: "0 12 * * *"    # ~07:00 America/Chicago
+    - cron: "0 23 * * *"    # ~18:00 America/Chicago
   workflow_dispatch: {}
 
 permissions:

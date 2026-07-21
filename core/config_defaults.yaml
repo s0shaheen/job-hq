@@ -7,6 +7,9 @@ filter_countries:          # rows anchored elsewhere are filtered (remote w/ no 
   - United States
 filter_metros: []          # empty = anywhere in filter_countries; e.g. [Chicago] for a local search
 filter_geo_unknown: filter # blank-geo non-remote rows: filter (invisible, recoverable) | keep
+filter_comp_min: 0         # $k floor judged on the TOP of a stated range; 0 = off
+filter_comp_unknown: keep  # postings stating no comp (~48%): keep | filter
+filter_work_model_exclude: []  # substrings of work_model to reject, e.g. [onsite]
 filter_yoe_max: 4          # min required YoE above this -> filtered
 filter_yoe_unknown: seniority-proxy  # tagged rows w/o stated YoE: seniority-proxy | keep
 filter_seniority_exclude:  # seniority tags treated as over-bar when YoE is unknown
