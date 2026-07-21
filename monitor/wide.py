@@ -65,6 +65,13 @@ TS_CURSOR = "wide_theirstack_cursor"
 TS_URL = "https://api.theirstack.com/v1/jobs/search"
 TS_LIMIT = 25
 TS_TIMEOUT = 30      # per-request seconds; TheirStack is optional and must never hang the sweep
+# Apify's .call() BLOCKS until the actor run finishes. On the free tier a run
+# can sit QUEUED indefinitely waiting for memory or credit — which is exactly
+# how this sweep went from 2-4 minutes to hitting the 15-minute workflow
+# timeout with no output. Both bounds are needed: timeout_secs stops the run
+# server-side, wait_secs stops us waiting for it.
+CAFE_RUN_TIMEOUT = 120      # seconds the actor run may take, server-side
+CAFE_WAIT = 150             # seconds we will wait for it before giving up
 PUSH_MAX_LINES = 12
 
 
@@ -299,15 +306,25 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
     for term in terms:
         print(f"[wide] cafe: querying {term!r}", file=sys.stderr)
         try:
-            info = client.actor(ACTOR_ID).call(run_input={
-                "startUrls": [{"url": search_url(term)}],
-                "maxItems": MAX_PER_TERM,
-                "enrichDescription": False,   # feed rows don't need JD HTML; review tags via ATS APIs
-            })
+            info = client.actor(ACTOR_ID).call(
+                run_input={
+                    "startUrls": [{"url": search_url(term)}],
+                    "maxItems": MAX_PER_TERM,
+                    "enrichDescription": False,   # feed rows don't need JD HTML; review tags via ATS APIs
+                },
+                timeout_secs=CAFE_RUN_TIMEOUT, wait_secs=CAFE_WAIT)
+            if not info or not info.get("defaultDatasetId"):
+                # queued-but-never-started, or killed by timeout_secs. An
+                # optional source must degrade to a logged miss, never a hang.
+                raise RuntimeError(
+                    f"actor did not finish within {CAFE_WAIT}s "
+                    f"(status={(info or {}).get('status', 'no run')}) — "
+                    f"usually an exhausted Apify credit or memory queue")
             items.extend(client.dataset(info["defaultDatasetId"]).iterate_items())
         except Exception as e:  # per-term quarantine
             cafe_failed += 1
             s.errors.append(f"cafe[{term}]: {e}")
+            print(f"[wide] cafe[{term}] FAILED: {str(e)[:200]}", file=sys.stderr)
             hq.log("wide", "cafe_error", detail=f"{term}: {str(e)[:200]}")
     cafe_ok = cafe_failed < len(terms)
 
