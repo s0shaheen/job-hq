@@ -47,6 +47,57 @@ alter table public.command_idempotency enable row level security;
 create index if not exists command_idempotency_age_idx
   on public.command_idempotency (created_at);
 
+-- ============================================================ result shape
+
+/**
+ * The row the client renders, shaped for `toJobView` in
+ * webapp/lib/data/supabase-source.ts: the user_postings columns it reads plus
+ * the nested `postings` object it unwraps.
+ *
+ * Extracted because two paths return it — a write, and a no-op gesture that
+ * deliberately writes nothing. Built once so the two cannot drift; a replay
+ * returning a differently-shaped row than the original write is exactly the
+ * kind of difference nothing would catch until the UI rendered blanks.
+ */
+create or replace function public.app_triage_row(up public.user_postings)
+returns jsonb
+language sql
+stable
+-- Deliberately NOT security definer. It is only ever called from inside
+-- app_set_triage, which already runs as the definer, so this inherits the
+-- rights it needs. Marking it definer would hand a standalone caller the
+-- ability to read any posting row — privilege this helper has no use for, and
+-- the contract test in tests/core/test_migrations.py rightly objected.
+set search_path = public, pg_temp
+as $$
+  select jsonb_build_object(
+           'posting_key',        up.posting_key,
+           'disposition',        up.disposition,
+           'disposition_reason', up.disposition_reason,
+           'triage',             up.triage,
+           'snooze_until',       up.snooze_until,
+           'updated_at',         up.updated_at,
+           'postings', jsonb_build_object(
+             'key',        p.key,
+             'company',    p.company,
+             'title',      p.title,
+             'location',   p.location,
+             'url',        p.url,
+             'posted',     p.posted,
+             'first_seen', p.first_seen,
+             'last_seen',  p.last_seen,
+             'status',     p.status,
+             'tags',       p.tags,
+             'geo',        p.geo,
+             'source',     p.source
+           )
+         )
+    from public.postings p
+   where p.key = up.posting_key
+$$;
+
+revoke all on function public.app_triage_row(public.user_postings) from public;
+
 -- ============================================================ set triage
 
 create or replace function public.app_set_triage(
@@ -110,6 +161,43 @@ begin
   if not found then
     raise exception 'no such posting for this user: %', p_posting_key
       using errcode = 'P0002';
+  end if;
+
+  -- Check the idempotency key AGAIN, now that the row is locked.
+  --
+  -- The check above the lock only settles sequential replays. Two tabs share
+  -- one localStorage outbox and both flush it on the same 'online' event, so
+  -- the same key arrives twice CONCURRENTLY: both passed the first check
+  -- before either wrote. Without this, one call wins and the other either
+  -- raises a phantom conflict — which the banner reports as "changed on
+  -- another device first" about a decision nobody else touched — or, with a
+  -- null expectation, applies a second time and appends a duplicate event to
+  -- an append-only trail. Re-reading behind the lock makes the loser a replay,
+  -- which is what it always was.
+  select result into v_result
+    from public.command_idempotency
+   where user_id = v_user and idem_key = p_idem;
+  if found then
+    return v_result;
+  end if;
+
+  -- A gesture that changes nothing writes nothing.
+  --
+  -- The UPDATE below bumps updated_at unconditionally, and updated_at is the
+  -- version token every other open tab holds. Re-sending the triage a row
+  -- already has therefore invalidated every other device's token and appended
+  -- an audit event, so the next legitimate gesture anywhere else got a
+  -- conflict banner caused by a write that changed nothing.
+  if v_row.triage = p_triage
+     and v_row.triage_reason is not distinct from coalesce(p_reason, '')
+     and v_row.snooze_until is not distinct from
+         (case when p_triage = 'snoozed' then p_snooze_until else null end)
+  then
+    v_result := public.app_triage_row(v_row);
+    insert into public.command_idempotency (user_id, idem_key, command, result)
+    values (v_user, p_idem, 'app_set_triage', v_result)
+    on conflict (user_id, idem_key) do nothing;
+    return v_result;
   end if;
 
   -- Optimistic concurrency. A null expectation means "I did not read a value",
@@ -179,35 +267,9 @@ begin
     'user'
   );
 
-  -- Shaped for `toJobView` in webapp/lib/data/supabase-source.ts: the
-  -- user_postings columns it reads, plus the nested `postings` object it
-  -- unwraps. Returning the row the client will render, from inside the same
-  -- transaction that wrote it, is what lets the UI settle without a refetch.
-  select jsonb_build_object(
-           'posting_key',        v_row.posting_key,
-           'disposition',        v_row.disposition,
-           'disposition_reason', v_row.disposition_reason,
-           'triage',             v_row.triage,
-           'snooze_until',       v_row.snooze_until,
-           'updated_at',         v_row.updated_at,
-           'postings', jsonb_build_object(
-             'key',        p.key,
-             'company',    p.company,
-             'title',      p.title,
-             'location',   p.location,
-             'url',        p.url,
-             'posted',     p.posted,
-             'first_seen', p.first_seen,
-             'last_seen',  p.last_seen,
-             'status',     p.status,
-             'tags',       p.tags,
-             'geo',        p.geo,
-             'source',     p.source
-           )
-         )
-    into v_result
-    from public.postings p
-   where p.key = v_row.posting_key;
+  -- Returning the row the client will render, from inside the same transaction
+  -- that wrote it, is what lets the UI settle without a refetch.
+  v_result := public.app_triage_row(v_row);
 
   insert into public.command_idempotency (user_id, idem_key, command, result)
   values (v_user, p_idem, 'app_set_triage', v_result)

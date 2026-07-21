@@ -156,6 +156,19 @@ function appendFailed(notices: FailedGesture[]): void {
   persistFailed([...readFailed().filter((f) => !ids.has(f.id)), ...notices]);
 }
 
+/**
+ * Guards the quarantine path against re-entering itself.
+ *
+ * `appendFailed` dispatches OUTBOX_EVENT synchronously, and the banner's
+ * listener answers it by calling `listPending()` — which lands back here. While
+ * the poison was still in storage that recursion had no floor: each pass
+ * appended another notice and dispatched again, unwinding only when the JS
+ * stack ran out, after ~1000 nested parses of the whole outbox. It fired on
+ * every page load until the entry happened to be healed. The first fix for a
+ * poison entry replaced a throw with a frozen tab, which is worse.
+ */
+let quarantining = false;
+
 function read(): PendingGesture[] {
   if (typeof window === "undefined") return [];
   const entries = parse(KEY);
@@ -164,25 +177,33 @@ function read(): PendingGesture[] {
   // cannot hide a decision from the flush.
   const extras = memoryPending ? memoryPending.filter((g) => !stored.some((s) => s.id === g.id)) : [];
   const merged = [...stored, ...extras];
-  if (stored.length !== entries.length) {
-    // Quarantine, don't discard quietly: whatever the entry has become, it was
-    // a decision the user made, and it must leave a trace they can see.
-    appendFailed(
-      entries
-        .filter((e) => !isPendingGesture(e))
-        .map((e) => {
-          const g = (typeof e === "object" && e !== null ? e : {}) as Record<string, unknown>;
-          return {
-            id: typeof g.id === "string" && g.id !== "" ? g.id : crypto.randomUUID(),
-            label: typeof g.label === "string" && g.label !== "" ? g.label : "A saved decision",
-            kind: "corrupt" as const,
-            message: "Corrupted in storage; it can't be sent. Make the call again from the queue.",
-            failedAt: Date.now(),
-          };
-        }),
-    );
-    // Self-heal so the poison cannot come back on the next read.
-    persist(merged);
+
+  if (stored.length !== entries.length && !quarantining) {
+    quarantining = true;
+    try {
+      // Heal FIRST, notify second. Reversed, the listener woken by the notice
+      // re-reads storage that still contains the poison and quarantines it
+      // again, forever.
+      persist(merged);
+      // Quarantine, don't discard quietly: whatever the entry has become, it
+      // was a decision the user made, and it must leave a trace they can see.
+      appendFailed(
+        entries
+          .filter((e) => !isPendingGesture(e))
+          .map((e) => {
+            const g = (typeof e === "object" && e !== null ? e : {}) as Record<string, unknown>;
+            return {
+              id: typeof g.id === "string" && g.id !== "" ? g.id : crypto.randomUUID(),
+              label: typeof g.label === "string" && g.label !== "" ? g.label : "A saved decision",
+              kind: "corrupt" as const,
+              message: "Corrupted in storage; it can't be sent. Make the call again from the queue.",
+              failedAt: Date.now(),
+            };
+          }),
+      );
+    } finally {
+      quarantining = false;
+    }
   }
   return merged;
 }

@@ -100,8 +100,21 @@ def test_conflict_path_keeps_the_word_the_client_matches_on():
 
 # ---------------------------------------------------------------- security
 
+def _strip_sql_comments(sql: str) -> str:
+    """Drop `-- …` comments.
+
+    Without this the detector below matches the phrase "security definer"
+    inside a comment explaining why a function is deliberately NOT one — which
+    is exactly what happened, and it flagged a correct function as a
+    vulnerability. A checker that reads prose is a checker that will be worked
+    around by rewording, which is the opposite of what it is for.
+    """
+    return re.sub(r"--[^\n]*", "", sql)
+
+
 def _definer_functions(sql: str) -> dict[str, str]:
     """name -> full text, for every security-definer function."""
+    sql = _strip_sql_comments(sql)
     out: dict[str, str] = {}
     for m in re.finditer(
         r"create\s+or\s+replace\s+function\s+public\.(\w+)\s*\(.*?\$\$(.*?)\$\$",

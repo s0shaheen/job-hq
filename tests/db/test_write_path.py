@@ -26,6 +26,7 @@ dependency-free. CI sets it (see .github/workflows/ci.yml, job `db`).
 from __future__ import annotations
 
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -245,6 +246,131 @@ def test_replaying_a_key_returns_the_first_result_and_writes_once(conn):
     assert conn.execute(
         "select count(*) from public.applications where user_id=%s and posting_key=%s", (user, key)
     ).fetchone()[0] == 1
+
+
+def test_a_concurrent_replay_of_one_key_is_a_replay_not_a_conflict(conn):
+    """Two tabs share one localStorage outbox and both flush on the same
+    'online' event, so the same idempotency key arrives twice at once — both
+    past the pre-lock check before either writes.
+
+    Without a second check behind the row lock the loser raised a conflict, and
+    the banner reported "changed on another device first" about a decision
+    nobody else touched. The whole point of the key is that a replay is free.
+    """
+    user = make_user(conn, f"{uuid.uuid4()}@example.com")
+    key = make_posting(conn, f"gh-{uuid.uuid4().hex[:8]}")
+    gate(conn, user, key)
+    as_user(conn, user)
+    seen = updated_at(conn, user, key)
+    idem = str(uuid.uuid4())
+
+    # Genuinely interleaved, not merely two connections used in turn. B must
+    # pass the pre-lock idempotency check BEFORE A commits — which is the whole
+    # scenario — so B runs on a thread while A still holds the row lock. Doing
+    # this sequentially is a test that cannot fail: A commits first, B's
+    # pre-lock check finds the stored result, and the post-lock re-check this
+    # test exists to cover is never reached.
+    import threading
+
+    results, errors = [], []
+    lock_taken = threading.Event()
+
+    def call(conn_, tag, triage):
+        try:
+            row = conn_.execute(
+                "select public.app_set_triage(%s,%s,null,'',%s,%s)",
+                (key, triage, idem, seen),
+            ).fetchone()[0]
+            conn_.commit()
+            results.append(row)
+        except psycopg.errors.Error as exc:
+            conn_.rollback()
+            errors.append(f"{tag}: {exc}")
+
+    with psycopg.connect(DATABASE_URL) as a, psycopg.connect(DATABASE_URL) as b:
+        for c in (a, b):
+            c.execute("select set_config('hq.test_user', %s, false)", (user,))
+            # Commit it: the setting is session-scoped, but it was applied
+            # inside an implicit transaction, and A's rollback below would
+            # otherwise take the identity with it.
+            c.commit()
+        b.execute("set lock_timeout = '10s'")
+
+        # Forcing the race deterministically, rather than hoping for it.
+        #
+        # A takes the row lock and holds it. B then enters app_set_triage,
+        # clears the PRE-lock idempotency check (the table is still empty) and
+        # blocks on the lock. A — still holding it — performs the real write
+        # and commits, which both stores the key and releases the lock. B now
+        # acquires the lock having already decided this key was unseen. Only
+        # the post-lock re-check can save it.
+        #
+        # An earlier version of this test let A roll back before writing, so
+        # the two never overlapped inside the function and it passed with the
+        # re-check removed. It was a test that could not fail.
+        a.execute("begin")
+        a.execute("select 1 from public.user_postings where user_id=%s and posting_key=%s for update",
+                  (user, key))
+        lock_taken.set()
+
+        # B replays the key asking for a DIFFERENT state. That isolates the
+        # post-lock re-check: the no-op guard below it only fires when the
+        # requested triage already matches, so with identical arguments the
+        # two fixes overlap and the test cannot tell them apart. A key
+        # reused with different arguments returns the FIRST result, by
+        # design — the key names an operation, not an intent.
+        t = threading.Thread(target=call, args=(b, "b", "dismissed"))
+        t.start()
+        # Let B reach the lock and block on it.
+        time.sleep(1.0)
+        call(a, "a", "interested")   # A writes and commits, releasing the lock to B
+        t.join(timeout=20)
+        assert not t.is_alive(), "the concurrent caller never returned"
+
+    assert not errors, f"a concurrent replay of one key errored: {errors}"
+    assert len(results) == 2, results
+    assert results[0] == results[1], "the same key returned two different results"
+    assert all(r["triage"] == "interested" for r in results), results
+    # One decision, one audit row, one application — however many times it arrives.
+    assert conn.execute(
+        "select count(*) from public.events where user_id=%s and posting_key=%s", (user, key)
+    ).fetchone()[0] == 1
+    assert conn.execute(
+        "select count(*) from public.applications where user_id=%s and posting_key=%s", (user, key)
+    ).fetchone()[0] == 1
+
+
+def test_a_gesture_that_changes_nothing_writes_nothing(conn):
+    """`updated_at` is the version token every other open tab is holding.
+
+    Re-sending the triage a row already has used to bump it and append an
+    event, so an unrelated tab's next legitimate gesture got a conflict banner
+    caused by a write that changed nothing.
+    """
+    user = make_user(conn, f"{uuid.uuid4()}@example.com")
+    key = make_posting(conn, f"gh-{uuid.uuid4().hex[:8]}")
+    gate(conn, user, key)
+    as_user(conn, user)
+
+    before_token = updated_at(conn, user, key)
+    before_events = conn.execute(
+        "select count(*) from public.events where user_id=%s", (user,)
+    ).fetchone()[0]
+
+    # The row is already '' — untriage it again, with a fresh key.
+    set_triage(conn, key, "", idem=str(uuid.uuid4()), expected=before_token)
+
+    assert updated_at(conn, user, key) == before_token, "a no-op write moved the version token"
+    assert conn.execute(
+        "select count(*) from public.events where user_id=%s", (user,)
+    ).fetchone()[0] == before_events, "a no-op write appended an audit event"
+
+    # And the token another tab is holding still works.
+    set_triage(conn, key, "dismissed", idem=str(uuid.uuid4()), expected=before_token)
+    assert conn.execute(
+        "select triage from public.user_postings where user_id=%s and posting_key=%s",
+        (user, key),
+    ).fetchone()[0] == "dismissed"
 
 
 def test_a_replay_is_free_even_after_the_row_moved_on(conn):
