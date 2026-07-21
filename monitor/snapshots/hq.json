@@ -1,5 +1,5 @@
 {
-  "count": 4627,
+  "count": 4692,
   "feed": "hq",
   "jobs": [
     {
@@ -1227,10 +1227,10 @@
       "company": "Amazon",
       "first_seen": "2026-05-28",
       "id": "amazon-10398080",
-      "last_seen": "2026-05-31",
+      "last_seen": "2026-07-21",
       "location": "Austin, Texas, USA",
       "posted": "April 21, 2026",
-      "status": "Closed",
+      "status": "New",
       "title": "Senior Product Manager, WFM E-Commerce and Product Management",
       "url": "https://www.amazon.jobs/en/jobs/10398080/senior-product-manager-wfm-e-commerce-and-product-management"
     },
@@ -7924,6 +7924,17 @@
     },
     {
       "company": "Amazon",
+      "first_seen": "2026-07-21",
+      "id": "amazon-10479174",
+      "last_seen": "2026-07-21",
+      "location": "Seattle, Washington, USA",
+      "posted": "July 20, 2026",
+      "status": "New",
+      "title": "Senior Technical Product Manager, AWS EC2",
+      "url": "https://www.amazon.jobs/en/jobs/10479174/senior-technical-product-manager-aws-ec2"
+    },
+    {
+      "company": "Amazon",
       "first_seen": "2026-07-20",
       "id": "amazon-10479396",
       "last_seen": "2026-07-21",
@@ -7965,6 +7976,61 @@
       "status": "New",
       "title": "Sr. Product Manager - Technical, Amazon Payments, Amazon Monthly Payments",
       "url": "https://www.amazon.jobs/en/jobs/10479690/sr-product-manager-technical-amazon-payments-amazon-monthly-payments"
+    },
+    {
+      "company": "Amazon",
+      "first_seen": "2026-07-21",
+      "id": "amazon-10479985",
+      "last_seen": "2026-07-21",
+      "location": "Arlington, Virginia, USA",
+      "posted": "July 21, 2026",
+      "status": "New",
+      "title": "Product Operations Analyst, World Wide Revenue Operations",
+      "url": "https://www.amazon.jobs/en/jobs/10479985/product-operations-analyst-world-wide-revenue-operations"
+    },
+    {
+      "company": "Amazon",
+      "first_seen": "2026-07-21",
+      "id": "amazon-10480049",
+      "last_seen": "2026-07-21",
+      "location": "Seattle, Washington, USA",
+      "posted": "July 21, 2026",
+      "status": "New",
+      "title": "Principal Product Manager-Tech, SalesTech",
+      "url": "https://www.amazon.jobs/en/jobs/10480049/principal-product-manager-tech-salestech"
+    },
+    {
+      "company": "Amazon",
+      "first_seen": "2026-07-21",
+      "id": "amazon-10480387",
+      "last_seen": "2026-07-21",
+      "location": "Seattle, Washington, USA",
+      "posted": "July 21, 2026",
+      "status": "New",
+      "title": "Sr Product Manager - Technical, AWS Serverless Compute",
+      "url": "https://www.amazon.jobs/en/jobs/10480387/sr-product-manager-technical-aws-serverless-compute"
+    },
+    {
+      "company": "Amazon",
+      "first_seen": "2026-07-21",
+      "id": "amazon-10480474",
+      "last_seen": "2026-07-21",
+      "location": "New York, New York, USA",
+      "posted": "July 21, 2026",
+      "status": "New",
+      "title": "Product Manager III - Tech, Reputation Marketing & Insights",
+      "url": "https://www.amazon.jobs/en/jobs/10480474/product-manager-iii-tech-reputation-marketing-insights"
+    },
+    {
+      "company": "Amazon",
+      "first_seen": "2026-07-21",
+      "id": "amazon-10480589",
+      "last_seen": "2026-07-21",
+      "location": "Pune, Maharashtra, IND",
+      "posted": "July 21, 2026",
+      "status": "New",
+      "title": "Sr. Product Manager-Technical, Amazon Financial Foundation Services (AFFS)",
+      "url": "https://www.amazon.jobs/en/jobs/10480589/sr-product-manager-technical-amazon-financial-foundation-services-affs"
     },
     {
       "company": "Amazon",
@@ -9628,6 +9694,17 @@
       "url": "https://jobs.ashbyhq.com/trustly/06550cb0-d5a9-47e3-90c0-cb33862f8fb1"
     },
     {
+      "company": "OpenAI",
+      "first_seen": "2026-07-21",
+      "id": "ashby-067788c8-505b-4296-bc05-d5699cb87a1f",
+      "last_seen": "2026-07-21",
+      "location": "Zurich, Switzerland",
+      "posted": "",
+      "status": "New",
+      "title": "Forward Deployed Engineer - Zurich",
+      "url": "https://jobs.ashbyhq.com/openai/067788c8-505b-4296-bc05-d5699cb87a1f"
+    },
+    {
       "company": "Replit",
       "first_seen": "2026-06-18",
       "id": "ashby-06cbc016-f931-431a-92cf-29fa74eedbf1",
@@ -9802,6 +9879,17 @@
       "status": "Seen",
       "title": "Staff Product Manager, GTPN",
       "url": "https://jobs.ashbyhq.com/airwallex/0dcbcd66-80b8-41a3-be15-24bb158adbc1"
+    },
+    {
+      "company": "Twelve Labs",
+      "first_seen": "2026-07-21",
+      "id": "ashby-0ec8c8c8-464a-487e-aad5-47b33fc85f22",
+      "last_seen": "2026-07-21",
+      "location": "San Francisco",
+      "posted": "",
+      "status": "New",
+      "title": "Staff Product Manager, Platform Integrations & Partnerships",
+      "url": "https://jobs.ashbyhq.com/twelve-labs/0ec8c8c8-464a-487e-aad5-47b33fc85f22"
     },
     {
       "company": "ElevenLabs",
@@ -11388,6 +11476,17 @@
       "url": "https://jobs.ashbyhq.com/lambda/3e9c5ab9-7fa1-4988-8ba6-bf9df69a0019"
     },
     {
+      "company": "Render",
+      "first_seen": "2026-07-21",
+      "id": "ashby-3ec7433c-efbc-42f2-8f28-b8eca42f384c",
+      "last_seen": "2026-07-21",
+      "location": "Remote: United States",
+      "posted": "",
+      "status": "New",
+      "title": "Staff Product Manager - Agent & Systems Observability",
+      "url": "https://jobs.ashbyhq.com/render/3ec7433c-efbc-42f2-8f28-b8eca42f384c"
+    },
+    {
       "company": "OpenRouter",
       "first_seen": "2026-07-13",
       "id": "ashby-412cfd6b-81a5-4662-bae2-d86ea1ee324c",
@@ -12202,6 +12301,17 @@
       "url": "https://jobs.ashbyhq.com/airwallex/60e66d9d-0128-407d-9026-784dd30a3b85"
     },
     {
+      "company": "",
+      "first_seen": "2026-07-21",
+      "id": "ashby-6170af03-b36c-4913-b89a-57443a12fb4f",
+      "last_seen": "2026-07-21",
+      "location": "Miami, Florida, United States",
+      "posted": "2026-07-20",
+      "status": "New",
+      "title": "Forward Deployed Engineer",
+      "url": "https://jobs.ashbyhq.com/clera/6170af03-b36c-4913-b89a-57443a12fb4f"
+    },
+    {
       "company": "Sierra",
       "first_seen": "2026-07-13",
       "id": "ashby-61bb1eca-b416-4e6d-a0ac-5f418b35a8f3",
@@ -12684,6 +12794,17 @@
       "status": "Closed",
       "title": "Staff Product Manager, Identity Platform",
       "url": "https://jobs.ashbyhq.com/vanta/6f1a9062-4e8f-4cae-8fe4-ba84e7f092e1"
+    },
+    {
+      "company": "Crusoe",
+      "first_seen": "2026-07-21",
+      "id": "ashby-708d1e0c-247f-43a8-9dc7-42cffbb95904",
+      "last_seen": "2026-07-21",
+      "location": "San Francisco, CA - US",
+      "posted": "",
+      "status": "New",
+      "title": "Senior Product Manager, Orchestration",
+      "url": "https://jobs.ashbyhq.com/crusoe/708d1e0c-247f-43a8-9dc7-42cffbb95904"
     },
     {
       "company": "Harvey",
@@ -13456,6 +13577,17 @@
       "url": "https://jobs.ashbyhq.com/hopper/8e8ef9a0-a7b0-4469-926d-a80a7f441038"
     },
     {
+      "company": "Boom Supersonic",
+      "first_seen": "2026-07-21",
+      "id": "ashby-8edb6b99-86ce-49c8-8617-c2842aae0507",
+      "last_seen": "2026-07-21",
+      "location": "Austin Texas",
+      "posted": "",
+      "status": "New",
+      "title": "Associate Product Manager",
+      "url": "https://jobs.ashbyhq.com/boom/8edb6b99-86ce-49c8-8617-c2842aae0507"
+    },
+    {
       "company": "Hims & Hers",
       "first_seen": "2026-07-13",
       "id": "ashby-8f8b842f-e818-451d-bb23-fdf98af485b2",
@@ -13775,6 +13907,17 @@
       "url": "https://jobs.ashbyhq.com/traba/9cac977e-24c2-4547-a65e-9eb3abcf1e13"
     },
     {
+      "company": "Polymarket",
+      "first_seen": "2026-07-21",
+      "id": "ashby-9d54dede-9ca1-4c3e-a404-270b8e3d523c",
+      "last_seen": "2026-07-21",
+      "location": "New York",
+      "posted": "",
+      "status": "New",
+      "title": "Forward Deployed Engineer, Institutional",
+      "url": "https://jobs.ashbyhq.com/polymarket/9d54dede-9ca1-4c3e-a404-270b8e3d523c"
+    },
+    {
       "company": "Sierra",
       "first_seen": "2026-05-27",
       "id": "ashby-9dc1651d-43e9-4970-a757-a5223cef1c4d",
@@ -13806,6 +13949,17 @@
       "status": "Closed",
       "title": "Senior Product Manager, Identity & Entitlements",
       "url": "https://jobs.ashbyhq.com/hinge-health/9e0de34e-f7cc-4ea2-919c-45d0552b6476"
+    },
+    {
+      "company": "",
+      "first_seen": "2026-07-21",
+      "id": "ashby-9e150e1a-86d8-419f-922d-3abd21c46f44",
+      "last_seen": "2026-07-21",
+      "location": "San Francisco, California, United States",
+      "posted": "2026-07-20",
+      "status": "New",
+      "title": "Forward Deployed Product Manager",
+      "url": "https://jobs.ashbyhq.com/causal/9e150e1a-86d8-419f-922d-3abd21c46f44"
     },
     {
       "company": "OpenAI",
@@ -13872,6 +14026,17 @@
       "status": "Seen",
       "title": "Staff Product Manager, Onboarding",
       "url": "https://jobs.ashbyhq.com/airwallex/a0779b7f-90c9-4f0a-b428-fced1426ce93"
+    },
+    {
+      "company": "",
+      "first_seen": "2026-07-21",
+      "id": "ashby-a17d4f34-dbdc-45ac-8365-4dbfb8bfcd0b",
+      "last_seen": "2026-07-21",
+      "location": "San Francisco, California, United States",
+      "posted": "2026-07-20",
+      "status": "New",
+      "title": "Forward Deployed Engineer",
+      "url": "https://jobs.ashbyhq.com/usul/a17d4f34-dbdc-45ac-8365-4dbfb8bfcd0b"
     },
     {
       "company": "Rillet",
@@ -15139,6 +15304,17 @@
       "url": "https://jobs.ashbyhq.com/speak/d05014c2-029e-4662-9797-e184296b8694"
     },
     {
+      "company": "Render",
+      "first_seen": "2026-07-21",
+      "id": "ashby-d0860ea9-fdbd-4a66-82bc-1d75228cf594",
+      "last_seen": "2026-07-21",
+      "location": "Remote: United States",
+      "posted": "",
+      "status": "New",
+      "title": "Staff Product Manager - Datastores (Postgres Specialist)",
+      "url": "https://jobs.ashbyhq.com/render/d0860ea9-fdbd-4a66-82bc-1d75228cf594"
+    },
+    {
       "company": "Speak",
       "first_seen": "2026-07-13",
       "id": "ashby-d1202fee-1fdc-45cb-87c7-67a5f07aebfa",
@@ -15500,6 +15676,17 @@
       "status": "Seen",
       "title": "Senior Agent Product Manager",
       "url": "https://jobs.ashbyhq.com/decagon/dcf9b561-f2fb-422b-88a9-33ce76e96608"
+    },
+    {
+      "company": "",
+      "first_seen": "2026-07-21",
+      "id": "ashby-dd03d01b-f5fe-438b-b65a-93e46212f845",
+      "last_seen": "2026-07-21",
+      "location": "New York City, New York, United States",
+      "posted": "2026-07-20",
+      "status": "New",
+      "title": "Forward Deployed Engineer",
+      "url": "https://jobs.ashbyhq.com/seqholdings/dd03d01b-f5fe-438b-b65a-93e46212f845"
     },
     {
       "company": "Substack",
@@ -16162,6 +16349,17 @@
       "url": "https://jobs.ashbyhq.com/livekit/f540d235-38c9-49a7-a3b5-f8d7c4c89a2e"
     },
     {
+      "company": "",
+      "first_seen": "2026-07-21",
+      "id": "ashby-f5b4dc11-806f-4c98-b0e1-811ec337109e",
+      "last_seen": "2026-07-21",
+      "location": "San Francisco, California, United States",
+      "posted": "2026-07-20",
+      "status": "New",
+      "title": "Forward Deployed Engineer",
+      "url": "https://jobs.ashbyhq.com/causal/f5b4dc11-806f-4c98-b0e1-811ec337109e"
+    },
+    {
       "company": "Confluent",
       "first_seen": "2026-05-27",
       "id": "ashby-f60bba87-9470-4238-bf6f-dce1b4da8006",
@@ -16259,6 +16457,17 @@
       "status": "Seen",
       "title": "Deployment Strategist",
       "url": "https://jobs.ashbyhq.com/trm-labs/f9698535-7237-4656-b4ce-57df8fd7d801"
+    },
+    {
+      "company": "",
+      "first_seen": "2026-07-21",
+      "id": "ashby-f9888346-39d2-4be8-b2ad-8ec9e2c0d2bf",
+      "last_seen": "2026-07-21",
+      "location": "Austin, Texas, United States",
+      "posted": "2026-07-21",
+      "status": "New",
+      "title": "Founding Forward Deployed Engineer",
+      "url": "https://jobs.ashbyhq.com/clera/f9888346-39d2-4be8-b2ad-8ec9e2c0d2bf"
     },
     {
       "company": "BetterUp",
@@ -17208,6 +17417,17 @@
     },
     {
       "company": "Microsoft",
+      "first_seen": "2026-07-21",
+      "id": "eightfold-1970393556937846",
+      "last_seen": "2026-07-21",
+      "location": "United States, Washington, Redmond (+2 more)",
+      "posted": "2026-07-21",
+      "status": "New",
+      "title": "Principal Product Manager",
+      "url": "https://apply.careers.microsoft.com/careers?pid=1970393556937846&domain=microsoft.com"
+    },
+    {
+      "company": "Microsoft",
       "first_seen": "2026-07-15",
       "id": "eightfold-1970393556938217",
       "last_seen": "2026-07-21",
@@ -17227,6 +17447,17 @@
       "status": "New",
       "title": "Sr Product Manager",
       "url": "https://apply.careers.microsoft.com/careers?pid=1970393556938987&domain=microsoft.com"
+    },
+    {
+      "company": "Microsoft",
+      "first_seen": "2026-07-21",
+      "id": "eightfold-1970393556939494",
+      "last_seen": "2026-07-21",
+      "location": "United States, California, Mountain View (+2 more)",
+      "posted": "2026-07-21",
+      "status": "New",
+      "title": "Principal Product Manager - Microsoft Advertising Monetization",
+      "url": "https://apply.careers.microsoft.com/careers?pid=1970393556939494&domain=microsoft.com"
     },
     {
       "company": "Microsoft",
@@ -17812,6 +18043,17 @@
       "url": "https://morganstanley.eightfold.ai/careers/job/549798617388"
     },
     {
+      "company": "Morgan Stanley",
+      "first_seen": "2026-07-21",
+      "id": "eightfold-549799035908",
+      "last_seen": "2026-07-21",
+      "location": "Purchase, New York, United States of America",
+      "posted": "2026-07-21",
+      "status": "New",
+      "title": "Digital Banking Product Manager - Vice President",
+      "url": "https://morganstanley.eightfold.ai/careers/job/549799035908"
+    },
+    {
       "company": "Netflix",
       "first_seen": "2026-07-13",
       "id": "eightfold-790312452283",
@@ -17945,6 +18187,17 @@
     },
     {
       "company": "Netflix",
+      "first_seen": "2026-07-21",
+      "id": "eightfold-790315763934",
+      "last_seen": "2026-07-21",
+      "location": "USA - Remote",
+      "posted": "2026-04-30",
+      "status": "New",
+      "title": "Product Manager L6, Data Platform - Analytics Experience",
+      "url": "https://explore.jobs.netflix.net/careers/job/790315763934"
+    },
+    {
+      "company": "Netflix",
       "first_seen": "2026-07-13",
       "id": "eightfold-790315789526",
       "last_seen": "2026-07-21",
@@ -18041,6 +18294,17 @@
       "status": "New",
       "title": "Product Manager, Personalization",
       "url": "https://explore.jobs.netflix.net/careers/job/790317110119"
+    },
+    {
+      "company": "Netflix",
+      "first_seen": "2026-07-21",
+      "id": "eightfold-790317257508",
+      "last_seen": "2026-07-21",
+      "location": "Los Angeles,California,United States of America",
+      "posted": "2026-07-20",
+      "status": "New",
+      "title": "Product Manager - Content Finance",
+      "url": "https://explore.jobs.netflix.net/careers/job/790317257508"
     },
     {
       "company": "Goldman Sachs",
@@ -19814,6 +20078,17 @@
       "url": "https://job-boards.greenhouse.io/attentive/jobs/4163560009"
     },
     {
+      "company": "Fireworks AI",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-4163665009",
+      "last_seen": "2026-07-21",
+      "location": "San Mateo, CA",
+      "posted": "2026-07-21T17:10:58-04:00",
+      "status": "New",
+      "title": "Strategic Projects Lead",
+      "url": "https://job-boards.greenhouse.io/fireworksai/jobs/4163665009"
+    },
+    {
       "company": "Attentive",
       "first_seen": "2026-05-28",
       "id": "greenhouse-4179423009",
@@ -20672,6 +20947,17 @@
       "url": "https://coreweave.com/careers/job?4697073006&board=coreweave&gh_jid=4697073006"
     },
     {
+      "company": "",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-4698580006",
+      "last_seen": "2026-07-21",
+      "location": "New York City, New York, United States",
+      "posted": "2026-07-21",
+      "status": "New",
+      "title": "Forward Deployed Engineer",
+      "url": "https://job-boards.greenhouse.io/eulerity/jobs/4698580006"
+    },
+    {
       "company": "Scale AI",
       "first_seen": "2026-07-13",
       "id": "greenhouse-4699458005",
@@ -21253,6 +21539,17 @@
       "status": "New",
       "title": "Forward Deployed Engineer, Google Cloud, AI Expert",
       "url": "https://job-boards.eu.greenhouse.io/valtech/jobs/4925145101"
+    },
+    {
+      "company": "",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-4932720101",
+      "last_seen": "2026-07-21",
+      "location": "New York, New York, United States",
+      "posted": "2026-07-20",
+      "status": "New",
+      "title": "Forward Deployed Software Engineer",
+      "url": "https://job-boards.eu.greenhouse.io/physicsx/jobs/4932720101"
     },
     {
       "company": "Anthropic",
@@ -22322,6 +22619,17 @@
       "url": "https://job-boards.greenhouse.io/employerdirecthealthcare/jobs/5188601007"
     },
     {
+      "company": "",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-5191113007",
+      "last_seen": "2026-07-21",
+      "location": "Washington or McLean or Virginia or United States",
+      "posted": "2026-07-20",
+      "status": "New",
+      "title": "Forward Deployed Engineer, Federal/National Security",
+      "url": "https://job-boards.greenhouse.io/redcellpartners/jobs/5191113007"
+    },
+    {
       "company": "Cresta",
       "first_seen": "2026-07-13",
       "id": "greenhouse-5205398008",
@@ -22485,6 +22793,17 @@
       "status": "Closed",
       "title": "Product Manager",
       "url": "https://job-boards.greenhouse.io/intercom/jobs/5306805"
+    },
+    {
+      "company": "Anthropic",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-5324349008",
+      "last_seen": "2026-07-21",
+      "location": "San Francisco, CA | New York City, NY",
+      "posted": "2026-07-21T18:44:11-04:00",
+      "status": "New",
+      "title": "[Pipeline] Product Manager, Research (Code)",
+      "url": "https://job-boards.greenhouse.io/anthropic/jobs/5324349008"
     },
     {
       "company": "",
@@ -23730,6 +24049,17 @@
       "url": "https://job-boards.greenhouse.io/vercel/jobs/6120051004"
     },
     {
+      "company": "Mercury",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-6121369004",
+      "last_seen": "2026-07-21",
+      "location": "San Francisco, CA, New York, NY, Portland, OR, or Remote within Canada or United States",
+      "posted": "2026-07-21T11:50:00-04:00",
+      "status": "New",
+      "title": "Senior Product Manager - Activation",
+      "url": "https://job-boards.greenhouse.io/mercury/jobs/6121369004"
+    },
+    {
       "company": "Riot Games",
       "first_seen": "2026-05-27",
       "id": "greenhouse-6197738",
@@ -24146,6 +24476,17 @@
       "status": "Seen",
       "title": "Senior Product Manager, The Roku Channel",
       "url": "https://www.weareroku.com/jobs/7298573?gh_jid=7298573"
+    },
+    {
+      "company": "Coinbase",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-7304930",
+      "last_seen": "2026-07-21",
+      "location": "Remote - USA",
+      "posted": "2026-07-21T14:19:20-04:00",
+      "status": "New",
+      "title": "Head of Product Creative",
+      "url": "https://www.coinbase.com/careers/positions/7304930?gh_jid=7304930"
     },
     {
       "company": "Intercom",
@@ -27481,6 +27822,17 @@
       "url": "https://careers.roblox.com/jobs/7809292?gh_jid=7809292"
     },
     {
+      "company": "Melio",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-7809878003",
+      "last_seen": "2026-07-21",
+      "location": "New York City",
+      "posted": "2026-07-21T11:15:49-04:00",
+      "status": "New",
+      "title": "Senior Product Manager",
+      "url": "https://job-boards.greenhouse.io/melio/jobs/7809878003"
+    },
+    {
       "company": "Postman",
       "first_seen": "2026-07-21",
       "id": "greenhouse-7810518003",
@@ -30146,7 +30498,7 @@
       "company": "Toast",
       "first_seen": "2026-06-18",
       "id": "greenhouse-7996612",
-      "last_seen": "2026-07-15",
+      "last_seen": "2026-07-21",
       "location": "Bangalore, India",
       "posted": "2026-06-18T07:30:11-04:00",
       "status": "New",
@@ -32255,6 +32607,28 @@
       "url": "https://www.okta.com/company/careers/opportunity/8068101?gh_jid=8068101"
     },
     {
+      "company": "Twilio",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-8069243",
+      "last_seen": "2026-07-21",
+      "location": "Remote - US",
+      "posted": "2026-07-21T16:06:00-04:00",
+      "status": "New",
+      "title": "Principal Product Manager, Enterprise Commerce Platform",
+      "url": "https://job-boards.greenhouse.io/twilio/jobs/8069243"
+    },
+    {
+      "company": "Twilio",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-8069245",
+      "last_seen": "2026-07-21",
+      "location": "Remote - US",
+      "posted": "2026-07-21T14:38:53-04:00",
+      "status": "New",
+      "title": "Principal Product Manager - Product Catalog",
+      "url": "https://job-boards.greenhouse.io/twilio/jobs/8069245"
+    },
+    {
       "company": "Datadog",
       "first_seen": "2026-07-21",
       "id": "greenhouse-8069340",
@@ -32297,6 +32671,17 @@
       "status": "New",
       "title": "Product Manager, Core Agents",
       "url": "https://www.asana.com/jobs/apply/8070622?gh_jid=8070622"
+    },
+    {
+      "company": "Reddit",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-8070669",
+      "last_seen": "2026-07-21",
+      "location": "Remote - United States",
+      "posted": "2026-07-21T19:31:07-04:00",
+      "status": "New",
+      "title": "Staff Product Manager, Ads Trust and Safety",
+      "url": "https://job-boards.greenhouse.io/reddit/jobs/8070669"
     },
     {
       "company": "Asana",
@@ -32365,6 +32750,17 @@
       "url": "https://www.guild.com/open-positions-at-guild?gh_jid=8074485"
     },
     {
+      "company": "Betterment",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-8075030",
+      "last_seen": "2026-07-21",
+      "location": "Betterment HQ - New York City",
+      "posted": "2026-07-21T12:18:19-04:00",
+      "status": "New",
+      "title": "Director of Product, Broker-Dealer",
+      "url": "https://www.betterment.com/careers/current-openings/job?gh_jid=8075030&gh_jid=8075030"
+    },
+    {
       "company": "Upstart",
       "first_seen": "2026-07-20",
       "id": "greenhouse-8075070",
@@ -32374,6 +32770,50 @@
       "status": "New",
       "title": "Principal Product Manager, Communications Platform",
       "url": "https://careers.upstart.com/jobs?gh_jid=8075070"
+    },
+    {
+      "company": "Gemini",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-8076864",
+      "last_seen": "2026-07-21",
+      "location": "New York, New York",
+      "posted": "2026-07-21T17:00:57-04:00",
+      "status": "New",
+      "title": "Lead Product Manager, Tooling",
+      "url": "https://boards.greenhouse.io/embed/job_app?for=gemini&token=8076864&gh_jid=8076864"
+    },
+    {
+      "company": "Datadog",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-8076871",
+      "last_seen": "2026-07-21",
+      "location": "New York, New York, USA",
+      "posted": "2026-07-21T10:24:30-04:00",
+      "status": "New",
+      "title": "Product Manager II - Alerting",
+      "url": "https://careers.datadoghq.com/detail/8076871/?gh_jid=8076871"
+    },
+    {
+      "company": "Datadog",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-8077142",
+      "last_seen": "2026-07-21",
+      "location": "Boston, Massachusetts, USA; New York, New York, USA",
+      "posted": "2026-07-21T12:02:50-04:00",
+      "status": "New",
+      "title": "Senior Product Manager - Fleet and Lifecycle Management",
+      "url": "https://careers.datadoghq.com/detail/8077142/?gh_jid=8077142"
+    },
+    {
+      "company": "Datadog",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-8077676",
+      "last_seen": "2026-07-21",
+      "location": "New York, New York, USA",
+      "posted": "2026-07-21T14:52:42-04:00",
+      "status": "New",
+      "title": "Staff Product Manager, Threat Detection and Incident Response (Cloud SIEM)",
+      "url": "https://careers.datadoghq.com/detail/8077676/?gh_jid=8077676"
     },
     {
       "company": "Databricks",
@@ -35610,6 +36050,17 @@
       "url": "https://job-boards.greenhouse.io/fictiv/jobs/8640052002"
     },
     {
+      "company": "",
+      "first_seen": "2026-07-21",
+      "id": "greenhouse-8640623002",
+      "last_seen": "2026-07-21",
+      "location": "United States or Denver",
+      "posted": "2026-07-20",
+      "status": "New",
+      "title": "Forward Deployed Engineer",
+      "url": "https://bitmovin.com/careers/8640623002?gh_jid=8640623002"
+    },
+    {
       "company": "Spotify",
       "first_seen": "2026-05-27",
       "id": "lever-008e0a44-088b-48f2-b100-cce07e40a45b",
@@ -36963,6 +37414,17 @@
       "url": "https://jobs.lever.co/palantir/8aba5995-653d-4805-96e8-24488e6abf37"
     },
     {
+      "company": "Veeva Systems",
+      "first_seen": "2026-07-21",
+      "id": "lever-8ae64dee-34a9-4e69-84ef-b91bcde3f35f",
+      "last_seen": "2026-07-21",
+      "location": "China - Shanghai",
+      "posted": "1784648675637",
+      "status": "New",
+      "title": "Senior Product Manager",
+      "url": "https://jobs.lever.co/veeva/8ae64dee-34a9-4e69-84ef-b91bcde3f35f"
+    },
+    {
       "company": "Shield AI",
       "first_seen": "2026-07-13",
       "id": "lever-8b747653-dba8-4133-9056-eeedc162dbcd",
@@ -38176,7 +38638,7 @@
       "company": "JPMorgan Chase",
       "first_seen": "2026-07-13",
       "id": "oraclehcm-210731456",
-      "last_seen": "2026-07-20",
+      "last_seen": "2026-07-21",
       "location": "Wilmington, DE, United States",
       "posted": "2026-06-24",
       "status": "Seen",
@@ -38339,6 +38801,17 @@
     },
     {
       "company": "JPMorgan Chase",
+      "first_seen": "2026-07-21",
+      "id": "oraclehcm-210741392",
+      "last_seen": "2026-07-21",
+      "location": "Jersey City, NJ, United States",
+      "posted": "2026-07-21",
+      "status": "New",
+      "title": "Risk Management - Product Manager  - Vice President",
+      "url": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210741392"
+    },
+    {
+      "company": "JPMorgan Chase",
       "first_seen": "2026-07-13",
       "id": "oraclehcm-210741498",
       "last_seen": "2026-07-21",
@@ -38473,7 +38946,7 @@
       "company": "JPMorgan Chase",
       "first_seen": "2026-07-13",
       "id": "oraclehcm-210743248",
-      "last_seen": "2026-07-20",
+      "last_seen": "2026-07-21",
       "location": "New York, NY, United States",
       "posted": "2026-05-26",
       "status": "Seen",
@@ -38633,6 +39106,17 @@
       "status": "Seen",
       "title": "Digital Onboarding Product Manager - Payments- Vice president",
       "url": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210747130"
+    },
+    {
+      "company": "JPMorgan Chase",
+      "first_seen": "2026-07-21",
+      "id": "oraclehcm-210747306",
+      "last_seen": "2026-07-21",
+      "location": "Wilmington, DE, United States",
+      "posted": "2026-07-21",
+      "status": "New",
+      "title": "Product Manager (Vice President) - Machine Learning & Intelligence Operations",
+      "url": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210747306"
     },
     {
       "company": "JPMorgan Chase",
@@ -39287,7 +39771,7 @@
       "company": "JPMorgan Chase",
       "first_seen": "2026-07-13",
       "id": "oraclehcm-210763048",
-      "last_seen": "2026-07-20",
+      "last_seen": "2026-07-21",
       "location": "Tampa, FL, United States",
       "posted": "2026-07-10",
       "status": "Seen",
@@ -39601,6 +40085,17 @@
       "status": "Seen",
       "title": "Platform Product Manager-Payments-Vice President",
       "url": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210767471"
+    },
+    {
+      "company": "JPMorgan Chase",
+      "first_seen": "2026-07-21",
+      "id": "oraclehcm-210767564",
+      "last_seen": "2026-07-21",
+      "location": "NY, United States",
+      "posted": "2026-07-21",
+      "status": "New",
+      "title": "Experience & Growth Digital Product Manager",
+      "url": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210767564"
     },
     {
       "company": "JPMorgan Chase",
@@ -40052,6 +40547,17 @@
       "status": "Seen",
       "title": "Principal Product Manager",
       "url": "https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_45001/job/336699"
+    },
+    {
+      "company": "Oracle",
+      "first_seen": "2026-07-21",
+      "id": "oraclehcm-337451",
+      "last_seen": "2026-07-21",
+      "location": "United States",
+      "posted": "2026-07-21",
+      "status": "New",
+      "title": "Principal Product Manager",
+      "url": "https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_45001/job/337451"
     },
     {
       "company": "Oracle",
@@ -42353,6 +42859,17 @@
       "url": "https://jobs.smartrecruiters.com/experian/744000138819879"
     },
     {
+      "company": "Experian",
+      "first_seen": "2026-07-21",
+      "id": "smartrec-744000138889990",
+      "last_seen": "2026-07-21",
+      "location": "S\u00e3o Paulo",
+      "posted": "2026-07-21T14:43:16.477Z",
+      "status": "New",
+      "title": "Analista de Solucoes II - Associate Product Manager",
+      "url": "https://jobs.smartrecruiters.com/experian/744000138889990"
+    },
+    {
       "company": "Equifax",
       "first_seen": "2026-07-20",
       "id": "workday-/job/AUS-Sydney-Blue-Street/Principal-Product-Manager_J00177680-1",
@@ -42406,6 +42923,17 @@
       "status": "Seen",
       "title": "Lead Product Manager, AI Platform",
       "url": "https://disney.wd5.myworkdayjobs.com/en-US/disneycareer/job/Bay-Lake-FL-USA/Lead-Product-Manager--AI-Platform_10151165-1"
+    },
+    {
+      "company": "Cigna",
+      "first_seen": "2026-07-21",
+      "id": "workday-/job/Bloomfield-CT/Product-Manager--Mental-Health-Parity---Cigna-Healthcare---Hybrid_26008576",
+      "last_seen": "2026-07-21",
+      "location": "5 Locations",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Product Manager, Mental Health Parity - Cigna Healthcare - Hybrid",
+      "url": "https://cigna.wd5.myworkdayjobs.com/en-US/cignacareers/job/Bloomfield-CT/Product-Manager--Mental-Health-Parity---Cigna-Healthcare---Hybrid_26008576"
     },
     {
       "company": "TransUnion",
@@ -42818,7 +43346,7 @@
       "company": "U.S. Bank",
       "first_seen": "2026-07-14",
       "id": "workday-/job/Cupertino-CA/Senior-Technical-Product-Manager---Data-Governance-Technology-Platform-Lead_2026-0017689",
-      "last_seen": "2026-07-20",
+      "last_seen": "2026-07-21",
       "location": "3 Locations",
       "posted": "Posted Yesterday",
       "status": "Seen",
@@ -42945,6 +43473,17 @@
       "status": "Seen",
       "title": "Senior Product Manager - Unsecured Lending",
       "url": "https://usbank.wd1.myworkdayjobs.com/en-US/US_Bank_Careers/job/Hopkins-MN/Senior-Product-Manager---Unsecured-Lending_2026-0011957"
+    },
+    {
+      "company": "U.S. Bank",
+      "first_seen": "2026-07-21",
+      "id": "workday-/job/Hopkins-MN/Technical-Product-Manager-3----AI-Hogan-Modernization-Product-Owner-_2026-0021454",
+      "last_seen": "2026-07-21",
+      "location": "3 Locations",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Technical Product Manager 3 - (AI Hogan Modernization Product Owner)",
+      "url": "https://usbank.wd1.myworkdayjobs.com/en-US/US_Bank_Careers/job/Hopkins-MN/Technical-Product-Manager-3----AI-Hogan-Modernization-Product-Owner-_2026-0021454"
     },
     {
       "company": "Abbott",
@@ -43148,7 +43687,7 @@
       "company": "U.S. Bank",
       "first_seen": "2026-07-14",
       "id": "workday-/job/Minneapolis-MN/HR-Senior-Product-Manager_2026-0011810",
-      "last_seen": "2026-07-14",
+      "last_seen": "2026-07-21",
       "location": "3 Locations",
       "posted": "Posted 5 Days Ago",
       "status": "Seen",
@@ -43253,6 +43792,17 @@
       "status": "Seen",
       "title": "Product Manager - Deposits & Liquidity (US) (US)",
       "url": "https://td.wd3.myworkdayjobs.com/en-US/TD_Bank_Careers/job/Mount-Laurel-New-Jersey/Product-Manager---Deposits---Liquidity--US---US-_R_1498269"
+    },
+    {
+      "company": "TD Bank",
+      "first_seen": "2026-07-21",
+      "id": "workday-/job/Mount-Laurel-New-Jersey/Senior-Product-Manager-CCUL_R_1489454",
+      "last_seen": "2026-07-21",
+      "location": "Mount Laurel, New Jersey",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Senior Product Manager-CCUL",
+      "url": "https://td.wd3.myworkdayjobs.com/en-US/TD_Bank_Careers/job/Mount-Laurel-New-Jersey/Senior-Product-Manager-CCUL_R_1489454"
     },
     {
       "company": "TD Bank",
@@ -43410,6 +43960,17 @@
     },
     {
       "company": "U.S. Bank",
+      "first_seen": "2026-07-21",
+      "id": "workday-/job/Saint-Paul-MN/Alternative-Investment-Product-Specialist_2026-0020810",
+      "last_seen": "2026-07-21",
+      "location": "Saint Paul, MN",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Alternative Investment Product Operations Specialist",
+      "url": "https://usbank.wd1.myworkdayjobs.com/en-US/US_Bank_Careers/job/Saint-Paul-MN/Alternative-Investment-Product-Specialist_2026-0020810"
+    },
+    {
+      "company": "U.S. Bank",
       "first_seen": "2026-07-14",
       "id": "workday-/job/Saint-Paul-MN/Technical-Product-Manager_2026-0013395",
       "last_seen": "2026-07-14",
@@ -43553,6 +44114,17 @@
     },
     {
       "company": "Equifax",
+      "first_seen": "2026-07-21",
+      "id": "workday-/job/USA---Georgia---Alpharetta---30005/Senior-Product-Manager--Payments--Direct-to-Consumer-_J00178124",
+      "last_seen": "2026-07-21",
+      "location": "2 Locations",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Senior Product Manager, Payments (Direct to Consumer)",
+      "url": "https://equifax.wd5.myworkdayjobs.com/en-US/External/job/USA---Georgia---Alpharetta---30005/Senior-Product-Manager--Payments--Direct-to-Consumer-_J00178124"
+    },
+    {
+      "company": "Equifax",
       "first_seen": "2026-07-16",
       "id": "workday-/job/USA---Georgia---Alpharetta---30005/Senior-Product-Manager--Third-Party-Partnerships_J00178035",
       "last_seen": "2026-07-21",
@@ -43561,6 +44133,17 @@
       "status": "Seen",
       "title": "Senior Product Manager, Third Party Partnerships",
       "url": "https://equifax.wd5.myworkdayjobs.com/en-US/External/job/USA---Georgia---Alpharetta---30005/Senior-Product-Manager--Third-Party-Partnerships_J00178035"
+    },
+    {
+      "company": "Equifax",
+      "first_seen": "2026-07-21",
+      "id": "workday-/job/USA---Georgia---Alpharetta---30005/Sr-Product-Manager--Consumer-Engagement--Alerting-_J00178122",
+      "last_seen": "2026-07-21",
+      "location": "2 Locations",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Sr. Product Manager, Consumer Engagement (Alerting)",
+      "url": "https://equifax.wd5.myworkdayjobs.com/en-US/External/job/USA---Georgia---Alpharetta---30005/Sr-Product-Manager--Consumer-Engagement--Alerting-_J00178122"
     },
     {
       "company": "Equifax",
@@ -45689,10 +46272,10 @@
       "company": "Salesforce",
       "first_seen": "2026-06-23",
       "id": "workday-JR347705",
-      "last_seen": "2026-07-02",
+      "last_seen": "2026-07-21",
       "location": "Washington - Bellevue",
       "posted": "Posted Yesterday",
-      "status": "Closed",
+      "status": "New",
       "title": "Product Manager/Sr Product Manager, Agent Fabric",
       "url": "https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/job/Washington---Bellevue/Product-Manager-Sr-Product-Manager--Agent-Fabric_JR347705-1"
     },
@@ -45909,7 +46492,7 @@
       "company": "Salesforce",
       "first_seen": "2026-07-17",
       "id": "workday-JR351178",
-      "last_seen": "2026-07-17",
+      "last_seen": "2026-07-21",
       "location": "2 Locations",
       "posted": "Posted Today",
       "status": "New",
@@ -45937,6 +46520,17 @@
       "status": "New",
       "title": "Senior Forward Deployed Engineer",
       "url": "https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/job/Australia---Sydney/Senior-Forward-Deployed-Engineer_JR352273"
+    },
+    {
+      "company": "Salesforce",
+      "first_seen": "2026-07-21",
+      "id": "workday-JR352702",
+      "last_seen": "2026-07-21",
+      "location": "3 Locations",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Product Manager, Metadata APIs & Frameworks",
+      "url": "https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/job/California---San-Francisco/Product-Manager--Metadata-APIs---Frameworks_JR352702"
     },
     {
       "company": "Micron",
@@ -46083,6 +46677,17 @@
     },
     {
       "company": "Johnson & Johnson",
+      "first_seen": "2026-07-21",
+      "id": "workday-R-074509",
+      "last_seen": "2026-07-21",
+      "location": "4 Locations",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Rgn Product Manager, Velys Enabling Tech",
+      "url": "https://jj.wd5.myworkdayjobs.com/en-US/JJ/job/So-Paulo-Brazil/Rgn-Product-Manager--Velys-Enabling-Tech_R-074509-1"
+    },
+    {
+      "company": "Johnson & Johnson",
       "first_seen": "2026-07-13",
       "id": "workday-R-075832",
       "last_seen": "2026-07-21",
@@ -46091,6 +46696,17 @@
       "status": "Seen",
       "title": "Product Manager",
       "url": "https://jj.wd5.myworkdayjobs.com/en-US/JJ/job/Kibbutz-Shefayim-Center-District-Israel/Product-Manager_R-075832"
+    },
+    {
+      "company": "Johnson & Johnson",
+      "first_seen": "2026-07-21",
+      "id": "workday-R-076352",
+      "last_seen": "2026-07-21",
+      "location": "3 Locations",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Regional Product Manager",
+      "url": "https://jj.wd5.myworkdayjobs.com/en-US/JJ/job/So-Paulo-Brazil/Regional-Product-Manager_R-076352"
     },
     {
       "company": "Johnson & Johnson",
@@ -46765,6 +47381,17 @@
     },
     {
       "company": "Mastercard",
+      "first_seen": "2026-07-21",
+      "id": "workday-R-271202",
+      "last_seen": "2026-07-21",
+      "location": "3 Locations",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Senior Technical Product Manager, Open Finance Connectivity (Spanish Required)",
+      "url": "https://mastercard.wd1.myworkdayjobs.com/en-US/CorporateCareers/job/Gdansk-Poland/Senior-Technical-Product-Manager--Open-Finance-Connectivity_R-271202"
+    },
+    {
+      "company": "Mastercard",
       "first_seen": "2026-07-20",
       "id": "workday-R-273997",
       "last_seen": "2026-07-20",
@@ -46905,6 +47532,28 @@
       "status": "Seen",
       "title": "Deposit & Lending Group Product Manager",
       "url": "https://umb.wd1.myworkdayjobs.com/en-US/UMBExternal/job/Kansas-City-MO/Deposit---Lending-Group-Product-Manager_R-9025"
+    },
+    {
+      "company": "Target",
+      "first_seen": "2026-07-21",
+      "id": "workday-R0000446481",
+      "last_seen": "2026-07-21",
+      "location": "Bangalore,India",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Product Manager - Security Prevention & Resolution",
+      "url": "https://target.wd5.myworkdayjobs.com/en-US/targetcareers/job/BangaloreIndia/Product-Manager---Security-Prevention---Resolution_R0000446481"
+    },
+    {
+      "company": "Target",
+      "first_seen": "2026-07-21",
+      "id": "workday-R0000446486",
+      "last_seen": "2026-07-21",
+      "location": "Bangalore,India",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Product Manager - Video Platform",
+      "url": "https://target.wd5.myworkdayjobs.com/en-US/targetcareers/job/BangaloreIndia/Product-Manager---Video-Platform_R0000446486-1"
     },
     {
       "company": "Qualys",
@@ -47147,6 +47796,17 @@
       "status": "New",
       "title": "Product Manager, Notifications",
       "url": "https://procore.wd12.myworkdayjobs.com/en-US/Procore_External_Careers/job/US---Texas---Austin/Product-Manager--Notifications_R0018309"
+    },
+    {
+      "company": "Procore",
+      "first_seen": "2026-07-21",
+      "id": "workday-R0018311",
+      "last_seen": "2026-07-21",
+      "location": "US - Texas - Austin",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Senior Product Manager, Product Strategy",
+      "url": "https://procore.wd12.myworkdayjobs.com/en-US/Procore_External_Careers/job/US---Texas---Austin/Senior-Product-Manager--Product-Strategy_R0018311"
     },
     {
       "company": "Nasdaq",
@@ -47658,7 +48318,7 @@
       "company": "CVS Health",
       "first_seen": "2026-07-13",
       "id": "workday-R0918739",
-      "last_seen": "2026-07-13",
+      "last_seen": "2026-07-21",
       "location": "8 Locations",
       "posted": "Posted 30+ Days Ago",
       "status": "Seen",
@@ -47669,7 +48329,7 @@
       "company": "CVS Health",
       "first_seen": "2026-07-13",
       "id": "workday-R0934912",
-      "last_seen": "2026-07-13",
+      "last_seen": "2026-07-21",
       "location": "NY - New York",
       "posted": "Posted 30+ Days Ago",
       "status": "Seen",
@@ -47680,7 +48340,7 @@
       "company": "CVS Health",
       "first_seen": "2026-07-13",
       "id": "workday-R0940903",
-      "last_seen": "2026-07-13",
+      "last_seen": "2026-07-21",
       "location": "CT - Work from home",
       "posted": "Posted 24 Days Ago",
       "status": "Seen",
@@ -47691,7 +48351,7 @@
       "company": "CVS Health",
       "first_seen": "2026-07-13",
       "id": "workday-R0951366",
-      "last_seen": "2026-07-13",
+      "last_seen": "2026-07-21",
       "location": "3 Locations",
       "posted": "Posted 20 Days Ago",
       "status": "Seen",
@@ -47702,7 +48362,7 @@
       "company": "CVS Health",
       "first_seen": "2026-07-13",
       "id": "workday-R0951750",
-      "last_seen": "2026-07-13",
+      "last_seen": "2026-07-21",
       "location": "4 Locations",
       "posted": "Posted 18 Days Ago",
       "status": "Seen",
@@ -47713,7 +48373,7 @@
       "company": "CVS Health",
       "first_seen": "2026-07-13",
       "id": "workday-R0951753",
-      "last_seen": "2026-07-13",
+      "last_seen": "2026-07-21",
       "location": "4 Locations",
       "posted": "Posted 18 Days Ago",
       "status": "Seen",
@@ -47724,7 +48384,7 @@
       "company": "CVS Health",
       "first_seen": "2026-07-20",
       "id": "workday-R0959990",
-      "last_seen": "2026-07-20",
+      "last_seen": "2026-07-21",
       "location": "TX - Work from home",
       "posted": "Posted Today",
       "status": "Seen",
@@ -47735,7 +48395,7 @@
       "company": "CVS Health",
       "first_seen": "2026-07-20",
       "id": "workday-R0961000",
-      "last_seen": "2026-07-20",
+      "last_seen": "2026-07-21",
       "location": "CT - Work from home",
       "posted": "Posted Today",
       "status": "Seen",
@@ -47746,7 +48406,7 @@
       "company": "CVS Health",
       "first_seen": "2026-07-15",
       "id": "workday-R0961799",
-      "last_seen": "2026-07-15",
+      "last_seen": "2026-07-21",
       "location": "6 Locations",
       "posted": "Posted Yesterday",
       "status": "Seen",
@@ -47757,7 +48417,7 @@
       "company": "CVS Health",
       "first_seen": "2026-07-18",
       "id": "workday-R0962478",
-      "last_seen": "2026-07-18",
+      "last_seen": "2026-07-21",
       "location": "CT - Hartford",
       "posted": "Posted Yesterday",
       "status": "Seen",
@@ -47768,7 +48428,7 @@
       "company": "CVS Health",
       "first_seen": "2026-07-18",
       "id": "workday-R0962717",
-      "last_seen": "2026-07-18",
+      "last_seen": "2026-07-21",
       "location": "MA - Work from home",
       "posted": "Posted 2 Days Ago",
       "status": "Seen",
@@ -47779,7 +48439,7 @@
       "company": "CVS Health",
       "first_seen": "2026-07-13",
       "id": "workday-R0964189",
-      "last_seen": "2026-07-13",
+      "last_seen": "2026-07-21",
       "location": "RI - Work from home",
       "posted": "Posted 4 Days Ago",
       "status": "Seen",
@@ -47801,7 +48461,7 @@
       "company": "CVS Health",
       "first_seen": "2026-07-20",
       "id": "workday-R0972258",
-      "last_seen": "2026-07-20",
+      "last_seen": "2026-07-21",
       "location": "TX - Work from home",
       "posted": "Posted Today",
       "status": "Seen",
@@ -47983,6 +48643,17 @@
       "status": "Seen",
       "title": "Associate Product Manager",
       "url": "https://ntrs.wd1.myworkdayjobs.com/en-US/northerntrust/job/Chicago-IL/Associate-Product-Manager_R157655"
+    },
+    {
+      "company": "Northern Trust",
+      "first_seen": "2026-07-21",
+      "id": "workday-R157971",
+      "last_seen": "2026-07-21",
+      "location": "Chicago, IL",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Associate Product Manager",
+      "url": "https://ntrs.wd1.myworkdayjobs.com/en-US/northerntrust/job/Chicago-IL/Associate-Product-Manager_R157971"
     },
     {
       "company": "Adobe",
@@ -48544,6 +49215,17 @@
       "status": "New",
       "title": "Senior Product Manager",
       "url": "https://adobe.wd5.myworkdayjobs.com/en-US/external_experienced/job/San-Jose/Senior-Product-Manager_R170469-1"
+    },
+    {
+      "company": "Adobe",
+      "first_seen": "2026-07-21",
+      "id": "workday-R170627",
+      "last_seen": "2026-07-21",
+      "location": "San Jose",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Principal Product Manager",
+      "url": "https://adobe.wd5.myworkdayjobs.com/en-US/external_experienced/job/San-Jose/Principal-Product-Manager_R170627"
     },
     {
       "company": "Moderna",
@@ -49525,6 +50207,17 @@
       "url": "https://capitalone.wd12.myworkdayjobs.com/en-US/Capital_One/job/McLean-VA/Sr-Associate--Product-Manager--Audit-Insights---Innovation_R247337-1"
     },
     {
+      "company": "Capital One",
+      "first_seen": "2026-07-21",
+      "id": "workday-R247523",
+      "last_seen": "2026-07-21",
+      "location": "3 Locations",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Senior Associate, Product Manager, Small Business Bank Fraud Decisioning",
+      "url": "https://capitalone.wd12.myworkdayjobs.com/en-US/Capital_One/job/McLean-VA/Senior-Associate--Product-Manager--Small-Business-Bank-Fraud-Decisioning_R247523-1"
+    },
+    {
       "company": "Applied Materials",
       "first_seen": "2026-07-13",
       "id": "workday-R2519388",
@@ -49561,7 +50254,7 @@
       "company": "TIAA",
       "first_seen": "2026-07-15",
       "id": "workday-R260700073",
-      "last_seen": "2026-07-15",
+      "last_seen": "2026-07-21",
       "location": "Charlotte, NC, USA",
       "posted": "Posted Yesterday",
       "status": "Seen",
@@ -50001,7 +50694,7 @@
       "company": "Stryker",
       "first_seen": "2026-07-13",
       "id": "workday-R566862",
-      "last_seen": "2026-07-13",
+      "last_seen": "2026-07-21",
       "location": "Warsaw, Poland",
       "posted": "Posted 6 Days Ago",
       "status": "Seen",
@@ -50012,7 +50705,7 @@
       "company": "Stryker",
       "first_seen": "2026-07-13",
       "id": "workday-R566992",
-      "last_seen": "2026-07-13",
+      "last_seen": "2026-07-21",
       "location": "Bloomington, Minnesota",
       "posted": "Posted 18 Days Ago",
       "status": "Seen",
@@ -50034,7 +50727,7 @@
       "company": "Stryker",
       "first_seen": "2026-07-16",
       "id": "workday-R568556",
-      "last_seen": "2026-07-16",
+      "last_seen": "2026-07-21",
       "location": "Tokyo, Japan",
       "posted": "Posted Today",
       "status": "Seen",
@@ -50395,6 +51088,17 @@
     },
     {
       "company": "Visa",
+      "first_seen": "2026-07-21",
+      "id": "workday-REF068863W",
+      "last_seen": "2026-07-21",
+      "location": "US - Foster City, CA",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Senior Manager, AI Observatory Product Manager",
+      "url": "https://visa.wd5.myworkdayjobs.com/en-US/Visa/job/US---Foster-City-CA/Senior-Manager--AI-Observatory-Product-Manager_REF068863W"
+    },
+    {
+      "company": "Visa",
       "first_seen": "2026-07-14",
       "id": "workday-REF081027W",
       "last_seen": "2026-07-14",
@@ -50403,6 +51107,17 @@
       "status": "Seen",
       "title": "Sr. Product Manager - Post Purchase Platform & Integrations",
       "url": "https://visa.wd5.myworkdayjobs.com/en-US/Visa/job/US---Bellevue-WA/Sr-Product-Manager---Post-Purchase-Platform---Integrations_REF081027W"
+    },
+    {
+      "company": "Visa",
+      "first_seen": "2026-07-21",
+      "id": "workday-REF082908W",
+      "last_seen": "2026-07-21",
+      "location": "US - Austin, TX",
+      "posted": "Posted Today",
+      "status": "New",
+      "title": "Senior Product Manager \u2013 Visa Commercial Virtual Cards",
+      "url": "https://visa.wd5.myworkdayjobs.com/en-US/Visa/job/US---Austin-TX/Senior-Product-Manager---Visa-Commercial-Virtual-Cards_REF082908W"
     },
     {
       "company": "Visa",
