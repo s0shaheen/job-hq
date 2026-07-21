@@ -34,9 +34,27 @@ export class FixtureDataSource implements DataSource {
   private seenIdempotencyKeys = new Map<string, WriteResult>();
   private failNext: string | null = null;
 
-  constructor(seed: JobView[] = FIXTURE_JOBS, apps: ApplicationView[] = FIXTURE_APPLICATIONS) {
+  private channels: ChannelHealthView[];
+
+  /**
+   * Every collection comes from the constructor, including health.
+   *
+   * `health()` used to return the fixture unconditionally while postings and
+   * applications were injectable, so a store built with no data still reported
+   * six healthy channels — and a zero-row /health was unreachable through the
+   * only source the tests can drive. That page consequently shipped rendering
+   * six column headings over an empty table body, on the one surface whose
+   * entire job is saying whether the machinery is alive. A fake that is more
+   * forgiving than reality hides exactly the bug it exists to catch.
+   */
+  constructor(
+    seed: JobView[] = FIXTURE_JOBS,
+    apps: ApplicationView[] = FIXTURE_APPLICATIONS,
+    channels: ChannelHealthView[] = FIXTURE_HEALTH,
+  ) {
     for (const j of seed) this.jobsByKey.set(j.key, { ...j });
     this.apps = apps.map((a) => ({ ...a }));
+    this.channels = channels.map((c) => ({ ...c }));
   }
 
   /** Force the next write to fail, so the UI's failure path can be tested. */
@@ -63,7 +81,7 @@ export class FixtureDataSource implements DataSource {
   }
 
   async health(): Promise<ChannelHealthView[]> {
-    return FIXTURE_HEALTH.map((h) => ({ ...h }));
+    return this.channels.map((h) => ({ ...h }));
   }
 
   async setTriage(input: TriageInput): Promise<WriteResult> {

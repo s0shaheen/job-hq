@@ -21,7 +21,13 @@ export function EmptyState({
   className?: string;
 }) {
   return (
-    <div className={cn("mx-auto max-w-md px-6 py-16 text-center", className)}>
+    // The testid is the hook the zero-row suite uses to assert a surface said
+    // something. Matching on copy instead would make every wording change a
+    // test failure, which teaches people to loosen the assertion.
+    <div
+      data-testid="empty-state"
+      className={cn("mx-auto max-w-md px-6 py-16 text-center", className)}
+    >
       {icon ? <div className="mb-3 flex justify-center text-accent">{icon}</div> : null}
       <h2 className="text-lg font-semibold text-text">{title}</h2>
       {body ? <div className="mt-1.5 text-sm text-muted">{body}</div> : null}

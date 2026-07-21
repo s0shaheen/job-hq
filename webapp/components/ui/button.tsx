@@ -6,7 +6,13 @@ import { cn } from "@/lib/utils";
  * One button, four intents. Variants are enumerated here rather than composed
  * at call sites so a "sort of primary" button cannot come into existence.
  */
-const button = cva(
+/**
+ * Exported so a link that acts as a button can wear the same classes instead
+ * of a hand-copied approximation that drifts on the next palette change. A
+ * navigation is an anchor, not a button, and must stay one for the keyboard
+ * and the middle-click.
+ */
+export const buttonClass = cva(
   "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md " +
     "font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 " +
     "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
@@ -29,8 +35,8 @@ const button = cva(
   },
 );
 
-export type ButtonProps = React.ComponentProps<"button"> & VariantProps<typeof button>;
+export type ButtonProps = React.ComponentProps<"button"> & VariantProps<typeof buttonClass>;
 
 export function Button({ className, variant, size, ...props }: ButtonProps) {
-  return <button className={cn(button({ variant, size }), className)} {...props} />;
+  return <button className={cn(buttonClass({ variant, size }), className)} {...props} />;
 }

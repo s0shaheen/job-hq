@@ -1,8 +1,11 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { getDataSource } from "@/lib/data/get-source";
-import type { TriageInput, WriteResult } from "@/lib/data/source";
+import { isDemoMode, type TriageInput, type WriteResult } from "@/lib/data/source";
+import { getSupabaseEnv } from "@/lib/env";
+import { createClient } from "@/lib/supabase/server";
 
 /**
  * The only way a triage decision reaches the store.
@@ -14,7 +17,46 @@ import type { TriageInput, WriteResult } from "@/lib/data/source";
  * that turns a second device into a visible conflict instead of a silent
  * clobber.
  */
+
+/**
+ * Demo-only: makes the next write behave as though the session had expired.
+ *
+ * The re-auth path is otherwise untestable without waiting an hour for a real
+ * JWT to lapse, and an untested re-auth path is one that gets discovered by
+ * whoever is triaging at the moment it first happens. Gated on demo mode, so
+ * it cannot exist in a real deployment.
+ */
+const DEMO_EXPIRED_COOKIE = "hq_demo_session";
+
+async function demoSessionExpired(): Promise<boolean> {
+  if (!isDemoMode()) return false;
+  try {
+    return (await cookies()).get(DEMO_EXPIRED_COOKIE)?.value === "expired";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Is there still a session?
+ *
+ * Checked here rather than left to middleware: middleware answers a expired
+ * session by REDIRECTING to /login, which is right for a page navigation and
+ * useless for a server action — the browser gets a redirect where it expected
+ * a result, and the decision evaporates with no error anyone can act on.
+ * Answering explicitly lets the client hold the gesture and replay it.
+ */
+async function hasSession(): Promise<boolean> {
+  if (!getSupabaseEnv()) return true; // unconfigured/demo: nothing to expire
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+  return Boolean(data?.claims);
+}
+
 export async function setTriageAction(input: TriageInput): Promise<WriteResult> {
+  if (await demoSessionExpired()) return { ok: false, kind: "auth" };
+  if (!(await hasSession())) return { ok: false, kind: "auth" };
+
   const src = await getDataSource();
   const result = await src.setTriage(input);
   if (result.ok) {

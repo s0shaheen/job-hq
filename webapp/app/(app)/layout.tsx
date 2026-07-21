@@ -1,6 +1,7 @@
 import { getSupabaseEnv } from "@/lib/env";
 import { getDataSource } from "@/lib/data/get-source";
 import { createClient } from "@/lib/supabase/server";
+import { PendingWork } from "@/components/pending-work";
 import { Toaster } from "@/components/ui/toaster";
 import NavLinks from "./nav-links";
 import SignOut from "./sign-out";
@@ -48,7 +49,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         ) : null}
       </aside>
 
-      <main className="min-w-0 flex-1">{children}</main>
+      <main className="min-w-0 flex-1">
+        {/* Above the content and on every surface: undelivered work is a
+            property of the session, not of the page you happen to be on. */}
+        <PendingWork />
+        {children}
+      </main>
       <Toaster />
     </div>
   );

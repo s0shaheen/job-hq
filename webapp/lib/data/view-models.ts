@@ -175,3 +175,70 @@ export function reasonSetting(reason: string): string | null {
   if (kind === "work-model") return "workModelExclude";
   return null;
 }
+
+/** How a setting is named to a person, as opposed to in the profile record. */
+const SETTING_LABELS: Record<string, string> = {
+  countries: "countries",
+  metros: "metros",
+  yoeMax: "years-of-experience limit",
+  seniorityExclude: "seniority exclusions",
+  compMin: "compensation floor",
+  workModelExclude: "work-model exclusions",
+};
+
+/** The single setting responsible for the most filtered-out postings. */
+export type BindingConstraint = {
+  /** Profile setting key, for the deep link. */
+  setting: string;
+  /** That key in plain English. */
+  label: string;
+  /** Postings this setting removed. */
+  filtered: number;
+  /** Postings considered, filtered ones included. */
+  total: number;
+  /** One of those postings' reasons, spelled out, as the concrete case. */
+  example: string;
+};
+
+/**
+ * Why the queue is empty, when the answer is "your profile", not "nothing was
+ * found".
+ *
+ * Those two states look identical on screen and mean opposite things. One is a
+ * quiet day and the right response is to wait. The other is a setting that can
+ * be widened in ten seconds, and a user who is not told that concludes the app
+ * stopped working — which is the failure this exists to prevent.
+ *
+ * Grouping is by SETTING rather than by reason string because the setting is
+ * what the user can actually go and change: "geo:India" and "geo:United
+ * Kingdom" are two rows behind one countries list. Returns null when no
+ * filtered row points at a setting at all, since naming a constraint that did
+ * not bind would send someone to loosen a filter that was never the problem.
+ */
+export function bindingConstraint(jobs: JobView[]): BindingConstraint | null {
+  const bySetting = new Map<string, { count: number; example: string }>();
+  for (const job of jobs) {
+    if (job.disposition !== "filtered") continue;
+    const setting = reasonSetting(job.dispositionReason);
+    if (!setting) continue;
+    const seen = bySetting.get(setting);
+    if (seen) seen.count += 1;
+    else bySetting.set(setting, { count: 1, example: explainReason(job.dispositionReason) });
+  }
+
+  let best: [string, { count: number; example: string }] | null = null;
+  for (const entry of bySetting) {
+    // strictly greater, so a tie keeps the first setting encountered and the
+    // message does not flip between two equals on every render
+    if (!best || entry[1].count > best[1].count) best = entry;
+  }
+  if (!best) return null;
+
+  return {
+    setting: best[0],
+    label: SETTING_LABELS[best[0]] ?? best[0],
+    filtered: best[1].count,
+    total: jobs.length,
+    example: best[1].example,
+  };
+}

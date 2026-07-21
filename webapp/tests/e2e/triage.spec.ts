@@ -81,9 +81,9 @@ test("passing on a role removes it and the count moves", async ({ page }) => {
 test("the queue reaches a finished state rather than trailing off", async ({ page }) => {
   await gotoQueue(page);
   for (let i = 0; i < 25; i++) {
-    if (await page.getByRole("heading", { name: /Triaged all|Nothing to triage/ }).isVisible().catch(() => false)) break;
+    if (await page.getByRole("heading", { name: /Triaged all|Nothing found yet/ }).isVisible().catch(() => false)) break;
     await page.keyboard.press("x");
     await page.waitForTimeout(90);
   }
-  await expect(page.getByRole("heading", { name: /Triaged all|Nothing to triage/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Triaged all|Nothing found yet/ })).toBeVisible();
 });

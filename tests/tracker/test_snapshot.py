@@ -10,13 +10,28 @@ def test_every_tab_snapshotted_with_full_values(tmp_path):
     hq.tab("pipeline").append_records([{"key": "greenhouse-1", "company": "Plaid",
                                         "notes": "has, comma"}])
     counts = snapshot.run(hq, tmp_path / "snaps")
-    assert set(counts) == set(schema.TABS)
+    assert set(counts) == set(schema.TABS) - snapshot.NEVER_SNAPSHOT
     assert counts["pipeline"] == 1
     with open(tmp_path / "snaps" / "pipeline.csv", newline="") as f:
         rows = list(csv.reader(f))
     assert rows[0] == schema.HEADERS["pipeline"]
     rec = dict(zip(rows[0], rows[1]))
     assert rec["key"] == "greenhouse-1" and rec["notes"] == "has, comma"
+
+
+def test_secret_bearing_tabs_never_reach_disk(tmp_path):
+    """The scout-prefs tab is free text a human fills in, and the human filled
+    it in with a live account password, a home address and a phone number —
+    which the nightly job then committed to git seven times. A snapshot is
+    permanent, so tabs that can hold things we must not publish are simply not
+    written. Nothing validates free text, so nothing can make this safe."""
+    hq = fake_hq()
+    out = tmp_path / "snaps"
+    counts = snapshot.run(hq, out)
+    for logical in snapshot.NEVER_SNAPSHOT:
+        assert logical in schema.TABS, f"{logical} is not a real tab — stale exclusion"
+        assert logical not in counts
+        assert not (out / f"{logical}.csv").exists()
 
 
 def test_heartbeat_written(tmp_path):

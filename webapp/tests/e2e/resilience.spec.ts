@@ -41,10 +41,27 @@ test.describe("accessibility", () => {
         const serious = results.violations.filter((v) =>
           ["serious", "critical"].includes(v.impact ?? ""),
         );
-        expect(
-          serious,
-          serious.map((v) => `${v.id}: ${v.help}`).join("\n"),
-        ).toEqual([]);
+        // Name the offending element and the measured values, the way the
+        // layout suite does. "color-contrast: Elements must meet minimum
+        // contrast" with no selector sends the next person hunting through
+        // every page; the numbers and the node make it a two-minute fix.
+        const detail = serious
+          .map((v) => {
+            const nodes = v.nodes
+              .map((n) => {
+                const c = n.any.find((a) => a.id === "color-contrast")?.data as
+                  | { fgColor?: string; bgColor?: string; contrastRatio?: number }
+                  | undefined;
+                const measured = c
+                  ? ` — ${c.fgColor} on ${c.bgColor} = ${c.contrastRatio}:1`
+                  : "";
+                return `    ${n.target.join(" ")}${measured}\n      ${n.html.slice(0, 160)}`;
+              })
+              .join("\n");
+            return `${v.id}: ${v.help}\n${nodes}`;
+          })
+          .join("\n\n");
+        expect(serious, detail).toEqual([]);
       });
     }
   }

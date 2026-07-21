@@ -1,12 +1,15 @@
 "use client";
 
-import { Check, Clock, Star, X } from "lucide-react";
+import { Check, Clock, Filter, Inbox, Star, X } from "lucide-react";
+import Link from "next/link";
 import * as React from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClass } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty";
 import { Kbd } from "@/components/ui/kbd";
-import type { JobView, Triage } from "@/lib/data/view-models";
+import type { WriteResult } from "@/lib/data/source";
+import type { BindingConstraint, JobView, Triage } from "@/lib/data/view-models";
+import { dequeue, enqueue } from "@/lib/outbox";
 import { setTriageAction } from "./actions";
 import { TriageCard } from "./triage-card";
 
@@ -31,9 +34,16 @@ function mismatchFor(job: JobView, yoeMax: number | null): string | null {
 export default function TriageQueue({
   initial,
   yoeMax = null,
+  constraint = null,
 }: {
   initial: JobView[];
   yoeMax?: number | null;
+  /**
+   * Set only when the server found postings and the profile removed all of
+   * them. Computed on the server because it needs every posting, not the
+   * twenty this component was handed.
+   */
+  constraint?: BindingConstraint | null;
 }) {
   // Seeded once. The server list is the starting point, not a live feed —
   // see the note in actions.ts about not revalidating this path.
@@ -63,13 +73,60 @@ export default function TriageQueue({
       setDone((d) => d + 1);
 
       const idem = crypto.randomUUID();
-      const result = await setTriageAction({
+      const input = {
         postingKey: job.key,
         triage,
         snoozeUntil: snooze ?? null,
         idempotencyKey: idem,
         expectedUpdatedAt: job.updatedAt,
-      });
+      };
+
+      /**
+       * Hold the decision instead of discarding it.
+       *
+       * Reverting here would be the wrong kindness: the decision was valid and
+       * the user would have to make it again, on a card that has already left
+       * the screen. The row stays gone, the gesture goes to the outbox, and the
+       * banner in the shell owns delivering it.
+       */
+      const defer = (reason: "offline" | "auth") => {
+        enqueue({ id: idem, input, label: labelFor(triage, job), queuedAt: Date.now(), reason });
+        setBusy(false);
+        toast(labelFor(triage, job), {
+          description:
+            reason === "auth"
+              ? "Saved on this device — sign in to apply it."
+              : "Saved on this device — it'll sync when you're back online.",
+          action: {
+            label: "Undo",
+            onClick: () => {
+              // Never delivered, so undo is just dropping it. No server call,
+              // which is the only thing that could work while offline anyway.
+              dequeue(idem);
+              setQueue((q) => [job, ...q]);
+              setDone((d) => Math.max(0, d - 1));
+            },
+          },
+          duration: UNDO_MS,
+        });
+      };
+
+      let result: WriteResult;
+      try {
+        result = await setTriageAction(input);
+      } catch {
+        // The action never reached the server: offline, a dropped connection,
+        // or a deploy mid-gesture. Previously this threw into a void and the
+        // card vanished with nothing written anywhere.
+        defer("offline");
+        return;
+      }
+
+      if (!result.ok && result.kind === "auth") {
+        defer("auth");
+        return;
+      }
+
       setBusy(false);
 
       if (result.ok) {
@@ -149,15 +206,42 @@ export default function TriageQueue({
   }, [current, queue.length, safeIndex, decide]);
 
   if (!current) {
+    // Three different states wearing one panel until now. Finishing is a
+    // reward and should read like one; nothing found is a quiet day and needs
+    // to say when to expect more; a profile that gated everything out is a
+    // setting the user can widen, and saying "nothing to triage" there is how
+    // a working system convinces someone it is dead.
+    if (total > 0) {
+      return (
+        <EmptyState
+          icon={<Check aria-hidden="true" className="size-8" />}
+          title={`Triaged all ${total} — nice.`}
+          body="The queue is clear. New roles arrive with the next sweep."
+        />
+      );
+    }
+    if (constraint) {
+      return (
+        <EmptyState
+          icon={<Filter aria-hidden="true" className="size-8" />}
+          title={`Your ${constraint.label} filtered everything out`}
+          body={`That setting removed ${constraint.filtered} of the ${constraint.total} postings found. For example: ${constraint.example}.`}
+          action={
+            <Link
+              href={`/settings#${constraint.setting}`}
+              className={buttonClass({ variant: "primary" })}
+            >
+              Adjust your {constraint.label}
+            </Link>
+          }
+        />
+      );
+    }
     return (
       <EmptyState
-        icon={<Check aria-hidden="true" className="size-8" />}
-        title={total === 0 ? "Nothing to triage" : `Triaged all ${total} — nice.`}
-        body={
-          total === 0
-            ? "New roles land here as they're found. Nothing needs you right now."
-            : "The queue is clear. New roles arrive with the next sweep."
-        }
+        icon={<Inbox aria-hidden="true" className="size-8" />}
+        title="Nothing found yet"
+        body="Roles land here as the sweeps find them, twice a day. Nothing needs you right now."
       />
     );
   }

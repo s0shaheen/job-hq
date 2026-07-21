@@ -40,9 +40,18 @@ export type TriageInput = {
   expectedUpdatedAt: string | null;
 };
 
+/**
+ * `auth` is separated from `error` deliberately, because the two demand
+ * opposite responses. A rejected write is final — revert the row and say so. A
+ * write refused because the session expired is not a rejection at all: the
+ * decision was valid, it simply could not be delivered yet. Collapsing them
+ * means an expired session silently throws away the last thing the user did,
+ * which is the version of this bug people actually notice.
+ */
 export type WriteResult =
   | { ok: true; job: JobView }
   | { ok: false; kind: "conflict"; current: JobView }
+  | { ok: false; kind: "auth" }
   | { ok: false; kind: "error"; message: string };
 
 export interface DataSource {

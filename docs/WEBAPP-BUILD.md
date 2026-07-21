@@ -8,6 +8,15 @@ Companion docs: `docs/PRODUCT-SPEC.md` (what to build and the 26 acceptance
 criteria), `db/migrations/0001_init.sql` + `0002_invariants.sql` (the store),
 `db/README.md` (provisioning).
 
+**Plans for every remaining phase live in `docs/plans/` — start at
+`docs/plans/README.md`.** It carries the build order, the orphan list
+(acceptance criteria and edge cases no plan owns — read this before planning
+anything new), and the conflict list where independently-written plans made
+incompatible assumptions. The single most important entry: `app_set_triage` is
+called by `lib/data/supabase-source.ts` and **exists in no migration**, and four
+separate plans each assume they are the one to create it. It must be built once,
+first, before any of them.
+
 ---
 
 ## Goal for this phase
@@ -93,9 +102,9 @@ not the requirement. This is the actual list, with what enforces each.
 | 12 | Webfont fails / renders differently per machine | **No webfont.** System stack only | ✅ |
 | 13 | Motion sickness | `prefers-reduced-motion` zeroes transitions | ✅ |
 | 14 | Visual drift | `toHaveScreenshot` per theme — **needs Linux baselines recorded on a runner** | ◐ |
-| 15 | Empty states unrendered | Per-surface zero-row test | ⬜ |
-| 16 | Session expires mid-action | Re-auth path without losing the in-flight gesture | ⬜ |
-| 17 | Offline / flaky network | Queue the gesture locally, banner, retry | ⬜ |
+| 15 | Empty states unrendered | `empty.spec.ts` — per-surface zero-row test in both viewports, seeded via `hq_demo_seed`; the queue distinguishes **filtered-out from nothing-found** and names the binding constraint; axe runs on the empty page | ✅ |
+| 16 | Session expires mid-action | The action answers `kind: "auth"` rather than letting middleware redirect a POST; the gesture goes to the outbox and is delivered on the next page load after sign-in | ✅ |
+| 17 | Offline / flaky network | `lib/outbox.ts` — the decision is kept, not reverted; banner, auto-replay on reconnect, safe because every gesture carries its idempotency key | ✅ |
 | 18 | Perf collapse at 5k rows | Virtualization + a render-budget assertion | ⬜ (grid phase) |
 | 19 | Back/forward + deep links | URL-addressable views | ⬜ (grid phase) |
 | 20 | Types drift from the DB | Contract test: schema ↔ `lib/types.ts` | ⬜ |
@@ -103,6 +112,12 @@ not the requirement. This is the actual list, with what enforces each.
 | 22 | **Dark OS preference ignored entirely** | `theme.spec.ts` drives `colorScheme` and asserts the rendered background, not the class | ✅ |
 | 23 | **Decorative text invisible on a non-default background** | `Kbd` inherits `currentColor` by construction — axe cannot catch this, the element is `aria-hidden` | ✅ |
 | 24 | **Chrome pushes content below the fold on a phone** | Nav is a horizontal strip under `lg`; test asserts the first card sits in the top half of the viewport | ✅ |
+| 25 | **Export silently ships a different set of rows than it promised** | The dialog states each scope's count from a fresh server read; `export.spec.ts` asserts the file's row count equals the stated one, and that the two scopes really differ | ✅ |
+| 26 | **Excel treats the export as text** — dates unsortable, 100 sorting before 20 | `xlsx.test.ts` unzips the workbook and asserts real date serials *and* the number format actually applied through `styles.xml` | ✅ |
+| 27 | **A zero-row export downloads a blank sheet with no header** | Sheet data is resolved explicitly so 0 rows behaves like N rows; asserted | ✅ |
+| 28 | Malformed or oversized export request | Closed-set parser rejects instead of defaulting; key count is bounded | ✅ |
+| 29 | Export hangs on a slow response | `AbortSignal.timeout`; the dialog stays open with the chosen scope intact and offers retry | ✅ |
+| 30 | Decorative text fails contrast because of an opacity multiplier | `Kbd` carries no opacity; it is exactly as legible as the text it sits in. Caught by axe on the Export button | ✅ |
 
 Row 21 is the rule working as intended. A Linux CI runner failed the keyboard
 test that had always passed on the Mac: `goto` resolves when the server HTML
@@ -131,6 +146,45 @@ fix.**
 
 The web app **was not in CI at all** before this phase.
 
+Row 15 is the same lesson as 22–24, arriving through a different door. The
+empty states were unreachable: the fixture set is deliberately full, and
+draining the queue by hand produces "you finished", which is a *third* state.
+So nobody had ever seen the other two. `/health` rendered six column headings
+over an empty table body — on the one surface whose entire job is telling you
+whether the machinery is alive, where no rows reads as all-clear and means the
+opposite. And `/queue` said "Nothing to triage" whether the sweep had found
+nothing or the search profile had gated every posting out. The second is a
+setting the user can widen in ten seconds; presenting it as a quiet day is how
+a working system convinces someone it is dead.
+
+The cause underneath was a fake that was too forgiving *again*, in the same
+shape as the Python one: `FixtureDataSource` took postings and applications
+from its constructor but returned the health fixture unconditionally, so a
+store built with no data still reported six healthy channels. A zero-row
+`/health` was not reachable through the only source the tests can drive, which
+is exactly why that page shipped broken. **Every collection a fake owns must
+come from its constructor** — an injectable that is injectable "except for one
+field" is the field that will be wrong.
+
+### Three corrections this phase made to claims written above
+
+Worth keeping, because each was stated confidently and was wrong:
+
+1. **axe does see `aria-hidden` text for contrast.** Row 23's note claimed it
+   could not. It flagged the `⌘E` hint on the Export button immediately. What
+   axe genuinely cannot catch is a hint that is invisible because it *inherited*
+   its background colour — so the `currentColor` rule stands, for a different
+   reason than the one recorded.
+2. **`opacity` is a contrast bug generator.** `Kbd` was `opacity-70`, which
+   reads as pleasantly subdued and quietly turned an 8.6:1 token into 3.95:1 on
+   screen. A component can pass on its tokens and fail in the DOM. There is now
+   no opacity in `Kbd`; de-emphasis comes from size and border.
+3. **`write-excel-file` can do autofilter**, despite exposing no option for it —
+   `docs/plans/` records it as unachievable, from reading the option list. It
+   has a documented feature hook and its element-ordering table already knows
+   where `<autoFilter>` belongs. Reading the option list said no; trying it and
+   unzipping the result said yes. Spec §E's autofilter promise is kept.
+
 ---
 
 ## Current state
@@ -140,9 +194,12 @@ The web app **was not in CI at all** before this phase.
 - [x] **Foundation** — Tailwind v4 tokens, Radix primitives, app shell, data
       layer, Vitest + Playwright, webapp now in CI (it was not before)
 - [x] **Triage** — decision bar, keyboard, optimistic writes with undo
-- [x] **Export** — CSV/TSV core with RFC-4180 quoting + BOM (XLSX writer next)
-- [ ] Export dialog UI + XLSX file
-- [ ] Remaining-phase plans + scaling research
+- [x] **Export** — CSV/TSV core with RFC-4180 quoting + BOM
+- [x] **Export dialog + XLSX** — scope selector that states its counts, server-
+      side generation, frozen header + autofilter + real dates
+- [x] **Matrix rows 15–17** — empty states, session expiry, offline outbox
+- [x] **Remaining-phase plans + scaling research** — `docs/plans/`
+- [ ] Grid phase (next; `docs/plans/PHASE-GRID.md`)
 
 ## Stack (verified live 2026-07-21, not from memory)
 
@@ -181,6 +238,22 @@ anything virtualized is tested in Playwright, never Vitest.
    to fail on Linux CI, so they are opt-in (`PLAYWRIGHT_VISUAL=1`) until
    baselines are recorded on a runner. A permanently-red check teaches people
    to ignore checks.
+5. **Export files are built on the server, from row keys the client names.**
+   The browser never posts the rows themselves. An export therefore passes
+   through exactly the row-level security the screen does — a client that sent
+   its own payload could export anything it could fabricate, and the file would
+   look identical. It also keeps a zip writer out of the bundle of someone who
+   only wanted to triage.
+6. **The dialog reads its counts when it opens.** Passing them down from the
+   page is one fewer request and one guaranteed lie: the number goes stale the
+   moment a card is triaged. The number stated must be the number in the file.
+7. **An undeliverable decision is kept, not reverted.** Offline and expired
+   sessions are deferrals, not rejections — the decision was valid, it just
+   could not be sent. Reverting makes the user re-triage a card that has
+   already left the screen. Conflicts and genuine server rejections still
+   revert, because those *are* answers. Replay is safe because every gesture
+   already carries an idempotency key; that property is what makes "retry until
+   it works" correct rather than a duplicate-write hazard.
 
 ## How to work on it
 

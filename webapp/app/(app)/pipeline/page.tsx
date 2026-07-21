@@ -1,4 +1,8 @@
+import { ListChecks } from "lucide-react";
+import Link from "next/link";
+import { ExportDialog } from "@/components/export-dialog";
 import { Badge } from "@/components/ui/badge";
+import { buttonClass } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty";
 import { getDataSource } from "@/lib/data/get-source";
 import type { ApplicationView } from "@/lib/data/view-models";
@@ -32,7 +36,10 @@ export default async function PipelinePage() {
   return (
     <div className="min-w-0">
       <header className="border-b border-border px-4 py-3 sm:px-6">
-        <h1 className="text-lg font-semibold">Pipeline</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="min-w-0 truncate text-lg font-semibold">Pipeline</h1>
+          <ExportDialog dataset="applications" />
+        </div>
         <p className="text-xs text-muted">
           {rows.length} {rows.length === 1 ? "application" : "applications"}
         </p>
@@ -40,8 +47,14 @@ export default async function PipelinePage() {
 
       {sorted.length === 0 ? (
         <EmptyState
+          icon={<ListChecks aria-hidden="true" className="size-8" />}
           title="No applications yet"
-          body="Applications appear here when you mark a role interesting, or when a confirmation email arrives."
+          body="Applications appear here when you mark a role interesting, or when a confirmation email arrives. Nothing is ever added by hand."
+          action={
+            <Link href="/queue" className={buttonClass({ variant: "primary" })}>
+              Go to triage
+            </Link>
+          }
         />
       ) : (
         // The table scrolls INSIDE this container. The page itself never
