@@ -44,7 +44,35 @@ _US_CITY_HINTS = re.compile(
     r"\b(nyc|new york city|sf|san francisco|bay area|silicon valley"
     r"|chicagoland|washington,? d\.?c\.?)\b", re.I)
 _REMOTE = re.compile(r"\bremote\b", re.I)
+# Foreign CITY -> country. Country inference only: these must never join the
+# city-extraction skip guard, or "Toronto, Canada" would parse with no city
+# (the same trap as _US_CITY_HINTS).
+_FOREIGN_CITIES = {
+    "bengaluru": "India", "bangalore": "India", "hyderabad": "India",
+    "noida": "India", "gurugram": "India", "gurgaon": "India",
+    "pune": "India", "chennai": "India", "mumbai": "India",
+    "tokyo": "Japan", "shanghai": "China", "beijing": "China",
+    "shenzhen": "China", "tel aviv": "Israel", "dublin": "Ireland",
+    "são paulo": "Brazil", "sao paulo": "Brazil", "toronto": "Canada",
+    "vancouver": "Canada", "montreal": "Canada", "seoul": "South Korea",
+    "manila": "Philippines", "taipei": "Taiwan", "sydney": "Australia",
+    "amsterdam": "Netherlands", "berlin": "Germany", "munich": "Germany",
+    "paris": "France", "madrid": "Spain", "barcelona": "Spain",
+    "warsaw": "Poland", "krakow": "Poland", "zurich": "Switzerland",
+    "stockholm": "Sweden", "singapore": "Singapore",
+}
+# ISO-3 codes appear verbatim in several ATS location strings ("Bengaluru,
+# Karnataka, IND"). Without them the row reads as UNPLACEABLE rather than
+# foreign — same outcome under filter_geo_unknown=filter, but flatly wrong
+# for a user whose policy is `keep`, who would then be shown foreign roles.
 _COUNTRIES = {
+    "ind": "India", "jpn": "Japan", "chn": "China", "china": "China",
+    "lux": "Luxembourg", "luxembourg": "Luxembourg", "deu": "Germany",
+    "gbr": "United Kingdom", "fra": "France", "esp": "Spain",
+    "nld": "Netherlands", "irl": "Ireland", "isr": "Israel",
+    "bra": "Brazil", "mex": "Mexico", "aus": "Australia", "can": "Canada",
+    "sgp": "Singapore", "che": "Switzerland", "swe": "Sweden",
+    "pol": "Poland", "kor": "South Korea", "phl": "Philippines",
     "canada": "Canada", "united kingdom": "United Kingdom", "uk": "United Kingdom",
     "england": "United Kingdom", "london": "United Kingdom", "germany": "Germany",
     "france": "France", "netherlands": "Netherlands", "ireland": "Ireland",
@@ -64,7 +92,7 @@ def enrich(location: str, work_model: str = "") -> dict[str, str]:
         country = "United States"
     else:
         low = loc.casefold()
-        for tok, name in _COUNTRIES.items():
+        for tok, name in list(_COUNTRIES.items()) + list(_FOREIGN_CITIES.items()):
             if re.search(rf"\b{re.escape(tok)}\b", low):
                 country = name
                 break
@@ -120,6 +148,14 @@ def enrich(location: str, work_model: str = "") -> dict[str, str]:
     if city.casefold() in ("remote", "anywhere"):
         city = ""
 
+    metro = metros.metro_for(city, state)
+    if metro and not country:
+        # every metro in metros.py is a US metro, so placing one settles the
+        # country. Without this a bare "Chicago" or "Seattle" — which ATSs
+        # emit constantly — was filtered as UNPLACEABLE, silently hiding real
+        # domestic jobs.
+        country = "United States"
+
     market = "Remote" if remote else ("US" if country == "United States" else country)
     # metro is the grain a LOCAL search needs: "Chicago area" spans IL, IN and
     # WI suburbs that never carry the word Chicago, while state=IL admits
@@ -127,4 +163,4 @@ def enrich(location: str, work_model: str = "") -> dict[str, str]:
     # here would quietly admit the wrong city to someone's whole feed.
     return {"city": city, "state": state, "country": country,
             "remote": "TRUE" if remote else "", "market": market,
-            "metro": metros.metro_for(city, state)}
+            "metro": metro}

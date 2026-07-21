@@ -64,6 +64,7 @@ CAFE_CURSOR = "wide_cursor"
 TS_CURSOR = "wide_theirstack_cursor"
 TS_URL = "https://api.theirstack.com/v1/jobs/search"
 TS_LIMIT = 25
+TS_TIMEOUT = 30      # per-request seconds; TheirStack is optional and must never hang the sweep
 PUSH_MAX_LINES = 12
 
 
@@ -235,7 +236,7 @@ def _theirstack_fetch(session: requests.Session, api_key: str, cursor: str,
     r = session.post(TS_URL, json=body,
                      headers={"Authorization": f"Bearer {api_key}",
                               "Accept": "application/json"},
-                     timeout=60)
+                     timeout=TS_TIMEOUT)
     r.raise_for_status()
     return (r.json() or {}).get("data") or []
 
@@ -296,6 +297,7 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
     items: list[dict] = []
     cafe_failed = 0
     for term in terms:
+        print(f"[wide] cafe: querying {term!r}", file=sys.stderr)
         try:
             info = client.actor(ACTOR_ID).call(run_input={
                 "startUrls": [{"url": search_url(term)}],
@@ -359,6 +361,9 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
             hq.log("wide", "theirstack_skip", detail="wide_credit_budget is 0")
         else:
             ts_cursor = _config_value(hq, TS_CURSOR) or _default_cursor(today)
+            print(f"[wide] theirstack: mode={'geo' if loc_ids else 'companies'} "
+                  f"budget={budget} companies={len(names)} since={ts_cursor}",
+                  file=sys.stderr)
             try:
                 # 1 credit per job RETURNED, so the budget is enforced as the
                 # request limit — the API can never hand back more than we
@@ -393,6 +398,8 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
                     new_records.append(rec)
             except Exception as e:  # optional source — log + continue, never fatal
                 s.errors.append(f"theirstack: {e}")
+                print(f"[wide] theirstack FAILED (non-fatal): {str(e)[:200]}",
+                      file=sys.stderr)
                 hq.log("wide", "theirstack_error", detail=str(e)[:200])
 
     if not cafe_ok and not ts_ok:

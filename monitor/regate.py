@@ -55,6 +55,15 @@ def main(argv: list[str] | None = None) -> int:
     gate_cfg = gates.GateConfig.from_user_config(cfg)
     store = HQFeedStore(hq, disposer=gates.make_disposer(gate_cfg))
 
+    # Refresh geo FIRST: dispositions are derived from the geo columns, so
+    # re-gating before the backfill stamps decisions from stale geo and needs
+    # a second pass to converge (observed live: two runs to settle).
+    if not dry:
+        n = store.fill_missing_geo()
+        if n:
+            print(f"[regate] geo refreshed on {n} row(s) before gating",
+                  file=sys.stderr)
+
     rows = hq.tab("feed").records()
     changes = regate_rows(rows, gate_cfg)
 
