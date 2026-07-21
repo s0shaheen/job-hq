@@ -77,6 +77,7 @@ re-triages instead of sitting silently stale.
 | `""` → `snoozed` | human | requires `snooze_until` |
 | `snoozed` → `""` | engine | when `snooze_until <= today` |
 | `interested` → `""` | human (undo) | only while the application is still bot-untouched |
+| `interested` → `dismissed` / `snoozed` | human | same rule: the `Queued` application it created is removed, and one a bot has advanced survives. Undefined here until it shipped as a bug — a dismissed posting kept showing "work in progress" in the pipeline for a role the user had explicitly rejected, permanently, because a triaged posting leaves the queue and no gesture reaches it again |
 | disposition re-stamp | engine | only when the (disposition, reason) tuple actually changes |
 
 **Needed states:** `applied-elsewhere` (applied outside the system) and

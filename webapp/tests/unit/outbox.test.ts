@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as React from "react";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { FIXTURE_JOBS } from "@/lib/data/fixtures";
@@ -23,6 +23,40 @@ const { setTriageActionMock } = vi.hoisted(() => ({
 vi.mock("@/app/(app)/queue/actions", () => ({
   setTriageAction: (input: TriageInput) => setTriageActionMock(input),
 }));
+
+/**
+ * sonner is mocked so the Undo handler can be invoked directly. Rendering the
+ * real Toaster in jsdom would test sonner's animations, and the thing under
+ * test is what the button does — including which of the four outcomes it
+ * reports, which is easier to assert on the call than on a rendered toast.
+ */
+type ToastArgs = { action?: { label: string; onClick: () => void } };
+const { toastMock } = vi.hoisted(() => {
+  const fn = Object.assign(vi.fn(), {
+    error: vi.fn(),
+    warning: vi.fn(),
+    success: vi.fn(),
+    message: vi.fn(),
+  });
+  return { toastMock: fn };
+});
+
+vi.mock("sonner", () => ({ toast: toastMock }));
+
+/** Presses Undo on the most recent toast that offered it. */
+function clickUndo(): void {
+  const calls = toastMock.mock.calls as unknown as [string, ToastArgs][];
+  for (let i = calls.length - 1; i >= 0; i--) {
+    const action = calls[i]?.[1]?.action;
+    if (action?.label === "Undo") {
+      action.onClick();
+      return;
+    }
+  }
+  // Louder than returning a no-op: a test that silently pressed nothing would
+  // pass whatever the handler does.
+  throw new Error("no Undo toast was raised");
+}
 
 const JOB = FIXTURE_JOBS[0] as JobView;
 const KEY = "hq.outbox.v1";
@@ -62,6 +96,9 @@ beforeEach(() => {
   window.localStorage.clear();
   setTriageActionMock.mockReset();
   setTriageActionMock.mockResolvedValue({ ok: true, job: JOB });
+  toastMock.mockReset();
+  toastMock.error.mockReset();
+  toastMock.warning.mockReset();
 });
 
 afterEach(() => {
@@ -246,5 +283,121 @@ describe("PendingWork flush", () => {
       expect.objectContaining({ idempotencyKey: "undo-2" }),
     );
     expect(o.listPending()).toEqual([]);
+  });
+});
+
+/**
+ * The hold above narrows the race; it does not remove it. The flush can deliver
+ * a gesture while its Undo toast is still on screen — the toast's own timer
+ * pauses under the pointer, and a second tab has its own hold. Undo then cannot
+ * be a local removal, and `dequeue` returning false is the only signal that it
+ * is not. Discarding that answer restored the card while the server kept the
+ * decision: the screen and the database disagreeing, with nothing admitting it.
+ */
+describe("Undo after a background delivery", () => {
+  /** The updated_at the delivery returned — a compensating write needs THIS. */
+  const DELIVERED: JobView = { ...JOB, updatedAt: "2026-07-21T16:00:00.000Z" };
+
+  async function passFirstCardOffline() {
+    const o = await loadOutbox();
+    const mod = await import("@/app/(app)/queue/triage-queue");
+    // The gesture never reaches the server, so `decide` defers it: outbox
+    // entry plus the Undo toast this suite is about.
+    setTriageActionMock.mockRejectedValueOnce(new Error("network down"));
+    render(React.createElement(mod.default, { initial: [JOB] }));
+
+    fireEvent.click(screen.getByTestId("pass"));
+    await waitFor(() => expect(o.listPending()).toHaveLength(1));
+    return { o, id: o.listPending()[0]!.id };
+  }
+
+  it("sends a compensating write when the gesture already left the queue", async () => {
+    const { o, id } = await passFirstCardOffline();
+
+    // Exactly what PendingWork's flush does on a successful delivery.
+    act(() => {
+      o.recordDelivered(id, DELIVERED);
+      o.dequeue(id);
+    });
+
+    setTriageActionMock.mockResolvedValue({ ok: true, job: { ...DELIVERED, triage: "" } });
+    await act(async () => {
+      clickUndo();
+    });
+
+    // The undo the server has to be told about, against the delivered version.
+    // Without this the card returned to the screen and the pass stood.
+    await waitFor(() =>
+      expect(setTriageActionMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          postingKey: JOB.key,
+          triage: "",
+          expectedUpdatedAt: DELIVERED.updatedAt,
+        }),
+      ),
+    );
+    // One take each: the delivered result is consumed, not left for a second
+    // click to replay against a version the server has already moved past.
+    expect(o.takeDelivered(id)).toBeNull();
+  });
+
+  it("reuses the conflict wording when the compensating write loses", async () => {
+    const { o, id } = await passFirstCardOffline();
+    act(() => {
+      o.recordDelivered(id, DELIVERED);
+      o.dequeue(id);
+    });
+
+    setTriageActionMock.mockResolvedValue({ ok: false, kind: "conflict", current: JOB });
+    await act(async () => {
+      clickUndo();
+    });
+
+    await waitFor(() =>
+      expect(toastMock.warning).toHaveBeenCalledWith(
+        "Couldn't undo — this was changed somewhere else.",
+      ),
+    );
+  });
+
+  it("says it could not undo when there is no delivered result to compensate", async () => {
+    const { o, id } = await passFirstCardOffline();
+
+    // The gesture left the queue WITHOUT being delivered — the flush rejected
+    // or conflicted it. There is no delivered updated_at, so a compensating
+    // write would conflict on its own; the honest move is saying so.
+    act(() => {
+      o.dequeue(id);
+    });
+
+    const before = setTriageActionMock.mock.calls.length;
+    await act(async () => {
+      clickUndo();
+    });
+
+    expect(setTriageActionMock.mock.calls.length).toBe(before);
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "Couldn't undo that.",
+      expect.objectContaining({
+        description: expect.stringMatching(/already left this device/i),
+      }),
+    );
+    // The card must NOT come back: it is on screen as undone, or it is honest.
+    expect(screen.queryByText(JOB.title)).toBeNull();
+  });
+
+  it("stays a plain local removal while the gesture is still pending", async () => {
+    const { o } = await passFirstCardOffline();
+
+    const before = setTriageActionMock.mock.calls.length;
+    await act(async () => {
+      clickUndo();
+    });
+
+    // Nothing was ever sent, so nothing needs compensating — and the card comes
+    // back, which is the whole point of an undo inside the hold.
+    expect(setTriageActionMock.mock.calls.length).toBe(before);
+    expect(o.listPending()).toEqual([]);
+    await waitFor(() => expect(screen.getByText(JOB.title)).toBeTruthy());
   });
 });

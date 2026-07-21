@@ -54,6 +54,34 @@ begin
 end
 $$;
 
+-- Supabase's bootstrap grants.
+--
+-- The migrations never GRANT anything to anon/authenticated, because on Supabase
+-- the platform has already done it: `usage` on the schema and default
+-- privileges on tables, so that RLS — not the privilege system — is what
+-- decides who sees which rows. Reproducing the roles without the grants made
+-- the harness useless for the one requirement docs/PRODUCT-SPEC.md section I
+-- names by hand: "an RLS test that signs in as two real users and proves one
+-- cannot read the other's rows".
+--
+-- Without these, `set role authenticated` gets "permission denied for schema
+-- public" on every table, so a test asserting "A cannot read B's rows" passes
+-- because A cannot read ANYTHING — and keeps passing with every policy
+-- dropped. The negative assertion is only meaningful next to a positive
+-- control ("A can read A's own rows"), and the positive control is exactly
+-- what the missing grants made impossible to express.
+--
+-- These run BEFORE the migrations so the migrations' own REVOKEs (0002 takes
+-- update/delete on events away again) land on real grants rather than on
+-- nothing.
+grant usage on schema public to anon, authenticated, service_role;
+alter default privileges in schema public
+  grant all on tables to anon, authenticated, service_role;
+alter default privileges in schema public
+  grant all on sequences to anon, authenticated, service_role;
+alter default privileges in schema public
+  grant all on functions to anon, authenticated, service_role;
+
 -- The acting user, per-session. `true` on current_setting means "return NULL if
 -- unset" rather than raising, which is what lets a test assert the
 -- not-authenticated path.

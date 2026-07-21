@@ -82,10 +82,21 @@ test.describe("offline", () => {
     await page.getByTestId("interested").click();
     await expect(page.getByTestId("pending-work")).toBeVisible();
 
+    // The document has to load for there to be a page to assert about, but the
+    // SERVER ACTION must stay unreachable — otherwise this test contradicts its
+    // own name. It used to go fully online before reloading, so PendingWork's
+    // mount flush delivered the gesture and cleared the banner; the assertion
+    // then raced that delivery and failed roughly one CI run in two. The flake
+    // was the test disagreeing with itself, not the app misbehaving.
+    await page.route("**/queue", (route) =>
+      route.request().method() === "POST" ? route.abort("failed") : route.continue(),
+    );
     await context.setOffline(false);
     await page.reload();
+
     // Still pending after a reload — it lives in localStorage, not in memory.
     await expect(page.getByTestId("pending-work")).toBeVisible();
+    await expect(page.getByTestId("pending-work")).toHaveAttribute("data-reason", "offline");
   });
 
   test("reconnecting delivers the queued decision on its own", async ({ page, context }) => {

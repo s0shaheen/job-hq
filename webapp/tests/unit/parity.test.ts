@@ -132,6 +132,7 @@ const STAMP = "2026-07-21T00:00:00.000Z";
 
 function jv(seed: Partial<JobView> & Pick<JobView, "key">): JobView {
   return {
+    status: "Seen",
     company: "Co",
     title: "PM",
     url: `https://example.com/${seed.key}`,

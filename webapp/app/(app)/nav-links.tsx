@@ -23,7 +23,7 @@ type NavItem = {
 
 const PRIMARY: readonly NavItem[] = [
   { href: "/queue", label: "Triage", icon: Inbox },
-  { href: "/jobs", label: "Jobs", icon: LayoutGrid, soon: true },
+  { href: "/jobs", label: "Jobs", icon: LayoutGrid },
   { href: "/pipeline", label: "Pipeline", icon: ListChecks },
   { href: "/add", label: "Add", icon: Plus, soon: true },
 ];

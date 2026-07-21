@@ -234,11 +234,20 @@ begin
     returning id into v_app_id;
   end if;
 
-  -- Undo removes the application ONLY while it is still bot-untouched.
-  -- Acceptance criterion 11: once a bot has advanced it — a confirmation email
-  -- arrived, a human moved it — the application is evidence of something that
-  -- really happened and un-triaging the posting must not erase it.
-  if p_triage = '' then
+  -- Moving AWAY from interested removes the application it created — but only
+  -- while it is still bot-untouched.
+  --
+  -- Acceptance criterion 11: once a bot has advanced it (a confirmation email
+  -- arrived, or a human moved it) the application is evidence of something that
+  -- really happened, and it must survive.
+  --
+  -- This used to fire only on `''`, the undo path, so changing your mind from
+  -- interested to dismissed left a live `Queued` row in the pipeline for a job
+  -- you had explicitly rejected — permanently, since a triaged posting leaves
+  -- the queue and no gesture reaches it again. Spec section A2's transition
+  -- table never defined `interested -> dismissed`; the rule it does define for
+  -- undo is the right one and generalises to every move off `interested`.
+  if p_triage <> 'interested' then
     delete from public.applications
      where user_id = v_user
        and posting_key = p_posting_key

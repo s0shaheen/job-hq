@@ -82,7 +82,18 @@ export class FixtureDataSource implements DataSource {
   async queue(opts: QueueOptions = {}): Promise<JobView[]> {
     const limit = opts.limit ?? DEFAULT_QUEUE_LIMIT;
     return [...this.jobsByKey.values()]
-      .filter((j) => j.disposition === "qualified" && j.triage === "")
+      // The third clause is acceptance criterion 16 and it was missing here
+      // while `SupabaseDataSource.queue()` has always had it
+      // (`.neq("postings.status", "Closed")`). A fake more permissive than the
+      // real client is how this project has been bitten four times now: the
+      // fixture would have served a delisted role as decidable work, and no
+      // test could have caught it because no fixture was Closed.
+      .filter(
+        (j) =>
+          j.disposition === "qualified" &&
+          j.triage === "" &&
+          (j.status ?? "").trim().toLowerCase() !== "closed",
+      )
       .sort(byFreshness)
       .slice(0, limit)
       .map((j) => ({ ...j }));
@@ -166,8 +177,11 @@ export class FixtureDataSource implements DataSource {
         updatedAt: updated.updatedAt,
       });
     }
-    // undoing it removes the application only while it is still untouched
-    if (input.triage === "" ) {
+    // Moving AWAY from interested removes the application it created, but only
+    // while it is still bot-untouched — exactly as app_set_triage does. This
+    // used to fire only on the undo path in both places, so dismissing a role
+    // you had marked interested left a live Queued row in the pipeline forever.
+    if (input.triage !== "interested") {
       this.apps = this.apps.filter(
         (a) => !(a.postingKey === updated.key && a.status === "Queued"),
       );

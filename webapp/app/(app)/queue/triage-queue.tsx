@@ -10,7 +10,7 @@ import { Kbd } from "@/components/ui/kbd";
 import type { WriteResult } from "@/lib/data/source";
 import type { BindingConstraint, JobView, Triage } from "@/lib/data/view-models";
 import { localIsoDaysFromNow } from "@/lib/dates";
-import { dequeue, enqueue } from "@/lib/outbox";
+import { dequeue, enqueue, takeDelivered } from "@/lib/outbox";
 import { setTriageAction } from "./actions";
 import { TriageCard } from "./triage-card";
 
@@ -67,6 +67,67 @@ export default function TriageQueue({
   const safeIndex = Math.min(index, Math.max(0, queue.length - 1));
   const current = queue[safeIndex] ?? null;
 
+  /**
+   * Undo a decision the server already holds: a compensating write back to no
+   * triage, against the `updatedAt` the delivery returned.
+   *
+   * Two paths need it — an online gesture, and a deferred one the background
+   * flush delivered while its Undo toast was still on screen. One
+   * implementation, because the failure branches below are the substance of an
+   * honest undo and a second copy of them is a second place for one to rot.
+   */
+  const undoDelivered = React.useCallback(async (written: JobView, label: string) => {
+    let undo: WriteResult;
+    try {
+      undo = await setTriageAction({
+        postingKey: written.key,
+        triage: "",
+        idempotencyKey: crypto.randomUUID(),
+        expectedUpdatedAt: written.updatedAt,
+      });
+    } catch {
+      // The undo never reached the server. It is a decision like any other, so
+      // it goes to the outbox rather than being dropped — previously this threw
+      // into an unhandled rejection and the card came back on screen while the
+      // server kept the original decision.
+      const idem = crypto.randomUUID();
+      enqueue({
+        id: idem,
+        input: {
+          postingKey: written.key,
+          triage: "",
+          snoozeUntil: null,
+          idempotencyKey: idem,
+          expectedUpdatedAt: written.updatedAt,
+        },
+        label,
+        queuedAt: Date.now(),
+        reason: "offline",
+      });
+      setQueue((q) => [written, ...q]);
+      setDone((d) => Math.max(0, d - 1));
+      return;
+    }
+
+    if (undo.ok) {
+      setQueue((q) => [undo.job, ...q]);
+      setDone((d) => Math.max(0, d - 1));
+      return;
+    }
+    // An undo that failed must say so. Silently restoring the card told the
+    // user it was undone while the server kept the decision — the screen and
+    // the database disagreeing, with nothing on screen admitting it.
+    if (undo.kind === "auth") {
+      toast.error("Couldn't undo — your session expired.", {
+        description: "Sign in and try again.",
+      });
+    } else if (undo.kind === "conflict") {
+      toast.warning("Couldn't undo — this was changed somewhere else.");
+    } else {
+      toast.error("Couldn't undo that.", { description: undo.message });
+    }
+  }, []);
+
   const decide = React.useCallback(
     async (job: JobView, triage: Triage, snooze?: string) => {
       if (busy) return;
@@ -103,11 +164,38 @@ export default function TriageQueue({
           action: {
             label: "Undo",
             onClick: () => {
-              // Never delivered, so undo is just dropping it. No server call,
-              // which is the only thing that could work while offline anyway.
-              dequeue(idem);
-              setQueue((q) => [job, ...q]);
-              setDone((d) => Math.max(0, d - 1));
+              // `dequeue` is the only authority on whether this gesture is
+              // still local, and its answer must be branched on. The undo
+              // window and the flush's hold are both 8s, so the toast can
+              // outlive the hold — the pointer resting on the toast pauses its
+              // dismissal, and a second tab holds nothing at all. Discarding
+              // the answer put the card back on screen while PendingWork had
+              // already delivered the decision: the screen said undone, the
+              // database said dismissed, and nothing admitted the difference.
+              if (dequeue(idem)) {
+                // Still pending, so undo is just dropping it. No server call,
+                // which is the only thing that could work while offline anyway.
+                setQueue((q) => [job, ...q]);
+                setDone((d) => Math.max(0, d - 1));
+                return;
+              }
+
+              const written = takeDelivered(idem);
+              if (written) {
+                // Delivered behind our back. The only real undo left is a
+                // second write, against the version that delivery returned.
+                void undoDelivered(written, `Undo ${labelFor(triage, job)}`);
+                return;
+              }
+
+              // It left the queue without being delivered — rejected, or beaten
+              // by another device — or a second Undo already claimed the
+              // delivered result. Either way there is no version to compensate
+              // against, and restoring the card would state an undo that did
+              // not happen.
+              toast.error("Couldn't undo that.", {
+                description: "The decision already left this device. Reload to see where it landed.",
+              });
             },
           },
           duration: UNDO_MS,
@@ -145,61 +233,7 @@ export default function TriageQueue({
         toast(labelFor(triage, job), {
           action: {
             label: "Undo",
-            onClick: () => {
-              void (async () => {
-                let undo: WriteResult;
-                try {
-                  undo = await setTriageAction({
-                    postingKey: written.key,
-                    triage: "",
-                    idempotencyKey: crypto.randomUUID(),
-                    expectedUpdatedAt: written.updatedAt,
-                  });
-                } catch {
-                  // The undo never reached the server. It is a decision like
-                  // any other, so it goes to the outbox rather than being
-                  // dropped — previously this threw into an unhandled rejection
-                  // and the card came back on screen while the server kept the
-                  // original decision.
-                  const idem = crypto.randomUUID();
-                  enqueue({
-                    id: idem,
-                    input: {
-                      postingKey: written.key,
-                      triage: "",
-                      snoozeUntil: null,
-                      idempotencyKey: idem,
-                      expectedUpdatedAt: written.updatedAt,
-                    },
-                    label: `Undo ${labelFor(triage, job)}`,
-                    queuedAt: Date.now(),
-                    reason: "offline",
-                  });
-                  setQueue((q) => [written, ...q]);
-                  setDone((d) => Math.max(0, d - 1));
-                  return;
-                }
-
-                if (undo.ok) {
-                  setQueue((q) => [undo.job, ...q]);
-                  setDone((d) => Math.max(0, d - 1));
-                  return;
-                }
-                // An undo that failed must say so. Silently restoring the card
-                // told the user it was undone while the server kept the
-                // decision — the screen and the database disagreeing, with
-                // nothing on screen admitting it.
-                if (undo.kind === "auth") {
-                  toast.error("Couldn't undo — your session expired.", {
-                    description: "Sign in and try again.",
-                  });
-                } else if (undo.kind === "conflict") {
-                  toast.warning("Couldn't undo — this was changed somewhere else.");
-                } else {
-                  toast.error("Couldn't undo that.", { description: undo.message });
-                }
-              })();
-            },
+            onClick: () => void undoDelivered(written, `Undo ${labelFor(triage, job)}`),
           },
           duration: UNDO_MS,
         });
@@ -223,7 +257,7 @@ export default function TriageQueue({
         });
       }
     },
-    [busy],
+    [busy, undoDelivered],
   );
 
   React.useEffect(() => {

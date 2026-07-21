@@ -53,6 +53,18 @@ export type JobView = {
   posted: string | null;
   firstSeen: string | null;
 
+  /**
+   * Board lifecycle: `New` | `Seen` | `Closed`, and whatever a human typed —
+   * deliberately not an enum, mirroring `postings.status` in 0001_init.sql.
+   *
+   * Carried because acceptance criterion 16 ("a Closed posting is absent from
+   * the queue") is otherwise only enforceable in SQL. The Supabase source
+   * excludes Closed rows inside `queue()`, but `jobs()` does not, so any
+   * surface built on the full set — the grid — could not express the rule at
+   * all and silently showed dead roles as decidable work.
+   */
+  status: string | null;
+
   disposition: Disposition;
   /** e.g. "geo:India", "yoe:6>4", "comp:<120k", "" when cleanly qualified. */
   dispositionReason: string;

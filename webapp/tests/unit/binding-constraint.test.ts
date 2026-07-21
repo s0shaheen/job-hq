@@ -14,6 +14,7 @@ function job(partial: Partial<JobView>): JobView {
     company: "C",
     title: "T",
     url: "https://example.com",
+    status: "Seen",
     location: null,
     metro: null,
     market: null,

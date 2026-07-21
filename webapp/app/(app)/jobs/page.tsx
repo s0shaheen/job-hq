@@ -1,37 +1,47 @@
-import { LayoutGrid } from "lucide-react";
-import Link from "next/link";
-import { buttonClass } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty";
+import { getDataSource } from "@/lib/data/get-source";
+import { clampPerfCount, makePerfJobs } from "@/lib/data/perf-fixtures";
+import { isDemoMode } from "@/lib/data/source";
+import JobsGrid from "./jobs-grid";
 
 export const metadata = { title: "Jobs — Job Search HQ" };
+export const dynamic = "force-dynamic";
 
 /**
- * Placeholder. The real surface — the dense filterable grid over every
- * posting, with saved views and bulk triage — is the grid phase
- * (docs/plans/PHASE-GRID.md) and is deliberately NOT built here.
- *
- * This page exists because the nav has always linked /jobs and the link
- * returned a bare 404: half the navigation was dead and looked live. An
- * honest "not built yet, here is where that job happens today" keeps the
- * user oriented; a framework 404 reads as the app being broken.
+ * /jobs — the grid over every posting the user has been gated on. Server
+ * component fetches once; the client grid owns the working set from there
+ * (same shape as /queue — no refetch mid-session).
  */
-export default function JobsPage() {
+export default async function JobsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+
+  // Perf harness: `?perf=5000` swaps in the deterministic generator so
+  // grid-perf.spec.ts can measure budgets at sizes the fixture set will never
+  // reach. It is gated on demo mode — matrix row 36's rule: fixtures must
+  // never be presentable as real data, so a production deployment ignores the
+  // parameter entirely. It lives here, not in get-source.ts, because the rows
+  // are read-only: no store is needed, and the whole mechanism stays inside
+  // the one page that consumes it.
+  const perfN = isDemoMode() ? clampPerfCount(params.perf) : 0;
+  const rows = perfN > 0 ? makePerfJobs(perfN) : await (await getDataSource()).jobs();
+
   return (
-    <div className="min-w-0">
-      <header className="border-b border-border px-4 py-3 sm:px-6">
-        <h1 className="text-lg font-semibold">Jobs</h1>
-        <p className="text-xs text-muted">Every posting the sweeps have found, in one table.</p>
+    // h-dvh + flex-col: the grid owns the viewport below the toolbar and
+    // scrolls inside itself — the page never scrolls sideways at any width
+    // (layout.spec.ts) and stays put vertically on desktop. On a phone the nav
+    // strip above `main` means the page can scroll down by that strip's
+    // height, which is wanted: one flick and the grid has the whole screen.
+    <div className="flex h-dvh min-w-0 flex-col">
+      <header className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
+        <h1 className="min-w-0 break-words text-lg font-semibold">Jobs</h1>
+        <p className="text-xs text-muted">
+          Every posting the sweeps have found, in one table.
+        </p>
       </header>
-      <EmptyState
-        icon={<LayoutGrid aria-hidden="true" className="size-8" />}
-        title="The jobs grid isn’t built yet"
-        body="This becomes a filterable table of every posting — saved views, bulk triage, sort by anything. It’s next in the build order. Until it lands, deciding on new roles happens in the queue."
-        action={
-          <Link href="/queue" className={buttonClass({ variant: "primary" })}>
-            Go to triage
-          </Link>
-        }
-      />
+      <JobsGrid rows={rows} />
     </div>
   );
 }

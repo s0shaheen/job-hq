@@ -17,7 +17,7 @@ import { collectPaintedOverflow, describeOffenders } from "./painted-overflow";
  * scrollWidth assertion here passed unconditionally while content was
  * genuinely unreachable; see painted-overflow.ts for the measurement.
  */
-const PAGES = ["/queue", "/pipeline", "/health"];
+const PAGES = ["/queue", "/pipeline", "/health", "/jobs"];
 const WIDTHS = [375, 414, 768, 1024, 1280, 1920];
 
 test.describe("nothing paints past the page edge", () => {

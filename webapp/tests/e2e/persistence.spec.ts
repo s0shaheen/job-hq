@@ -68,14 +68,19 @@ test("the export count matches the screen after triaging", async ({ page, contex
   await gotoQueue(page);
 
   await page.getByTestId("export-open").click();
-  const before = Number(/\d+/.exec(await page.getByTestId("export-download").innerText())![0]);
+  // Wait for the count to arrive before reading it. The button says a plain
+  // "Download" until the server action answers, so reading it immediately gets
+  // no number — a race that only shows up under parallel load, which is the
+  // worst kind of flake because it reads as a real failure.
+  const button = page.getByTestId("export-download");
+  await expect(button).toHaveText(/Download \d+ rows?/);
+  const before = Number(/\d+/.exec(await button.innerText())![0]);
   await page.keyboard.press("Escape");
 
   await page.getByTestId("pass").click();
   await expect(page.getByText(/^Passed on /)).toBeVisible();
 
   await page.getByTestId("export-open").click();
-  const button = page.getByTestId("export-download");
   await expect(button).toHaveText(new RegExp(`Download ${before - 1} rows?`));
 
   await page.getByTestId("format-csv").click();

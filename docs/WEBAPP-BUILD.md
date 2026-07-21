@@ -105,7 +105,7 @@ not the requirement. This is the actual list, with what enforces each.
 | 15 | Empty states unrendered | `empty.spec.ts` — per-surface zero-row test in both viewports, seeded via `hq_demo_seed`; the queue distinguishes **filtered-out from nothing-found** and names the binding constraint; axe runs on the empty page | ✅ |
 | 16 | Session expires mid-action | The action answers `kind: "auth"` rather than letting middleware redirect a POST; the gesture goes to the outbox and is delivered on the next page load after sign-in | ✅ |
 | 17 | Offline / flaky network | `lib/outbox.ts` — the decision is kept, not reverted; banner, auto-replay on reconnect, safe because every gesture carries its idempotency key | ✅ |
-| 18 | Perf collapse at 5k rows | Virtualization + a render-budget assertion | ⬜ (grid phase) |
+| 18 | Perf collapse at 5k rows | Virtualization + a measured render budget — see rows 46–47 | ✅ |
 | 19 | Back/forward + deep links | URL-addressable views | ⬜ (grid phase) |
 | 20 | Types drift from the DB | Contract test: schema ↔ `lib/types.ts` | ⬜ |
 | 21 | **Keystroke before hydration is silently dropped** | Queue publishes `data-ready`; hints stay dim until the handler is attached; tests wait on the flag | ✅ |
@@ -128,6 +128,17 @@ not the requirement. This is the actual list, with what enforces each.
 | 38 | Server action accepts any payload the client sends | Closed-set validation at the boundary — a server action is a public endpoint and `TriageInput` is erased at runtime | ✅ |
 | 39 | **The RPC the app calls exists in no migration** | `0003_write_path.sql`, plus `tests/core/test_migrations.py` parsing every `supabase.rpc()` call against the SQL | ✅ |
 | 40 | **Migration logic has never been executed** | CI job `db` applies the schema to a real Postgres and runs the write path (AC 9, 10, 11, 26) | ✅ |
+| 41 | **A dismissed posting keeps a live `Queued` application forever** | Any move off `interested` removes the still-`Queued` application it created, in `app_set_triage` *and* the fixture; a bot-advanced one still survives | ✅ |
+| 42 | **The RLS test the spec mandates cannot be written** | `test-harness.sql` grants what Supabase grants, so `set role authenticated` reaches the tables; `test_rls.py` asserts BOTH directions, plus a meta-test that disabling RLS turns it red | ✅ |
+| 43 | **An authenticated session can `TRUNCATE` the audit trail** | `0004_audit_hardening.sql` revokes truncate/trigger/references, incl. default privileges for future tables | ✅ |
+| 44 | **Undo after the background flush already delivered the gesture** | The deferred Undo branches on `dequeue()`'s answer and sends a real compensating write against the delivered `updatedAt`; `undo-delivery.spec.ts` asserts it *after a reload*, which is the only place the lie was visible | ✅ |
+| 45 | A test races the thing it is asserting, and fails about half the time in CI | Every read of the export dialog's count waits for it, and the offline-reload test keeps the server action unreachable instead of going online and racing its own mount-flush. Both flakes were the test disagreeing with itself, not the app misbehaving — and a flake reads as a real failure, which is worse than a slow test | ✅ |
+| 46 | **Virtualization silently switches off** — 5k rows land in the DOM | `grid-perf.spec.ts`: at `?perf=5000`, rendered `[role=row]` count is >10 **and** ≤80 at top/middle/bottom. The lower bound matters — an empty grid would satisfy an upper bound alone. Verified red with virtualization removed | ✅ |
+| 47 | **Perf collapse at 5k rows** (was row 18) | Same spec under 4× CPU throttle: client TTI < 6s from `responseEnd` (measured 744ms), zero long tasks > 200ms across a 30-viewport scroll. Verified red | ✅ |
+| 48 | **Sticky header/first column drifts under diagonal scroll** | Header y and company x pinned within 1px after scrolling (240, 4000); header and body column edges agree. Rows are positioned with `top`, never `translateY` — a transform makes the row a containing block and silently kills the sticky cell | ✅ |
+| 49 | **The grid overflows the PAGE instead of its own container** | `/jobs` added to `layout.spec.ts`'s painted-geometry sweep, plus a 280px container-scrollability check. Verified red by switching the container to `overflow-visible` | ✅ |
+| 50 | **The grid silently shows a subset** | It states its counts ("8 of 19 postings"), and the test asserts exact set membership rather than a total — so "8 of 8" cannot pass | ✅ |
+| 51 | **A `Closed` posting is offered as decidable work** (criterion 16) | The rule lived only in `SupabaseDataSource.queue()`'s SQL; `JobView.status` now carries it and both sources enforce it. `FIXTURE_JOBS` contains a Closed row that is otherwise perfectly qualified, so the assertion can fail | ✅ |
 
 Row 21 is the rule working as intended. A Linux CI runner failed the keyboard
 test that had always passed on the Mac: `goto` resolves when the server HTML
@@ -207,6 +218,22 @@ had zero callers.
 **A test that cannot fail is worse than no test, because it is counted.** When
 adding a row to this table, make the test fail first, on purpose, and say so.
 
+That rule has since caught two more, both written by the session that wrote the
+rule. A concurrency test ran its two connections in turn, so they never
+overlapped inside the function under test and it passed with the fix removed; a
+second attempt let the lock holder roll back before writing, so the race still
+could not occur. Only the third version — where the lock holder performs the
+real write while the other caller is already blocked — actually fails without
+the fix. **Assume your own new test is in this category until you have watched
+it go red.**
+
+The same trap has a documentation shape. `test-harness.sql` created the
+`authenticated` role but none of the privileges Supabase grants it, so
+`set role authenticated` got "permission denied" on every table — and an RLS
+test asserting "A cannot read B's rows" passed because A could read *nothing*,
+and would have kept passing with every policy in the schema dropped. A negative
+assertion is only meaningful beside its positive control.
+
 ### Three corrections this phase made to claims written above
 
 Worth keeping, because each was stated confidently and was wrong:
@@ -240,7 +267,9 @@ Worth keeping, because each was stated confidently and was wrong:
       side generation, frozen header + autofilter + real dates
 - [x] **Matrix rows 15–17** — empty states, session expiry, offline outbox
 - [x] **Remaining-phase plans + scaling research** — `docs/plans/`
-- [ ] Grid phase (next; `docs/plans/PHASE-GRID.md`)
+- [x] **Grid G1** — read-only virtualized grid at `/jobs`, sticky header + first
+      column, measured perf budget at 5k rows
+- [ ] Grid G2–G5 (filters + URL state, saved views, selection/export scope)
 
 ## Stack (verified live 2026-07-21, not from memory)
 

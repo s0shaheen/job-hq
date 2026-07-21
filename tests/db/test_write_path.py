@@ -203,6 +203,63 @@ def test_undo_reverts_and_appends_a_compensating_event(conn):
 
 # ------------------------------------------------------------------ AC 11
 
+def test_changing_your_mind_to_dismissed_clears_the_queued_application(conn):
+    """Press `i`, change your mind, dismiss — the pipeline must not keep showing
+    work in progress for a job you explicitly rejected.
+
+    The delete used to fire only on the undo path, so this left a live `Queued`
+    row forever: a triaged posting leaves the queue, and no gesture reaches it
+    again to clean up.
+    """
+    user = make_user(conn, f"{uuid.uuid4()}@example.com")
+    key = make_posting(conn, f"gh-{uuid.uuid4().hex[:8]}")
+    gate(conn, user, key)
+    as_user(conn, user)
+
+    set_triage(conn, key, "interested", idem=str(uuid.uuid4()))
+    assert conn.execute(
+        "select count(*) from public.applications where user_id=%s and posting_key=%s",
+        (user, key),
+    ).fetchone()[0] == 1
+
+    set_triage(conn, key, "dismissed", idem=str(uuid.uuid4()),
+               expected=updated_at(conn, user, key))
+
+    assert conn.execute(
+        "select count(*) from public.applications where user_id=%s and posting_key=%s",
+        (user, key),
+    ).fetchone()[0] == 0, "a dismissed posting left a Queued application in the pipeline"
+
+    # The audit trail keeps both gestures; nothing is rewritten.
+    kinds = [r[0] for r in conn.execute(
+        "select kind from public.events where user_id=%s and posting_key=%s order by id",
+        (user, key),
+    ).fetchall()]
+    assert kinds == ["action.interested", "action.dismissed"]
+
+
+def test_dismissing_keeps_an_application_a_bot_already_advanced(conn):
+    """The bot-untouched rule holds on this path too: an application that has
+    moved past Queued is evidence, and dismissing the posting cannot erase it."""
+    user = make_user(conn, f"{uuid.uuid4()}@example.com")
+    key = make_posting(conn, f"gh-{uuid.uuid4().hex[:8]}")
+    gate(conn, user, key)
+    as_user(conn, user)
+
+    set_triage(conn, key, "interested", idem=str(uuid.uuid4()))
+    conn.execute(
+        "update public.applications set status='Applied' where user_id=%s and posting_key=%s",
+        (user, key),
+    )
+    set_triage(conn, key, "dismissed", idem=str(uuid.uuid4()),
+               expected=updated_at(conn, user, key))
+
+    assert conn.execute(
+        "select status from public.applications where user_id=%s and posting_key=%s",
+        (user, key),
+    ).fetchall() == [("Applied",)]
+
+
 def test_untriage_keeps_an_application_a_bot_already_advanced(conn):
     user = make_user(conn, f"{uuid.uuid4()}@example.com")
     key = make_posting(conn, f"gh-{uuid.uuid4().hex[:8]}")

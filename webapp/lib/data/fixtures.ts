@@ -47,6 +47,7 @@ function job(seed: Seed): JobView {
     skills: [],
     posted: daysAgo(3),
     firstSeen: daysAgo(2),
+    status: "Seen",
     disposition: "qualified",
     dispositionReason: "",
     triage: "",
@@ -199,6 +200,22 @@ export const FIXTURE_JOBS: JobView[] = [
     disposition: "filtered", dispositionReason: "geo-unknown",
     posted: daysAgo(7), firstSeen: daysAgo(6),
   }),
+  // ---- the board took it down while it was still undecided
+  //
+  // Qualified and untriaged, so every predicate that forgets to check `status`
+  // will happily offer it as work. Acceptance criterion 16 says a Closed
+  // posting is absent from the queue; without a Closed row in the fixture set
+  // that assertion cannot fail, and for a while it could not.
+  job({
+    key: "greenhouse-5540118", company: "Affirm", title: "Product Manager, Checkout",
+    location: "New York, NY", metro: "New York", workModel: "Hybrid",
+    compRange: "$168,000 - $205,000", compMinK: 168, compMaxK: 205,
+    minYoe: 4, seniority: "PM", industry: "Buy now, pay later",
+    roleFocus: "Checkout conversion", skills: ["Payments", "Conversion"],
+    status: "Closed",
+    posted: daysAgo(24), firstSeen: daysAgo(23),
+  }),
+
   // ---- awaiting analysis
   job({
     key: "radancy-40012", company: "Fifth Third Bank", title: "Product Owner, Digital",

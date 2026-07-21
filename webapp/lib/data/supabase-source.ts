@@ -108,6 +108,7 @@ export function toJobView(up: Record<string, unknown>): JobView | null {
     skills: skills ? skills.split(";").map((s) => s.trim()).filter(Boolean) : [],
     posted: str(p.posted),
     firstSeen: str(p.first_seen),
+    status: str(p.status),
     disposition: (String(up.disposition ?? "needs-info") as Disposition),
     dispositionReason: String(up.disposition_reason ?? ""),
     triage: (String(up.triage ?? "") as Triage),
