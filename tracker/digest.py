@@ -55,11 +55,17 @@ def _sec_new_roles(hq: HQ, cfg, today_s: str) -> tuple[list[str], int]:
         if r.get("first_seen", "") != today_s:
             continue
         pri = r.get("company", "").casefold() in priority
-        # gates own visibility now: filtered rows never reach the digest
-        # (priority companies exempt — handpicked beats the profile).
-        # Blank disposition = pre-gates row; the legacy YoE check covers it.
-        if r.get("disposition", "") == "filtered" and not pri:
-            continue
+        reason = r.get("disposition_reason", "")
+        # "Handpicked beats the profile" is about WHICH EMPLOYERS, not which
+        # continent. A priority company may exempt a row from the seniority
+        # and YoE bars; it must never exempt geo. The unsplit version put
+        # Hyderabad, Stockholm and Taipei roles in a US-only daily briefing —
+        # the most expensive kind of bug, because it degrades the one surface
+        # that gets read every day, and a briefing you learn to distrust is
+        # worth less than no briefing.
+        if r.get("disposition", "") == "filtered":
+            if reason.startswith(("geo", "metro")) or not pri:
+                continue
         my = r.get("min_yoe", "").strip()
         # blank min_yoe = unknown; never hide a role for a number we don't have
         if my.isdigit() and int(my) > yoe_max and not pri:
@@ -70,8 +76,12 @@ def _sec_new_roles(hq: HQ, cfg, today_s: str) -> tuple[list[str], int]:
     for pri, r in rows[:NEW_ROLES_CAP]:
         star = "★ " if pri else ""
         loc = f" — {r['location']}" if r.get("location") else ""
+        # an off-profile row that survived only because the company is
+        # handpicked must SAY so, or it reads as a filtering failure
+        why = (f" · outside your filters ({r.get('disposition_reason','')})"
+               if r.get("disposition", "") == "filtered" else "")
         lines.append(f"- {star}[{r.get('company', '?')} — {r.get('title', '?')}]"
-                     f"({r.get('url', '')}){loc}")
+                     f"({r.get('url', '')}){loc}{why}")
     if len(rows) > NEW_ROLES_CAP:
         lines.append(f"- +{len(rows) - NEW_ROLES_CAP} more in the Feed tab")
     return lines, len(rows)

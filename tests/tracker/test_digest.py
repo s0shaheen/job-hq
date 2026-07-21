@@ -154,3 +154,52 @@ def test_new_roles_capped_with_more_line(spies):
     s = digest.run(hq, now=NOW)
     assert s["new"] == 20
     assert "+5 more in the Feed tab" in s["body"]
+
+
+# ---- the digest must never un-filter a geo violation
+
+def _feed_row(**kw):
+    base = {"key": "greenhouse-1", "company": "Acme", "title": "PM",
+            "url": "http://x", "location": "Hyderabad, India",
+            "first_seen": "2026-07-20", "min_yoe": "2",
+            "disposition": "filtered", "disposition_reason": "geo:India"}
+    base.update(kw)
+    return base
+
+
+def test_priority_company_never_exempts_a_geo_violation():
+    from core.fakes import fake_hq
+    from tracker.digest import _sec_new_roles
+    hq = fake_hq()
+    hq.tab("companies").append_records(
+        [{"name": "Acme", "ats": "greenhouse", "slug": "a",
+          "monitor": "TRUE", "priority": "TRUE"}])
+    hq.tab("feed").append_records([_feed_row()])
+    lines, n = _sec_new_roles(hq, {"yoe_push_max": 4}, "2026-07-20")
+    assert n == 0 and lines == []          # handpicked employer, wrong continent
+
+
+def test_priority_company_still_exempts_the_yoe_bar_but_says_so():
+    from core.fakes import fake_hq
+    from tracker.digest import _sec_new_roles
+    hq = fake_hq()
+    hq.tab("companies").append_records(
+        [{"name": "Acme", "ats": "greenhouse", "slug": "a",
+          "monitor": "TRUE", "priority": "TRUE"}])
+    hq.tab("feed").append_records(
+        [_feed_row(location="Chicago, IL", min_yoe="9",
+                   disposition="filtered", disposition_reason="yoe:9>4")])
+    lines, n = _sec_new_roles(hq, {"yoe_push_max": 4}, "2026-07-20")
+    assert n == 1
+    assert "outside your filters" in lines[0]   # visible, not silent
+
+
+def test_qualified_rows_are_unlabelled():
+    from core.fakes import fake_hq
+    from tracker.digest import _sec_new_roles
+    hq = fake_hq()
+    hq.tab("feed").append_records(
+        [_feed_row(location="Chicago, IL", disposition="qualified",
+                   disposition_reason="")])
+    lines, n = _sec_new_roles(hq, {"yoe_push_max": 4}, "2026-07-20")
+    assert n == 1 and "outside your filters" not in lines[0]
