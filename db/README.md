@@ -11,8 +11,10 @@ sheet stays the system of record until stage 3 flips triage writes to the app.
 1. **Supabase project** — supabase.com → New project (free tier is fine: the
    whole workload is well under 500 MB; daily engine writes keep the free
    project from pausing). Region: us-central.
-2. **Run the migration** — SQL editor → paste `db/migrations/0001_init.sql`
-   → run. Idempotence: it is an INIT script; run once per project.
+2. **Run the migrations in order** — SQL editor → paste
+   `db/migrations/0001_init.sql`, run; then `db/migrations/0002_invariants.sql`,
+   run. 0001 is an INIT script (once per project); 0002 closes the gaps it
+   left — notably that 0001 let ANY authenticated user read EVERY posting.
 3. **Allowlist the family** — SQL editor:
    ```sql
    insert into allowed_emails (email, name, is_operator) values
@@ -99,3 +101,9 @@ sheet stays the system of record until stage 3 flips triage writes to the app.
 | `events` | append-only audit: emails, gestures, bot transitions | engine / capture / app commands |
 | `channel_runs` | health ledger (per run, per channel, with denominators) | engine |
 | `answers` | own-Simplify substrate: canonical Q→A per user | future |
+
+**Read policies (after 0002):** a posting is visible only to a user who has a
+`user_postings` row for it; a company only to a user watching it. Everything
+else is `user_id = auth.uid()`. `events` is append-only at the PERMISSION
+level, not by convention — correcting history means appending a correcting
+event, never updating one.
