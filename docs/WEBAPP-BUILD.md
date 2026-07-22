@@ -106,7 +106,7 @@ not the requirement. This is the actual list, with what enforces each.
 | 16 | Session expires mid-action | The action answers `kind: "auth"` rather than letting middleware redirect a POST; the gesture goes to the outbox and is delivered on the next page load after sign-in | ✅ |
 | 17 | Offline / flaky network | `lib/outbox.ts` — the decision is kept, not reverted; banner, auto-replay on reconnect, safe because every gesture carries its idempotency key | ✅ |
 | 18 | Perf collapse at 5k rows | Virtualization + a measured render budget — see rows 46–47 | ✅ |
-| 19 | Back/forward + deep links | URL-addressable views | ⬜ (grid phase) |
+| 19 | Back/forward + deep links | URL is the source of truth for the grid's set/filters/sort/search/group; `grid-url.spec.ts` — see rows 52, 57 | ✅ |
 | 20 | Types drift from the DB | `types-contract.test.ts` parses `CREATE TABLE`/`ADD COLUMN` in the migrations and the row types in `lib/types.ts` and fails on any column-set, nullability, or scalar-kind divergence. Caught a real inversion: `string \| null` on a `NOT NULL` column. (The RPC-call contract is the Python `test_migrations.py`) | ✅ |
 | 21 | **Keystroke before hydration is silently dropped** | Queue publishes `data-ready`; hints stay dim until the handler is attached; tests wait on the flag | ✅ |
 | 22 | **Dark OS preference ignored entirely** | `theme.spec.ts` drives `colorScheme` and asserts the rendered background, not the class | ✅ |
@@ -140,6 +140,16 @@ not the requirement. This is the actual list, with what enforces each.
 | 50 | **The grid silently shows a subset** | It states its counts ("8 of 19 postings"), and the test asserts exact set membership rather than a total — so "8 of 8" cannot pass | ✅ |
 | 51 | **A `Closed` posting is offered as decidable work** (criterion 16) | The rule lived only in `SupabaseDataSource.queue()`'s SQL; `JobView.status` now carries it and both sources enforce it. `FIXTURE_JOBS` contains a Closed row that is otherwise perfectly qualified, so the assertion can fail | ✅ |
 | 52 | **Two demo visitors share one queue and drain each other's cards** | `get-source.ts` keyed stores by `hq_demo_id` and promised each browser its own, but nothing issued the cookie; middleware now mints it on first visit. `demo-isolation.spec.ts` uses fresh contexts (not the cookie-setting `beforeEach`) and asserts one visitor's triage does not move another's queue | ✅ |
+| 53 | **Back/forward loses filters; a deep link renders a different grid** (row 19, criterion 22) | `grid-url.spec.ts`: 2 filters + sort via UI → leave → Back → same URL, rows, count; one decision per Back step; a fresh `goto(fullUrl)` is identical. Verified red with `push` swapped to `replace` | ✅ |
+| 54 | URL round-trip drops or reorders a filter clause | `url-state.test.ts`: `parse(serialize(s)) === s`, every op × field type, values containing `.` `,` `\|` `%` and unicode. Verified red by removing comma-escaping | ✅ |
+| 55 | A malformed URL param crashes the page or is silently "repaired" | Clause-granular drop + one toast; valid siblings in the same `f=` still apply; bogus `sort`/`group` half-apply nothing | ✅ |
+| 56 | **Comp filter silently drops unstated/unparseable comp** (G16) | Keep keyed on `compMaxK`, so "£90k" (stated but unparsed) survives; chip states "incl. N unstated"; exclusion is an explicit visible clause. Verified red by removing the keep-rule | ✅ |
+| 57 | **Nulls sort as 0** — no-comp rows crown "comp desc" (was row 35) | Pure `sortRows`, unknowns last in BOTH directions (react-table's `desc` inverts the comparator and would send nulls first); unit + full-row-order e2e across the asc/desc/off cycle | ✅ |
+| 58 | Deep link pops after hydration (server renders unfiltered, client snaps) | `grid-url.spec.ts` asserts the RAW response HTML already carries the filtered count and sorted order | ✅ |
+| 59 | Back steps through keystrokes; a pending search flush resurrects a cleared query | Debounced `replace` onto one history entry + an explicit flush-cancel in Clear — the resurrection was a real bug the test caught pre-ship | ✅ |
+| 60 | A zero-result filter strands the user in a blank grid | No-match empty state distinct from the profile-gated copy; one-click Clear restores. (The G9 constraint-*naming* for user filters is G3) | ✅ |
+| 61 | **Dark OS preference ignored on a route theme.spec never checked** | `theme.spec.ts` now drives every landing route — `/queue`, `/jobs`, `/pipeline`, `/health` — and asserts the rendered dark background, not just the class. `/jobs` (a shareable deep link) had no such guard | ✅ |
+| — | Typing in a filter input triggers grid shortcuts (was proposed row 38) | Asserted no-toast-while-typing, but `/jobs` has no shortcuts until G4 adds selection; **◐** — only fully falsifiable then |
 
 Row 21 is the rule working as intended. A Linux CI runner failed the keyboard
 test that had always passed on the Mac: `goto` resolves when the server HTML
@@ -270,7 +280,9 @@ Worth keeping, because each was stated confidently and was wrong:
 - [x] **Remaining-phase plans + scaling research** — `docs/plans/`
 - [x] **Grid G1** — read-only virtualized grid at `/jobs`, sticky header + first
       column, measured perf budget at 5k rows
-- [ ] Grid G2–G5 (filters + URL state, saved views, selection/export scope)
+- [x] **Grid G2** — filter engine, URL state (row 19 / criterion 22), sort,
+      group, quick search, filter bar
+- [ ] Grid G3–G5 (saved views + `0005` migration, selection/export scope, polish)
 
 ## Stack (verified live 2026-07-21, not from memory)
 

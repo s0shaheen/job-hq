@@ -4,10 +4,13 @@
  * exercise the "absence is a dash, never an invention" rule without a layout
  * engine.
  *
- * G1 renders display columns only (no accessors): the grid is read-only and
- * unsorted, so an accessor would be dead weight. G2 adds accessorFns alongside
- * its sortingFns (nulls-last in both directions) — do not add them earlier
- * "for completeness"; an accessor nothing reads is untestable.
+ * Columns stay display-only (no accessorFns): sorting lives in the pure
+ * `lib/grid/sort.ts`, applied to the array BEFORE react-table sees it, for the
+ * same reason filtering does — matrix row 35 ("nulls sort as 0") needs a unit
+ * test that can actually fail, and react-table's null handling only runs
+ * inside a mounted table, where jsdom's missing layout engine renders nothing
+ * to observe. A column declares WHICH sort field its header drives via
+ * `meta.sortField`; the header button and the URL do the rest.
  *
  * Width notes vs. the plan's table: Comp is 160, not 130 — the fixture's own
  * "$185,000 - $240,000" measures ~131px at 13px tabular figures and would
@@ -22,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import type { JobView } from "@/lib/data/view-models";
 import { explainReason } from "@/lib/data/view-models";
 import { fmtDay } from "@/lib/format";
+import type { SortField } from "@/lib/grid/sort";
 import { cn } from "@/lib/utils";
 
 declare module "@tanstack/react-table" {
@@ -33,6 +37,9 @@ declare module "@tanstack/react-table" {
     grow?: boolean;
     /** Pinned to the left edge under horizontal scroll (Company). */
     sticky?: boolean;
+    /** Which sort field this column's header drives (lib/grid/sort.ts).
+     *  Absent = the header is a plain label. */
+    sortField?: SortField;
   }
 }
 
@@ -103,7 +110,7 @@ export const GRID_COLUMNS: ColumnDef<JobView>[] = [
     id: "company",
     header: "Company",
     size: 160,
-    meta: { sticky: true },
+    meta: { sticky: true, sortField: "company" },
     cell: ({ row }) => (
       <span className="truncate font-medium" title={row.original.company}>
         {row.original.company}
@@ -114,7 +121,7 @@ export const GRID_COLUMNS: ColumnDef<JobView>[] = [
     id: "title",
     header: "Title",
     size: 300,
-    meta: { grow: true },
+    meta: { grow: true, sortField: "title" },
     cell: ({ row }) => (
       <a
         href={row.original.url}
@@ -131,14 +138,14 @@ export const GRID_COLUMNS: ColumnDef<JobView>[] = [
     id: "comp",
     header: "Comp",
     size: 160,
-    meta: { align: "right" },
+    meta: { align: "right", sortField: "comp" },
     cell: ({ row }) => <Text value={compText(row.original)} />,
   },
   {
     id: "minYoe",
     header: "Min YoE",
     size: 80,
-    meta: { align: "right" },
+    meta: { align: "right", sortField: "minYoe" },
     cell: ({ row }) => <Text value={yoeText(row.original)} />,
   },
   {
@@ -157,7 +164,7 @@ export const GRID_COLUMNS: ColumnDef<JobView>[] = [
     id: "posted",
     header: "Posted",
     size: 90,
-    meta: { align: "right" },
+    meta: { align: "right", sortField: "posted" },
     cell: ({ row }) => <Text value={postedText(row.original)} />,
   },
   {

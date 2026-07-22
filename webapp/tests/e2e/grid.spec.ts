@@ -41,6 +41,7 @@ const EXCLUDED_FROM_QUEUE = [
   "Wise", // disposition = filtered (geo)
   "Retool", // disposition = filtered (comp)
   "Fifth Third Bank", // disposition = needs-info
+  "Affirm", // status = Closed (criterion 16 — qualified, undecided, delisted)
 ];
 
 test.beforeEach(async ({ page, context }) => {
@@ -84,11 +85,10 @@ test("the Queue set shows qualified, undecided rows only — and states its coun
   for (const company of QUEUE_COMPANIES) {
     await expect(companyCell(page, company)).toHaveCount(1);
   }
-  // Acceptance criterion 16 wants Closed postings excluded too. JobView carries
-  // no posting status today, so the client-side predicate cannot see "Closed"
-  // and no fixture models it — the exclusion happens only in the Supabase
-  // queue() query. Asserting it here would be a test that cannot fail; the gap
-  // is reported instead of papered over.
+  // Affirm in this list is acceptance criterion 16: JobView.status carries the
+  // board lifecycle since the Closed-posting fix, and the Affirm fixture is
+  // qualified + undecided so ONLY the status clause can exclude it — the
+  // assertion has something real to fail on.
   for (const company of EXCLUDED_FROM_QUEUE) {
     await expect(companyCell(page, company)).toHaveCount(0);
   }
@@ -281,6 +281,171 @@ test("with nothing found at all, the grid says so instead of rendering a bare he
   ]);
   await gotoJobs(page);
   await expect(page.getByTestId("empty-state")).toContainText("No postings yet");
+});
+
+// ---------------------------------------------------------------------------
+// G2: the filter bar, sort headers, and grouping. URL round-trip mechanics
+// live in grid-url.spec.ts; these assert the SEMANTICS against the fixtures.
+// ---------------------------------------------------------------------------
+
+/** Queue rows, the client predicate's mirror — derived, not hardcoded. */
+const QUEUE_ROWS = FIXTURE_JOBS.filter(
+  (j) =>
+    j.disposition === "qualified" &&
+    j.triage === "" &&
+    (j.status ?? "").trim().toLowerCase() !== "closed",
+);
+
+test("the clause builder writes a chip, the chip filters the rows, removing it restores them", async ({
+  page,
+}) => {
+  await gotoJobs(page);
+
+  await page.getByRole("button", { name: "Filter", exact: true }).click();
+  await page.getByLabel("Filter field").selectOption("workModel");
+  await page.getByRole("checkbox", { name: "Remote (US)" }).check();
+  await page.getByRole("button", { name: "Add filter" }).click();
+
+  const expected = QUEUE_ROWS.filter(
+    (j) => (j.workModel ?? "").toLowerCase() === "remote (us)",
+  );
+  await expect(page.getByTestId("filter-chip")).toHaveText(/Work model: Remote \(US\)/);
+  await expect(page.locator('[role="gridcell"][data-col="company"]')).toHaveText(
+    expected.map((j) => j.company),
+  );
+  await expect(page.getByTestId("grid-count")).toContainText(
+    `${expected.length} of ${QUEUE_ROWS.length}`,
+  );
+
+  await page.getByRole("button", { name: /^Remove filter/ }).click();
+  await expect(page.getByTestId("filter-chip")).toHaveCount(0);
+  await expect(page.getByTestId("grid-count")).toContainText(`${QUEUED} of ${TOTAL}`);
+});
+
+test("a comp filter keeps unknown-comp rows and SAYS so; excluding them is an explicit clause (G16)", async ({
+  page,
+}) => {
+  await page.goto("/jobs?set=all");
+  await expect(
+    page.locator('[data-testid="jobs-grid"][data-ready="true"]'),
+  ).toBeAttached();
+
+  const unknown = FIXTURE_JOBS.filter((j) => j.compMaxK === null);
+  expect(unknown.length).toBeGreaterThan(1); // incl. Wise's unparseable £ band
+
+  await page.getByRole("button", { name: "Filter", exact: true }).click();
+  await page.getByLabel("Filter field").selectOption("compMax");
+  await page.getByLabel("Filter value").fill("150");
+  await page.getByRole("button", { name: "Add filter" }).click();
+
+  // The chip states the keep-rule instead of hiding it.
+  await expect(page.getByTestId("filter-chip")).toContainText("Comp ≥ $150k");
+  await expect(page.getByTestId("filter-chip")).toContainText(
+    `incl. ${unknown.length} unstated`,
+  );
+
+  // Unknowns present, honestly-below-floor rows gone.
+  await expect(companyCell(page, "Chime")).toHaveCount(1); // nothing stated
+  await expect(companyCell(page, "Wise")).toHaveCount(1); // "£85,000 - £110,000"
+  await expect(companyCell(page, "Retool")).toHaveCount(0); // $115k top
+
+  // Excluding unknowns = a second, visible clause — and it only drops rows
+  // that stated NOTHING. Wise stated a band (in pounds); it stays. That is
+  // G16's sentence verbatim: a comp filter never silently drops "£90k".
+  await page.getByRole("button", { name: "Filter", exact: true }).click();
+  await page.getByLabel("Filter field").selectOption("compMax");
+  await page.getByLabel("Filter operator").selectOption("stated");
+  await page.getByRole("button", { name: "Add filter" }).click();
+
+  await expect(page.getByTestId("filter-chip").nth(1)).toHaveText(/Comp stated/);
+  await expect(companyCell(page, "Chime")).toHaveCount(0);
+  await expect(companyCell(page, "Microsoft")).toHaveCount(0);
+  await expect(companyCell(page, "Wise")).toHaveCount(1);
+});
+
+test("sort headers cycle asc → desc → off, and unknowns never crown the list", async ({
+  page,
+}) => {
+  await gotoJobs(page);
+  const cells = page.locator('[role="gridcell"][data-col="company"]');
+  const stated = QUEUE_ROWS.filter((j) => j.compMaxK !== null);
+  const unknown = QUEUE_ROWS.filter((j) => j.compMaxK === null);
+  expect(unknown.length).toBeGreaterThan(0); // Chime — or this test proves nothing
+
+  const compHeader = page.locator('[role="columnheader"][data-col="comp"]');
+  const sortComp = page.getByRole("button", { name: "Comp", exact: true });
+
+  await sortComp.click();
+  await expect(compHeader).toHaveAttribute("aria-sort", "ascending");
+  await expect(cells).toHaveText([
+    ...[...stated].sort((a, b) => a.compMaxK! - b.compMaxK!).map((j) => j.company),
+    ...unknown.map((j) => j.company),
+  ]);
+
+  await sortComp.click();
+  await expect(compHeader).toHaveAttribute("aria-sort", "descending");
+  await expect(cells).toHaveText([
+    ...[...stated].sort((a, b) => b.compMaxK! - a.compMaxK!).map((j) => j.company),
+    ...unknown.map((j) => j.company), // STILL last — "no comp" is not "$0"
+  ]);
+
+  await sortComp.click();
+  await expect(page).not.toHaveURL(/sort=/);
+  await expect(cells).toHaveText(QUEUE_ROWS.map((j) => j.company)); // source order
+});
+
+test("grouping by company pulls rows together under labelled, counted headers", async ({
+  page,
+}, testInfo) => {
+  // The Group select is desktop chrome (the phone bar has no room for a
+  // fourth control at rest), but the STATE must work everywhere — so the
+  // mobile project arrives by deep link, which is the contract anyway.
+  if (testInfo.project.name === "mobile") {
+    await page.goto("/jobs?group=company");
+    await expect(
+      page.locator('[data-testid="jobs-grid"][data-ready="true"]'),
+    ).toBeAttached();
+  } else {
+    await gotoJobs(page);
+    await page.getByLabel("Group rows").selectOption("company");
+    await expect(page).toHaveURL(/group=company/);
+  }
+
+  // The queue set on purpose: group headers + rows all fit one viewport, so
+  // every header is genuinely in the DOM. The all set has more display rows
+  // than the virtualizer renders, and a count assertion against it fails
+  // about the virtualization working, not about grouping being broken.
+  const companies = [...new Set(rowsForSet(FIXTURE_JOBS, "queue").map((j) => j.company))];
+  await expect(page.getByTestId("group-header")).toHaveCount(companies.length);
+  await expect(page.getByTestId("group-header").first()).toContainText(companies[0]);
+  // header row + one group row per company + every job row
+  await expect(page.locator('[role="grid"]')).toHaveAttribute(
+    "aria-rowcount",
+    String(1 + companies.length + QUEUED),
+  );
+  await expect(page.locator('[role="gridcell"][data-col="company"]')).toHaveCount(QUEUED);
+});
+
+test("a filter that matches nothing says so and offers one-click clear — distinct from profile gating", async ({
+  page,
+}) => {
+  await gotoJobs(page);
+
+  const search = page.getByLabel("Quick search");
+  await search.click();
+  await search.pressSequentially("zzz-no-such-posting");
+
+  const empty = page.getByTestId("empty-state");
+  await expect(empty).toContainText("Nothing matches these filters");
+  // NOT the profile-gated copy — those are different situations with
+  // different fixes, and showing the wrong one sends the user to settings
+  // to undo their own quick search.
+  await expect(empty).not.toContainText("filtered out or already decided");
+
+  await empty.getByRole("button", { name: "Clear filters" }).click();
+  await expect(page).not.toHaveURL(/q=/);
+  await expect(page.getByTestId("grid-count")).toContainText(`${QUEUED} of ${TOTAL}`);
+  await expect(page.locator('[role="gridcell"][data-col="company"]')).toHaveCount(QUEUED);
 });
 
 test("when the profile filtered everything, the Queue set points at All postings", async ({

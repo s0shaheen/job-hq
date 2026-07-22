@@ -28,6 +28,15 @@ export default async function JobsPage({
   const perfN = isDemoMode() ? clampPerfCount(params.perf) : 0;
   const rows = perfN > 0 ? makePerfJobs(perfN) : await (await getDataSource()).jobs();
 
+  // URL state (filters/sort/set/group/q) reaches the grid through
+  // useSearchParams, which this page's force-dynamic rendering makes available
+  // DURING the server render — a cold deep link paints its exact state in the
+  // server HTML, with no post-hydration pop (grid-url.spec.ts asserts the raw
+  // response). `now` is pinned here so the `inlast` date filter evaluates
+  // against one instant on both renders of hydration; the client re-deriving
+  // it could flip a boundary row between the two and corrupt the hydrate.
+  const now = Date.now();
+
   return (
     // h-dvh + flex-col: the grid owns the viewport below the toolbar and
     // scrolls inside itself — the page never scrolls sideways at any width
@@ -41,7 +50,7 @@ export default async function JobsPage({
           Every posting the sweeps have found, in one table.
         </p>
       </header>
-      <JobsGrid rows={rows} />
+      <JobsGrid rows={rows} now={now} />
     </div>
   );
 }

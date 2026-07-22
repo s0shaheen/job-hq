@@ -17,16 +17,25 @@ async function bg(page: import("@playwright/test").Page) {
   );
 }
 
+// Every route the user lands on, not just /queue. The wiring lives in the root
+// layout so it applies everywhere, but "should apply everywhere" is a claim,
+// and the grid is a whole new surface — a deep link straight to /jobs on a dark
+// OS is a real entry point (a shared filtered view), and nothing asserted its
+// background until this list did.
+const ROUTES = ["/queue", "/jobs", "/pipeline", "/health"];
+
 test.describe("dark OS preference", () => {
   test.use({ colorScheme: "dark" });
 
-  test("is honoured on first paint", async ({ page }) => {
-    await page.goto("/queue");
-    await expect(page.locator("html")).toHaveClass(/dark/);
-    // rgb(17, 19, 17) is --bg in the dark palette. Asserting the rendered
-    // pixel, not the class, is what catches a token that never got applied.
-    expect(await bg(page)).toBe("rgb(17, 19, 17)");
-  });
+  for (const route of ROUTES) {
+    test(`is honoured on first paint — ${route}`, async ({ page }) => {
+      await page.goto(route);
+      await expect(page.locator("html")).toHaveClass(/dark/);
+      // rgb(17, 19, 17) is --bg in the dark palette. Asserting the rendered
+      // pixel, not the class, is what catches a token that never got applied.
+      expect(await bg(page)).toBe("rgb(17, 19, 17)");
+    });
+  }
 });
 
 test.describe("light OS preference", () => {
