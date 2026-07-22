@@ -308,6 +308,12 @@ Worth keeping, because each was stated confidently and was wrong:
       export scope menu, atomic bulk triage (`0006` migration + db tests)
 - [x] **Grid G5** — Linux visual baselines (row 14 closed), axe-with-selection,
       large-type column scaling. **The grid phase (build-order step 4) is complete.**
+- [ ] **Next up — company discovery** (`docs/plans/COMPANY-DISCOVERY.md`): the
+      active design thread. How dad/roommate populate their company universe by
+      NL / filters / pasted list, agentically and grounded. Forks resolved; the
+      next action is a read-only research pass (confirm with Salman before
+      launching). Remaining build-order phases (pipeline, import, profile,
+      digest) still stand — see `docs/plans/README.md`.
 
 ## Stack (verified live 2026-07-21, not from memory)
 

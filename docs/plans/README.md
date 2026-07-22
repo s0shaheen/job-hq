@@ -5,6 +5,17 @@ punch list: build order, the consolidated failure-matrix rows, what no plan owns
 (orphans), and where the plans contradict each other (with resolutions). The
 resolutions here override the individual plans where they conflict.
 
+> **Grid phase (build order #1) is COMPLETE** — G1–G5 shipped (PRs #31–#34).
+> `/jobs` has the virtualized grid, filters + URL state, saved views + personas,
+> selection + atomic bulk triage, and Linux visual baselines. See
+> `docs/WEBAPP-BUILD.md` for the full state.
+>
+> **Active design thread: [COMPANY-DISCOVERY.md](COMPANY-DISCOVERY.md)** — how
+> non-operator users populate their company universe by NL / filters / pasted
+> list (agentic generate→ground→verify→expand, shared universe, reliability
+> tiers). Forks resolved; next step is a read-only research pass (confirm with
+> Salman before launching). This is where the last conversation left off.
+
 ## Build order
 
 | # | Plan | One line: what it unlocks |
