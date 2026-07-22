@@ -3,6 +3,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isDemoMode } from "@/lib/data/source";
 import { getSupabaseEnv } from "@/lib/env";
 
+/** Keep in step with get-source.ts, which reads this to key the demo store. */
+const DEMO_COOKIE = "hq_demo_id";
+
 /** Routes reachable without a session. */
 const PUBLIC_PREFIXES = ["/login", "/auth", "/setup"];
 
@@ -19,8 +22,27 @@ function isPublicPath(pathname: string): boolean {
  */
 export async function updateSession(request: NextRequest) {
   // Demo mode is a deliberate choice by whoever deployed it: fixtures, no auth,
-  // and the app says so. Nothing to gate.
-  if (isDemoMode()) return NextResponse.next({ request });
+  // and the app says so. Nothing to gate — but give each browser its own store.
+  //
+  // get-source.ts keys demo stores by the `hq_demo_id` cookie and its comment
+  // promises "each browser session gets its own". Nothing issued the cookie, so
+  // every visitor fell to the shared `"shared"` store: the owner showing the
+  // demo to his dad and his roommate at once would have had them triaging the
+  // same queue and draining each other's cards. The promise existed; nothing
+  // kept it. Middleware mints the id on first visit so the mechanism is
+  // actually driven.
+  if (isDemoMode()) {
+    const response = NextResponse.next({ request });
+    if (!request.cookies.get(DEMO_COOKIE)) {
+      response.cookies.set(DEMO_COOKIE, crypto.randomUUID(), {
+        httpOnly: true,
+        sameSite: "lax",
+        maxAge: 60 * 60 * 24 * 30,
+        path: "/",
+      });
+    }
+    return response;
+  }
 
   // Unconfigured and NOT demo: send every route to /setup.
   //
