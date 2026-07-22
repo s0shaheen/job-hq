@@ -80,6 +80,42 @@ jobs:
           name: playwright-report
           path: webapp/playwright-report/
           retention-days: 7
+
+  # Visual regression, in the ONE environment its baselines were recorded in.
+  #
+  # Font rasterisation differs between machines, so a pixel baseline is only
+  # meaningful where the fonts match. This job runs inside the official
+  # Playwright container — the exact image the committed `-linux` baselines were
+  # recorded in — and sets HQ_VISUAL=1 to un-skip visual.spec.ts. The bare
+  # `webapp` job above leaves HQ_VISUAL unset and skips it, so a font mismatch
+  # can never turn that job permanently red. Separate job so a real visual diff
+  # is legible on its own, not buried in the functional run.
+  visual:
+    name: visual (Playwright container)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    defaults:
+      run:
+        working-directory: webapp
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm, cache-dependency-path: webapp/package-lock.json }
+      - run: npm install --no-audit --no-fund
+      - name: Visual snapshots
+        env:
+          HQ_VISUAL: "1"
+          HQ_DEMO: "1"
+        run: npx playwright test tests/e2e/visual.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: visual-report
+          path: webapp/playwright-report/
+          retention-days: 7
+
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10

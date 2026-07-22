@@ -101,7 +101,7 @@ not the requirement. This is the actual list, with what enforces each.
 | 11 | Long content blows out layout | Fixtures carry a deliberately huge title + company | ✅ |
 | 12 | Webfont fails / renders differently per machine | **No webfont.** System stack only | ✅ |
 | 13 | Motion sickness | `prefers-reduced-motion` zeroes transitions | ✅ |
-| 14 | Visual drift | `toHaveScreenshot` per theme — **needs Linux baselines recorded on a runner** | ◐ |
+| 14 | Visual drift | `visual.spec.ts` — queue, jobs grid, and a selection, both themes × both viewports, as `-linux` baselines recorded and checked in the **same** Playwright container (the `visual` CI job). Verified stable on a second render, so it does not flake; the bare `webapp` job skips it so a font mismatch never turns that job red | ✅ |
 | 15 | Empty states unrendered | `empty.spec.ts` — per-surface zero-row test in both viewports, seeded via `hq_demo_seed`; the queue distinguishes **filtered-out from nothing-found** and names the binding constraint; axe runs on the empty page | ✅ |
 | 16 | Session expires mid-action | The action answers `kind: "auth"` rather than letting middleware redirect a POST; the gesture goes to the outbox and is delivered on the next page load after sign-in | ✅ |
 | 17 | Offline / flaky network | `lib/outbox.ts` — the decision is kept, not reverted; banner, auto-replay on reconnect, safe because every gesture carries its idempotency key | ✅ |
@@ -168,6 +168,8 @@ not the requirement. This is the actual list, with what enforces each.
 | 78 | Typing in quick search bulk-triages the selection | The queue's `INPUT\|TEXTAREA\|SELECT` guard covers `i`/`x`/`s`/Space/⌘C; the e2e types into search with a selection held — no toast, text lands in the field | ✅ |
 | 79 | The selection bar clips off-screen or shifts the grid | `position: fixed` to the viewport — the `h-dvh` wrapper's bottom starts below the fold on phones, which clipped the Clear row (found by the screenshot pass, not any assertion). Row geometry unchanged when the bar appears; painted-overflow clean at 280px with a selection | ✅ |
 | 80 | **Selected rows are indistinguishable in dark mode** | A dedicated `--selected` token (not `accent-subtle`, which sits a hair off the dark background); tuned to stand off both the base and the hover in each theme. Found by looking at it, not by a test | ✅ |
+| 81 | **The Comp column ellipsizes its own band at large type** | Column widths scale with the type ratio (18/14), applied identically to header and body so their edges stay aligned; `grid-polish.spec.ts` measures every comp cell for clip at large type | ✅ |
+| 82 | **A selected row's muted text fails AA contrast on the tint** | On a selected row muted text is promoted to `text-2`; a tint strong enough to read as selection is too dark for `#707067` at AA (3.97:1). Caught by `grid-polish.spec.ts`'s axe-with-selection scan the first time it ran — the at-rest sweep in `resilience.spec.ts` never selects | ✅ |
 
 Row 21 is the rule working as intended. A Linux CI runner failed the keyboard
 test that had always passed on the Mac: `goto` resolves when the server HTML
@@ -304,7 +306,8 @@ Worth keeping, because each was stated confidently and was wrong:
       presets, personas, density/type/hints, the why-filtered popover
 - [x] **Grid G4** — selection (shift-click ranges, prune-on-filter), ⌘C copy,
       export scope menu, atomic bulk triage (`0006` migration + db tests)
-- [ ] Grid G5 (visual baselines, axe-with-selection, final polish)
+- [x] **Grid G5** — Linux visual baselines (row 14 closed), axe-with-selection,
+      large-type column scaling. **The grid phase (build-order step 4) is complete.**
 
 ## Stack (verified live 2026-07-21, not from memory)
 

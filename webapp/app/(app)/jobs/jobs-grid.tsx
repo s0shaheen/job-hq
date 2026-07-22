@@ -323,6 +323,9 @@ export default function JobsGrid({
   exportColsRef.current = exportCols;
 
   const rowPx = rowPxFor(displayState.density);
+  // Columns scale with the type: large type is 18px against the 14px the widths
+  // were tuned for, so the fixed pixel widths would ellipsize what fit before.
+  const colScale = displayState.typeScale === "large" ? 18 / 14 : 1;
   const tableRows = table.getRowModel().rows;
   const virtualizer = useVirtualizer({
     count: display.length,
@@ -1087,7 +1090,7 @@ export default function JobsGrid({
                     role="columnheader"
                     data-col={h.column.id}
                     aria-sort={dir ? (dir === "asc" ? "ascending" : "descending") : undefined}
-                    style={colStyle(h.column)}
+                    style={colStyle(h.column, colScale)}
                     className={cn(
                       "flex min-w-0 items-center overflow-hidden px-3 text-2xs font-semibold uppercase tracking-wider text-muted",
                       meta?.align === "right" && "justify-end",
@@ -1199,7 +1202,16 @@ export default function JobsGrid({
                       // "you are here", selection means "this is chosen", and
                       // swapping the second for the first on mouse-move reads
                       // as the selection flickering off.
-                      isSelected ? "bg-selected" : "hover:bg-raised",
+                      //
+                      // Muted text is promoted to text-2 on a selected row: a
+                      // tint strong enough to read as selection is too dark for
+                      // #707067 muted text to clear AA on (3.97:1 — the
+                      // axe-with-selection scan caught this the first time it
+                      // ran). The darker text-2 passes on the tint in both
+                      // themes, so selection stays visible AND legible.
+                      isSelected
+                        ? "bg-selected [&_.text-muted]:text-text-2"
+                        : "hover:bg-raised",
                       isActive && "ring-1 ring-inset ring-ring",
                     )}
                     style={{ height: rowPx, top: vi.start }}
@@ -1217,7 +1229,7 @@ export default function JobsGrid({
                           key={cell.id}
                           role="gridcell"
                           data-col={cell.column.id}
-                          style={colStyle(cell.column)}
+                          style={colStyle(cell.column, colScale)}
                           className={cn(
                             "flex min-w-0 items-center overflow-hidden px-3",
                             meta?.align === "right" && "tabular justify-end",
@@ -1313,9 +1325,21 @@ export default function JobsGrid({
  * test asserts. Fixed columns neither grow nor shrink; Title (grow) absorbs
  * all leftover width when the viewport is wider than the column sum.
  */
-function colStyle(col: Column<JobView, unknown>): React.CSSProperties {
+/**
+ * Column width, scaled with the type size.
+ *
+ * The widths in columns.tsx are tuned for the 14px default. At large type
+ * (18px) the same pixel width ellipsizes what fit before — the Comp band
+ * "$165,000 - $210,000" is the one that first spills, and a comp column that
+ * hides its own numbers is the failure the width note in columns.tsx warns
+ * about. Scaling every column by the same font ratio keeps the layout
+ * proportional, and applying the SAME factor to the header and the body cell
+ * keeps their column edges aligned (row 48) — the header font scales too, so a
+ * one-sided scale would misalign them.
+ */
+function colStyle(col: Column<JobView, unknown>, scale: number): React.CSSProperties {
   return {
-    width: col.getSize(),
+    width: col.getSize() * scale,
     flex: col.columnDef.meta?.grow ? "1 0 auto" : "0 0 auto",
   };
 }

@@ -105,3 +105,30 @@ lib/
   supabase/         # browser / server / middleware clients (@supabase/ssr)
 middleware.ts       # session refresh + redirect unauthenticated -> /login
 ```
+
+## Visual regression baselines
+
+`tests/e2e/visual.spec.ts` pins how the queue and the jobs grid look, as
+`-linux` PNG baselines. Pixel baselines only mean something where the fonts
+match, so both the recording and the CI check happen inside one image — the
+official Playwright container. The `visual` CI job runs there automatically; the
+ordinary `webapp` job skips these (it leaves `HQ_VISUAL` unset) so a font
+mismatch on a bare runner can never turn it red.
+
+To re-record after an intentional visual change, run the SAME container the CI
+job uses, from the repo root:
+
+```sh
+docker run --rm -v "$PWD":/host mcr.microsoft.com/playwright:v1.61.1-noble bash -lc '
+  cp -a /host/webapp/. /work/ && cd /work
+  rm -rf node_modules .next test-results playwright-report
+  npm install --no-audit --no-fund
+  HQ_VISUAL=1 HQ_DEMO=1 npx playwright test tests/e2e/visual.spec.ts --update-snapshots
+  cp tests/e2e/visual.spec.ts-snapshots/*-linux.png /host/webapp/tests/e2e/visual.spec.ts-snapshots/
+'
+```
+
+Then look at the changed PNGs before committing — a baseline you did not look at
+is a screenshot the check will defend without anyone having seen it. Recording
+on a Mac writes `-darwin` baselines the CI job never reads; only `-linux`
+counts.
