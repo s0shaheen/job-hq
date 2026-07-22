@@ -32,6 +32,12 @@
   --accent-hover: #35503f;
   --accent-fg: #ffffff;
   --accent-subtle: #e9efea;
+  /* Row selection in the grid. A dedicated token, not accent-subtle:
+     the same value reads as a clear tint on white and vanishes on the
+     dark background (accent-subtle #1e2a22 sits a hair off #111311).
+     Each theme picks a value that stands off BOTH the base and the
+     hover (raised) so a selected row is unambiguous either way. */
+  --selected: #dde8e0;
 
   --ok: #2f6b45;
   --ok-subtle: #e6f0e9;
@@ -60,6 +66,7 @@
   --accent-hover: #a2c6ad;
   --accent-fg: #10231a;
   --accent-subtle: #1e2a22;
+  --selected: #2b3f33;
 
   --ok: #7dc095;
   --ok-subtle: #1c2b21;
@@ -91,6 +98,7 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-fg: var(--accent-fg);
   --color-accent-subtle: var(--accent-subtle);
+  --color-selected: var(--selected);
 
   --color-ok: var(--ok);
   --color-ok-subtle: var(--ok-subtle);

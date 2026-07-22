@@ -13,6 +13,8 @@
  *     path testable without unplugging anything.
  */
 import type {
+  BulkTriageInput,
+  BulkWriteResult,
   DataSource,
   DeleteViewInput,
   DeleteViewResult,
@@ -200,6 +202,64 @@ export class FixtureDataSource implements DataSource {
     this.seenIdempotencyKeys.set(input.idempotencyKey, result);
     return result;
   }
+
+  async setTriageBulk(input: BulkTriageInput): Promise<BulkWriteResult> {
+    const replay = this.seenBulkKeys.get(input.idempotencyKey);
+    if (replay) return replay;
+
+    if (input.postingKeys.length === 0) {
+      return { ok: false, kind: "error", message: "no postings selected" };
+    }
+    if (!["", "interested", "dismissed", "snoozed"].includes(input.triage)) {
+      return { ok: false, kind: "error", message: `invalid triage value: ${input.triage}` };
+    }
+    if (input.triage === "snoozed" && input.snoozeUntil == null) {
+      return { ok: false, kind: "error", message: "snoozed requires a wake date" };
+    }
+
+    // Validate the WHOLE batch before touching anything, exactly as the
+    // transaction does — a conflict on the last row must leave the first row
+    // untouched. A fake that applied greedily and bailed on the conflict would
+    // model a partial-write the SQL cannot produce, and hide the atomicity bug
+    // rather than reproduce it.
+    for (let i = 0; i < input.postingKeys.length; i++) {
+      const current = this.jobsByKey.get(input.postingKeys[i]);
+      if (!current) {
+        return { ok: false, kind: "error", message: `no such posting ${input.postingKeys[i]}` };
+      }
+      const exp = input.expectedUpdatedAt[i] ?? null;
+      if (exp !== null && current.updatedAt !== null && exp !== current.updatedAt) {
+        return { ok: false, kind: "conflict" };
+      }
+    }
+
+    // Every row is safe; apply them by threading through the single-row path so
+    // the two implementations cannot drift. Each carries its own fresh key so
+    // the per-row replay guard does not collapse the batch.
+    const jobs: JobView[] = [];
+    for (let i = 0; i < input.postingKeys.length; i++) {
+      const res = await this.setTriage({
+        postingKey: input.postingKeys[i],
+        triage: input.triage,
+        snoozeUntil: input.snoozeUntil ?? null,
+        reason: input.reason,
+        idempotencyKey: `${input.idempotencyKey}:${i}`,
+        expectedUpdatedAt: input.expectedUpdatedAt[i] ?? null,
+      });
+      if (!res.ok) {
+        // Pre-validated, so this should not happen; if it does, do not report
+        // a half-applied batch as success.
+        return { ok: false, kind: "error", message: "bulk apply failed mid-batch" };
+      }
+      jobs.push(res.job);
+    }
+
+    const result: BulkWriteResult = { ok: true, jobs };
+    this.seenBulkKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  private seenBulkKeys = new Map<string, BulkWriteResult>();
 
   // ---- saved views ------------------------------------------------------
 

@@ -159,6 +159,15 @@ not the requirement. This is the actual list, with what enforces each.
 | 69 | Typing a view name or search fires grid shortcuts (the old ◐ row) | `j`/`?` typed into inputs: no popover, text lands in the field. Now falsifiable because the grid has a `?` shortcut | ✅ |
 | 70 | Density switch mid-scroll strands the viewport | perf-1000 e2e: the first-visible index is preserved ±2 and the viewport centre stays painted rows | ✅ |
 | 71 | **A phone user has no on-screen way to leave the Queue** | The view switcher was desktop-only and a standalone Queue/All toggle was the phone's set control; removing the toggle as a duplicate made the switcher the single control and showed it on every viewport. `grid-views.spec.ts` drives the switcher on the mobile project | ✅ |
+| 72 | **Export/copy scope includes rows the filter has hidden** | Two independent layers — `pruneSelection` permanently drops hidden keys on filter change, and `selectedRows` order-intersects against the visible leaves. `grid-selection.spec.ts` selects 3, filters to hide 2, asserts the bar/⌘C/export all say 1 and the file byte-matches. Verified red only with BOTH layers broken | ✅ |
+| 73 | Shift-click range wrong across sort/group, or a group header gets selected | Selection spans `displayLeaves` order (headers are not in it, so unselectable by construction); the anchor is a key, so re-sorting cannot shift the span. Verified red with the anchor lookup broken | ✅ |
+| 74 | ⌘C / export carries hidden columns or the wrong column order | `exportColumnsFor` maps visible columns through `JOB_COLUMNS` in view order (+ the URL, stated in the menu); clipboard TSV and downloaded CSV are byte-asserted. Verified red returning all 16 columns | ✅ |
+| 75 | The export menu states one count and the file contains another (H22) | Counts and payloads derive from the same arrays in the same render; the e2e byte-compares the CSV against the stated count under an active filter | ✅ |
+| 76 | **Bulk triage half-applies** — N writes instead of one transaction | One `setTriageBulkAction` → `app_set_triage_bulk` (atomic; the fixture models the same all-or-nothing, `test_bulk_triage.py` proves the SQL). A staged conflict reverts every optimistic row. Verified red twice: conflict-revert skipped, and only 1 of 3 keys sent | ✅ |
+| 77 | A bulk undo restores only part of the batch | One Undo replays the inverse batch (partitioned by prior value) with fresh idempotency keys against the delivered `updatedAt`. Verified red undoing only the first row | ✅ |
+| 78 | Typing in quick search bulk-triages the selection | The queue's `INPUT\|TEXTAREA\|SELECT` guard covers `i`/`x`/`s`/Space/⌘C; the e2e types into search with a selection held — no toast, text lands in the field | ✅ |
+| 79 | The selection bar clips off-screen or shifts the grid | `position: fixed` to the viewport — the `h-dvh` wrapper's bottom starts below the fold on phones, which clipped the Clear row (found by the screenshot pass, not any assertion). Row geometry unchanged when the bar appears; painted-overflow clean at 280px with a selection | ✅ |
+| 80 | **Selected rows are indistinguishable in dark mode** | A dedicated `--selected` token (not `accent-subtle`, which sits a hair off the dark background); tuned to stand off both the base and the hover in each theme. Found by looking at it, not by a test | ✅ |
 
 Row 21 is the rule working as intended. A Linux CI runner failed the keyboard
 test that had always passed on the Mac: `goto` resolves when the server HTML
@@ -293,7 +302,9 @@ Worth keeping, because each was stated confidently and was wrong:
       group, quick search, filter bar
 - [x] **Grid G3** — saved views (`0005` migration + RLS + db tests), built-in
       presets, personas, density/type/hints, the why-filtered popover
-- [ ] Grid G4–G5 (selection/⌘C/export scope/bulk triage, polish + visual baselines)
+- [x] **Grid G4** — selection (shift-click ranges, prune-on-filter), ⌘C copy,
+      export scope menu, atomic bulk triage (`0006` migration + db tests)
+- [ ] Grid G5 (visual baselines, axe-with-selection, final polish)
 
 ## Stack (verified live 2026-07-21, not from memory)
 

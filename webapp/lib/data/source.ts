@@ -56,6 +56,28 @@ export type WriteResult =
   | { ok: false; kind: "error"; message: string };
 
 /**
+ * One triage decision applied to many postings, atomically. `postingKeys` and
+ * `expectedUpdatedAt` are parallel — index i's expected version guards key i,
+ * and a null element skips that row's check. A conflict on ANY row applies
+ * NONE of the batch, so the result is all-or-nothing: there is no partial
+ * outcome to reconcile.
+ */
+export type BulkTriageInput = {
+  postingKeys: string[];
+  triage: Triage;
+  snoozeUntil?: string | null;
+  reason?: string;
+  idempotencyKey: string;
+  expectedUpdatedAt: (string | null)[];
+};
+
+export type BulkWriteResult =
+  | { ok: true; jobs: JobView[] }
+  | { ok: false; kind: "conflict" }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+/**
  * Saving a view. `id` is null to create, or an existing id to update in place;
  * `expectedUpdatedAt` is the version the client last read, so a second device
  * editing the same view conflicts rather than clobbers. `state` is opaque to
@@ -96,6 +118,8 @@ export interface DataSource {
   applications(): Promise<ApplicationView[]>;
   health(): Promise<ChannelHealthView[]>;
   setTriage(input: TriageInput): Promise<WriteResult>;
+  /** One triage applied to N postings in one transaction — all or nothing. */
+  setTriageBulk(input: BulkTriageInput): Promise<BulkWriteResult>;
 
   /** A user's saved grid states for a surface. Built-in presets live in code. */
   savedViews(surface: string): Promise<SavedView[]>;

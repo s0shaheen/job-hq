@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  BulkTriageInput,
+  BulkWriteResult,
   DataSource,
   DeleteViewInput,
   DeleteViewResult,
@@ -302,6 +304,26 @@ export class SupabaseDataSource implements DataSource {
       return { ok: false, kind: "error", message: "Write succeeded but the row could not be re-read" };
     }
     return { ok: true, job };
+  }
+
+  async setTriageBulk(input: BulkTriageInput): Promise<BulkWriteResult> {
+    const { data, error } = await this.supabase.rpc("app_set_triage_bulk", {
+      p_keys: input.postingKeys,
+      p_triage: input.triage,
+      p_snooze_until: input.snoozeUntil ?? null,
+      p_reason: input.reason ?? "",
+      p_idem: input.idempotencyKey,
+      p_expected_updated_at: input.expectedUpdatedAt,
+    });
+    if (error) {
+      if (/conflict|stale/i.test(error.message)) return { ok: false, kind: "conflict" };
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const rows = (data as { rows?: unknown[] } | null)?.rows ?? [];
+    const jobs = rows
+      .map((r) => toJobView(r as Record<string, unknown>))
+      .filter((j): j is JobView => j !== null);
+    return { ok: true, jobs };
   }
 
   // ---- saved views ------------------------------------------------------

@@ -12,13 +12,27 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Popover } from "radix-ui";
 import { toast } from "sonner";
+import { setTriageAction } from "@/app/(app)/queue/actions";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty";
 import { Kbd } from "@/components/ui/kbd";
-import type { JobView, SavedView } from "@/lib/data/view-models";
+import type { BulkTriageInput, BulkWriteResult, WriteResult } from "@/lib/data/source";
+import type { JobView, SavedView, Triage } from "@/lib/data/view-models";
+import { localIsoDaysFromNow } from "@/lib/dates";
+import { toTsv } from "@/lib/export/delimited";
 import { GRID_COLUMNS, HEADER_PX } from "@/lib/grid/columns";
 import { applyFilter, compUnknownCount, quickSearch, type OrGroup } from "@/lib/grid/filter";
 import { rowsForSet, type PersonaPreset, type WorkingSet } from "@/lib/grid/presets";
+import {
+  clearSelection,
+  clickSelect,
+  exportColumnsFor,
+  pruneSelection,
+  rangeSelect,
+  toggleSelect,
+  EMPTY_SELECTION,
+} from "@/lib/grid/selection";
+import { dequeue, enqueue, takeDelivered } from "@/lib/outbox";
 import {
   displayLeaves,
   flattenGroups,
@@ -35,7 +49,10 @@ import {
   type DisplayState,
 } from "@/lib/grid/view-state";
 import { cn } from "@/lib/utils";
+import { setTriageBulkAction } from "./bulk-actions";
+import ExportMenu from "./export-menu";
 import FilterBar from "./filter-bar";
+import SelectionBar from "./selection-bar";
 import ViewSwitcher from "./view-switcher";
 import { WhyChip, WhyPopoverContent } from "./why-popover";
 
@@ -67,7 +84,32 @@ import { WhyChip, WhyPopoverContent } from "./why-popover";
  * `now` comes from the server rather than Date.now(): the `inlast` date
  * operator otherwise evaluates against two different instants on the two
  * renders of hydration, and a row straddling the boundary flickers in or out.
+ *
+ * G4 adds selection + bulk triage. Two rules carried over from the queue,
+ * because they are the same rules: every gesture is optimistic with an honest
+ * failure path (conflict reverts EVERYTHING — the batch is atomic, so the
+ * screen must be too), and an undeliverable decision is kept in the outbox,
+ * never silently dropped. Selection itself is the pure model in
+ * lib/grid/selection.ts; this component only wires gestures to it and prunes
+ * it against the visible rows, so a filtered-away row can never ride along in
+ * a copy, an export, or a bulk decision.
  */
+
+/** Same window as the queue's — one undo vocabulary everywhere. */
+const UNDO_MS = 8000;
+const SNOOZE_DAYS = 3;
+
+/** The queue's labelFor, pluralized. One noun ("roles") shared with the
+ *  export dialog's copy, so the two surfaces do not name rows differently. */
+function bulkLabel(triage: Triage, jobs: JobView[]): string {
+  const who =
+    jobs.length === 1 ? `${jobs[0].company} — ${jobs[0].title}` : `${jobs.length} roles`;
+  if (triage === "interested") return `Saved ${who}`;
+  if (triage === "dismissed") return `Passed on ${who}`;
+  if (triage === "snoozed") return `Snoozed ${who}`;
+  return `Restored ${who}`;
+}
+
 export default function JobsGrid({
   rows,
   now,
@@ -197,10 +239,28 @@ export default function JobsGrid({
     }, 300);
   };
 
+  // Optimistic overlay for bulk triage. The server list stays the base (so
+  // router.refresh() keeps working for saved-view flows); a write patches rows
+  // by key on top of it. The fresher version wins on merge: after a refresh
+  // the server may already hold what a patch was holding — or newer, from
+  // another device — and an optimistic overlay must never beat a fresher read.
+  const [patches, setPatches] = React.useState<ReadonlyMap<string, JobView>>(new Map());
+  const patchesRef = React.useRef(patches);
+  patchesRef.current = patches;
+  const effRows = React.useMemo(() => {
+    if (patches.size === 0) return rows;
+    return rows.map((r) => {
+      const p = patches.get(r.key);
+      if (!p) return r;
+      if (r.updatedAt !== null && p.updatedAt !== null && r.updatedAt > p.updatedAt) return r;
+      return p;
+    });
+  }, [rows, patches]);
+
   // The row pipeline, in stated order: working set → filter → quick search →
   // sort → group-flatten. Each stage is a pure module with its own unit tests;
   // this component only composes them.
-  const setRows = React.useMemo(() => rowsForSet(rows, state.set), [rows, state.set]);
+  const setRows = React.useMemo(() => rowsForSet(effRows, state.set), [effRows, state.set]);
   const visible = React.useMemo(
     () => quickSearch(applyFilter(setRows, state.filter, now), q),
     [setRows, state.filter, now, q],
@@ -208,6 +268,32 @@ export default function JobsGrid({
   const sorted = React.useMemo(() => sortRows(visible, state.sort), [visible, state.sort]);
   const display = React.useMemo(() => flattenGroups(sorted, state.group), [sorted, state.group]);
   const leaves = React.useMemo(() => displayLeaves(display), [display]);
+  const leavesRef = React.useRef(leaves);
+  leavesRef.current = leaves;
+
+  // --- selection (G4) ------------------------------------------------------
+  // Raw state + a derived prune against the CURRENT visible rows. The derived
+  // value is what every consumer (bar, copy, export, bulk) reads, so a row a
+  // filter just hid is out of scope synchronously; the effect then commits the
+  // prune so widening the filter later cannot resurrect it. pruneSelection
+  // returns the same object when nothing changed — no set-state loop.
+  const [selRaw, setSelRaw] = React.useState(EMPTY_SELECTION);
+  const visibleKeys = React.useMemo(() => new Set(leaves.map((j) => j.key)), [leaves]);
+  const sel = React.useMemo(() => pruneSelection(selRaw, visibleKeys), [selRaw, visibleKeys]);
+  const selRef = React.useRef(sel);
+  selRef.current = sel;
+  React.useEffect(() => {
+    if (sel !== selRaw) setSelRaw(sel);
+  }, [sel, selRaw]);
+
+  /** Selected rows in display order — the exact payload copy/export receive.
+   *  Filtered over LEAVES, not the full row set: the order-intersection is the
+   *  second, independent enforcement of the prune rule, so even a pruning bug
+   *  cannot put an invisible row into a clipboard or a file. */
+  const selectedRows = React.useMemo(
+    () => leaves.filter((j) => sel.keys.has(j.key)),
+    [leaves, sel],
+  );
 
   // Which columns earn their width is a property of the working set.
   //
@@ -228,6 +314,13 @@ export default function JobsGrid({
       columnVisibility: { why: whyVisible, decision: state.set === "all" },
     },
   });
+
+  // Copy/export column contract: the visible columns in view order, mapped
+  // through JOB_COLUMNS (+ URL) — computed from the same table state that
+  // paints the header, so the file can never carry a column the screen hides.
+  const exportCols = exportColumnsFor(table.getVisibleLeafColumns().map((c) => c.id));
+  const exportColsRef = React.useRef(exportCols);
+  exportColsRef.current = exportCols;
 
   const rowPx = rowPxFor(displayState.density);
   const tableRows = table.getRowModel().rows;
@@ -259,6 +352,311 @@ export default function JobsGrid({
     if (el) el.scrollTop = Math.round(anchor * rowPx);
   }, [rowPx, virtualizer]);
 
+  // --- bulk triage (G4) ----------------------------------------------------
+
+  const [bulkBusy, setBulkBusy] = React.useState(false);
+  const busyRef = React.useRef(false);
+
+  const patchRows = React.useCallback((next: JobView[]) => {
+    setPatches((p) => {
+      const merged = new Map(p);
+      for (const r of next) merged.set(r.key, r);
+      return merged;
+    });
+  }, []);
+
+  /** Put back exactly what a key held before the gesture — including "no
+   *  patch at all", which deleting alone would get wrong for a row an earlier
+   *  gesture had already patched. */
+  const restorePatches = React.useCallback(
+    (snapshot: ReadonlyArray<readonly [string, JobView | undefined]>) => {
+      setPatches((p) => {
+        const merged = new Map(p);
+        for (const [k, v] of snapshot) {
+          if (v === undefined) merged.delete(k);
+          else merged.set(k, v);
+        }
+        return merged;
+      });
+    },
+    [],
+  );
+
+  const copySelection = React.useCallback(async () => {
+    const picked = leavesRef.current.filter((j) => selRef.current.keys.has(j.key));
+    if (picked.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(toTsv(picked, exportColsRef.current));
+    } catch {
+      // Clipboard access is permission-gated; a copy that silently did nothing
+      // would be pasted-into-a-sheet as an empty surprise.
+      toast.error("Couldn't copy — the browser blocked clipboard access.");
+      return;
+    }
+    toast(`Copied ${picked.length} ${picked.length === 1 ? "row" : "rows"}`);
+  }, []);
+
+  /**
+   * Undo one row the background flush delivered while its toast was up — the
+   * queue's undoDelivered, except the grid restores the row's PRIOR triage
+   * (a bulk gesture in All postings may start from any value, not just "").
+   */
+  const undoDeliveredRow = React.useCallback(
+    async (written: JobView, prior: JobView) => {
+      const input = {
+        postingKey: written.key,
+        triage: prior.triage,
+        snoozeUntil: prior.triage === "snoozed" ? (prior.snoozeUntil ?? null) : null,
+        idempotencyKey: crypto.randomUUID(),
+        expectedUpdatedAt: written.updatedAt,
+      };
+      let undo: WriteResult;
+      try {
+        undo = await setTriageAction(input);
+      } catch {
+        // The undo never reached the server: hold it, don't drop it.
+        const idem = crypto.randomUUID();
+        enqueue({
+          id: idem,
+          input: { ...input, idempotencyKey: idem },
+          label: `Undo ${bulkLabel(written.triage, [written])}`,
+          queuedAt: Date.now(),
+          reason: "offline",
+        });
+        patchRows([{ ...written, triage: prior.triage, snoozeUntil: input.snoozeUntil }]);
+        return;
+      }
+      if (undo.ok) {
+        patchRows([undo.job]);
+        return;
+      }
+      if (undo.kind === "auth") {
+        toast.error("Couldn't undo — your session expired.", {
+          description: "Sign in and try again.",
+        });
+      } else if (undo.kind === "conflict") {
+        toast.warning("Couldn't undo — this was changed somewhere else.");
+      } else {
+        toast.error("Couldn't undo that.", { description: undo.message });
+      }
+    },
+    [patchRows],
+  );
+
+  /**
+   * The ONE undo for a delivered batch: the inverse batch, fresh idempotency
+   * key, guarded by the updatedAt values the delivery returned. The data layer
+   * applies one triage per call, so a selection whose rows had MIXED prior
+   * values partitions by prior (triage, wake date) — almost always one group,
+   * since the queue set is all-undecided by definition.
+   */
+  const undoBulk = React.useCallback(
+    async (written: JobView[], priors: JobView[]) => {
+      type Group = { triage: Triage; snoozeUntil: string | null; written: JobView[] };
+      const groups = new Map<string, Group>();
+      for (let i = 0; i < written.length; i++) {
+        const p = priors[i];
+        const snoozeUntil = p.triage === "snoozed" ? (p.snoozeUntil ?? null) : null;
+        const gk = `${p.triage}|${snoozeUntil ?? ""}`;
+        let g = groups.get(gk);
+        if (!g) groups.set(gk, (g = { triage: p.triage, snoozeUntil, written: [] }));
+        g.written.push(written[i]);
+      }
+      for (const g of groups.values()) {
+        let res: BulkWriteResult;
+        try {
+          res = await setTriageBulkAction({
+            postingKeys: g.written.map((w) => w.key),
+            triage: g.triage,
+            snoozeUntil: g.snoozeUntil,
+            idempotencyKey: crypto.randomUUID(),
+            expectedUpdatedAt: g.written.map((w) => w.updatedAt),
+          });
+        } catch {
+          // Offline mid-undo: same doctrine as the queue — the undo is a
+          // decision, it goes to the outbox and the rows read as undone.
+          for (const w of g.written) {
+            const idem = crypto.randomUUID();
+            enqueue({
+              id: idem,
+              input: {
+                postingKey: w.key,
+                triage: g.triage,
+                snoozeUntil: g.snoozeUntil,
+                idempotencyKey: idem,
+                expectedUpdatedAt: w.updatedAt,
+              },
+              label: `Undo ${bulkLabel(w.triage, [w])}`,
+              queuedAt: Date.now(),
+              reason: "offline",
+            });
+          }
+          patchRows(
+            g.written.map((w) => ({ ...w, triage: g.triage, snoozeUntil: g.snoozeUntil })),
+          );
+          continue;
+        }
+        if (res.ok) {
+          patchRows(res.jobs);
+          continue;
+        }
+        if (res.kind === "auth") {
+          toast.error("Couldn't undo — your session expired.", {
+            description: "Sign in and try again.",
+          });
+        } else if (res.kind === "conflict") {
+          toast.warning("Couldn't undo — this was changed somewhere else.");
+          router.refresh();
+        } else {
+          toast.error("Couldn't undo that.", { description: res.message });
+        }
+      }
+    },
+    [patchRows, router],
+  );
+
+  /**
+   * One decision, N rows, one transaction, one undo. The optimistic update
+   * lands first (in the Queue set the rows leave the screen, exactly like the
+   * queue's cards); the failure branches mirror triage-queue.tsx because they
+   * are the same failures — with one difference the atomicity contract forces:
+   * a conflict reverts EVERY row, since the store applied none of them.
+   */
+  const bulkDecide = React.useCallback(
+    async (triage: Triage, snooze?: string) => {
+      if (busyRef.current) return;
+      const targets = leavesRef.current.filter((j) => selRef.current.keys.has(j.key));
+      if (targets.length === 0) return;
+      busyRef.current = true;
+      setBulkBusy(true);
+
+      const priors = targets.map((j) => ({ ...j }));
+      const selSnapshot = selRef.current;
+      const patchSnapshot = targets.map(
+        (j) => [j.key, patchesRef.current.get(j.key)] as const,
+      );
+      const snoozeUntil = triage === "snoozed" ? (snooze ?? null) : null;
+      patchRows(targets.map((j) => ({ ...j, triage, snoozeUntil })));
+
+      const idem = crypto.randomUUID();
+      const input: BulkTriageInput = {
+        postingKeys: targets.map((j) => j.key),
+        triage,
+        snoozeUntil,
+        idempotencyKey: idem,
+        expectedUpdatedAt: targets.map((j) => j.updatedAt),
+      };
+      const label = bulkLabel(triage, targets);
+
+      /**
+       * Hold, don't discard (the queue's rule). The outbox speaks single-row
+       * gestures, so a deferred batch rides as N entries under derived keys —
+       * the flush delivers them row by row, which forfeits atomicity but not
+       * the decisions; the atomic path needed the server, and the server was
+       * the thing we could not reach.
+       */
+      const defer = (reason: "offline" | "auth") => {
+        for (let i = 0; i < targets.length; i++) {
+          enqueue({
+            id: `${idem}:${i}`,
+            input: {
+              postingKey: targets[i].key,
+              triage,
+              snoozeUntil,
+              idempotencyKey: `${idem}:${i}`,
+              expectedUpdatedAt: targets[i].updatedAt,
+            },
+            label: bulkLabel(triage, [targets[i]]),
+            queuedAt: Date.now(),
+            reason,
+          });
+        }
+        busyRef.current = false;
+        setBulkBusy(false);
+        toast(label, {
+          description:
+            reason === "auth"
+              ? "Saved on this device — sign in to apply it."
+              : "Saved on this device — it'll sync when you're back online.",
+          action: {
+            label: "Undo",
+            onClick: () => {
+              // Row by row, the queue's three-way branch: still local (drop
+              // it), delivered behind our back (compensating write), or gone
+              // without a trace (say so — restoring the row would lie).
+              let lost = 0;
+              for (let i = 0; i < targets.length; i++) {
+                if (dequeue(`${idem}:${i}`)) {
+                  restorePatches([patchSnapshot[i]]);
+                  continue;
+                }
+                const w = takeDelivered(`${idem}:${i}`);
+                if (w) void undoDeliveredRow(w, priors[i]);
+                else lost++;
+              }
+              if (lost > 0) {
+                toast.error(
+                  lost === targets.length
+                    ? "Couldn't undo that."
+                    : `Couldn't undo ${lost} of them.`,
+                  {
+                    description:
+                      "The decision already left this device. Reload to see where it landed.",
+                  },
+                );
+              }
+            },
+          },
+          duration: UNDO_MS,
+        });
+      };
+
+      let result: BulkWriteResult;
+      try {
+        result = await setTriageBulkAction(input);
+      } catch {
+        defer("offline");
+        return;
+      }
+      if (!result.ok && result.kind === "auth") {
+        defer("auth");
+        return;
+      }
+      busyRef.current = false;
+      setBulkBusy(false);
+
+      if (result.ok) {
+        // The server's rows, not the optimistic guesses: their updatedAt is
+        // what makes the undo batch conflict-checkable (the queue's stale-
+        // object lesson, applied N-wide).
+        patchRows(result.jobs);
+        const written = result.jobs;
+        toast(label, {
+          action: { label: "Undo", onClick: () => void undoBulk(written, priors) },
+          duration: UNDO_MS,
+        });
+        return;
+      }
+
+      // All-or-nothing came back as nothing: every row reverts, including the
+      // ones that would have succeeded alone — showing them decided while the
+      // store holds nothing is the half-applied screen the transaction exists
+      // to rule out. The selection comes back too, so a retry is one keypress.
+      restorePatches(patchSnapshot);
+      setSelRaw(selSnapshot);
+      if (result.kind === "conflict") {
+        toast.warning("Changed on another device — nothing was applied. Showing the latest.");
+        router.refresh();
+        return;
+      }
+      toast.error("Couldn't save that.", {
+        description: result.message,
+        action: { label: "Retry", onClick: () => void bulkDecide(triage, snooze) },
+      });
+    },
+    [patchRows, restorePatches, undoBulk, undoDeliveredRow, router],
+  );
+
   // --- the keyboard cursor and the why-popover (plan §6) -------------------
 
   // null until the user reaches for the keyboard: a permanent ring on row one
@@ -283,7 +681,6 @@ export default function JobsGrid({
       return i >= 0 && i < display.length ? i : null;
     }
     function onKey(e: KeyboardEvent) {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
       const el = e.target as HTMLElement | null;
       // The queue's guard, verbatim: typing in the quick search, the clause
       // builder, or the save-view name field is text, never a command.
@@ -298,14 +695,26 @@ export default function JobsGrid({
       ) {
         return;
       }
+      // ⌘C with rows selected: the grid owns copy. With none — or with real
+      // text highlighted — the browser keeps its native copy untouched.
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "c") {
+        if (selRef.current.keys.size === 0) return;
+        const docSel = window.getSelection();
+        if (docSel && !docSel.isCollapsed) return;
+        e.preventDefault();
+        void copySelection();
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (display.length === 0) return;
 
       const raw = activeIdxRef.current;
       const cur = raw === null ? null : Math.min(raw, display.length - 1);
+      const key = e.key.toLowerCase();
 
-      if (e.key === "j" || e.key === "k") {
+      if (key === "j" || key === "k") {
         e.preventDefault();
-        const dir = e.key === "j" ? 1 : -1;
+        const dir = key === "j" ? 1 : -1;
         // The first press parks on the nearest end rather than skipping row 1.
         const start = cur === null ? (dir === 1 ? 0 : display.length - 1) : cur + dir;
         const target = jobIndexFrom(start, dir);
@@ -313,6 +722,45 @@ export default function JobsGrid({
         moveActiveTo(target);
         setWhyOpen(null);
         virtualizer.scrollToIndex(target);
+        if (e.shiftKey) {
+          // Shift+j/k: extend the selection from the anchor to the cursor.
+          // With no anchor yet, the row the cursor came FROM becomes it, so
+          // the first extension selects both ends the way a hand expects.
+          const item = display[target];
+          if (item.kind !== "job") return;
+          const fromKey =
+            cur !== null && display[cur]?.kind === "job"
+              ? (display[cur] as { kind: "job"; job: JobView }).job.key
+              : item.job.key;
+          setSelRaw((s) => {
+            const order = leavesRef.current.map((j) => j.key);
+            const withAnchor =
+              s.anchor !== null && order.includes(s.anchor) ? s : clickSelect(fromKey);
+            return rangeSelect(withAnchor, order, item.job.key);
+          });
+        }
+      } else if (e.key === " ") {
+        // Not from a button or link: Space is activation there, and firing
+        // both would toggle a row the user only meant to press a control.
+        if (el && /^(A|BUTTON)$/.test(el.tagName)) return;
+        e.preventDefault();
+        if (cur === null) return;
+        const item = display[cur];
+        if (item.kind !== "job") return;
+        setSelRaw((s) => toggleSelect(s, item.job.key));
+      } else if (e.key === "Escape") {
+        if (selRef.current.keys.size === 0) return;
+        e.preventDefault();
+        setSelRaw(clearSelection());
+      } else if ((key === "i" || key === "x" || key === "s") && !e.shiftKey) {
+        // Bulk only: with nothing selected these keys stay inert — single-row
+        // triage is the queue's surface, and a stray keypress silently
+        // deciding the active row here would be a decision nobody made.
+        if (selRef.current.keys.size === 0) return;
+        e.preventDefault();
+        if (key === "i") void bulkDecide("interested");
+        else if (key === "x") void bulkDecide("dismissed");
+        else void bulkDecide("snoozed", localIsoDaysFromNow(SNOOZE_DAYS));
       } else if (e.key === "?") {
         e.preventDefault();
         const target = jobIndexFrom(cur ?? 0, 1) ?? jobIndexFrom(cur ?? 0, -1);
@@ -326,7 +774,7 @@ export default function JobsGrid({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [display, virtualizer, moveActiveTo]);
+  }, [display, virtualizer, moveActiveTo, bulkDecide, copySelection]);
 
   const openJob =
     whyOpen === null ? null : (leaves.find((j) => j.key === whyOpen) ?? null);
@@ -447,6 +895,18 @@ export default function JobsGrid({
   const headers = table.getHeaderGroups()[0]?.headers ?? [];
   const colCount = table.getVisibleLeafColumns().length;
 
+  // Both Export menus (toolbar and selection bar) state counts from the same
+  // arrays the grid renders — the stated number IS the file's number.
+  const exportMenuFor = (testid: string) => (
+    <ExportMenu
+      viewRows={leaves}
+      selectionRows={selectedRows}
+      allRows={effRows}
+      columns={exportCols}
+      testid={testid}
+    />
+  );
+
   return (
     <div
       data-testid="jobs-grid"
@@ -458,7 +918,7 @@ export default function JobsGrid({
         q={q}
         countText={countText}
         compUnknown={compUnknownCount(sorted)}
-        rows={rows}
+        rows={effRows}
         // Visible on every viewport: it is the only control for which set or
         // view is shown, and hiding it on a phone would leave a phone user no
         // on-screen way to leave the Queue. It replaced the standalone Queue/All
@@ -466,21 +926,33 @@ export default function JobsGrid({
         // dropdown trigger is narrower than that two-button toggle — so the bar
         // height the loading skeleton mirrors is unchanged.
         switcher={
-          <ViewSwitcher
-            views={views}
-            base={ctx.base}
-            edited={edited}
-            nav={state}
-            display={displayState}
-            onSelectPreset={selectPreset}
-            onSelectView={selectView}
-            onApplyPersona={applyPersona}
-            onDisplayChange={(d) => setDisplayEdit({ key: baseKey, value: d })}
-            onSaved={handleSaved}
-            onConflict={handleConflict}
-            onDeleted={handleDeleted}
-            onReset={handleReset}
-          />
+          <>
+            <ViewSwitcher
+              views={views}
+              base={ctx.base}
+              edited={edited}
+              nav={state}
+              display={displayState}
+              onSelectPreset={selectPreset}
+              onSelectView={selectView}
+              onApplyPersona={applyPersona}
+              onDisplayChange={(d) => setDisplayEdit({ key: baseKey, value: d })}
+              onSaved={handleSaved}
+              onConflict={handleConflict}
+              onDeleted={handleDeleted}
+              onReset={handleReset}
+            />
+            {/* Export sits beside the switcher: scope is a property of the
+                view, and the menu's "Current view" line names whatever the
+                switcher currently shows (H22). Desktop chrome, like the Group
+                select — at rest the phone bar holds one line (the loading
+                skeleton pins that height, and this button wrapped it to two:
+                the loaded rail landed 34px below the skeleton's, matrix row
+                7's jump, caught by grid.spec's rail test on the mobile
+                project). A phone still reaches every scope: selecting any row
+                puts the same menu in the selection bar. */}
+            <span className="hidden sm:block">{exportMenuFor("grid-export")}</span>
+          </>
         }
         onQChange={onQChange}
         onAddGroup={addGroup}
@@ -594,6 +1066,7 @@ export default function JobsGrid({
             role="grid"
             aria-label="Job postings"
             aria-rowcount={display.length + 1}
+            aria-multiselectable="true"
             className="w-max min-w-full"
           >
             <div
@@ -683,22 +1156,50 @@ export default function JobsGrid({
                 }
                 const row = tableRows[item.leafIndex];
                 const isActive = effActive === vi.index;
+                const isSelected = sel.keys.has(row.original.key);
                 const isOpenRow = openJob?.key === row.original.key;
                 return (
                   <div
                     key={row.id}
                     role="row"
                     aria-rowindex={vi.index + 2}
+                    aria-selected={isSelected}
                     data-active={isActive ? "true" : undefined}
+                    data-key={row.original.key}
+                    onMouseDown={(e) => {
+                      // Shift-click extends the range; without this the same
+                      // gesture also smears a text selection across it.
+                      if (e.shiftKey) e.preventDefault();
+                    }}
+                    onClick={(e) => {
+                      // Links open and chips explain — a click on them is not
+                      // a selection gesture.
+                      if ((e.target as HTMLElement).closest("a,button")) return;
+                      moveActiveTo(vi.index);
+                      const k = row.original.key;
+                      const order = leaves.map((j) => j.key);
+                      setSelRaw((s) =>
+                        e.shiftKey
+                          ? rangeSelect(s, order, k)
+                          : e.metaKey || e.ctrlKey
+                            ? toggleSelect(s, k)
+                            : clickSelect(k),
+                      );
+                    }}
                     // Positioned with `top`, not translateY: a transform on
                     // the row makes it the containing block for its children
                     // and position:sticky on the company cell silently stops
                     // sticking — the exact failure grid-perf row 27 exists to
                     // catch.
                     className={cn(
-                      "group absolute inset-x-0 flex border-b border-border hover:bg-raised",
-                      // The keyboard cursor: an inset ring, distinguishable
-                      // from (future) selection tint by construction.
+                      "group absolute inset-x-0 flex border-b border-border",
+                      // Selection is the tint, the cursor is the inset ring —
+                      // both at once stay distinguishable by construction.
+                      // A selected row keeps its tint under hover: hover means
+                      // "you are here", selection means "this is chosen", and
+                      // swapping the second for the first on mouse-move reads
+                      // as the selection flickering off.
+                      isSelected ? "bg-selected" : "hover:bg-raised",
                       isActive && "ring-1 ring-inset ring-ring",
                     )}
                     style={{ height: rowPx, top: vi.start }}
@@ -723,8 +1224,13 @@ export default function JobsGrid({
                             meta?.sticky &&
                               // Opaque, and re-tinted on row hover — a sticky
                               // cell with a transparent background shows the
-                              // scrolled columns through itself.
-                              "sticky left-0 z-10 border-r border-border bg-surface group-hover:bg-raised",
+                              // scrolled columns through itself. The selected
+                              // tint is opaque too, for the same reason, and
+                              // must match the row or the pinned column reads
+                              // as a different selection than the rest.
+                              (isSelected
+                                ? "sticky left-0 z-10 border-r border-border bg-selected"
+                                : "sticky left-0 z-10 border-r border-border bg-surface group-hover:bg-raised"),
                           )}
                         >
                           {cell.column.id === "why" &&
@@ -769,14 +1275,33 @@ export default function JobsGrid({
           height, and a wrapped toolbar moves the whole grid down 24px when
           data lands (matrix row 7's jump, reborn). Off with the display knob;
           hidden on phones along with the shortcuts themselves. */}
-      {displayState.hints && display.length > 0 ? (
+      {/* Hidden while the selection bar is up: the bar floats exactly over
+          this strip and carries every hint a selection can use (i/s/x, ⌘C,
+          Esc) on its own buttons — two layers of keyboard hints in the same
+          pixels read as clutter, which the G4 screenshot pass showed. */}
+      {displayState.hints && display.length > 0 && selectedRows.length === 0 ? (
         <p
           data-testid="grid-hints"
           className="hidden shrink-0 items-center justify-end gap-x-1 whitespace-nowrap border-t
                      border-border px-4 py-1 text-2xs text-muted sm:flex sm:px-6"
         >
-          <Kbd className="ml-0">j</Kbd> <Kbd>k</Kbd> rows · <Kbd>?</Kbd> why this row
+          <Kbd className="ml-0">j</Kbd> <Kbd>k</Kbd> rows · <Kbd>Space</Kbd> select ·{" "}
+          <Kbd>⇧j</Kbd> <Kbd>⇧k</Kbd> extend · <Kbd>i</Kbd> <Kbd>x</Kbd> <Kbd>s</Kbd> decide
+          selection · <Kbd>⌘C</Kbd> copy · <Kbd>?</Kbd> why
         </p>
+      ) : null}
+
+      {selectedRows.length > 0 ? (
+        <SelectionBar
+          count={selectedRows.length}
+          busy={bulkBusy}
+          onInterested={() => void bulkDecide("interested")}
+          onSnooze={() => void bulkDecide("snoozed", localIsoDaysFromNow(SNOOZE_DAYS))}
+          onDismiss={() => void bulkDecide("dismissed")}
+          onCopy={() => void copySelection()}
+          onClear={() => setSelRaw(clearSelection())}
+          exportMenu={exportMenuFor("sel-export")}
+        />
       ) : null}
     </div>
   );
