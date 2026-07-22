@@ -1,12 +1,28 @@
 /**
- * The grid's working sets. G1 ships the two that make the surface honest —
- * Queue (what needs a decision) and All postings (everything, including what
- * the profile filtered out). The full preset list (Snoozed, Dismissed, Needs
- * review) and saved views arrive in G3 on top of these.
+ * The grid's working sets and built-in presets. G1 shipped Queue and All
+ * postings; G3 completes the preset list (Snoozed, Dismissed, Needs review)
+ * and adds the persona seeds from spec D.
+ *
+ * Presets live in CODE, not in saved_views rows, on purpose: they must exist
+ * with zero setup — a fresh user's first visit already has the escape hatch
+ * ("All postings") and the review pile — and they must not be deletable,
+ * because a user who deletes "Queue" has deleted the product. Each preset is
+ * one working set, so selecting one is nothing more than navigating to
+ * `?set=…` — the URL stays the source of truth (matrix row 19) and a preset
+ * is shareable like any other grid state.
  */
 import type { JobView } from "@/lib/data/view-models";
+// Type-only imports: a value import here would close a runtime cycle
+// (url-state imports isWorkingSet from this module).
+import type { GridUrlState } from "./url-state";
+import type { DisplayState } from "./view-state";
 
-export type WorkingSet = "queue" | "all";
+export const WORKING_SETS = ["queue", "all", "snoozed", "dismissed", "needs-review"] as const;
+export type WorkingSet = (typeof WORKING_SETS)[number];
+
+export function isWorkingSet(s: string): s is WorkingSet {
+  return (WORKING_SETS as readonly string[]).includes(s);
+}
 
 /**
  * The Queue predicate: qualified, not yet decided, and still on the board.
@@ -35,5 +51,80 @@ export function isQueueRow(job: JobView): boolean {
 /** The rows a working set shows. "all" is the input, untouched, on purpose —
  *  the escape-hatch set must never be a third, secretly-different list. */
 export function rowsForSet(rows: JobView[], set: WorkingSet): JobView[] {
-  return set === "queue" ? rows.filter(isQueueRow) : rows;
+  switch (set) {
+    case "queue":
+      return rows.filter(isQueueRow);
+    case "all":
+      return rows;
+    case "snoozed":
+      return rows.filter((j) => j.triage === "snoozed");
+    case "dismissed":
+      return rows.filter((j) => j.triage === "dismissed");
+    case "needs-review":
+      return rows.filter((j) => j.disposition === "needs-info");
+  }
 }
+
+export type GridPreset = { set: WorkingSet; name: string };
+
+/** Switcher order. The names are asserted by unit test AND clicked by role in
+ *  the e2e — renaming one is an API change, not a copy tweak. */
+export const GRID_PRESETS: GridPreset[] = [
+  { set: "queue", name: "Queue" },
+  { set: "all", name: "All postings" },
+  { set: "snoozed", name: "Snoozed" },
+  { set: "dismissed", name: "Dismissed" },
+  { set: "needs-review", name: "Needs review" },
+];
+
+export function presetName(set: WorkingSet): string {
+  return GRID_PRESETS.find((p) => p.set === set)?.name ?? set;
+}
+
+/**
+ * Persona seeds — spec D's per-persona defaults, shipped as pickable presets
+ * because there is no per-persona provisioning UI yet. Picking one applies its
+ * nav (through the URL) and display state in one gesture; "Save as…" then
+ * turns it into a real saved view, and "Use as my landing view" wires
+ * `is_default`. Named for what they DO rather than for who they were designed
+ * around, since anyone may pick any of them.
+ *
+ * (Dad's spec-D landing is the Pipeline grouped by status; the pipeline grid
+ * is build-order phase 5, so until then his seed points at the comfortable
+ * Queue — the plan's §10 flag records this.)
+ */
+export type PersonaPreset = {
+  id: "owner" | "dad" | "roommate";
+  name: string;
+  nav: GridUrlState;
+  display: DisplayState;
+};
+
+const QUEUE_NAV: GridUrlState = { set: "queue", filter: [], q: "", sort: null, group: null };
+
+export const PERSONA_PRESETS: PersonaPreset[] = [
+  {
+    id: "owner",
+    name: "Dense, keyboard-first",
+    nav: QUEUE_NAV,
+    display: { density: "dense", typeScale: "default", hints: true },
+  },
+  {
+    id: "dad",
+    name: "Comfortable, large type",
+    nav: QUEUE_NAV,
+    display: { density: "comfortable", typeScale: "large", hints: false },
+  },
+  {
+    id: "roommate",
+    name: "New this week, by company",
+    nav: {
+      set: "queue",
+      filter: [[{ kind: "date", field: "firstSeen", op: "inlast", days: 7 }]],
+      q: "",
+      sort: null,
+      group: "company",
+    },
+    display: { density: "dense", typeScale: "default", hints: true },
+  },
+];

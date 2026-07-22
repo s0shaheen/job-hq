@@ -14,7 +14,11 @@
  */
 import type {
   DataSource,
+  DeleteViewInput,
+  DeleteViewResult,
   QueueOptions,
+  SaveViewInput,
+  SaveViewResult,
   TriageInput,
   WriteResult,
 } from "./source";
@@ -24,7 +28,12 @@ import {
   FIXTURE_JOBS,
   FIXTURE_NOW,
 } from "./fixtures";
-import type { ApplicationView, ChannelHealthView, JobView } from "./view-models";
+import type {
+  ApplicationView,
+  ChannelHealthView,
+  JobView,
+  SavedView,
+} from "./view-models";
 
 const DEFAULT_QUEUE_LIMIT = 20;
 
@@ -189,6 +198,88 @@ export class FixtureDataSource implements DataSource {
 
     const result: WriteResult = { ok: true, job: { ...updated } };
     this.seenIdempotencyKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  // ---- saved views ------------------------------------------------------
+
+  private views: SavedView[] = [];
+  private seenViewKeys = new Map<string, SaveViewResult | DeleteViewResult>();
+  private viewSeq = 0;
+
+  async savedViews(surface: string): Promise<SavedView[]> {
+    return this.views.filter((v) => v.surface === surface).map((v) => ({ ...v }));
+  }
+
+  async saveView(input: SaveViewInput): Promise<SaveViewResult> {
+    const replay = this.seenViewKeys.get(input.idempotencyKey) as SaveViewResult | undefined;
+    if (replay) return replay;
+
+    const name = input.name.trim();
+    // The DB's own guards, reproduced — a fake that accepted a nameless or
+    // duplicate view would let the UI ship writes Postgres rejects.
+    if (!name) return { ok: false, kind: "error", message: "a view needs a name" };
+    const clash = this.views.find(
+      (v) =>
+        v.surface === input.surface &&
+        v.id !== input.id &&
+        v.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (clash) return { ok: false, kind: "error", message: `a view named "${name}" already exists` };
+
+    // Setting this default clears the others first, exactly as app_save_view
+    // does — otherwise two rows claim the landing view.
+    if (input.isDefault) {
+      for (const v of this.views) {
+        if (v.surface === input.surface && v.id !== input.id) v.isDefault = false;
+      }
+    }
+
+    let row: SavedView;
+    if (input.id === null) {
+      row = {
+        id: `view-${++this.viewSeq}`,
+        surface: input.surface,
+        name,
+        state: input.state,
+        isDefault: input.isDefault,
+        updatedAt: new Date(new Date(FIXTURE_NOW).getTime() + this.viewSeq * 1000).toISOString(),
+      };
+      this.views.push(row);
+    } else {
+      const existing = this.views.find((v) => v.id === input.id);
+      if (!existing) return { ok: false, kind: "error", message: `no such view: ${input.id}` };
+      if (
+        input.expectedUpdatedAt !== null &&
+        existing.updatedAt !== null &&
+        input.expectedUpdatedAt !== existing.updatedAt
+      ) {
+        return { ok: false, kind: "conflict" };
+      }
+      existing.name = name;
+      existing.state = input.state;
+      existing.isDefault = input.isDefault;
+      existing.updatedAt = new Date(
+        new Date(existing.updatedAt ?? FIXTURE_NOW).getTime() + 1000,
+      ).toISOString();
+      row = existing;
+    }
+
+    const result: SaveViewResult = { ok: true, view: { ...row } };
+    this.seenViewKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  async deleteView(input: DeleteViewInput): Promise<DeleteViewResult> {
+    const replay = this.seenViewKeys.get(input.idempotencyKey) as DeleteViewResult | undefined;
+    if (replay) return replay;
+    const before = this.views.length;
+    this.views = this.views.filter((v) => v.id !== input.id);
+    const result: DeleteViewResult =
+      this.views.length < before
+        ? { ok: true }
+        : { ok: false, kind: "error", message: `no such view: ${input.id}` };
+    this.seenViewKeys.set(input.idempotencyKey, result);
     return result;
   }
 }

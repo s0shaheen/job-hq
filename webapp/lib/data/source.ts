@@ -21,6 +21,7 @@ import type {
   ApplicationView,
   ChannelHealthView,
   JobView,
+  SavedView,
   Triage,
 } from "./view-models";
 
@@ -54,6 +55,39 @@ export type WriteResult =
   | { ok: false; kind: "auth" }
   | { ok: false; kind: "error"; message: string };
 
+/**
+ * Saving a view. `id` is null to create, or an existing id to update in place;
+ * `expectedUpdatedAt` is the version the client last read, so a second device
+ * editing the same view conflicts rather than clobbers. `state` is opaque to
+ * the store — filters, sort, group, column layout and density all ride inside
+ * it, and the database never looks in.
+ */
+export type SaveViewInput = {
+  id: string | null;
+  name: string;
+  surface: string;
+  state: unknown;
+  isDefault: boolean;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+export type SaveViewResult =
+  | { ok: true; view: SavedView }
+  | { ok: false; kind: "conflict" }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+export type DeleteViewInput = {
+  id: string;
+  idempotencyKey: string;
+};
+
+export type DeleteViewResult =
+  | { ok: true }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
 export interface DataSource {
   /** Qualified, untriaged, freshest first. */
   queue(opts?: QueueOptions): Promise<JobView[]>;
@@ -62,6 +96,11 @@ export interface DataSource {
   applications(): Promise<ApplicationView[]>;
   health(): Promise<ChannelHealthView[]>;
   setTriage(input: TriageInput): Promise<WriteResult>;
+
+  /** A user's saved grid states for a surface. Built-in presets live in code. */
+  savedViews(surface: string): Promise<SavedView[]>;
+  saveView(input: SaveViewInput): Promise<SaveViewResult>;
+  deleteView(input: DeleteViewInput): Promise<DeleteViewResult>;
 }
 
 /**

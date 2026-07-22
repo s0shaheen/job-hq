@@ -48,9 +48,15 @@ async function gotoPerf(page: Page) {
   ).toBeAttached();
 }
 
-/** Switch to All postings so the working set is the full 5000, and prove it. */
+/** Put the working set on the full 5000, and prove it. Navigates by URL rather
+ *  than driving the switcher menu — how the perf harness reaches the "all" set
+ *  is incidental to what it measures (virtualization and sticky at 5k rows),
+ *  and a menu interaction over 5000 rows is a needless source of flake. */
 async function openAllPostings(page: Page) {
-  await page.getByRole("button", { name: "All postings" }).click();
+  await page.goto(`${PERF_URL}&set=all`);
+  await expect(
+    page.locator('[data-testid="jobs-grid"][data-ready="true"]'),
+  ).toBeAttached();
   await expect(page.locator('[role="grid"]')).toHaveAttribute("aria-rowcount", "5001");
 }
 

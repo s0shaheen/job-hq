@@ -149,7 +149,16 @@ not the requirement. This is the actual list, with what enforces each.
 | 59 | Back steps through keystrokes; a pending search flush resurrects a cleared query | Debounced `replace` onto one history entry + an explicit flush-cancel in Clear — the resurrection was a real bug the test caught pre-ship | ✅ |
 | 60 | A zero-result filter strands the user in a blank grid | No-match empty state distinct from the profile-gated copy; one-click Clear restores. (The G9 constraint-*naming* for user filters is G3) | ✅ |
 | 61 | **Dark OS preference ignored on a route theme.spec never checked** | `theme.spec.ts` now drives every landing route — `/queue`, `/jobs`, `/pipeline`, `/health` — and asserts the rendered dark background, not just the class. `/jobs` (a shareable deep link) had no such guard | ✅ |
-| — | Typing in a filter input triggers grid shortcuts (was proposed row 38) | Asserted no-toast-while-typing, but `/jobs` has no shortcuts until G4 adds selection; **◐** — only fully falsifiable then |
+| 62 | **A saved view "saves" but a reload renders the preset** — state stored where nothing re-reads it | `grid-views.spec.ts` asserts the saved view's rows/name **after `page.reload()`** and in the raw HTML; verified red with `?view=` resolution nulled | ✅ |
+| 63 | Save as… silently overwrites an existing view name | Collision answered with the store's message in-dialog, nothing navigates; verified red with the rejection swallowed | ✅ |
+| 64 | Two devices editing one view → silent clobber | A display-only stale edit → Save shows "changed on another device"; reload shows the other device's state. The fixture models the conflict, the db test proves the SQL (`test_saved_views.py`) | ✅ |
+| 65 | **A landing default hijacks bare `/jobs` forever** — plain Queue unreachable | `presetUrl` always emits an explicit `set=`; unit + e2e (Queue reachable after a landing view is set) | ✅ |
+| 66 | Why-popover names the wrong setting or links to a dead anchor | e2e clicks through to `/settings#countries` and asserts the section exists; verified red with the anchor hardcoded wrong | ✅ |
+| 67 | Display prefs (density/type/hints) leak into the URL or die on reload | Kept out of the URL (a shared link must not impose the sharer's eyesight), stored in the view's `state`; asserted after Save + reload; verified red with display dropped from stored state | ✅ |
+| 68 | A deleted or foreign `view=` id 404s or renders a blank grid | Stale-id e2e: a loud toast + the Queue rows, never a dead end | ✅ |
+| 69 | Typing a view name or search fires grid shortcuts (the old ◐ row) | `j`/`?` typed into inputs: no popover, text lands in the field. Now falsifiable because the grid has a `?` shortcut | ✅ |
+| 70 | Density switch mid-scroll strands the viewport | perf-1000 e2e: the first-visible index is preserved ±2 and the viewport centre stays painted rows | ✅ |
+| 71 | **A phone user has no on-screen way to leave the Queue** | The view switcher was desktop-only and a standalone Queue/All toggle was the phone's set control; removing the toggle as a duplicate made the switcher the single control and showed it on every viewport. `grid-views.spec.ts` drives the switcher on the mobile project | ✅ |
 
 Row 21 is the rule working as intended. A Linux CI runner failed the keyboard
 test that had always passed on the Mac: `goto` resolves when the server HTML
@@ -282,7 +291,9 @@ Worth keeping, because each was stated confidently and was wrong:
       column, measured perf budget at 5k rows
 - [x] **Grid G2** — filter engine, URL state (row 19 / criterion 22), sort,
       group, quick search, filter bar
-- [ ] Grid G3–G5 (saved views + `0005` migration, selection/export scope, polish)
+- [x] **Grid G3** — saved views (`0005` migration + RLS + db tests), built-in
+      presets, personas, density/type/hints, the why-filtered popover
+- [ ] Grid G4–G5 (selection/⌘C/export scope/bulk triage, polish + visual baselines)
 
 ## Stack (verified live 2026-07-21, not from memory)
 

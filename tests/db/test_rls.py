@@ -225,3 +225,38 @@ def test_a_user_cannot_triage_a_posting_they_cannot_see(conn, two_users):
         "select triage from public.user_postings where user_id=%s and posting_key=%s",
         (u["b"], u["kb"]),
     ).fetchone()[0] == ""
+
+
+# ---------------------------------------------------------- saved views (0005)
+
+def test_a_user_cannot_read_another_users_saved_views(conn, two_users):
+    """Saved views carry a person's filters and named searches — as private as
+    the rows they select over. Same both-directions assertion: A reads its own,
+    A reads none of B's, so a green result cannot come from A reading nothing."""
+    u = two_users
+    # Each user saves one view, through the real definer function.
+    for who, name in ((u["a"], "A view"), (u["b"], "B view")):
+        conn.execute("reset role")
+        conn.execute("select set_config('hq.test_user', %s, false)", (who,))
+        conn.execute(
+            "select public.app_save_view(null,%s,'jobs','{}'::jsonb,false,%s,null)",
+            (name, str(uuid.uuid4())),
+        )
+
+    as_authenticated(conn, u["a"])
+    assert count(conn, "select count(*) from public.saved_views where user_id = %s", u["a"]) == 1
+    assert count(conn, "select count(*) from public.saved_views where user_id = %s", u["b"]) == 0
+
+
+def test_an_authenticated_user_has_no_direct_write_to_saved_views(conn, two_users):
+    """Writes go through app_save_view / app_delete_view only. A direct INSERT
+    from a browser session is the door 0005 keeps shut — RLS has a read policy
+    and no write policy, so an insert is denied."""
+    u = two_users
+    as_authenticated(conn, u["a"])
+    with pytest.raises(psycopg.errors.Error) as exc:
+        conn.execute(
+            "insert into public.saved_views (user_id, name) values (%s, 'sneaky')",
+            (u["a"],),
+        )
+    assert "policy" in str(exc.value).lower() or "permission denied" in str(exc.value).lower()

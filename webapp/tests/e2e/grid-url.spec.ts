@@ -168,8 +168,11 @@ test("typing in quick search coalesces into ONE history entry — Back steps ove
   await ready(page);
 
   // A discrete decision first (push), so the typing session below has a prior
-  // entry to collapse onto — replace mutates the current entry by design.
-  await page.getByRole("button", { name: "All postings" }).click();
+  // entry to collapse onto — replace mutates the current entry by design. The
+  // set is chosen through the view switcher now (the standalone Queue/All
+  // toggle was removed as a duplicate of it).
+  await page.getByTestId("view-switcher").click();
+  await page.getByRole("menuitemradio", { name: "All postings" }).click();
   await expect(page).toHaveURL(/set=all/);
 
   const search = page.getByLabel("Quick search");

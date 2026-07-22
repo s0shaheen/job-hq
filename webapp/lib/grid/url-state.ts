@@ -31,7 +31,7 @@ import {
   type OrGroup,
   type TextFieldId,
 } from "./filter";
-import type { WorkingSet } from "./presets";
+import { isWorkingSet, type WorkingSet } from "./presets";
 import { SORT_FIELDS, type SortField, type SortSpec } from "./sort";
 
 export type GridUrlState = {
@@ -173,7 +173,9 @@ export function parseGridState(params: URLSearchParams): ParsedGridState {
 
   const rawSet = params.get("set");
   if (rawSet !== null) {
-    if (rawSet === "queue" || rawSet === "all") state.set = rawSet;
+    // G3 widened the closed set from queue|all to every built-in preset;
+    // presets.ts owns the list so a new preset cannot half-exist here.
+    if (isWorkingSet(rawSet)) state.set = rawSet;
     else dropped.push(`set=${rawSet}`);
   }
 

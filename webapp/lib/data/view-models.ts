@@ -107,6 +107,23 @@ export type ChannelHealthView = {
   cadenceHours: number;
 };
 
+/**
+ * A user's saved grid state. `state` is deliberately opaque here — its shape
+ * (filters, sort, group, quick search, column layout, density, type scale,
+ * keyboard hints) is the grid's concern, not the data layer's, and the store
+ * never interprets it. Keeping it `unknown` here means a change to what the
+ * grid remembers never ripples into the data boundary.
+ */
+export type SavedView = {
+  id: string;
+  surface: string;
+  name: string;
+  state: unknown;
+  isDefault: boolean;
+  /** Optimistic-concurrency token: sent back with any write. */
+  updatedAt: string | null;
+};
+
 /** The four facts a triage decision actually turns on. */
 export type DecisionFacts = {
   comp: string;

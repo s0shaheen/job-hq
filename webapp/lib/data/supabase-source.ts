@@ -1,12 +1,34 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DataSource, QueueOptions, TriageInput, WriteResult } from "./source";
+import type {
+  DataSource,
+  DeleteViewInput,
+  DeleteViewResult,
+  QueueOptions,
+  SaveViewInput,
+  SaveViewResult,
+  TriageInput,
+  WriteResult,
+} from "./source";
 import type {
   ApplicationView,
   ChannelHealthView,
   Disposition,
   JobView,
+  SavedView,
   Triage,
 } from "./view-models";
+
+/** One saved_views row, mapped for the grid. `state` is passed through as-is. */
+function toSavedView(r: Record<string, unknown>): SavedView {
+  return {
+    id: String(r.id ?? ""),
+    surface: String(r.surface ?? "jobs"),
+    name: String(r.name ?? ""),
+    state: r.state ?? {},
+    isDefault: bool(r.is_default),
+    updatedAt: str(r.updated_at),
+  };
+}
 
 const POSTING_COLS =
   "key, company, title, location, url, posted, first_seen, last_seen, status, tags, geo, source";
@@ -280,6 +302,47 @@ export class SupabaseDataSource implements DataSource {
       return { ok: false, kind: "error", message: "Write succeeded but the row could not be re-read" };
     }
     return { ok: true, job };
+  }
+
+  // ---- saved views ------------------------------------------------------
+
+  async savedViews(surface: string): Promise<SavedView[]> {
+    const { data, error } = await this.supabase
+      .from("saved_views")
+      .select("id, surface, name, state, is_default, updated_at")
+      .eq("user_id", this.userId)
+      .eq("surface", surface)
+      .order("name", { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data ?? []).map(toSavedView);
+  }
+
+  async saveView(input: SaveViewInput): Promise<SaveViewResult> {
+    const { data, error } = await this.supabase.rpc("app_save_view", {
+      p_id: input.id,
+      p_name: input.name,
+      p_surface: input.surface,
+      p_state: input.state,
+      p_is_default: input.isDefault,
+      p_idem: input.idempotencyKey,
+      p_expected_updated_at: input.expectedUpdatedAt,
+    });
+    if (error) {
+      // Same "conflict" string the write path matches on — keep it in step.
+      if (/conflict|stale/i.test(error.message)) return { ok: false, kind: "conflict" };
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const view = toSavedView((data ?? {}) as Record<string, unknown>);
+    return { ok: true, view };
+  }
+
+  async deleteView(input: DeleteViewInput): Promise<DeleteViewResult> {
+    const { error } = await this.supabase.rpc("app_delete_view", {
+      p_id: input.id,
+      p_idem: input.idempotencyKey,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    return { ok: true };
   }
 }
 

@@ -13,13 +13,12 @@ import {
   type NumberFieldId,
   type OrGroup,
 } from "@/lib/grid/filter";
-import type { WorkingSet } from "@/lib/grid/presets";
 import type { GroupBy } from "@/lib/grid/sort";
 import type { GridUrlState } from "@/lib/grid/url-state";
 import { cn } from "@/lib/utils";
 
 /**
- * The grid toolbar: working-set toggle, active-filter chips, the clause
+ * The grid toolbar: the view switcher, active-filter chips, the clause
  * builder, quick search, grouping, and the stated count. Presentational — the
  * grid owns the URL; every control here reports a decision upward and renders
  * whatever state comes back down.
@@ -43,8 +42,10 @@ export type FilterBarProps = {
   /** Universe for the builder's enum value lists (all rows, not the filtered
    *  view: a value the current filter hides must stay pickable). */
   rows: JobView[];
+  /** The view switcher (G3). A slot rather than an import: the switcher needs
+   *  the saved views and the write callbacks, all of which the grid owns. */
+  switcher?: React.ReactNode;
   onQChange: (q: string) => void;
-  onSwitchSet: (set: WorkingSet) => void;
   onAddGroup: (group: OrGroup) => void;
   onRemoveGroup: (index: number) => void;
   onGroupChange: (group: GroupBy) => void;
@@ -54,23 +55,13 @@ export default function FilterBar(props: FilterBarProps) {
   const { state } = props;
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-4 py-2 sm:px-6">
-      <div
-        role="group"
-        aria-label="Working set"
-        className="flex h-7 shrink-0 overflow-hidden rounded-md border border-border-strong"
-      >
-        <SetButton
-          label="Queue"
-          active={state.set === "queue"}
-          onClick={() => props.onSwitchSet("queue")}
-        />
-        <SetButton
-          label="All postings"
-          active={state.set === "all"}
-          onClick={() => props.onSwitchSet("all")}
-          divided
-        />
-      </div>
+      {/* The view switcher is the single control for which set/view is shown —
+          Queue and All postings are its first two entries. A standalone
+          Queue/All toggle used to sit here too, so the toolbar carried two
+          controls that both said "All postings"; that read as unfinished (the
+          owner's stated fear) and made "All postings" an ambiguous test
+          locator. One control, in the vocabulary the saved views already use. */}
+      {props.switcher}
 
       <ClauseBuilder rows={props.rows} onAdd={props.onAddGroup} />
 
@@ -142,33 +133,6 @@ export default function FilterBar(props: FilterBarProps) {
         {props.countText}
       </p>
     </div>
-  );
-}
-
-function SetButton({
-  label,
-  active,
-  onClick,
-  divided,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  divided?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        "px-2.5 text-xs font-medium transition-colors",
-        divided && "border-l border-border-strong",
-        active ? "bg-accent-subtle text-text" : "bg-surface text-text-2 hover:bg-raised",
-      )}
-    >
-      {label}
-    </button>
   );
 }
 

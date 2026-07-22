@@ -103,7 +103,9 @@ test("All postings shows every row, with the reason a row is not queued", async 
   // qualifies and a column of "—" would be decoration.
   await expect(page.locator('[role="columnheader"][data-col="why"]')).toHaveCount(0);
 
-  await page.getByRole("button", { name: "All postings" }).click();
+  // Set is chosen via the view switcher (the standalone toggle was removed).
+  await page.getByTestId("view-switcher").click();
+  await page.getByRole("menuitemradio", { name: "All postings" }).click();
 
   await expect(page.getByTestId("grid-count")).toContainText(`all ${TOTAL}`);
   await expect(page.locator('[role="grid"]')).toHaveAttribute("aria-rowcount", String(TOTAL + 1));
@@ -446,6 +448,146 @@ test("a filter that matches nothing says so and offers one-click clear — disti
   await expect(page).not.toHaveURL(/q=/);
   await expect(page.getByTestId("grid-count")).toContainText(`${QUEUED} of ${TOTAL}`);
   await expect(page.locator('[role="gridcell"][data-col="company"]')).toHaveCount(QUEUED);
+});
+
+// ---------------------------------------------------------------------------
+// G3: the why-filtered popover and the display controls. Saved-view flows live
+// in grid-views.spec.ts; these assert the popover's deep link (plan §6) and
+// that density/type/hints are real display state, persisted via a view.
+// ---------------------------------------------------------------------------
+
+/** The all-set's display order — byFreshness, the same order jobs() serves.
+ *  Derived inline (never by importing the source under test). */
+const ALL_SORTED = [...FIXTURE_JOBS].sort(
+  (a, b) =>
+    (b.firstSeen ?? "").localeCompare(a.firstSeen ?? "") ||
+    (a.key < b.key ? 1 : a.key > b.key ? -1 : 0),
+);
+
+test("the Why chip opens a popover that names the binding setting and deep-links it", async ({
+  page,
+}) => {
+  await page.goto("/jobs?set=all");
+  await expect(
+    page.locator('[data-testid="jobs-grid"][data-ready="true"]'),
+  ).toBeAttached();
+
+  // The spec's own example: Microsoft, filtered geo:India → countries.
+  const msRow = page.locator('[role="row"]').filter({ has: companyCell(page, "Microsoft") });
+  await msRow.locator('[data-col="why"] button').click();
+
+  const popover = page.getByTestId("why-popover");
+  await expect(popover).toContainText("Located in India, outside your countries");
+  const change = popover.getByRole("link", { name: /Change your countries/ });
+  await expect(change).toHaveAttribute("href", "/settings#countries");
+
+  // The affordance must never 404: the link lands on a real anchored section.
+  await change.click();
+  await page.waitForURL(/\/settings#countries/);
+  await expect(page.locator("#countries")).toBeVisible();
+  await expect(page.locator("#countries h2")).toHaveText("Countries");
+});
+
+test("? opens the why popover on the active row — and typing in an input never does", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name === "mobile", "keyboard-only affordance");
+  await page.goto("/jobs?set=all");
+  await expect(
+    page.locator('[data-testid="jobs-grid"][data-ready="true"]'),
+  ).toBeAttached();
+
+  // With no cursor yet, ? answers for the first row. The fixture's freshest
+  // row is the needs-info one — its "why" has no setting to link.
+  await page.keyboard.press("?");
+  const popover = page.getByTestId("why-popover");
+  await expect(popover).toContainText(
+    ALL_SORTED[0].disposition === "needs-info"
+      ? "Not yet analysed — it will be classified shortly"
+      : /./,
+  );
+  await expect(popover.getByRole("link")).toHaveCount(
+    ALL_SORTED[0].disposition === "needs-info" ? 0 : 1,
+  );
+  await page.keyboard.press("Escape");
+  await expect(popover).toHaveCount(0);
+
+  // Walk the cursor to the geo:India row and ask again. The ? above already
+  // parked the cursor on row 0, so index N is exactly N presses away.
+  const msIdx = ALL_SORTED.findIndex((j) => j.company === "Microsoft");
+  expect(msIdx).toBeGreaterThan(0);
+  for (let i = 0; i < msIdx; i++) await page.keyboard.press("j");
+  await expect(page.locator('[role="row"][data-active="true"]')).toHaveCount(1);
+  await page.keyboard.press("?");
+  await expect(popover).toContainText("Located in India, outside your countries");
+  await expect(popover.getByRole("link", { name: /Change your countries/ })).toHaveAttribute(
+    "href",
+    "/settings#countries",
+  );
+  await page.keyboard.press("Escape");
+
+  // The guard: grid shortcuts must never fire from a text input. "j" and "?"
+  // typed into quick search are text, not commands.
+  const search = page.getByLabel("Quick search");
+  await search.click();
+  await search.pressSequentially("j?");
+  await expect(popover).toHaveCount(0);
+  await expect(search).toHaveValue("j?");
+});
+
+test("density, type scale and hints are per-view display state that survives Save + reload", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name === "mobile", "the switcher is desktop chrome");
+  await page.goto("/jobs");
+  await expect(
+    page.locator('[data-testid="jobs-grid"][data-ready="true"]'),
+  ).toBeAttached();
+
+  const firstRow = page.locator('[role="row"][aria-rowindex="2"]');
+  const rowHeight = async () => (await firstRow.boundingBox())?.height ?? 0;
+  const cellFont = () =>
+    page
+      .locator('[role="gridcell"][data-col="company"]')
+      .first()
+      .evaluate((el) => getComputedStyle(el).fontSize);
+
+  // The owner's defaults: dense 32px rows, 13px type, hints on.
+  expect(await rowHeight()).toBeLessThanOrEqual(33);
+  await expect(page.getByTestId("grid-hints")).toBeVisible();
+
+  const switcherBtn = page.getByTestId("view-switcher");
+  await switcherBtn.click();
+  await page.getByRole("menuitemradio", { name: "Comfortable" }).click();
+  await page.getByRole("menuitemradio", { name: "Large type" }).click();
+  await page.getByRole("menuitemcheckbox", { name: "Keyboard hints" }).click();
+  await page.keyboard.press("Escape");
+
+  await expect.poll(rowHeight).toBeGreaterThan(40);
+  expect(await cellFont()).toBe("16px");
+  await expect(page.getByTestId("grid-hints")).toHaveCount(0);
+  await expect(switcherBtn).toHaveAttribute("data-edited", "true");
+
+  // Display prefs are not URL state — they persist through the SAVED VIEW.
+  await switcherBtn.click();
+  await page.getByRole("menuitem", { name: /Save as/ }).click();
+  await page.getByLabel("View name").fill("Comfy");
+  await page.getByRole("button", { name: "Save view" }).click();
+  await expect(page).toHaveURL(/\/jobs\?view=/);
+
+  await page.reload();
+  await expect(
+    page.locator('[data-testid="jobs-grid"][data-ready="true"]'),
+  ).toBeAttached();
+  await expect.poll(rowHeight).toBeGreaterThan(40);
+  expect(await cellFont()).toBe("16px");
+  await expect(page.getByTestId("grid-hints")).toHaveCount(0);
+
+  // …and they are per-view: back on the plain Queue preset, the defaults hold.
+  await switcherBtn.click();
+  await page.getByRole("menuitemradio", { name: "Queue" }).click();
+  await expect.poll(rowHeight).toBeLessThanOrEqual(33);
+  await expect(page.getByTestId("grid-hints")).toBeVisible();
 });
 
 test("when the profile filtered everything, the Queue set points at All postings", async ({

@@ -1,6 +1,7 @@
 import { getDataSource } from "@/lib/data/get-source";
 import { clampPerfCount, makePerfJobs } from "@/lib/data/perf-fixtures";
 import { isDemoMode } from "@/lib/data/source";
+import type { JobView, SavedView } from "@/lib/data/view-models";
 import JobsGrid from "./jobs-grid";
 
 export const metadata = { title: "Jobs — Job Search HQ" };
@@ -26,7 +27,20 @@ export default async function JobsPage({
   // are read-only: no store is needed, and the whole mechanism stays inside
   // the one page that consumes it.
   const perfN = isDemoMode() ? clampPerfCount(params.perf) : 0;
-  const rows = perfN > 0 ? makePerfJobs(perfN) : await (await getDataSource()).jobs();
+  let rows: JobView[];
+  let views: SavedView[];
+  if (perfN > 0) {
+    // The perf harness stays store-free (see above); saved views would only
+    // add a store read to a page whose one job is measuring render budgets.
+    rows = makePerfJobs(perfN);
+    views = [];
+  } else {
+    const src = await getDataSource();
+    // Loaded here, once, server-side: the grid resolves `?view=` and the
+    // landing default from this list DURING the server render, so a shared
+    // view link paints its exact state with no post-hydration pop.
+    [rows, views] = await Promise.all([src.jobs(), src.savedViews("jobs")]);
+  }
 
   // URL state (filters/sort/set/group/q) reaches the grid through
   // useSearchParams, which this page's force-dynamic rendering makes available
@@ -50,7 +64,7 @@ export default async function JobsPage({
           Every posting the sweeps have found, in one table.
         </p>
       </header>
-      <JobsGrid rows={rows} now={now} />
+      <JobsGrid rows={rows} now={now} views={views} />
     </div>
   );
 }
