@@ -119,11 +119,13 @@ below are the current expectation (next free = **0007**).
   `monitor/wide.py`. **Corrected by research:** free blur+exclusion is contradicted by
   `wide.py:241` (blur strips company-identifier filters) → recall via paid exclusion **or**
   client-side diff of the blurred set. *needs key (§3).*
-- **P4 · New adapters** — **iCIMS, Taleo, SuccessFactors** + Workday per-tenant slug
-  discovery + an adapter test harness (golden fixtures per family). Value framing from
-  research: these are **already Tier-2-covered → they buy day-of *latency*, not recall.**
-  Files: `monitor/fetchers/{icims,taleo,successfactors}.py`. *keyless; research fanning out
-  now.*
+- **P4 · New adapters** — spec: **[COMPANY-DISCOVERY-ADAPTERS.md](COMPANY-DISCOVERY-ADAPTERS.md)**
+  (grounded recon done 2026-07-24, all endpoints live-`curl`-verified). Refined scope:
+  **build `icims.py`** (clean keyless JSON — Aon/Exelon) and **`successfactors.py`** (keyless
+  CSB HTML, token `sfsf` — Grainger/SAP); **enhance `discover.py`** with Workday slug discovery
+  (redirect→dork→verify-by-CXS-POST). **Taleo stays Tier-2** — no stateless public endpoint;
+  aggregator already covers it (don't build a fragile JSF/HTML scraper). Build order:
+  iCIMS → SuccessFactors → Workday discovery, each its own PR + golden fixture. *keyless.*
 - **P5 · Free-source ingestion** — ATS dorking, Common Crawl slug mining, SEC EDGAR
   (IL filers), Form ADV (IL RIAs) → the resolver. Each validated free in the research pass.
   *keyless.*
@@ -182,7 +184,15 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
 
-- **2026-07-24** — **P1 DONE** (`discover.py` hardening) — PR open. Fixed the grounded
+- **2026-07-24** — **P4 recon DONE** → spec in `COMPANY-DISCOVERY-ADAPTERS.md`. All endpoints
+  live-verified. Refined scope: build **iCIMS** + **SuccessFactors** adapters, **enhance
+  `discover.py`** for Workday slug discovery, **Taleo → Tier-2** (no clean public endpoint).
+  (Recon workflow `wf_96848a0e-8fe`: 4/4 recon agents high-confidence; synthesis agent hit a
+  schema retry-cap and died — synthesized by hand from `journal.jsonl` instead. Lesson: keep
+  synthesis-agent schemas loose / synthesize inline.) **Next: build P4 iCIMS** (cleanest —
+  keyless JSON), then SuccessFactors, then Workday discovery; P2 schema interleaves. Still
+  keyless. §3 key plumbing still pending (P3/P6 only).
+- **2026-07-24** — **P1 DONE** (`discover.py` hardening) — merged (PR #38, `503ba50`). Fixed the grounded
   false-positive (ADM→greenhouse `archer`=a vet clinic) via board-name verification
   (`_name_plausible` + `_greenhouse_board_name`); `discover()` now rejects a slug that
   resolves to an unrelated company's board instead of guessing. 13 new unit tests + full
