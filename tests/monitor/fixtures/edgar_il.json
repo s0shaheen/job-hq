@@ -1,0 +1,89 @@
+{
+  "took": 45,
+  "timed_out": false,
+  "_shards": {"total": 50, "successful": 50, "skipped": 0, "failed": 0},
+  "hits": {
+    "total": {"value": 6, "relation": "eq"},
+    "max_score": null,
+    "hits": [
+      {
+        "_index": "edgar_file",
+        "_id": "0001104659-26-085459:air-20260531x10k.htm",
+        "_source": {
+          "ciks": ["0000001750"],
+          "display_names": ["AAR CORP  (AIR)  (CIK 0000001750)"],
+          "form": "10-K",
+          "file_date": "2026-07-22",
+          "biz_states": ["IL"],
+          "biz_locations": ["Wood Dale, IL"]
+        }
+      },
+      {
+        "_index": "edgar_file",
+        "_id": "0001124804-26-000012:mdrx-20251231x10k.htm",
+        "_source": {
+          "ciks": ["0001124804"],
+          "display_names": ["Veradigm Inc.  (CIK 0001124804)"],
+          "form": "10-K",
+          "file_date": "2026-07-01",
+          "biz_states": ["IL"],
+          "biz_locations": ["Chicago, IL"]
+        }
+      },
+      {
+        "_index": "edgar_file",
+        "_id": "0000727510-26-000004:enzn-20251231x10k.htm",
+        "_source": {
+          "ciks": ["0000727510"],
+          "display_names": ["Viskase Holdings, Inc.  (ENZN, ENZND)  (CIK 0000727510)"],
+          "form": "10-K",
+          "file_date": "2026-06-15",
+          "biz_states": ["IL"],
+          "biz_locations": ["Lombard, IL"]
+        }
+      },
+      {
+        "_index": "edgar_file",
+        "_id": "0001104659-26-085460:air-20260531xex.htm",
+        "_source": {
+          "ciks": ["0000001750"],
+          "display_names": ["AAR CORP  (AIR)  (CIK 0000001750)"],
+          "form": "10-K",
+          "file_date": "2026-07-22",
+          "biz_states": ["IL"],
+          "biz_locations": ["Wood Dale, IL"]
+        }
+      },
+      {
+        "_index": "edgar_file",
+        "_id": "0001383058-26-000003:dbo-20251231x10k.htm",
+        "_source": {
+          "ciks": ["0001383058", "0001367306"],
+          "display_names": [
+            "Invesco DB Oil Fund  (DBO)  (CIK 0001383058)",
+            "Invesco DB Multi-Sector Commodity Trust  (CIK 0001367306)"
+          ],
+          "form": "10-K",
+          "file_date": "2026-05-30",
+          "biz_states": ["IL"],
+          "biz_locations": ["Downers Grove, IL"]
+        }
+      },
+      {
+        "_index": "edgar_file",
+        "_id": "0001383062-26-000003:dbe-20251231x10k.htm",
+        "_source": {
+          "ciks": ["0001383062", "0001367306"],
+          "display_names": [
+            "Invesco DB Energy Fund  (DBE)  (CIK 0001383062)",
+            "Invesco DB Multi-Sector Commodity Trust  (CIK 0001367306)"
+          ],
+          "form": "10-K",
+          "file_date": "2026-05-30",
+          "biz_states": ["IL"],
+          "biz_locations": ["Downers Grove, IL"]
+        }
+      }
+    ]
+  }
+}
