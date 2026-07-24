@@ -5,6 +5,12 @@ punch list: build order, the consolidated failure-matrix rows, what no plan owns
 (orphans), and where the plans contradict each other (with resolutions). The
 resolutions here override the individual plans where they conflict.
 
+> ## ▶ Master build tracker: [HQ-V2-BUILD.md](HQ-V2-BUILD.md)
+> The full HQ v2 scope (discovery + surfaces + multi-user + OSS), the phase order
+> (P0–P16), the per-phase gate stack, and the **resume checkpoint**. Read it first —
+> a fresh session continues the autonomous build from its Checkpoint Log. This
+> README stays the phase punch-list + conflict resolutions it points into.
+
 > **Grid phase (build order #1) is COMPLETE** — G1–G5 shipped (PRs #31–#34).
 > `/jobs` has the virtualized grid, filters + URL state, saved views + personas,
 > selection + atomic bulk triage, and Linux visual baselines. See
