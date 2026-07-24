@@ -58,3 +58,16 @@ def test_fallback_normalized_and_stability():
 def test_unknown_url_yields_url_key():
     k = job_key("https://fingerprint.com/careers/jobs/abc123/")
     assert k.startswith("url-fingerprint.com/careers")
+
+
+def test_successfactors_csb_vanity_host():
+    # CSB careers live on the company's own domain (no ATS signal) -> key off the URL shape
+    assert job_key("https://jobs.grainger.com/job/CHICAGO-Sr-Product-Manager-IL-60654-4203/1344992400/") == "sfsf-1344992400"
+    assert job_key("https://jobs.sap.com/job/Walldorf-Assoc-Product-Manager-69190/1403409233") == "sfsf-1403409233"
+
+
+def test_sfsf_pattern_is_last_resort_and_shadows_nothing():
+    # the sfsf pattern is appended LAST; specific ATSs and the url-fallback must be unchanged
+    assert job_key("https://jobs.intuit.com/job/san-diego/product-manager/27595/82412345") == "radancy-82412345"
+    assert job_key("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210765300/") == "oraclehcm-210765300"
+    assert job_key("https://fingerprint.com/careers/jobs/abc123/").startswith("url-")

@@ -39,6 +39,11 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     ("eightfold",  re.compile(r"(?:explore\.jobs\.netflix\.net|apply\.careers\.microsoft\.com)/careers.*[?&]pid=(\d{10,})")),
     ("eightfold",  re.compile(r"(?:eightfold\.ai|jobs\.netflix\.net)/careers/job/(\d{10,})")),
     ("icims",      re.compile(r"careers?[-.]([a-z0-9]+)\.icims\.com/jobs/(\d+)")),
+    # SAP SuccessFactors Career-Site-Builder / jobs2web: the careers host is the company's
+    # own vanity domain (no ATS signal), so match the URL shape — /job/<slug>/<10-digit id>.
+    # LAST on purpose: only fires when no specific ATS matched; the 10-digit jobs2web id is
+    # globally unique, so a stray match can never collide two different postings.
+    ("sfsf",       re.compile(r"/job/[^/]+/(\d{9,})(?:[/?#]|$)")),
 ]
 
 

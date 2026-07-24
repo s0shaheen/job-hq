@@ -3,7 +3,7 @@ import requests
 
 from monitor.fetchers import (greenhouse, ashby, lever, smartrecruiters, workday,
                               amazon, eightfold, oracle_hcm, google, apple,
-                              goldman, radancy, icims)
+                              goldman, radancy, icims, successfactors)
 from monitor.models import Job
 
 _REGISTRY = {
@@ -12,6 +12,7 @@ _REGISTRY = {
     "lever": lever.get_jobs,
     "smartrec": smartrecruiters.get_jobs,
     "icims": icims.get_jobs,
+    "sfsf": successfactors.get_jobs,
     "workday": workday.get_jobs,
     "amazon": amazon.get_jobs,
     "eightfold": eightfold.get_jobs,
@@ -25,7 +26,7 @@ _REGISTRY = {
 # ATSes whose fetchers take a query/search hint (search=) — corpus-wide boards
 # where the server does the first cut, vs. slug-only company boards.
 _SEARCH_ATS = ("workday", "amazon", "eightfold", "oraclehcm", "google", "apple",
-               "goldman", "radancy")
+               "goldman", "radancy", "sfsf")
 
 
 def get_jobs_for(ats: str, slug: str, company: str, session: requests.Session,

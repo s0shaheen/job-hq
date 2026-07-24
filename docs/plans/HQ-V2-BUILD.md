@@ -184,7 +184,15 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
 
-- **2026-07-24** — **P4 iCIMS adapter DONE** — PR open. `monitor/fetchers/icims.py` (keyless
+- **2026-07-24** — **P4 SuccessFactors adapter DONE** — PR open. `monitor/fetchers/successfactors.py`
+  (keyless CSB HTML tiles, regex-parsed — no new dep; `search=`-based, registered in `_REGISTRY`
+  + `_SEARCH_ATS`, token `sfsf`). Added an `sfsf` pattern to `core/jobkeys.py` (LAST position —
+  keys CSB's vanity-host `/job/<slug>/<10-digit id>` URLs so `Job.id == job_key(url)`, the fetcher
+  contract; non-collision proven vs radancy/oraclehcm/url-fallback). Dedups mobile/desktop tile
+  variants, pairs+cleans location. Verified: unit tests + fixture + **live 195-job Grainger fetch
+  with jobkeys parity holding on real data** + full suite green. Akamai tenants (McDonald's) →
+  Tier-2 by design. **Next: P4 Workday slug discovery** (`discover.py` branch), then P2 schema.
+- **2026-07-24** — **P4 iCIMS adapter DONE** — merged (PR #40). `monitor/fetchers/icims.py` (keyless
   careers-home/jibeapply JSON, paginated); registered slug-only in `_REGISTRY`. `native_id`
   derived from the classic `apply_url` so `Job.id` matches `core.jobkeys` → Gmail auto-advance
   aligns (parity-tested); correctly distinguishes sibling tenants (comed/peco/exeloncorp) that
