@@ -184,6 +184,15 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
 
+- **2026-07-24** — **P6 discovery agent (generate→ground core) DONE.** `monitor/discovery_agent.py`:
+  `discover_companies(facet)` → LLM (Haiku) proposes company names = recall-only; every name is
+  discarded unless `monitor.discover` grounds it to a pullable board. 4 unit tests (fake LLM +
+  fake resolver, key-free) + **live: "US fintech" → 8/12 grounded** (Stripe/Robinhood/SoFi/Chime/
+  Block/Affirm/Upstart→greenhouse, Wise→smartrec; PayPal/Klarna/etc.→aggregator) + full suite green.
+  One Haiku call/facet (cents). Follow-ons (compose on this): facet decomposition into categories,
+  "find more like these" expansion, oracle-guided gap-filling, and writing proposals to the review
+  grid. **The discovery brain is functional end-to-end** (NL → names → grounded Tier-1 companies).
+  **Next: P5 free-source ingestion** or **P7 `/companies` review grid** (both keyless).
 - **2026-07-24** — **P3 coverage oracle DONE** (keys now live in `.env`). `monitor/oracle.py`:
   `denominator(facet)` and `coverage(facet, universe)` → recall = 1 − gap_D/D, **all free (blurred
   jobs/search)**. **Settled the research's #1 open question empirically:** exclusion filters
