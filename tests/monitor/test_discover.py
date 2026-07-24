@@ -1,4 +1,13 @@
-from monitor.discover import _probe, candidate_slugs, interpret
+from monitor.discover import (
+    _greenhouse_board_name,
+    _name_plausible,
+    _probe,
+    candidate_slugs,
+    discover,
+    interpret,
+)
+
+_GH = "https://boards-api.greenhouse.io/v1/boards"
 
 
 class _FakeResp:
@@ -52,3 +61,56 @@ def test_interpret_picks_first_hit():
 
 def test_interpret_returns_none_when_no_hit():
     assert interpret({"greenhouse:x": False}) == (None, None)
+
+
+# --- board-name verification (the grounded false-positive fix) ---
+
+def test_name_plausible_accepts_exact_and_subset():
+    assert _name_plausible("Stripe", "Stripe") is True
+    assert _name_plausible("Cockroach Labs", "Cockroach Labs") is True
+    assert _name_plausible("Scale AI", "Scale") is True          # board name is a subset
+
+
+def test_name_plausible_is_suffix_insensitive():
+    assert _name_plausible("Stripe", "Stripe, Inc.") is True
+    assert _name_plausible("The Trade Desk", "Trade Desk") is True
+
+
+def test_name_plausible_rejects_collision():
+    # The grounded bug: slug "archer" (from "Archer Daniels Midland") resolves to a real
+    # Greenhouse board named "Archer Veterinary Clinic". Sharing only "archer" is not enough.
+    assert _name_plausible("Archer Daniels Midland", "Archer Veterinary Clinic") is False
+    assert _name_plausible("Databricks", "Snowflake") is False
+
+
+def test_greenhouse_board_name_reads_name():
+    s = _FakeSession({f"{_GH}/stripe": _FakeResp(200, {"name": "Stripe"})})
+    assert _greenhouse_board_name("stripe", s) == "Stripe"
+    assert _greenhouse_board_name("missing", s) is None          # 404 -> None
+
+
+def test_discover_rejects_greenhouse_collision():
+    # "Archer Daniels Midland" -> candidate slug "archer" hits a real board, but the board
+    # is "Archer Veterinary Clinic". Old code returned ("greenhouse","archer"); we reject it.
+    s = _FakeSession({
+        f"{_GH}/archer/jobs?content=false": _FakeResp(200),
+        f"{_GH}/archer": _FakeResp(200, {"name": "Archer Veterinary Clinic"}),
+    })
+    assert discover("Archer Daniels Midland", session=s) == (None, None)
+
+
+def test_discover_accepts_verified_greenhouse():
+    s = _FakeSession({
+        f"{_GH}/stripe/jobs?content=false": _FakeResp(200),
+        f"{_GH}/stripe": _FakeResp(200, {"name": "Stripe"}),
+    })
+    assert discover("Stripe", session=s) == ("greenhouse", "stripe")
+
+
+def test_discover_accepts_greenhouse_when_board_name_unavailable():
+    # If the board-name endpoint is down (None), we do NOT over-reject a live posting hit.
+    s = _FakeSession({
+        f"{_GH}/acme/jobs?content=false": _FakeResp(200),
+        f"{_GH}/acme": _FakeResp(500),
+    })
+    assert discover("Acme", session=s) == ("greenhouse", "acme")

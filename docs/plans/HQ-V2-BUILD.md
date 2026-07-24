@@ -182,7 +182,16 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
 
-- **2026-07-23** — P0 in progress: this tracker doc. PR #36 (research pass) **merged** to
-  main (`afb56e4`). Branch cleanup done (4 local / 4 remote → clean). Password rotated (E16 ✓).
-  P4 adapter research fanning out in background. **Next: open the P0 PR, then P1
-  (`discover.py` hardening).** Blocked-pending-human: §3 key plumbing (for P3/P6 only).
+- **2026-07-24** — **P1 DONE** (`discover.py` hardening) — PR open. Fixed the grounded
+  false-positive (ADM→greenhouse `archer`=a vet clinic) via board-name verification
+  (`_name_plausible` + `_greenhouse_board_name`); `discover()` now rejects a slug that
+  resolves to an unrelated company's board instead of guessing. 13 new unit tests + full
+  suite green + live-verified (ADM→unresolved, Stripe→greenhouse). The DRW `drweng` *miss* is
+  intentionally out of scope (unguessable slug → the web-search waterfall stage owns it).
+  Gate note: P1 is a ~40-line isolated, thrice-verified change → self-review + full suite +
+  live check; the adversarial review-agent gate applies from **P2** onward (schema/migrations/UI).
+  **Next: P2 — universe schema** (`companies`/`user_companies` columns, migration 0007) once
+  P1 merges. P4 adapter recon still running in background.
+- **2026-07-23** — P0 done: tracker doc **merged** (PR #37, `7aaa608`); research pass merged
+  (PR #36, `afb56e4`). Branch cleanup done (→ clean 4/4). Password rotated (E16 ✓). Blocked-
+  pending-human: §3 key plumbing (for P3/P6 live validation only).
