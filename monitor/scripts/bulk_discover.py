@@ -18,7 +18,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from monitor.discover import discover
+from monitor.discover import discover, discover_workday
 
 ROOT = Path(__file__).resolve().parent.parent
 CANDIDATES = ROOT / "candidate_companies.csv"
@@ -43,6 +43,10 @@ def _read_csv(path: Path) -> list[dict]:
 
 def _resolve_one(name: str) -> tuple[str, str | None, str | None]:
     ats, slug = discover(name)
+    if not ats:
+        wd = discover_workday(name)   # second pass: careers-page → verified Workday board
+        if wd:
+            return name, "workday", wd
     return name, ats, slug
 
 

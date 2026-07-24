@@ -123,10 +123,106 @@ def discover(name: str, session: requests.Session | None = None) -> tuple[str | 
     return None, None
 
 
+# --- Workday slug discovery -------------------------------------------------
+# The Workday *fetcher* already exists (monitor/fetchers/workday.py); the missing
+# piece is resolving a company to its board slug "{tenant}.wd{N}.myworkdayjobs.com/{site}".
+# Trust never comes from DNS or a bare 200 — wildcard DNS makes wrong pods resolve — so the
+# CXS jobs POST is the single source of truth. Companies whose front door does not redirect
+# to Workday (CME/Allstate/Abbott) are search-dork territory and out of scope here (needs web
+# search). See docs/plans/COMPANY-DISCOVERY-ADAPTERS.md.
+
+_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+_WD_URL = re.compile(
+    r"https?://([a-z0-9][a-z0-9-]*\.wd\d+\.myworkdayjobs\.com)/"
+    r"(?:[a-z]{2}-[A-Z]{2}/)?([^/?#\s]+)", re.I)
+
+
+def _wd_match(url: str) -> tuple[str, str] | None:
+    m = _WD_URL.search(url or "")
+    if not m:
+        return None
+    return m.group(1), m.group(2).rstrip("\"'")
+
+
+def _verify_workday(host: str, site: str, session: requests.Session) -> bool:
+    """The board is real iff its CXS jobs endpoint returns 200 with a jobs payload.
+    Status ladder (vendor-observed): 200=ok, 404=wrong site, 422=wrong pod, 401=API-gated."""
+    tenant = host.split(".", 1)[0]
+    try:
+        r = session.post(
+            f"https://{host}/wday/cxs/{tenant}/{site}/jobs",
+            json={"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": ""},
+            timeout=TIMEOUT)
+        if r.status_code != 200:
+            return False
+        body = r.json()
+        return isinstance(body, dict) and ("jobPostings" in body or "total" in body)
+    except (requests.RequestException, ValueError):
+        return False
+
+
+def resolve_workday(careers_url: str, session: requests.Session) -> str | None:
+    """Redirect-follow a careers page and return a *verified* Workday slug, or None.
+
+    Trust comes from following the company's own careers URL to its board and confirming
+    it via CXS — never from guessing a tenant/pod. Checks the final (redirected) URL first,
+    then any board URL linked from the page body."""
+    try:
+        r = session.get(careers_url, timeout=TIMEOUT, allow_redirects=True,
+                        headers={"User-Agent": _UA})
+    except requests.RequestException:
+        return None
+    hm = _wd_match(getattr(r, "url", "") or "")
+    if hm and _verify_workday(*hm, session):
+        return f"{hm[0]}/{hm[1]}"
+    seen: set[tuple[str, str]] = set()
+    for m in _WD_URL.finditer(getattr(r, "text", "") or ""):
+        pair = (m.group(1), m.group(2).rstrip("\"'"))
+        if pair in seen:
+            continue
+        seen.add(pair)
+        if _verify_workday(*pair, session):
+            return f"{pair[0]}/{pair[1]}"
+    return None
+
+
+def discover_workday(name: str, session: requests.Session | None = None,
+                     domain: str | None = None) -> str | None:
+    """Best-effort Workday slug for a company not on gh/ashby/lever/smartrec.
+
+    With a domain, follows its /careers. Without one, tries only the STRONG name-derived
+    domains (full joined / hyphenated — never the lone first word, which collides), so a
+    wrong guess fails closed rather than resolving to an unrelated company's board."""
+    session = session or requests.Session()
+    if domain:
+        d = domain.strip().rstrip("/")
+        hosts = [d] if d.startswith("www.") else [f"www.{d}", d]
+    else:
+        toks = re.sub(r"[^a-z0-9 ]", "", name.lower()).split()
+        hosts = []
+        for d in dict.fromkeys(("".join(toks), "-".join(toks))):   # strong candidates only
+            if d:
+                hosts += [f"www.{d}.com", f"{d}.com"]
+    tried: set[str] = set()
+    for h in hosts:
+        if h in tried:
+            continue
+        tried.add(h)
+        slug = resolve_workday(f"https://{h}/careers", session)
+        if slug:
+            return slug
+    return None
+
+
 if __name__ == "__main__":
     company = " ".join(sys.argv[1:])
     ats, slug = discover(company)
+    if not ats:
+        wd = discover_workday(company)
+        if wd:
+            ats, slug = "workday", wd
     if ats:
         print(f"{company}: ats={ats} slug={slug}")
     else:
-        print(f"{company}: no standard ATS found — likely Workday or custom (use Apify)")
+        print(f"{company}: no standard ATS found — likely dork-only or custom (use Tier-2/Apify)")

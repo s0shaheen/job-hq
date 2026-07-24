@@ -184,7 +184,18 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
 
-- **2026-07-24** — **P4 SuccessFactors adapter DONE** — PR open. `monitor/fetchers/successfactors.py`
+- **2026-07-24** — **P4 Workday slug discovery DONE → P4 COMPLETE** — PR open. Added a Workday
+  branch to `monitor/discover.py`: `resolve_workday(careers_url)` (redirect-follow + embedded-link)
+  and `discover_workday(name, domain=)`, both gated by `_verify_workday` (CXS POST is the single
+  source of truth — never DNS/pod-guessing; status ladder 200/404/422/401). Name-based guessing
+  uses STRONG candidates only (full/hyphenated — never the lone first word), so it fails closed.
+  Wired as a second pass in `bulk_discover.py` + the CLI. 7 new tests + **live end-to-end: name →
+  verified slug `ntrs.wd1…/northerntrust` → existing fetcher pulled 40 jobs**. Full suite green.
+  Web-search dork (CME/Allstate/Abbott, non-redirecting front doors) is the documented follow-on.
+  **P4 adapters COMPLETE:** iCIMS ✅ (#40), SuccessFactors ✅ (#41), Workday discovery ✅, Taleo →
+  Tier-2. **Next: P2 — universe schema** (migration 0007) — gets the full review-agent gate
+  (durability contract). §3 key plumbing still pending (P3/P6 live validation only).
+- **2026-07-24** — **P4 SuccessFactors adapter DONE** — merged (PR #41). `monitor/fetchers/successfactors.py`
   (keyless CSB HTML tiles, regex-parsed — no new dep; `search=`-based, registered in `_REGISTRY`
   + `_SEARCH_ATS`, token `sfsf`). Added an `sfsf` pattern to `core/jobkeys.py` (LAST position —
   keys CSB's vanity-host `/job/<slug>/<10-digit id>` URLs so `Job.id == job_key(url)`, the fetcher

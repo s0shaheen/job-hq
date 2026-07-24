@@ -2,9 +2,13 @@ from monitor.discover import (
     _greenhouse_board_name,
     _name_plausible,
     _probe,
+    _verify_workday,
+    _wd_match,
     candidate_slugs,
     discover,
+    discover_workday,
     interpret,
+    resolve_workday,
 )
 
 _GH = "https://boards-api.greenhouse.io/v1/boards"
@@ -114,3 +118,85 @@ def test_discover_accepts_greenhouse_when_board_name_unavailable():
         f"{_GH}/acme": _FakeResp(500),
     })
     assert discover("Acme", session=s) == ("greenhouse", "acme")
+
+
+# --- Workday slug discovery (redirect-follow + verify-by-CXS-POST) ---
+
+class _WdResp:
+    def __init__(self, status=200, body=None, url="", text=""):
+        self.status_code, self._body, self.url, self.text = status, body, url, text
+
+    def json(self):
+        if self._body is None:
+            raise ValueError("no json")
+        return self._body
+
+
+class _WdSession:
+    def __init__(self, gets=None, posts=None):
+        self._gets, self._posts, self.got = gets or {}, posts or {}, []
+
+    def get(self, url, timeout=None, allow_redirects=True, headers=None):
+        self.got.append(url)
+        return self._gets.get(url, _WdResp(404, url=url))
+
+    def post(self, url, json=None, timeout=None):
+        return self._posts.get(url, _WdResp(404))
+
+
+def _cxs(host, tenant, site):
+    return f"https://{host}/wday/cxs/{tenant}/{site}/jobs"
+
+
+def test_wd_match_parses_and_strips_locale_and_quotes():
+    assert _wd_match("https://ntrs.wd1.myworkdayjobs.com/northerntrust") == ("ntrs.wd1.myworkdayjobs.com", "northerntrust")
+    assert _wd_match("https://cmegroup.wd1.myworkdayjobs.com/en-US/cme_careers/job/X") == ("cmegroup.wd1.myworkdayjobs.com", "cme_careers")
+    assert _wd_match('https://acme.wd5.myworkdayjobs.com/acme"') == ("acme.wd5.myworkdayjobs.com", "acme")
+    assert _wd_match("https://www.example.com/careers") is None
+
+
+def test_verify_workday_status_ladder():
+    ep = _cxs("ntrs.wd1.myworkdayjobs.com", "ntrs", "northerntrust")
+    assert _verify_workday("ntrs.wd1.myworkdayjobs.com", "northerntrust",
+                           _WdSession(posts={ep: _WdResp(200, {"jobPostings": [{}], "total": 5})})) is True
+    assert _verify_workday("ntrs.wd1.myworkdayjobs.com", "northerntrust",
+                           _WdSession(posts={ep: _WdResp(200, {"total": 0})})) is True
+    # 200 but not a jobs payload (some tenants 200 an error) → not verified
+    assert _verify_workday("ntrs.wd1.myworkdayjobs.com", "northerntrust",
+                           _WdSession(posts={ep: _WdResp(200, {"error": "nope"})})) is False
+    for code in (404, 422, 401):   # wrong site / wrong pod / gated
+        assert _verify_workday("ntrs.wd1.myworkdayjobs.com", "northerntrust",
+                               _WdSession(posts={ep: _WdResp(code)})) is False
+
+
+def test_resolve_workday_via_redirect():
+    board = "https://ntrs.wd1.myworkdayjobs.com/northerntrust"
+    s = _WdSession(
+        gets={"https://www.northerntrust.com/careers": _WdResp(200, url=board, text="")},
+        posts={_cxs("ntrs.wd1.myworkdayjobs.com", "ntrs", "northerntrust"): _WdResp(200, {"jobPostings": [{}]})},
+    )
+    assert resolve_workday("https://www.northerntrust.com/careers", s) == "ntrs.wd1.myworkdayjobs.com/northerntrust"
+
+
+def test_resolve_workday_via_embedded_link():
+    page = 'careers <a href="https://acme.wd5.myworkdayjobs.com/en-US/acme_careers/job/1">apply</a>'
+    s = _WdSession(
+        gets={"https://x.com/careers": _WdResp(200, url="https://x.com/careers", text=page)},
+        posts={_cxs("acme.wd5.myworkdayjobs.com", "acme", "acme_careers"): _WdResp(200, {"total": 3})},
+    )
+    assert resolve_workday("https://x.com/careers", s) == "acme.wd5.myworkdayjobs.com/acme_careers"
+
+
+def test_resolve_workday_fails_closed_when_unverified():
+    # the URL parses to a board but CXS does not confirm it → None (never guess)
+    board = "https://ntrs.wd1.myworkdayjobs.com/northerntrust"
+    s = _WdSession(gets={"https://www.northerntrust.com/careers": _WdResp(200, url=board, text="")})  # no posts → 404
+    assert resolve_workday("https://www.northerntrust.com/careers", s) is None
+
+
+def test_discover_workday_only_tries_strong_domains():
+    s = _WdSession()  # everything 404 → returns None, but we inspect which domains it tried
+    assert discover_workday("Northern Trust", session=s) is None
+    assert "https://www.northerntrust.com/careers" in s.got
+    assert "https://northern-trust.com/careers" in s.got
+    assert "https://www.northern.com/careers" not in s.got   # lone first word is never guessed
