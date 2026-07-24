@@ -13,8 +13,11 @@ resolutions here override the individual plans where they conflict.
 > **Active design thread: [COMPANY-DISCOVERY.md](COMPANY-DISCOVERY.md)** — how
 > non-operator users populate their company universe by NL / filters / pasted
 > list (agentic generate→ground→verify→expand, shared universe, reliability
-> tiers). Forks resolved; next step is a read-only research pass (confirm with
-> Salman before launching). This is where the last conversation left off.
+> tiers). Forks resolved; the read-only research pass **ran** (2026-07-23) —
+> grounded findings + the revised build sequence live in
+> [COMPANY-DISCOVERY-RESEARCH.md](COMPANY-DISCOVERY-RESEARCH.md). Next: a keyed
+> TheirStack session to convert the estimated denominators to measured, then
+> build (resolver hardening → Tier-2 recall → adapters for latency).
 
 ## Build order
 

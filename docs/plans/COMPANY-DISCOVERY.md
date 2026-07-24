@@ -164,7 +164,27 @@ owner likes: Origami.ai, Clay, Wellfound.
 
 ---
 
-## NEXT STEP — the research pass (read-only, parallel; launch this first)
+## ✅ Research pass — DONE. Findings in [COMPANY-DISCOVERY-RESEARCH.md](COMPANY-DISCOVERY-RESEARCH.md)
+
+The read-only research pass below **ran** (6-agent workflow: 5 threads + an evidence critic,
+2026-07-23). Read the findings doc before building — it **corrects three claims in this design**
+with grounded evidence:
+
+- **Workday (Dad's keystone ATS) is already adapted** (38% of the Dad sample fingerprints to it).
+  The "3–5 new adapters" collapse to **3** (SuccessFactors, iCIMS, Taleo), and they buy **day-of
+  latency, not recall** — those ATSs are already Tier-2-covered, and the lag is ≤48h, not 1–3 days.
+  So sequencing inverts: **Tier-2 first for coverage, adapters second for latency.**
+- **The "free zero-credit coverage-oracle recall diff" is contradicted by `monitor/wide.py:241`**
+  (blur is incompatible with company-identifier filters). Recall is computable but likely not free.
+- **Coresignal $49 was already rejected** in `docs/research/aggregator-apis.md` ("Out"); the paid
+  fill-in remains genuinely unpriced for the firmographics need.
+- Two grounded resolver bugs (`monitor/discover.py`) must be fixed before scaling the universe.
+
+A single keyed TheirStack session unblocks the remaining quantitative unknowns — see the findings
+doc's "decisive follow-up."
+
+<details>
+<summary>The research pass as originally specified (now executed)</summary>
 
 Grounds the plan with real numbers before any build. Five threads:
 
@@ -185,5 +205,7 @@ Grounds the plan with real numbers before any build. Five threads:
 Then: a sequenced build plan (schema deltas, the discovery-agent workflow shape,
 the UI increments, the adapter build order).
 
-**Salman had not yet said "go" on this research pass when the session was
-cleared — confirm before launching a token-heavy multi-agent research workflow.**
+</details>
+
+The **revised, grounded build sequence** now lives in
+[COMPANY-DISCOVERY-RESEARCH.md](COMPANY-DISCOVERY-RESEARCH.md) → "Revised build sequence."
