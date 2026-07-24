@@ -63,6 +63,12 @@ fork). Salman authorized autonomous build + merge (2026-07-23).
 **Context management (why long runs stay coherent):**
 - Token-heavy work (research, audits, broad reads) runs in **subagents/workflows** — their
   volume never enters the main thread; only distilled results return.
+- **Delegate self-contained BUILD units too, not just research.** A spec'd, independent module
+  ("build `X` per its spec, test it, live-verify, open a draft PR") goes to a subagent so the
+  build's file-reads / test-output / diffs never bloat this loop; independent units parallelize.
+  The main loop keeps only: exploratory loops (each step informs the next), judgment-dense design,
+  the durability contract, and orchestration. *(Learned the hard way 2026-07-24: hand-coding P1–P6
+  in-chat bloated context and forced an early /clear. Memory: `feedback-delegate-builds-to-subagents`.)*
 - Every increment **checkpoints to this doc** → a clear/compaction loses nothing.
 - **Small PRs**, one concern each → independently reviewable + revertable.
 
