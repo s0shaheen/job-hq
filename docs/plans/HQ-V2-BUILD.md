@@ -184,7 +184,18 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
 
-- **2026-07-24** — **P4 Workday slug discovery DONE → P4 COMPLETE** — PR open. Added a Workday
+- **2026-07-24** — **P2 universe schema DONE** — PR open, in **review-agent gate** (durability
+  contract). `db/migrations/0007_universe_metadata.sql` adds `source`, `reliability_tier`
+  (smallint, CHECK null|1|2|3), `resolution_method` to the shared `public.companies` — all
+  additive/nullable so the sheet→pg mirror (name/ats/slug only) is unaffected. No per-user
+  column: `user_companies.monitor` is already the on/off toggle. **Scope call: Postgres-only** —
+  discovery is webapp-native (the `/companies` grid + agent write pg); the *sheet* Companies-tab
+  columns + the sweep honoring tier/enabled move to **P7** (sweep integration). Validated on
+  **real Postgres via docker** (0007 applies clean, columns/types/CHECK/defaults correct, all
+  existing db tests pass) + regular suite green; `tests/db/test_universe_schema.py` pins it.
+  **Next (after P2 merges): P5 free-source ingestion** or **P7 `/companies` grid** — both keyless;
+  P3/P6 need §3 keys.
+- **2026-07-24** — **P4 Workday slug discovery DONE → P4 COMPLETE** — merged (PR #42). Added a Workday
   branch to `monitor/discover.py`: `resolve_workday(careers_url)` (redirect-follow + embedded-link)
   and `discover_workday(name, domain=)`, both gated by `_verify_workday` (CXS POST is the single
   source of truth — never DNS/pod-guessing; status ladder 200/404/422/401). Name-based guessing
