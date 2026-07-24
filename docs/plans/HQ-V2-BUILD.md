@@ -190,6 +190,19 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
 
+- **2026-07-24** — **P5 free-source ingestion (3 sources) DONE — via delegated build-agents**
+  (first use of the delegate-builds rule; worked cleanly: 319k tokens in subagents, ~2k in the
+  main loop). Merged: `monitor/scripts/ingest_edgar.py` (#49, 300 IL public filers live),
+  `ingest_formadv.py` (#47, 672 IL RIAs), `ingest_commoncrawl.py` (#48, 412 Greenhouse slugs).
+  Each: own module + fixture + mocked-HTTP tests, live-verified, file-scoped.
+  **Follow-ons (delegate these too):** (a) **ATS-dorking** ingestion (4th source, needs WebSearch);
+  (b) **INTEGRATION** — a thin combiner that feeds the per-source candidates into `bulk_discover`
+  (resolve plain names via `monitor.discover`; Common Crawl slugs are pre-resolved greenhouse) →
+  the shared universe (P2 columns: source/tier/resolution_method). Then **P7 `/companies` grid**
+  (spec it, delegate to a build-agent; clone the `/jobs` primitives + `why-popover` per
+  `COMPANY-DISCOVERY-ADAPTERS`/the UX teardown). **Resume: delegate P5-integration + ATS-dork, or
+  spec+delegate P7.** Track-1 discovery infra is otherwise complete (resolver P1, adapters P4,
+  schema P2, oracle P3, agent P6, ingestion P5). Keys live in `.env`.
 - **2026-07-24** — **P6 discovery agent (generate→ground core) DONE.** `monitor/discovery_agent.py`:
   `discover_companies(facet)` → LLM (Haiku) proposes company names = recall-only; every name is
   discarded unless `monitor.discover` grounds it to a pullable board. 4 unit tests (fake LLM +
