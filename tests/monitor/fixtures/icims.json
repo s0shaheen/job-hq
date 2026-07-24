@@ -1,0 +1,42 @@
+{
+  "totalCount": 99,
+  "count": 99,
+  "jobs": [
+    {
+      "data": {
+        "slug": "29866",
+        "req_id": "29866",
+        "title": "Senior Recruiter",
+        "full_location": "OAKBROOK TERRACE, Illinois",
+        "short_location": "OAKBROOK TERRACE, Illinois",
+        "apply_url": "https://careers-comed.icims.com/jobs/29866/login",
+        "posted_date": "2026-07-23T19:16:00+0000",
+        "client_code": "exeloncorp"
+      }
+    },
+    {
+      "data": {
+        "slug": "29504",
+        "req_id": "29504",
+        "title": "Dir Reg Strategy & Rev Policy",
+        "full_location": "PHILADELPHIA, Pennsylvania",
+        "short_location": "PHILADELPHIA, Pennsylvania",
+        "apply_url": "https://careers-peco.icims.com/jobs/29504/login",
+        "posted_date": "2026-07-23T18:15:00+0000",
+        "client_code": "exeloncorp"
+      }
+    },
+    {
+      "data": {
+        "slug": "29955",
+        "req_id": "29955",
+        "title": "Staff Accountant - BSC (Hybrid)",
+        "full_location": "CHICAGO, Illinois",
+        "short_location": "CHICAGO, Illinois",
+        "apply_url": "https://careers-exeloncorp.icims.com/jobs/29955/login",
+        "posted_date": "2026-07-22T18:52:00+0000",
+        "client_code": "exeloncorp"
+      }
+    }
+  ]
+}

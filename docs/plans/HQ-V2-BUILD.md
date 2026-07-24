@@ -184,6 +184,14 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
 
+- **2026-07-24** — **P4 iCIMS adapter DONE** — PR open. `monitor/fetchers/icims.py` (keyless
+  careers-home/jibeapply JSON, paginated); registered slug-only in `_REGISTRY`. `native_id`
+  derived from the classic `apply_url` so `Job.id` matches `core.jobkeys` → Gmail auto-advance
+  aligns (parity-tested); correctly distinguishes sibling tenants (comed/peco/exeloncorp) that
+  reuse slug numbers. 5 unit tests + golden fixture + **live 99-job Exelon fetch** + full suite
+  green. Gate rule logged: review-agent gate is for durability-contract/large/UI changes; a small
+  isolated additive module (a fetcher) gets self-review + full-suite + live-verify.
+  **Next: P4 SuccessFactors** (`successfactors.py`), then Workday slug discovery.
 - **2026-07-24** — **P4 recon DONE** → spec in `COMPANY-DISCOVERY-ADAPTERS.md`. All endpoints
   live-verified. Refined scope: build **iCIMS** + **SuccessFactors** adapters, **enhance
   `discover.py`** for Workday slug discovery, **Taleo → Tier-2** (no clean public endpoint).

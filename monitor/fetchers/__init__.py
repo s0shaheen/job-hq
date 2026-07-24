@@ -3,7 +3,7 @@ import requests
 
 from monitor.fetchers import (greenhouse, ashby, lever, smartrecruiters, workday,
                               amazon, eightfold, oracle_hcm, google, apple,
-                              goldman, radancy)
+                              goldman, radancy, icims)
 from monitor.models import Job
 
 _REGISTRY = {
@@ -11,6 +11,7 @@ _REGISTRY = {
     "ashby": ashby.get_jobs,
     "lever": lever.get_jobs,
     "smartrec": smartrecruiters.get_jobs,
+    "icims": icims.get_jobs,
     "workday": workday.get_jobs,
     "amazon": amazon.get_jobs,
     "eightfold": eightfold.get_jobs,
