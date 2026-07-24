@@ -133,15 +133,17 @@ headline economics are **contradicted by the repo's own code**:
   is the right denominator primitive, and `blur_company_data:true` serves counts without consuming
   credits. The facet→query mapping (title terms × `job_location_or:[{catalog id}]` ×
   `posted_at_max_age_days:30`) is correctly specified against `wide.py`'s existing shape.
-- **What's wrong (grounded in `wide.py:241`):** the "free zero-credit **universe-diff**" —
-  `gap_D` via `company_list_id_not`/`company_domain_not` under blur — **likely does not work.**
-  `monitor/wide.py:241-242` states *"blur is incompatible with company-identifier filters (vendor
-  docs)"* and actively pops the company filter when blur is on. Company-list/domain exclusions are
-  the same filter family. So it is likely **blur (no exclusion, free count) OR exclusion (pay
-  credits)**, not both. Recall-at-zero-credits is unproven and probably impossible as designed.
-- **Also corrected:** "the oracle half-exists in the repo" overstates — `wide.py` implements
-  `/v1/jobs/search` with a blur preview, **not** the `/v1/companies/search` denominator endpoint,
-  which is doc-sourced only.
+- **RESOLVED EMPIRICALLY (2026-07-24, P3) — the free recall-diff WORKS; the pessimism here was
+  wrong.** Live against the real API: excluding companies with `company_name_not` /
+  `company_domain_not` under blur **dropped the count** (D 1405 → 1395 excluding 14 big employers,
+  → 1402 by domain), so exclusion IS applied under blur, for free. `wide.py:241` strips the
+  **inclusion** fence (`company_name_case_insensitive_or`, used to fence TO companies) — the
+  **exclusion** filters are a different family and survive blur. So `recall = 1 − gap_D/D` is free
+  (a 644-name exclusion list ran fine). Built + live-verified as `monitor/oracle.py`.
+- **Also corrected — the endpoint:** the denominator is **`/v1/jobs/search`**, not
+  `/v1/companies/search`. jobs/search + blur + a job facet returns `metadata.total_companies`
+  directly (the distinct-company count); companies/search filters *firmographics* and rejects
+  `job_title_or` (422), so it cannot size a job facet.
 - **Estimated denominators (LOW confidence, no key):** Chicago finance ≈ 600–1,800 companies
   (pt ~1,100); US startup SWE/PM ≈ 8,000–20,000 (pt ~12,000). Query-sized, not measured.
 
@@ -257,7 +259,7 @@ Then replace the estimated denominators with the four measured blur-mode counts 
 | Free sources (dorking, Common Crawl, EDGAR, Form ADV) yield as claimed | **Grounded** (each exercised once) |
 | Tier-2 covers iCIMS/Taleo/SuccessFactors | **Repo-documented** (marketing list + hiring.cafe probe), **not** verified for Dad's firms |
 | Aggregator lag ≈ same-day/≤48h (not 1–3 days) | **Repo-corrected** (`aggregator-apis.md:32`) |
-| Free zero-credit recall-diff under blur | **Contradicted** by `wide.py:241` — likely impossible as designed |
+| Free zero-credit recall-diff under blur | **CONFIRMED WORKING** (P3, live 2026-07-24) — exclusion filters apply under blur; `wide.py:241` only strips the *inclusion* fence |
 | Coresignal $49 as the paid pick | **Contradicted** by `aggregator-apis.md:79` ("Out"); provisional, needs trial |
 | All facet denominators (Chicago finance, US startups) | **Estimate-only** (no key) — 4 calls from measured |
 

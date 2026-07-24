@@ -184,7 +184,17 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
 
-- **2026-07-24** — **P2 universe schema DONE** — PR open, in **review-agent gate** (durability
+- **2026-07-24** — **P3 coverage oracle DONE** (keys now live in `.env`). `monitor/oracle.py`:
+  `denominator(facet)` and `coverage(facet, universe)` → recall = 1 − gap_D/D, **all free (blurred
+  jobs/search)**. **Settled the research's #1 open question empirically:** exclusion filters
+  (`company_name_not`/`company_domain_not`) DO apply under blur (D 1405→1395 excluding big
+  employers) — `wide.py:241` only strips the *inclusion* fence, so the free recall-diff is real.
+  Also corrected: the denominator is **jobs/search** `metadata.total_companies`, NOT companies/search
+  (which filters firmographics, rejects `job_title_or`). 6 unit tests (fake session, key-free) +
+  **live: TECH facet D=12110 (our universe ≈4.1%), FINANCE D=1405 (≈1.6%)**, 644-name exclusion ran
+  fine + full suite green. Research doc corrected. **Next: P6 discovery agent** (ANTHROPIC now live)
+  or P5/P7. Running continuously — surfacing only for spend/forks.
+- **2026-07-24** — **P2 universe schema DONE** — merged (PR #43, review-gated). (durability
   contract). `db/migrations/0007_universe_metadata.sql` adds `source`, `reliability_tier`
   (smallint, CHECK null|1|2|3), `resolution_method` to the shared `public.companies` — all
   additive/nullable so the sheet→pg mirror (name/ats/slug only) is unaffected. No per-user
