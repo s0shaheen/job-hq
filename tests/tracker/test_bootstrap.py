@@ -1,3 +1,6 @@
+import errno
+
+import pytest
 import yaml
 
 from core import config, schema
@@ -111,6 +114,26 @@ def test_registry_written_with_gids_and_preserves_other_keys(tmp_path):
     assert set(reg["tabs"]) == set(schema.TABS)
     assert all(isinstance(g, int) for g in reg["tabs"].values())
     assert reg_path.read_text().startswith("# Machine registry")
+
+
+def _raise_oserror(errnum):
+    def _f(*a, **k):
+        raise OSError(errnum, "simulated")
+    return _f
+
+
+def test_write_registry_tolerates_read_only_fs(tmp_path, monkeypatch, capsys):
+    # Lambda's /var/task is read-only: write_registry must skip the persist (not crash) so
+    # selfheal's schema-heal still completes; an unrelated OSError must still fail loud.
+    reg_path = tmp_path / "hq.config.yaml"
+    monkeypatch.setattr(type(reg_path), "write_text", _raise_oserror(errno.EROFS))
+    bootstrap.write_registry({"tabs": {}}, reg_path)               # tolerated, no raise
+    assert "read-only" in capsys.readouterr().out
+    assert not reg_path.exists()                                   # nothing persisted
+
+    monkeypatch.setattr(type(reg_path), "write_text", _raise_oserror(errno.ENOSPC))
+    with pytest.raises(OSError):
+        bootstrap.write_registry({"tabs": {}}, reg_path)           # unrelated OSError still raises
 
 
 def test_dry_run_touches_nothing(tmp_path):

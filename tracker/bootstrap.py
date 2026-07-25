@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import errno
 import os
 from pathlib import Path
 
@@ -109,7 +110,16 @@ def registry_path() -> Path:
 
 
 def write_registry(reg: dict, path: Path) -> None:
-    path.write_text(_REGISTRY_HEADER + yaml.safe_dump(reg, sort_keys=False))
+    try:
+        path.write_text(_REGISTRY_HEADER + yaml.safe_dump(reg, sort_keys=False))
+    except OSError as e:
+        # Read-only filesystem (e.g. AWS Lambda's /var/task): persisting the registry is a
+        # cross-run convenience with no repo to commit into here, and the runtime gid->title
+        # fallback already covers any tab-gid drift. Skip the write; never fail the run for it.
+        if e.errno not in (errno.EROFS, errno.EACCES):
+            raise
+        print(f"[registry] {path} is read-only ({e.strerror}); skipped persist — "
+              "runtime gid fallback covers drift")
     # BOTH caches: the parsed document and the per-user instance views. Missing
     # the document cache would leave a just-provisioned user invisible to the
     # same process that created them.

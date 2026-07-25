@@ -25,7 +25,9 @@ JOBS: dict[str, list[tuple[str, list[str]]]] = {
                         ("tracker.scout", []), ("tracker.stale", []), ("tracker.join", [])],
     "digest":          [("tracker.digest", [])],
     "selfheal":        [("tracker.selfheal", [])],            # schema re-assert; snapshot→S3 is follow-on
-    "simplify":        [("tracker.migrate", []), ("tracker.simplify", [])],
+    # simplify.yml order: scrape Simplify, then import the CSV it drops. Needs SIMPLIFY_* cookies;
+    # its tracker/data/*.csv round-trip is repo-relative so not yet Lambda-FS-safe (follow-on).
+    "simplify":        [("tracker.simplify", []), ("tracker.migrate", ["--simplify-csv"])],
     "wide_cafe":       [("monitor.wide", ["--source", "cafe"])],
     "wide_theirstack": [("monitor.wide", ["--source", "theirstack"])],
 }
