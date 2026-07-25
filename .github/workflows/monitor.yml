@@ -8,10 +8,12 @@
 # anyway. Same-day discovery for the whole universe is the better trade.
 name: Job monitor
 
+# SCHEDULE RETIRED 2026-07-25 — the cron now lives on AWS Lambda + EventBridge
+# (infra/terraform/variables.tf: jobs.monitor, 12:00 + 23:00 UTC). Kept dispatchable: same code,
+# same secrets, one click. It is the manual re-run path the runbook points at AND the fallback if
+# AWS itself is the problem — the only step Lambda can't do is the snapshot commit below, which
+# therefore only refreshes on a dispatched run (see infra/README.md § Known gaps).
 on:
-  schedule:
-    - cron: "0 12 * * *"    # ~07:00 America/Chicago
-    - cron: "0 23 * * *"    # ~18:00 America/Chicago
   workflow_dispatch: {}
 
 permissions:

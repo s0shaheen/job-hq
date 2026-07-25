@@ -3,9 +3,9 @@
 # instant via the Apps Script capture; this files them into the sheet.
 name: Tracker
 
+# SCHEDULE RETIRED 2026-07-25 — cron moved to AWS Lambda + EventBridge (jobs.tracker, every 2 h
+# at :31). This was the Actions minute hog: 12 runs/day. Kept dispatchable for manual re-runs.
 on:
-  schedule:
-    - cron: "31 */2 * * *"   # every 2h at :31 (off the top-of-hour load spike)
   workflow_dispatch: {}
 
 

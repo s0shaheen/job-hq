@@ -2,7 +2,9 @@
 
 One Google Sheet ("Job Search HQ") is the cockpit; this monorepo is the engine — discovery
 bots, tracker bots, the resume pipeline, the phone editor, and the Apps Script sources all
-live here and run on GitHub Actions cron. Gmail is the status ground truth: ATS
+live here. The recurring bots run on **AWS Lambda + EventBridge cron** (`infra/`); GitHub
+Actions keeps CI, the resume pipeline, the two git-committing backups, and every bot as a
+dispatch-only manual run. Gmail is the status ground truth: ATS
 confirmation/rejection/OA/interview emails are captured by an Apps Script in Salman's main
 account and auto-advance Pipeline rows with evidence links — nobody marks "applied" by hand.
 Humans (Salman + the scout) only touch the spreadsheet; behavior changes happen in its Config
@@ -42,7 +44,10 @@ built and populated; tab gids are pinned in `hq.config.yaml`.
 - `docs/` — `SPEC.md` (the approved consolidation spec), `RUNBOOK.md` (ops bible),
   `ACTIVATION.md` (go-live checklist), `scout-instructions.md`, `research/` (6 verified
   research reports — cite these, don't re-research).
-- `.github/workflows/` — the schedules (table below).
+- `infra/` — the cron platform: `Dockerfile` (one image, all bots), `app/handler.py` (the
+  `{"job": …}` dispatch shim + per-job failure push), `alerter/index.py` (SNS→ntfy),
+  `terraform/` (Lambda, EventBridge schedules, alarms). Runbook: `infra/README.md`.
+- `.github/workflows/` — CI, the git-committing backups, and dispatch-only runs (table below).
 - `hq.config.yaml` — machine-owned registry: sheet id, tab gids, ntfy topics, Drive folder
   ids, service-account email. bootstrap writes it, self-heal re-pins it. **Never hand-edit.**
 - `master-resume.md` / `jd-playbook.md` / `references/` / `content-workshop.md` — the resume
@@ -71,24 +76,42 @@ A future session must NEVER add a positional sheet write, a cached row index, a 
 update on a shared tab, or a write path that bypasses `core.sheets.Tab`. If the schema needs
 a new column, add it to `core/schema.py` and let bootstrap/self-heal create it.
 
+## Schedules (AWS Lambda + EventBridge)
+
+One Lambda (`job-hq-bots`, one container image) runs every bot; EventBridge Scheduler fires it
+with `{"job": "<name>"}`. Secrets are SSM SecureStrings under `/job-hq/`. Cutover from Actions
+crons: 2026-07-25. Deploy/ops: `infra/README.md`.
+
+| Lambda job | Cron (UTC) | ~CT | Runs |
+|---|---|---|---|
+| `monitor` | `0 12,23 * * ?` | 07:00 + 18:00 daily | `monitor.run` |
+| `review` | `0 15 * * ?` | 10:00 daily | `monitor.regate` → `monitor.review` |
+| `tracker` | `31 0/2 * * ?` | every 2 h at :31 | promote → quickadd → scout → stale → join |
+| `digest` | `40 11 * * ?` | 06:40 daily | `tracker.digest` |
+| `wide_cafe` | `30 13 * * ?` | 08:30 daily | `monitor.wide --source cafe` |
+| `wide_theirstack` | `50 13 * * ?` | 08:50 daily | `monitor.wide --source theirstack` |
+| `selfheal`, `simplify` | unscheduled | — | dispatchable: `aws lambda invoke --function-name job-hq-bots --payload '{"job":"selfheal"}'` |
+
+Failure alerting is two layers (`infra/terraform/alerts.tf`), because one Lambda runs every bot:
+`handler.py` pushes ntfy itself naming the failed **job** on every exception, and two CloudWatch
+alarms → SNS → a stdlib alerter Lambda → ntfy catch what in-process code can't report —
+`job-hq-bots-errors` (timeout / OOM / broken image / dead secret store) and `job-hq-bots-silent`
+(no invocation in 3 h = the schedules themselves died). Both push again on recovery.
+
 ## Workflows (GitHub Actions)
 
-| Workflow | Cron (UTC) | ~CT | Runs |
-|---|---|---|---|
-| `monitor.yml` Job monitor | `0 12,23 * * *` | 07:00 + 18:00 daily | `python -m monitor.run` + snapshot commit |
-| `priority.yml` Priority watch | dispatch only | — | `python -m monitor.priority` (retired 2026-07-21; the 2x/day sweep covers every company) |
-| `review.yml` Tagging review | `0 15 * * *` | 10:00 daily | `python -m monitor.review` |
-| `wide-cafe.yml` hiring.cafe | `30 13 * * *` | 08:30 daily | `python -m monitor.wide --source cafe` |
-| `wide-theirstack.yml` TheirStack | `50 13 * * *` | 08:50 daily | `python -m monitor.wide --source theirstack` |
-| `tracker.yml` Tracker | `31 */2 * * *` | every 2 h | promote → quickadd → scout → stale → join |
-| `simplify.yml` Simplify import | `7 14 * * *` | 09:07 daily | `python -m tracker.simplify` |
-| `digest.yml` Daily digest | `40 11 * * *` | 06:40 daily | `python -m tracker.digest` |
-| `selfheal.yml` Self-heal + snapshot | `23 8 * * *` | 03:23 nightly | selfheal + snapshot + commit |
-| `resume.yml` Resume render & publish | on push to `main` touching `resume/**` | — | render base + alt, one-page gate, Drive publish, ntfy w/ preview |
-| `ci.yml` CI | every push/PR | — | pytest; dispatch inputs: adapter smoke / whoami / bootstrap |
-| `bootstrap.yml`, `whoami.yml` | dispatch only | — | sheet provisioning / print SA email |
+| Workflow | Trigger | Runs |
+|---|---|---|
+| `selfheal.yml` Self-heal + snapshot | cron `23 8 * * *` (03:23 CT) | selfheal + snapshot + commit — **stays on Actions: its product is a git commit** |
+| `pgdump.yml` PG snapshot | cron `53 9 * * *` (04:53 CT) | pg_dump → `snapshots/pg/` + commit (gated on `PGDUMP_ENABLED`) |
+| `resume.yml` Resume render & publish | push to `main` touching `resume/**` | render base + alt, one-page gate, Drive publish, ntfy w/ preview |
+| `ci.yml` CI | every push/PR | pytest; dispatch inputs: adapter smoke / whoami / bootstrap |
+| `monitor.yml`, `review.yml`, `tracker.yml`, `digest.yml`, `wide-*.yml` | dispatch only | the same bots, one click — manual re-run path, and the fallback if AWS is the problem |
+| `simplify.yml` | dispatch only | retired cron (expiring session cookies, #56); Gmail capture covers the same data |
+| `priority.yml` | dispatch only | `monitor.priority` (retired 2026-07-21; the 2x/day sweep covers every company) |
+| `bootstrap.yml`, `whoami.yml` | dispatch only | sheet provisioning / print SA email |
 
-Every scheduled workflow ops-pushes on failure (ntfy topic `REDACTED-NTFY-TOPIC`) with a
+Every Actions workflow still ops-pushes on failure (ntfy topic `REDACTED-NTFY-TOPIC`) with a
 click-through to the run. Ops procedures: `docs/RUNBOOK.md`.
 
 ## Running locally

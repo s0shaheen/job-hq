@@ -6,7 +6,8 @@ ground truth** (ATS emails auto-advance the tracker; "applied" is never marked b
 It absorbs five previously disconnected fragments: the PM job monitor, the scout's
 spreadsheet, Simplify, the inbox, and the RenderCV resume pipeline.
 
-**How it works:** GitHub Actions fetch ~640 companies' boards through 12 live-verified ATS
+**How it works:** scheduled bots (AWS Lambda + EventBridge; `infra/`) fetch ~640 companies'
+boards through 12 live-verified ATS
 adapters (plus a hiring.cafe wide sweep for everything else) into a **Feed** tab, tag each
 role with Claude Haiku, and push roles matching the YoE rule to the phone via ntfy. Tracker
 bots merge every funnel — Feed ★-picks, the scout's rows, Quick Add URL pastes, Simplify —
@@ -53,9 +54,11 @@ Tests: **334 passing** — `uv run --python 3.11 --with-requirements requirement
 
 ## Cost
 
-**≈ $2–7/month.** Haiku tagging + email classification ~$2–3 · GitHub Actions free tier at
-the current cadence ($4/mo Pro only if hourly-everything is ever wanted) · Apify wide sweep
-inside the free $5 credit · ntfy, Vercel hobby, TheirStack free tier: $0.
+**≈ $2–5/month.** Haiku tagging + email classification ~$2–3 · AWS Lambda + EventBridge +
+SSM inside the always-free tier, minus pennies of ECR storage (the 2026-07-25 move off
+Actions minutes removed the only metered wall) · the two snapshot-committing jobs still on
+the GitHub Actions free tier · Apify wide sweep inside the free $5 credit · ntfy, Vercel
+hobby, TheirStack free tier: $0.
 
 ## Provenance
 

@@ -5,9 +5,9 @@
 # minutes later so the two never contend for the feed lane.
 name: Wide sweep — TheirStack
 
+# SCHEDULE RETIRED 2026-07-25 — cron moved to AWS Lambda + EventBridge (jobs.wide_theirstack,
+# 13:50 UTC), still 20 min after the hiring.cafe sweep so the two never contend for the feed lane.
 on:
-  schedule:
-    - cron: "50 13 * * *"   # ~08:50 America/Chicago
   workflow_dispatch: {}
 
 

@@ -9,9 +9,9 @@
 # per-user feed concurrency lane, so their appends serialize.
 name: Wide sweep — hiring.cafe
 
+# SCHEDULE RETIRED 2026-07-25 — cron moved to AWS Lambda + EventBridge (jobs.wide_cafe, 13:30
+# UTC). Needs APIFY_TOKEN in SSM /job-hq/ to do anything there; it skips cleanly when unset.
 on:
-  schedule:
-    - cron: "30 13 * * *"   # ~08:30 America/Chicago
   workflow_dispatch: {}
 
 

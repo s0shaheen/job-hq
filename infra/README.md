@@ -8,8 +8,11 @@ You run ~5 commands. Everything else is the code in this directory. I can't touc
 `terraform plan` validates everything before anything is created, so nothing here is destructive
 until you approve a plan.
 
-**Not migrated (on purpose, follow-on):** the two *backup* jobs — `tracker.snapshot`'s git-commit
-and `pgdump` — need an S3 sink instead of git. The 8 live sheet/pg bots are what's here.
+**Not migrated, on purpose:** the jobs whose *product is a git commit* — `selfheal.yml`
+(`tracker.selfheal` + `tracker.snapshot` + commit) and `pgdump.yml`. Lambda's `/var/task` is
+read-only, so both writes there are silently skipped, and a backup that silently doesn't happen is
+worse than no backup. They stay on GitHub Actions until there's an S3 sink (see Known gaps).
+Six schedules live here: `monitor`, `review`, `tracker`, `digest`, `wide_cafe`, `wide_theirstack`.
 
 ---
 
@@ -76,17 +79,19 @@ From the **repo root** (the Dockerfile copies core/monitor/tracker):
 cd ../..                                             # repo root
 ECR=$(cd infra/terraform && terraform output -raw ecr_repository_url)
 aws ecr get-login-password | docker login --username AWS --password-stdin "${ECR%/*}"
-docker build --platform linux/amd64 -f infra/Dockerfile -t "$ECR:latest" .
-docker push "$ECR:latest"
+docker build --platform linux/amd64 -f infra/Dockerfile -t "${ECR}:latest" .
+docker push "${ECR}:latest"
 ```
 
-(`--platform linux/amd64` matters if you're on an Apple-silicon Mac — Lambda runs x86 here.)
+(`--platform linux/amd64` matters if you're on an Apple-silicon Mac — Lambda runs x86 here.
+Keep the braces: in **zsh** `"$ECR:latest"` is parsed as the `:l` lowercase modifier plus
+"atest", and you get a push to a repo named `job-hq-botsatest`.)
 
 ## 5. Create everything else (Terraform, step 2 of 2)
 
 ```sh
 cd infra/terraform
-terraform apply                                      # creates the Lambda, IAM roles, 8 schedules
+terraform apply     # the Lambda, IAM roles, 6 schedules, and the alerting stack (alerts.tf)
 ```
 
 ## 6. Smoke-test one bot before trusting the schedules
@@ -100,14 +105,73 @@ aws logs tail "/aws/lambda/$FN" --since 5m           # the bot's own output + an
 
 If a secret is missing you'll see a loud error here (fail-loud by design), not silent success.
 
-## 7. Confirm the schedules are live, then retire the Actions crons
+## 7. The Actions crons are retired (done 2026-07-25)
 
 ```sh
 terraform output schedule_names                      # job-hq-monitor, job-hq-tracker, ...
 ```
 
-Once you trust them, delete (or disable) the `schedule:` blocks in `.github/workflows/*.yml` so
-the two don't double-run. Keep the CI workflows (`ci.yml`) — those stay on Actions.
+The `schedule:` blocks are gone from `.github/workflows/monitor|review|tracker|digest|wide-*|
+simplify.yml` — every one keeps `workflow_dispatch`, so a manual re-run (or a run when AWS itself
+is the problem) is still one click with the same code and the same repo secrets. `selfheal.yml`,
+`pgdump.yml`, `ci.yml` and `resume.yml` still run on Actions.
+
+---
+
+## Ops alerting (`terraform/alerts.tf`)
+
+The Actions crons each ended with an "Ops alert on failure" step. That's replaced by two layers,
+because they catch different failures and neither alone is enough:
+
+| Layer | Fires when | Names the job? |
+|---|---|---|
+| `app/handler.py` → `core.notify.ops_alert` | any bot raises or exits nonzero — **every** occurrence | yes: `[lambda] tracker failed` + the failing module |
+| CloudWatch alarm → SNS → `alerter/index.py` → ntfy | the failures in-process code can't report | no (one Lambda runs all bots) |
+
+Two alarms, both also pushing on recovery:
+
+- **`job-hq-bots-errors`** — `Errors > 0` in any 5 min. Catches timeouts, OOM kills, a broken
+  image, an unimportable module, a dead SSM secret store. Won't re-notify while already in ALARM;
+  that's what layer 1 is for. It also **stays red until the next successful invocation** — Lambda
+  publishes no metrics while idle, so there is no clean datapoint to clear it with, and the
+  recovery push lands on the next scheduled run (≤ 2 h, the tracker cadence) rather than 5 minutes
+  later. That's accurate rather than annoying: red until something actually succeeds. To clear it
+  now, invoke any job by hand.
+- **`job-hq-bots-silent`** — `Invocations < 1` over 3 h, missing data treated as **breaching**.
+  The tracker chain alone fires every 2 h, so silence means the schedules, the scheduler role, or
+  the account is broken. This is the only failure mode that otherwise produces no signal at all.
+
+The alerter is a separate stdlib-only zip Lambda on purpose: it must work on the days the bots'
+container image doesn't. It reads the ops topic from `hq.config.yaml` at `terraform apply` time
+(env `OPS_NTFY_TOPIC`), so there's no SSM or IAM dependency at alert time.
+
+Test it end to end (both layers, one command each — expect two pushes plus a recovery push
+~5-10 min later):
+
+```sh
+FN=$(terraform output -raw lambda_function_name)
+aws lambda invoke --function-name "$FN" --payload '{"job":"__alarm_test__"}' \
+  --cli-binary-format raw-in-base64-out /tmp/out.json    # layer 1: "[lambda] __alarm_test__ failed"
+aws lambda invoke --function-name "$(terraform output -raw alerter_function_name)" \
+  --payload '{"probe":"alerter"}' --cli-binary-format raw-in-base64-out /tmp/a.json  # layer 2 path
+aws cloudwatch describe-alarms --alarm-names $(terraform output -json alarm_names | tr -d '[]",') \
+  --query 'MetricAlarms[].[AlarmName,StateValue]' --output text
+```
+
+## Known gaps (all documented, none silent)
+
+- **No per-user fan-out.** The Actions workflows ran a matrix over `vars.HQ_USERS`; a Lambda
+  schedule fires one invocation. Today the registry is single-user (flat `hq.config.yaml`), so
+  they're equivalent — but the moment a second user instance exists, each schedule must fan out
+  (one invocation per user with `HQ_USER` set, or a dispatcher job) or the new user gets nothing.
+- **No S3 sink**, so `tracker.snapshot`, the re-pinned registry, and `pgdump` stay on Actions,
+  and `monitor.run`'s git-diffable `monitor/snapshots/*.json` only refreshes on a dispatched
+  Actions run (it warns and continues on Lambda; the nightly CSV snapshot still backs up Feed).
+- **Mutable `:latest` image tag.** Terraform can't see a new build — after pushing, force the pull
+  with `aws lambda update-function-code --function-name job-hq-bots --image-uri "${ECR}:latest"`.
+  Tagging by git SHA is the fix.
+- **ntfy.sh is the only alert channel** unless you set `var.alert_email` (an SNS email
+  subscription; confirm the AWS email once).
 
 ---
 
@@ -135,5 +199,8 @@ natural next refactor, not needed yet.
 - `app/handler.py` — dispatches `{"job": <name>}` to the exact `python -m` sequence each old
   workflow ran (bots unchanged); loads `/job-hq/*` secrets from SSM once per cold start.
 - `Dockerfile` — AWS Python 3.11 Lambda image with core/monitor/tracker + the handler.
+- `alerter/index.py` — SNS→ntfy bridge for the CloudWatch alarms; stdlib only, no shared code
+  with the bots (it has to survive their image being broken).
 - `terraform/` — ECR, the Lambda, a least-privilege execution role (logs + read its own SSM only),
-  a scheduler role (invoke only this function), and one EventBridge schedule per bot.
+  a scheduler role (invoke only this function), one EventBridge schedule per bot, and
+  `alerts.tf`'s alarms + SNS topic + alerter.

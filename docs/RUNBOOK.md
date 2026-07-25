@@ -1,15 +1,25 @@
 # RUNBOOK — Job Search HQ operations
 
 Every scheduled job pushes to the **ops ntfy topic** (`REDACTED-NTFY-TOPIC`) when it
-fails, with a click-through to the GitHub Actions run. Silence means healthy. Triage is
-always the same three steps:
+fails. Silence means healthy. Triage is always the same three steps:
 
-1. Open the Actions run from the alert; read the `[jobname]` line on stderr — every
-   entrypoint prints its real cause before exiting.
+1. **Read the alert title — it tells you where the logs are.**
+   - `[lambda] <job> failed` → the bots run on AWS Lambda (`infra/`). Logs:
+     `aws logs tail /aws/lambda/job-hq-bots --since 30m` (or tap the push, which links to the
+     log group). The body names the failing module; every entrypoint prints its real cause
+     on stderr before exiting.
+   - `HQ bots ALARM: job-hq-bots-*` → a CloudWatch alarm, i.e. a failure the bot couldn't
+     report itself. See [A CloudWatch alarm fired](#a-cloudwatch-alarm-fired).
+   - `[salman] <name> failed` → a GitHub Actions run (self-heal, PG snapshot, resume, or a
+     job you dispatched by hand). Open the run from the push.
 2. Cross-check the sheet: **Log** tab (append-only audit of every bot action), **Health**
    tab (per-company fetch results), and the `heartbeat_*` rows in **Config**.
-3. Fix per the matching section below, then re-run the workflow from the Actions tab
-   (every one supports `workflow_dispatch`) — all jobs are idempotent and safe to re-run.
+3. Fix per the matching section below, then re-run — all jobs are idempotent and safe to
+   re-run, two ways:
+   - Lambda: `aws lambda invoke --function-name job-hq-bots --payload '{"job":"tracker"}'
+     --cli-binary-format raw-in-base64-out /tmp/out.json`
+   - Actions: every workflow still supports `workflow_dispatch` with the same code and
+     secrets — the fallback when AWS itself is the problem.
 
 ---
 
@@ -27,7 +37,7 @@ heartbeat older than **2× its cadence**; a job that never ran shows "no heartbe
 | `heartbeat_review` | `monitor.review` | daily 10:00 CT | 48 h |
 | `heartbeat_cafe` | `monitor.wide --source cafe` | daily 08:30 CT | 48 h |
 | `heartbeat_theirstack` | `monitor.wide --source theirstack` | daily 08:50 CT | 48 h |
-| `heartbeat_simplify` | `tracker.simplify` | daily 09:07 CT | 48 h |
+| `heartbeat_simplify` | `tracker.simplify` | dispatch only (retired 2026-07-25) | not watched |
 | `heartbeat_selfheal` | `tracker.selfheal` | nightly 03:23 CT | 48 h |
 | `heartbeat_snapshot` | `tracker.snapshot` | nightly 03:23 CT | 48 h |
 | `heartbeat_digest` | `tracker.digest` | daily 06:40 CT | (digest is the watchdog; its workflow alert covers it) |
@@ -37,15 +47,53 @@ heartbeat when *every* company fetch failed; `wide` skips it when no source swep
 `simplify` skips it on auth failure. A clean "not activated / disabled" skip DOES
 heartbeat — pre-activation silence is healthy, failure is not.
 
-Daily rhythm (America/Chicago): 03:23 self-heal + snapshot → 06:40 digest composed →
-~7:00 digest email (Apps Script) → 07:00 daily monitor sweep → 08:30 wide sweep → 09:07
-Simplify → 10:00 tagging review → 18:00 second sweep → tracker chain
-every 2 h at :31 → Gmail capture every 15 min around the clock.
+Daily rhythm (America/Chicago): 03:23 self-heal + snapshot (Actions) → 04:53 PG snapshot
+(Actions) → 06:40 digest composed → ~7:00 digest email (Apps Script) → 07:00 daily monitor
+sweep → 08:30 + 08:50 wide sweeps → 10:00 tagging review → 18:00 second sweep → tracker
+chain every 2 h at :31 → Gmail capture every 15 min around the clock. Everything except the
+two snapshot commits fires from AWS EventBridge, not Actions.
 
 Also healthy: the digest's "Automation health" section printing
-`✅ all systems ran on schedule`, and a fresh `chore: nightly HQ snapshot` commit each night.
+`✅ all systems ran on schedule`, a fresh `chore: nightly HQ snapshot` commit each night, and
+both CloudWatch alarms sitting in `OK`:
+
+```sh
+aws cloudwatch describe-alarms --alarm-name-prefix job-hq-bots \
+  --query 'MetricAlarms[].[AlarmName,StateValue]' --output text
+```
 
 ---
+
+## A CloudWatch alarm fired
+
+Two alarms watch the bots' Lambda; both also push again when they clear (`HQ bots recovered:`).
+They exist for failures a bot cannot report about itself — see `infra/README.md § Ops alerting`.
+
+**`job-hq-bots-errors`** — an invocation errored in the last 5 minutes.
+
+- You will usually get the `[lambda] <job> failed` push *too*, which names the job and module —
+  triage that per the section below. The alarm alone (no per-job push) is the interesting case: it
+  means the handler never reached its except block. Causes: the 900 s **timeout** (look for
+  `Task timed out`), an **OOM** kill (`Runtime exited`), a **broken image** or import error after a
+  bad build, or a dead SSM secret store (`could not load secrets from SSM`).
+- Look: `aws logs tail /aws/lambda/job-hq-bots --since 30m --filter-pattern '?ERROR ?Task ?Runtime'`
+- Fix the cause, re-invoke that job by hand (intro, step 3), and confirm the recovery push. The
+  alarm stays red until a *successful* invocation publishes a clean datapoint — Lambda emits no
+  metrics while idle — so left alone it clears on the next scheduled run, not 5 minutes later.
+- Rolling back a bad image: rebuild from a known-good commit and `aws lambda
+  update-function-code --function-name job-hq-bots --image-uri "$ECR:latest"` (per `infra/README.md`).
+
+**`job-hq-bots-silent`** — zero invocations in 3 hours, i.e. the schedules stopped firing. Nothing
+ran, so nothing failed loudly; this is the alarm that exists because "six days of dead runs never
+paged anyone" once happened on Actions.
+
+- Check the schedules exist and are ENABLED: `aws scheduler list-schedules --name-prefix job-hq`
+- Then the scheduler role (`job-hq-scheduler`) and the function itself
+  (`aws lambda get-function --function-name job-hq-bots`).
+- If AWS is the problem and the sheet needs work now: dispatch the equivalent workflow on GitHub
+  Actions — every bot kept its `workflow_dispatch` trigger and repo secrets exactly for this.
+- Terraform is the repair tool: `cd infra/terraform && terraform plan` shows anything drifted or
+  deleted, and `apply` re-creates it.
 
 ## Monitor run failed
 
@@ -164,8 +212,12 @@ its web app calls, authenticated by two of your own cookies.
    gh secret set SIMPLIFY_CSRF        --repo s0shaheen/job-hq   # paste the csrf value
    ```
 
-6. Re-run: Actions → "Simplify import" → Run workflow (or wait for 09:07 CT). Success looks
-   like `[simplify] saved_new=… filled=…` in the log and a fresh `heartbeat_simplify`.
+6. Re-run: Actions → "Simplify import" → Run workflow. Success looks like
+   `[simplify] saved_new=… filled=…` in the log and a fresh `heartbeat_simplify`.
+
+Since 2026-07-25 this runs **only** when you dispatch it: the cron was retired rather than
+re-created on Lambda, because babysitting a cookie that expires every few weeks buys nothing the
+Gmail capture doesn't already file into Pipeline. Re-auth when you actually want a sweep.
 
 The daily-alert dedup key `simplify_alert_date` in Config resets itself; don't edit it.
 
@@ -403,3 +455,15 @@ cost cap per monitor run (60; env `MONITOR_INLINE_TAG_MAX`).
 
 (The capture Apps Script keeps its own `ANTHROPIC_API_KEY` copy in Script Properties; the
 editor keeps `EDITOR_PASSCODE` + `GITHUB_TOKEN` in Vercel env — neither is a repo secret.)
+
+**Two stores since the Lambda cutover.** The scheduled bots read the same names from **AWS SSM
+Parameter Store** under `/job-hq/` (SecureStrings, loaded into env per cold start); the GitHub
+repo secrets above now serve CI, the resume pipeline, the snapshot workflows, and any bot you
+dispatch by hand. A rotated key has to be updated in **both** places, or the dispatch fallback
+quietly runs with the stale one:
+
+```sh
+aws ssm put-parameter --name /job-hq/ANTHROPIC_API_KEY --type SecureString --overwrite --value 'sk-ant-…'
+gh secret set ANTHROPIC_API_KEY --repo s0shaheen/job-hq
+aws ssm get-parameters-by-path --path /job-hq/ --query 'Parameters[].Name' --output text   # inventory
+```

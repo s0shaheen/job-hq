@@ -10,7 +10,8 @@
 terraform {
   required_version = ">= 1.6"
   required_providers {
-    aws = { source = "hashicorp/aws", version = "~> 5.0" }
+    aws     = { source = "hashicorp/aws", version = "~> 5.0" }
+    archive = { source = "hashicorp/archive", version = "~> 2.0" } # zips the ops alerter
   }
   # Remote state in S3 (versioned, private) — survives worktree/machine cleanup.
   backend "s3" {

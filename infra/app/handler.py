@@ -54,6 +54,23 @@ def _load_secrets() -> None:
     _secrets_loaded = True
 
 
+def _ops_alert(job: str, module: str, exc: BaseException, context) -> None:
+    """Push the failure to the ops ntfy topic — the direct replacement for the "Ops alert on
+    failure" step every GitHub Actions workflow carried, and the only layer that can name WHICH
+    bot died (one Lambda runs them all, so the CloudWatch alarm can't).
+
+    Best-effort by design: notification failure must never mask the real exception, which still
+    propagates so Lambda records an Error and the alarm fires as the backstop.
+    """
+    try:
+        from core import notify
+        body = f"{module}: {type(exc).__name__}: {exc}"[:400]
+        notify.ops_alert(f"[lambda] {job} failed",
+                         f"{body}\nrequest {getattr(context, 'aws_request_id', '?')}")
+    except Exception as e:                       # a broken import here must not eat the traceback
+        print(f"[handler] ops alert failed: {e!r}")
+
+
 def _run_module(module: str, argv: list[str]) -> None:
     """Run one `python -m module argv...`, treating SystemExit(0/None) as success."""
     sys.argv = [module, *argv]
@@ -65,13 +82,18 @@ def _run_module(module: str, argv: list[str]) -> None:
 
 
 def handler(event, context):
-    _load_secrets()
     job = (event or {}).get("job")
-    steps = JOBS.get(job)
-    if steps is None:
-        raise ValueError(f"unknown job {job!r}; known jobs: {sorted(JOBS)}")
     ran: list[str] = []
-    for module, argv in steps:
-        _run_module(module, argv)
-        ran.append(module)
+    module = "-"                                 # names the failing step in the ops push
+    try:
+        _load_secrets()                          # inside the try: a dead secret store must page
+        steps = JOBS.get(job)
+        if steps is None:
+            raise ValueError(f"unknown job {job!r}; known jobs: {sorted(JOBS)}")
+        for module, argv in steps:
+            _run_module(module, argv)
+            ran.append(module)
+    except BaseException as e:                   # BaseException: SystemExit(nonzero) is a failure
+        _ops_alert(str(job), module, e, context)
+        raise
     return {"job": job, "ran": ran}

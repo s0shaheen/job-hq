@@ -21,17 +21,18 @@ from core.sheets import HQ, RowNotFound
 # Expected run cadence per heartbeat, in hours; a heartbeat older than 2x its
 # cadence is flagged. capture=1.5 so 2x aligns with the 3h ops watchdog.
 # monitor=12 since the sweep runs twice daily (07:00 and 18:00 CT).
-# `priority` is deliberately ABSENT: that watch is dispatch-only now, so
-# watching its heartbeat would print a stale warning every single day — and a
+# `priority` and `simplify` are deliberately ABSENT: both are dispatch-only now, so
+# watching their heartbeats would print a stale warning every single day — and a
 # briefing that cries wolf daily is one you stop reading.
-# Keep in sync with .github/workflows cron schedules.
+# Keep in sync with the schedules: infra/terraform/variables.tf `jobs` (Lambda) plus
+# selfheal.yml + pgdump.yml (the two that still cron on GitHub Actions).
 CADENCE_HOURS = {
     "monitor": 12, "review": 24, "tracker": 2,
     # cafe and theirstack are SEPARATE channels, not one "wide": they are
     # separate vendors in separate jobs, and a dead TheirStack must not hide
     # behind a healthy hiring.cafe.
     "cafe": 24, "theirstack": 24,
-    "simplify": 24, "selfheal": 24, "snapshot": 24, "capture": 1.5,
+    "selfheal": 24, "snapshot": 24, "capture": 1.5,
 }
 CAPTURE_ALERT_HOURS = 3
 _HB_FMT = "%Y-%m-%d %H:%M:%SZ"      # core.sheets._now()

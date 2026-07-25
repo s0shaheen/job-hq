@@ -5,9 +5,11 @@
 # Re-auth: docs/RUNBOOK.md § Simplify.
 name: Simplify import
 
+# SCHEDULE RETIRED 2026-07-25 — and deliberately NOT re-created on Lambda (#56): the cookie API
+# needs simplify.jobs session cookies that expire every few weeks, i.e. a secret you babysit
+# forever, and the same applications already reach Pipeline via Gmail capture. Kept dispatchable:
+# refresh the two secrets per docs/RUNBOOK.md § Simplify re-auth and run it when you want a sweep.
 on:
-  schedule:
-    - cron: "7 14,23 * * *"   # ~09:07 + ~18:07 America/Chicago
   workflow_dispatch: {}
 
 

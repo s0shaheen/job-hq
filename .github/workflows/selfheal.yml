@@ -1,6 +1,11 @@
 # Nightly self-heal + snapshot: re-asserts headers/dropdowns/protections/gids,
 # then exports every tab to CSV and commits — the restore point that makes any
 # human catastrophe a one-command rollback.
+#
+# STAYS ON GITHUB ACTIONS (the 2026-07-25 Lambda cutover moved every other cron off). Its
+# product is a git commit: the CSV snapshots AND the re-pinned gids in hq.config.yaml. Lambda's
+# /var/task is read-only, so both writes there are skipped — a backup that silently doesn't
+# happen is worse than no backup. Rule for the split: if a job's output is a commit, it runs here.
 name: Self-heal and snapshot
 
 on:

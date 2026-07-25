@@ -4,6 +4,9 @@
 #
 # A backup that fails silently is worse than no backup: every step below is
 # written so a broken dump FAILS the run rather than committing an empty file.
+#
+# STAYS ON GITHUB ACTIONS after the 2026-07-25 Lambda cutover, same rule as selfheal.yml: its
+# product is a git commit, and it needs the pg_dump 17 binary Lambda's image doesn't carry.
 name: PG snapshot
 
 on:

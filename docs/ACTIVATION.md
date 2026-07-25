@@ -124,6 +124,11 @@ re-auth — the session JWT will die occasionally; you get one ops ping and a 2-
 and arms the resume pipeline on push. Nothing above needed the merge; everything after
 happens on its own.
 
+> **Historical, as of 2026-07-25.** The recurring bots have since moved to AWS Lambda +
+> EventBridge (`infra/README.md`), so their crons no longer depend on the default branch at
+> all — only `selfheal.yml` and `pgdump.yml` still cron on Actions. A fresh activation now
+> also needs `/job-hq/*` secrets in SSM and one `terraform apply`.
+
 After merging, the first healthy signs, same day: the 07:00 CT monitor sweep populates
 Feed + Health; the tracker runs at :31 every 2 h; 06:40 CT tomorrow the first digest
 arrives; `snapshots/hq/` gets its first nightly commit at 03:23 CT.

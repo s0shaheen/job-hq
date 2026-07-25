@@ -2,9 +2,9 @@
 # overflow, transient JD fetch failures) gets tagged here.
 name: Tagging review
 
+# SCHEDULE RETIRED 2026-07-25 — cron moved to AWS Lambda + EventBridge (jobs.review, 15:00 UTC).
+# Note the Lambda job runs regate THEN review nightly; here regate stays dispatch-gated below.
 on:
-  schedule:
-    - cron: "0 15 * * *"   # ~10:00 America/Chicago
   workflow_dispatch:
     inputs:
       regate:
