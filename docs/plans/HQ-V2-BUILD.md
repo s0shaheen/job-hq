@@ -190,6 +190,18 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
 
+- **2026-07-25** — **BLOCKER: GitHub Actions billing** (payment failed / spending-limit) halts CI
+  *and* the production cron bots. Salman chose to migrate the **cron off Actions → AWS Lambda +
+  EventBridge**. Built in `infra/` (this PR): `app/handler.py` (dispatches `{"job"}` → the exact
+  `python -m` sequences; SSM secrets), `Dockerfile` (Lambda container), `terraform/` (ECR + Lambda
+  + least-priv IAM + one EventBridge schedule per bot; 8 live bots ported 1:1), `README.md`
+  (5-command runbook). Handler unit-tested (6) + full suite green; Terraform validated by the user's
+  `terraform plan`. **Follow-ons:** backups (snapshot/pgdump)→S3; trim/self-host CI. **Salman must:**
+  AWS account → SSM secrets → build+push image → `terraform apply` (runbook). Stopgap: fixing Actions
+  billing restarts the bots today.
+- **Discovery P5 integration (#51) + ATS-dork (#52)** — built + LOCALLY-verified green, **unmerged
+  because CI can't run (billing)**. `discover_universe.py` (ingest→resolve→pg upsert) + `ingest_dork.py`
+  (found DRW/`drweng` live). Merge both once Actions is back (or `--admin`).
 - **2026-07-24** — **P5 free-source ingestion (3 sources) DONE — via delegated build-agents**
   (first use of the delegate-builds rule; worked cleanly: 319k tokens in subagents, ~2k in the
   main loop). Merged: `monitor/scripts/ingest_edgar.py` (#49, 300 IL public filers live),

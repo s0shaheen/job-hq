@@ -1,0 +1,6 @@
+# local terraform working files — never commit
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+# keep .terraform.lock.hcl (provider version pins) committed
