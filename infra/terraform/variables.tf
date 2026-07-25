@@ -48,7 +48,9 @@ variable "jobs" {
     tracker         = { cron = "cron(31 0/2 * * ? *)" }  # every 2h at :31  (promote/quickadd/scout/stale/join)
     digest          = { cron = "cron(40 11 * * ? *)" }   # daily 11:40 UTC  (digest)
     selfheal        = { cron = "cron(23 8 * * ? *)" }    # daily 08:23 UTC  (schema re-assert)
-    simplify        = { cron = "cron(7 14,23 * * ? *)" } # 14:07 & 23:07 UTC (migrate + simplify)
+    # simplify intentionally NOT scheduled: it replays expiring simplify.jobs session cookies
+    # (a fragile secret you'd babysit), and its applications already reach Pipeline via Gmail
+    # capture. To revive: re-add a line here + put SIMPLIFY_AUTH_COOKIE/SIMPLIFY_CSRF in SSM.
     wide_cafe       = { cron = "cron(30 13 * * ? *)" }   # daily 13:30 UTC  (wide --source cafe)
     wide_theirstack = { cron = "cron(50 13 * * ? *)" }   # daily 13:50 UTC  (wide --source theirstack)
   }
