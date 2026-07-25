@@ -33,8 +33,16 @@ variable "timeout_seconds" {
 }
 
 variable "memory_mb" {
-  type    = number
-  default = 512
+  description = <<-EOT
+    Sized off the real ceiling job, not a guess: the first twice-daily monitor sweep on Lambda
+    (2026-07-25, 644 boards) reported Max Memory Used 486 MB — 95% of the old 512. An OOM kill is
+    also the one failure class handler.py cannot report (the process dies mid-push), leaving only
+    the CloudWatch alarm. 1024 buys real headroom, and since Lambda scales vCPU with memory it
+    shortens the sweep against the hard 900 s timeout too. Free-tier safe: every job at 1 GB is
+    ~50k of the 400k GB-s/month.
+  EOT
+  type        = number
+  default     = 1024
 }
 
 variable "alert_email" {
