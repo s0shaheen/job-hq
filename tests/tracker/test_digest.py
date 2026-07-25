@@ -112,6 +112,13 @@ def test_digest_sections_and_row(spies):
     assert s["capture_silent"] is True
     assert any(t == "Gmail capture silent" for t, _ in alerts)
 
+    # no backup lane has ever beaten in this fixture — that pages too
+    assert s["backups_stale"] is True
+    backup = [b for t, b in alerts if t == "HQ backups stale"]
+    assert len(backup) == 1
+    assert "⚠ selfheal" in backup[0]
+    assert "⚠ snapshot:" in backup[0] and "⚠ snapshot_s3:" in backup[0]   # both copies named
+
     assert any(r["key"] == "heartbeat_digest" for r in hq.tab("config").records())
 
 
@@ -142,6 +149,7 @@ def test_all_green_health_no_capture_alert(spies):
     assert "✅ all systems ran on schedule" in s["body"]
     assert "⚠" not in s["body"]
     assert s["capture_silent"] is False
+    assert s["backups_stale"] is False
     assert alerts == []
     assert "## New roles" not in s["body"]  # empty sections skipped
 
@@ -237,3 +245,115 @@ def test_a_missed_second_sweep_is_still_healthy_but_a_missed_day_warns(spies):
     hq.tab("config").set_by_key(
         "heartbeat_monitor", {"value": "2026-07-12 06:00:00Z"}, key_header="key")
     assert "⚠ monitor" in digest.run(hq, now=NOW)["body"]
+
+
+# ---- a dead backup pages; every other stale heartbeat only prints
+
+def _all_fresh_hq():
+    hq = fake_hq()
+    hq.registry["sheet_id"] = "TESTID"
+    hq.tab("config").append_records(
+        [{"key": f"heartbeat_{n}", "value": "2026-07-13 11:45:00Z"}
+         for n in digest.CADENCE_HOURS])
+    return hq
+
+
+def test_stale_snapshot_heartbeat_pages_ops(spies):
+    """The git copy silently stopping is the failure you only find out about on
+    restore day — so it is an ops push, not a line in a briefing."""
+    _pushes, alerts = spies
+    hq = _all_fresh_hq()
+    hq.tab("config").set_by_key(                    # 3 days old vs a 24h cadence
+        "heartbeat_snapshot", {"value": "2026-07-10 08:53:00Z"}, key_header="key")
+    s = digest.run(hq, now=NOW)
+
+    assert s["backups_stale"] is True
+    title, body = next((t, b) for t, b in alerts if t == "HQ backups stale")
+    assert title == "HQ backups stale"
+    assert "⚠ snapshot:" in body and "2026-07-10 08:53:00Z" in body
+    assert "⚠ selfheal" not in body                 # only the lane that died
+    assert "⚠ snapshot_s3" not in body              # the S3 copy is fine, don't implicate it
+    assert "⚠ snapshot" in s["body"]                # still visible in the briefing
+    assert not any(t == "Gmail capture silent" for t, _ in alerts)
+
+
+def test_a_dead_s3_lane_pages_even_though_the_git_lane_is_fresh(spies):
+    """The whole point of two beats. Actions commits `snapshot` nightly; if that one beat
+    also stood for the Lambda→S3 copy, this exact state (git fine, S3 dead for days) would
+    read as healthy — the silent-death bug, rebuilt in the watchdog."""
+    _pushes, alerts = spies
+    hq = _all_fresh_hq()
+    hq.tab("config").set_by_key(
+        "heartbeat_snapshot_s3", {"value": "2026-07-10 08:53:00Z"}, key_header="key")
+    s = digest.run(hq, now=NOW)
+
+    assert s["backups_stale"] is True
+    body = next(b for t, b in alerts if t == "HQ backups stale")
+    assert "⚠ snapshot_s3:" in body and "2026-07-10 08:53:00Z" in body
+    assert "⚠ snapshot:" not in body                # the git copy is healthy
+    assert "⚠ selfheal" not in body
+
+
+def test_a_never_written_s3_lane_pages(spies):
+    """Until the Lambda lane's first run there is no beat at all — and "no backup yet" is
+    exactly as much data on disk as "backup stopped", so it pages the same way."""
+    _pushes, alerts = spies
+    hq = _all_fresh_hq()
+    hq.tab("config").set_by_key("heartbeat_snapshot_s3", {"value": ""}, key_header="key")
+    s = digest.run(hq, now=NOW)
+
+    assert s["backups_stale"] is True
+    body = next(b for t, b in alerts if t == "HQ backups stale")
+    assert "⚠ snapshot_s3: no heartbeat yet" in body
+
+
+def test_backup_and_capture_pushes_name_the_instance_when_multi_user(spies):
+    """One ops topic carries every instance's failures (MULTIUSER.md points every user's ops
+    topic at the operator), so an unattributed page sends them to the wrong spreadsheet."""
+    _pushes, alerts = spies
+    hq = _all_fresh_hq()
+    hq.user = "dad"
+    hq.tab("config").set_by_key("heartbeat_snapshot_s3", {"value": ""}, key_header="key")
+    hq.tab("config").set_by_key(                    # 5h silent vs the 3h capture bar
+        "heartbeat_capture", {"value": "2026-07-13 07:00:00Z"}, key_header="key")
+    digest.run(hq, now=NOW)
+
+    titles = [t for t, _ in alerts]
+    assert "[dad] HQ backups stale" in titles
+    assert "[dad] Gmail capture silent" in titles
+
+
+def test_single_user_push_titles_are_unprefixed(spies):
+    """No user, no bracket: the existing single-user pages must not gain noise."""
+    _pushes, alerts = spies
+    hq = _all_fresh_hq()
+    hq.tab("config").set_by_key("heartbeat_snapshot_s3", {"value": ""}, key_header="key")
+    digest.run(hq, now=NOW)
+    assert [t for t, _ in alerts] == ["HQ backups stale"]
+
+
+def test_missing_selfheal_heartbeat_pages_ops(spies):
+    """Never-written counts as stale: a backup that has not run yet and a backup
+    that stopped running are the same amount of data on disk."""
+    _pushes, alerts = spies
+    hq = _all_fresh_hq()
+    hq.tab("config").set_by_key("heartbeat_selfheal", {"value": ""}, key_header="key")
+    s = digest.run(hq, now=NOW)
+
+    assert s["backups_stale"] is True
+    body = next(b for t, b in alerts if t == "HQ backups stale")
+    assert "⚠ selfheal: no heartbeat yet" in body
+
+
+def test_other_stale_heartbeats_do_not_page_backups(spies):
+    """A dead sweep is a bad day; a dead backup is an unrecoverable one. Only
+    the second escalates past the briefing."""
+    _pushes, alerts = spies
+    hq = _all_fresh_hq()
+    hq.tab("config").set_by_key(
+        "heartbeat_review", {"value": "2026-07-10 15:00:00Z"}, key_header="key")
+    s = digest.run(hq, now=NOW)
+
+    assert "⚠ review" in s["body"]
+    assert s["backups_stale"] is False
+    assert alerts == []

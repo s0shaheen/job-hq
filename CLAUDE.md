@@ -79,8 +79,10 @@ a new column, add it to `core/schema.py` and let bootstrap/self-heal create it.
 ## Schedules (AWS Lambda + EventBridge)
 
 One Lambda (`job-hq-bots`, one container image) runs every bot; EventBridge Scheduler fires it
-with `{"job": "<name>"}`. Secrets are SSM SecureStrings under `/job-hq/`. Cutover from Actions
-crons: 2026-07-25. Deploy/ops: `infra/README.md`.
+with `{"job": "<name>"}` — plus `"user"` once the registry has a `users:` map, since schedules
+are jobs × users (one invocation per lane, the old Actions matrix). Secrets are SSM SecureStrings
+under `/job-hq/`. Cutover from Actions crons: 2026-07-25. Deploy (`infra/deploy.sh`, tags by git
+SHA) and ops: `infra/README.md`.
 
 | Lambda job | Cron (UTC) | ~CT | Runs |
 |---|---|---|---|
@@ -88,15 +90,21 @@ crons: 2026-07-25. Deploy/ops: `infra/README.md`.
 | `review` | `0 15 * * ?` | 10:00 daily | `monitor.regate` → `monitor.review` |
 | `tracker` | `31 0/2 * * ?` | every 2 h at :31 | promote → quickadd → scout → stale → join |
 | `digest` | `40 11 * * ?` | 06:40 daily | `tracker.digest` |
+| `snapshot` | `53 8 * * ?` | 03:53 nightly | `tracker.snapshot` → tab CSVs to the versioned S3 backup bucket (no git, no GitHub) |
 | `wide_cafe` | `30 13 * * ?` | 08:30 daily | `monitor.wide --source cafe` |
 | `wide_theirstack` | `50 13 * * ?` | 08:50 daily | `monitor.wide --source theirstack` |
-| `selfheal`, `simplify` | unscheduled | — | dispatchable: `aws lambda invoke --function-name job-hq-bots --payload '{"job":"selfheal"}'` |
+| `selfheal`, `simplify` | unscheduled | — | dispatchable: `aws lambda invoke --function-name job-hq-bots --payload '{"job":"selfheal"}'`; selfheal's CSV half is the scheduled `snapshot` job above, its git-commit half stays on Actions |
 
 Failure alerting is two layers (`infra/terraform/alerts.tf`), because one Lambda runs every bot:
 `handler.py` pushes ntfy itself naming the failed **job** on every exception, and two CloudWatch
 alarms → SNS → a stdlib alerter Lambda → ntfy catch what in-process code can't report —
 `job-hq-bots-errors` (timeout / OOM / broken image / dead secret store) and `job-hq-bots-silent`
-(no invocation in 3 h = the schedules themselves died). Both push again on recovery.
+(no invocation in 3 h = the schedules themselves died). Both push again on recovery. The daily
+digest adds the backup watchdog: an ops push **"HQ backups stale"** when `heartbeat_selfheal`,
+`heartbeat_snapshot` (the git/Actions CSV copy) or `heartbeat_snapshot_s3` (the S3/Lambda copy) is
+stale-or-missing — the failure that is otherwise invisible until restore day. `tracker.snapshot`
+writes a **different beat per lane** on purpose: one shared beat would let the nightly Actions run
+mask a dead S3 copy, which is the same silent death the S3 lane exists to remove.
 
 ## Workflows (GitHub Actions)
 

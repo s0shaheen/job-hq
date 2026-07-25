@@ -13,12 +13,12 @@
 # bots' container image, which is exactly what may be broken.
 
 locals {
-  # Single source of truth for the ops topic: the committed registry the bots themselves read.
-  # Handles the flat (single-user) doc and the users/<name> shape; if neither resolves, the plan
-  # fails loudly rather than shipping an alerter that pushes into the void.
-  registry  = yamldecode(file("${path.module}/../../hq.config.yaml"))
+  # Single source of truth for the ops topic: the committed registry the bots themselves read
+  # (parsed once in main.tf, where the per-user schedule fan-out reads it too). Handles the flat
+  # (single-user) doc and the users/<name> shape; if neither resolves, the plan fails loudly
+  # rather than shipping an alerter that pushes into the void.
   ops_topic = try(local.registry.ntfy.ops,
-                  local.registry.users[local.registry.default_user].ntfy.ops)
+  local.registry.users[local.registry.default_user].ntfy.ops)
 
   log_group_url = join("", [
     "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}",

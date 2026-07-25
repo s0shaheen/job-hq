@@ -10,6 +10,10 @@ skipped; Automation health always prints so silence is visible.
 Watchdog duty: this is the one job guaranteed to run daily, so it also checks
 heartbeat_capture (the Apps Script Gmail tripwire) and ops-alerts if that has
 been silent >3h — the mutual-monitoring leg from research/gmail-tracking.md.
+The backup heartbeats page the same way — one beat per lane (`snapshot` = the
+git/Actions CSV copy, `snapshot_s3` = the S3/Lambda copy, `selfheal` = the schema
+re-assert + commit), because a dead backup is the one failure you discover on the
+day you need it, and printing it in a briefing nobody re-reads is not enough.
 """
 from __future__ import annotations
 
@@ -32,9 +36,17 @@ CADENCE_HOURS = {
     # separate vendors in separate jobs, and a dead TheirStack must not hide
     # behind a healthy hiring.cafe.
     "cafe": 24, "theirstack": 24,
-    "selfheal": 24, "snapshot": 24, "capture": 1.5,
+    "selfheal": 24, "snapshot": 24, "snapshot_s3": 24, "capture": 1.5,
 }
 CAPTURE_ALERT_HOURS = 3
+# The three heartbeats that mean "the sheet is backed up somewhere": selfheal re-asserts
+# the schema and commits from Actions, `snapshot` is the git/Actions CSV copy, and
+# `snapshot_s3` is the S3/Lambda CSV copy (tracker.snapshot picks its beat by mode —
+# HEARTBEAT_GIT vs HEARTBEAT_S3 there). One beat per LANE, never one shared: the same
+# module writing one beat from both schedulers would let the Actions run refresh it
+# nightly while the Lambda copy has been dead for a week, which is the silent-death
+# failure the S3 lane was built to remove. Unlike the rest of the health section, these page.
+BACKUP_BEATS = ("selfheal", "snapshot", "snapshot_s3")
 _HB_FMT = "%Y-%m-%d %H:%M:%SZ"      # core.sheets._now()
 
 NEW_ROLES_CAP = 15
@@ -149,26 +161,34 @@ def _sec_scout(hq: HQ, yesterday_s: str) -> list[str]:
     return []
 
 
-def _sec_health(hq: HQ, now: _dt.datetime) -> tuple[list[str], bool]:
+def _sec_health(hq: HQ, now: _dt.datetime) -> tuple[list[str], bool, list[str]]:
     """⚠ any heartbeat older than 2x cadence (or never written — a job that
     never ran is exactly what this section exists to surface). Returns
-    (lines, capture_silent_beyond_3h)."""
+    (lines, capture_silent_beyond_3h, backup_stale_lines).
+
+    The third value is the subset of the warn lines that belong to BACKUP_BEATS
+    — truthy exactly when a backup is stale-or-missing, and carrying the lines
+    themselves so the ops push says which lane died instead of re-deriving it."""
     beats = {r["key"][len("heartbeat_"):]: r.get("value", "")
              for r in hq.tab("config").records()
              if r.get("key", "").startswith("heartbeat_")}
-    warn, capture_silent = [], False
+    warn, capture_silent, backup_stale = [], False, []
     for name, cadence in CADENCE_HOURS.items():
         ts = _parse_ts(beats.get(name, ""))
         if ts is None:
             warn.append(f"⚠ {name}: no heartbeat yet")
+            if name in BACKUP_BEATS:
+                backup_stale.append(warn[-1])
             continue
         age_h = (now - ts).total_seconds() / 3600
         if age_h > cadence * 2:
             warn.append(f"⚠ {name}: last ran {beats[name]} (~{age_h:.0f}h ago, "
                         f"expected every ~{cadence:g}h)")
+            if name in BACKUP_BEATS:
+                backup_stale.append(warn[-1])
         if name == "capture" and age_h > CAPTURE_ALERT_HOURS:
             capture_silent = True
-    return (warn or ["✅ all systems ran on schedule"]), capture_silent
+    return (warn or ["✅ all systems ran on schedule"]), capture_silent, backup_stale
 
 
 def run(hq: HQ, *, now: _dt.datetime | None = None) -> dict:
@@ -182,7 +202,7 @@ def run(hq: HQ, *, now: _dt.datetime | None = None) -> dict:
     review_lines, n_review = _sec_needs_review(hq)
     follow_lines = _sec_followups(hq)
     scout_lines = _sec_scout(hq, yesterday_s)
-    health_lines, capture_silent = _sec_health(hq, now)
+    health_lines, capture_silent, backup_stale = _sec_health(hq, now)
 
     parts = [f"# Job Search HQ — {today_s}"]
     for title, lines in [("New roles (last 24h)", new_lines),
@@ -207,15 +227,28 @@ def run(hq: HQ, *, now: _dt.datetime | None = None) -> dict:
                 kind="jobs", tags=["newspaper"],
                 click=f"https://docs.google.com/spreadsheets/d/{sheet_id}" if sheet_id else "")
 
+    # Whose instance died. One ops topic carries every user's failures (MULTIUSER.md:
+    # point every user's ops topic at the operator), so an unattributed "HQ backups
+    # stale" sends the operator to the wrong sheet. Same guard as tracker/selfheal.py.
+    who = f"[{hq.user}] " if getattr(hq, "user", "") else ""
+
     if capture_silent:
-        notify.ops_alert("Gmail capture silent",
+        notify.ops_alert(f"{who}Gmail capture silent",
                          f"heartbeat_capture older than {CAPTURE_ALERT_HOURS}h — check the "
                          "Apps Script trigger (Executions page) before email events go missing.")
+
+    # Printing this in the briefing is too quiet for a backup: Actions stopped running on a
+    # billing lapse (2026-07-24) and nothing paged for 21h. Daily digest = daily dedup.
+    if backup_stale:
+        notify.ops_alert(f"{who}HQ backups stale", "\n".join(backup_stale) +
+                         "\nselfheal = the schema re-assert + commit (Actions), snapshot = the "
+                         "git/Actions CSV copy, snapshot_s3 = the S3/Lambda CSV copy. "
+                         "Restore paths: docs/RUNBOOK.md.")
 
     hq.heartbeat("digest")
     return {"new": n_new, "changes": len(change_lines), "needs_review": n_review,
             "followups": len(follow_lines), "capture_silent": capture_silent,
-            "body": body}
+            "backups_stale": bool(backup_stale), "body": body}
 
 
 def main() -> int:

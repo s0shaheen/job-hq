@@ -9,10 +9,13 @@ You run ~5 commands. Everything else is the code in this directory. I can't touc
 until you approve a plan.
 
 **Not migrated, on purpose:** the jobs whose *product is a git commit* — `selfheal.yml`
-(`tracker.selfheal` + `tracker.snapshot` + commit) and `pgdump.yml`. Lambda's `/var/task` is
+(schema re-assert + the re-pinned registry + commit) and `pgdump.yml`. Lambda's `/var/task` is
 read-only, so both writes there are silently skipped, and a backup that silently doesn't happen is
-worse than no backup. They stay on GitHub Actions until there's an S3 sink (see Known gaps).
-Six schedules live here: `monitor`, `review`, `tracker`, `digest`, `wide_cafe`, `wide_theirstack`.
+worse than no backup. They stay on GitHub Actions until there's a sink for them (see Known gaps).
+The sheet backup itself no longer waits on that: `snapshot` runs here and writes the tab CSVs to
+the S3 bucket in `backups.tf`, so it survives GitHub being down (Actions billing lapse,
+2026-07-24 — 21 h with no backup and no alert). Seven schedules live here: `monitor`, `review`,
+`tracker`, `digest`, `snapshot`, `wide_cafe`, `wide_theirstack`.
 
 ---
 
@@ -71,27 +74,40 @@ terraform apply -target=aws_ecr_repository.bots      # review the plan, type yes
 terraform output -raw ecr_repository_url             # note this URL
 ```
 
-## 4. Build + push the container image
+## 4. Build + push the container image — `infra/deploy.sh`
 
-From the **repo root** (the Dockerfile copies core/monitor/tracker):
+One script, from anywhere in the repo. **The image tag is the git SHA that built it:**
 
 ```sh
-cd ../..                                             # repo root
-ECR=$(cd infra/terraform && terraform output -raw ecr_repository_url)
-aws ecr get-login-password | docker login --username AWS --password-stdin "${ECR%/*}"
-docker build --platform linux/amd64 -f infra/Dockerfile -t "${ECR}:latest" .
-docker push "${ECR}:latest"
+infra/deploy.sh            # build linux/amd64 -> push ${ECR}:<sha> + ${ECR}:latest -> pin the Lambda to <sha>
+infra/deploy.sh --dirty    # emergency only: ships uncommitted tracked files as <sha>-dirty
 ```
 
-(`--platform linux/amd64` matters if you're on an Apple-silicon Mac — Lambda runs x86 here.
-Keep the braces: in **zsh** `"$ECR:latest"` is parsed as the `:l` lowercase modifier plus
-"atest", and you get a push to a repo named `job-hq-botsatest`.)
+It refuses a dirty tree (a tag that lies is worse than no tag) and refuses an AWS account that
+isn't the deployed one — a wrong `AWS_PROFILE` otherwise "succeeds" into an account where
+nothing runs the image. On **this first run the function doesn't exist yet**: the script pushes
+the image, says so, and exits 0; step 5 creates the function from `:latest`. Every later run
+pins the function to `:<sha>`, waits for the update, and prints the rollback line:
+
+```sh
+aws lambda update-function-code --function-name job-hq-bots --image-uri "${ECR}:<older-sha>"
+```
+
+`:latest` is still pushed, but only as a human convenience pointer — nothing deploys from it, and
+Terraform ignores `image_uri` entirely (`lifecycle.ignore_changes` in `main.tf`) so an apply can
+never roll the running code back to it.
+
+(`--platform linux/amd64` matters on an Apple-silicon Mac — Lambda runs x86 here, and a wrong-arch
+image fails at first *invocation*, not at push. If you type any of this by hand, keep the braces:
+in **zsh** `"$ECR:latest"` parses as the `:l` lowercase modifier plus "atest", and you push to a
+repo named `job-hq-botsatest`.)
 
 ## 5. Create everything else (Terraform, step 2 of 2)
 
 ```sh
 cd infra/terraform
-terraform apply     # the Lambda, IAM roles, 6 schedules, and the alerting stack (alerts.tf)
+terraform apply     # the Lambda, IAM roles, the S3 backup bucket (backups.tf),
+                    # 7 schedules x users, and the alerting stack (alerts.tf)
 ```
 
 ## 6. Smoke-test one bot before trusting the schedules
@@ -160,18 +176,44 @@ aws cloudwatch describe-alarms --alarm-names $(terraform output -json alarm_name
 
 ## Known gaps (all documented, none silent)
 
-- **No per-user fan-out.** The Actions workflows ran a matrix over `vars.HQ_USERS`; a Lambda
-  schedule fires one invocation. Today the registry is single-user (flat `hq.config.yaml`), so
-  they're equivalent — but the moment a second user instance exists, each schedule must fan out
-  (one invocation per user with `HQ_USER` set, or a dispatcher job) or the new user gets nothing.
-- **No S3 sink**, so `tracker.snapshot`, the re-pinned registry, and `pgdump` stay on Actions,
-  and `monitor.run`'s git-diffable `monitor/snapshots/*.json` only refreshes on a dispatched
-  Actions run (it warns and continues on Lambda; the nightly CSV snapshot still backs up Feed).
-- **Mutable `:latest` image tag.** Terraform can't see a new build — after pushing, force the pull
-  with `aws lambda update-function-code --function-name job-hq-bots --image-uri "${ECR}:latest"`.
-  Tagging by git SHA is the fix.
+- **`pgdump` still runs on GitHub Actions, and is still gated OFF by `PGDUMP_ENABLED`.** There is
+  no live Supabase behind it, so there is nothing to dump; moving it here would need a `pg_dump`
+  binary baked into the image *and* a live database. Deferred deliberately — an empty backup job
+  running in two places is not redundancy.
+- **The re-pinned registry still needs Actions.** `selfheal.yml` re-pins `hq.config.yaml` and
+  commits it; git is its product, so it stays there. The *sheet* backup no longer depends on that
+  (see below) — only the registry half does.
+- **The git-diffable copies still only refresh on an Actions run** (`snapshots/hq/*.csv`,
+  `monitor/snapshots/*.json`). That is the point: the S3 copy and the git copy are two independent
+  backups on two independent schedulers, not one with a fallback. Losing either is now loud —
+  the daily digest ops-pushes **"HQ backups stale"** when `heartbeat_selfheal`,
+  `heartbeat_snapshot` (git copy) or `heartbeat_snapshot_s3` (S3 copy) goes past 2x its cadence.
+  The two snapshot lanes write **separate** heartbeats deliberately: sharing one would let the
+  Actions run refresh it nightly while the S3 copy was dead, and the watchdog would report
+  "backed up" — exactly the silent failure the second copy was added to end.
 - **ntfy.sh is the only alert channel** unless you set `var.alert_email` (an SNS email
   subscription; confirm the AWS email once).
+
+Closed on this branch (kept here so the history is readable):
+
+- ~~No per-user fan-out.~~ Schedules are `var.jobs` x the registry's `users:` keys
+  (`local.schedules` in `main.tf`), so a second user gets `job-hq-<job>-<user>` lanes firing
+  `{"job":..,"user":..}` and the handler exports `HQ_USER` per invocation. Adding a user =
+  `tracker.provision` writes them into `hq.config.yaml` -> `terraform apply`. Single-user is
+  unchanged by construction: no `users:` map means the old names and the old `{"job": k}` payload,
+  so this planned as a no-op. The `default_user` keeps the **flat** key and name even after the
+  users map appears (only its `input` gains `"user"`), because a changed map key or schedule name
+  is a destroy + create — the migration apply must only add lanes and update inputs, never delete
+  a live one. A plan showing an `aws_scheduler_schedule` destroy is a bug, not a migration.
+- ~~No S3 sink for the sheet backup.~~ `backups.tf` + env `HQ_BACKUP_S3_BUCKET`: the scheduled
+  `snapshot` job (08:53 UTC) writes `s3://job-hq-backups-<account>/snapshots/<user>/<tab>.csv`
+  — write-only IAM, versioned, noncurrent versions expire at 90 days — so the sheet is backed up
+  even when GitHub isn't running anything (Actions billing lapse, 2026-07-24: 21 h, no backup, no
+  alert). `monitor.run` drops its feed JSON at `feeds/<label>.json` the same way when the FS is
+  read-only. Restore: `docs/RUNBOOK.md § Restoring the sheet`.
+- ~~Mutable `:latest` image tag.~~ `infra/deploy.sh` tags and deploys by git SHA (step 4), and
+  `aws_lambda_function.bots` ignores `image_uri` so Terraform can't pull the code back to
+  `:latest`. Rollback is one `update-function-code` at an older SHA that is already in ECR.
 
 ---
 
@@ -199,8 +241,10 @@ natural next refactor, not needed yet.
 - `app/handler.py` — dispatches `{"job": <name>}` to the exact `python -m` sequence each old
   workflow ran (bots unchanged); loads `/job-hq/*` secrets from SSM once per cold start.
 - `Dockerfile` — AWS Python 3.11 Lambda image with core/monitor/tracker + the handler.
+- `deploy.sh` — build/push/pin by git SHA, with the dirty-tree and wrong-account guards.
 - `alerter/index.py` — SNS→ntfy bridge for the CloudWatch alarms; stdlib only, no shared code
   with the bots (it has to survive their image being broken).
-- `terraform/` — ECR, the Lambda, a least-privilege execution role (logs + read its own SSM only),
-  a scheduler role (invoke only this function), one EventBridge schedule per bot, and
-  `alerts.tf`'s alarms + SNS topic + alerter.
+- `terraform/` — ECR, the Lambda, a least-privilege execution role (logs + read its own SSM +
+  PutObject to the backup bucket), a scheduler role (invoke only this function), one EventBridge
+  schedule per bot per user, `backups.tf`'s versioned S3 backup bucket, and `alerts.tf`'s alarms
+  + SNS topic + alerter.

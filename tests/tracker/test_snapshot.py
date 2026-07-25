@@ -1,8 +1,16 @@
 import csv
 
+import pytest
+
 from core import schema
 from core.fakes import fake_hq
 from tracker import snapshot
+
+
+@pytest.fixture(autouse=True)
+def no_bucket(monkeypatch):
+    """These are the git-mode tests; a stray S3 bucket in the env would divert every write."""
+    monkeypatch.delenv(snapshot.S3_BUCKET_ENV, raising=False)
 
 
 def test_every_tab_snapshotted_with_full_values(tmp_path):
@@ -37,7 +45,11 @@ def test_secret_bearing_tabs_never_reach_disk(tmp_path):
 def test_heartbeat_written(tmp_path):
     hq = fake_hq()
     snapshot.run(hq, tmp_path / "snaps")
-    assert any(r["key"] == "heartbeat_snapshot" for r in hq.tab("config").records())
+    beats = {r["key"] for r in hq.tab("config").records()}
+    assert "heartbeat_snapshot" in beats
+    # never the S3 lane's beat: nothing was uploaded, and a git run must not make the S3
+    # copy look alive (tests/tracker/test_snapshot_s3.py owns the other direction)
+    assert "heartbeat_snapshot_s3" not in beats
 
 
 def test_rerun_overwrites_cleanly(tmp_path):

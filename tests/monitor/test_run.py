@@ -1,5 +1,8 @@
+import time
+
 import pytest
 
+import monitor.run as run_mod
 from monitor.config import RuntimeConfig
 from monitor.models import Company, Job, JobRecord
 from monitor.run import RunSummary, run_monitor
@@ -216,6 +219,107 @@ def test_failed_push_does_not_mark_pushed():
                    tagger=_tagger_returns({"greenhouse-1": "3+"}))
     assert len(pusher.calls) == 1
     assert store.pushed_marks == [] and summary.pushed == 0
+
+
+# ---- runtime deadline clamp (run_budget_min goes to 120m; Lambda kills at 900s)
+
+def _sweep(budget_min, companies=1):
+    store = FakeSheetStore([Company(f"Co{i}", "greenhouse", f"co{i}", seeded=True)
+                            for i in range(companies)], {})
+    summary = run_monitor(store, CFG, fetch=_fetch_returns({}), today=TODAY,
+                          session=object(), pusher=_Pusher(), fetch_workers=1,
+                          budget_min=budget_min)
+    return summary, store
+
+
+def test_runtime_deadline_sooner_than_the_budget_clamps_it(monkeypatch, capsys):
+    # the killed-mid-flight case: 30m of believed budget inside a 2m runtime
+    monkeypatch.setenv(run_mod.RUNTIME_DEADLINE_ENV, str(time.time() + 120))
+    summary, store = _sweep(30)
+    err = capsys.readouterr().err
+    assert "run_budget_min=30m" in err and "clamping to 2.0m" in err   # both numbers, one line
+    assert summary.boards_done == 1 and not summary.partial            # 2m still finishes this sweep
+    assert len(store.health_rows) == 1
+
+
+def test_runtime_deadline_later_than_the_budget_is_ignored(monkeypatch, capsys):
+    monkeypatch.setenv(run_mod.RUNTIME_DEADLINE_ENV, str(time.time() + 3600))
+    summary, _ = _sweep(5)
+    assert "clamping" not in capsys.readouterr().err                   # the knob still owns the stop
+    assert summary.boards_done == 1
+
+
+def test_malformed_runtime_deadline_warns_and_leaves_the_budget_alone(monkeypatch, capsys):
+    monkeypatch.setenv(run_mod.RUNTIME_DEADLINE_ENV, "in a bit")
+    summary, _ = _sweep(30)
+    err = capsys.readouterr().err
+    assert "malformed" in err and "clamping" not in err
+    assert summary.boards_done == 1 and not summary.partial            # a bad hint never skips a sweep
+
+
+def _two_chunk_sweep(monkeypatch, *, jump_to, budget_min=30):
+    """A sweep whose clock moves EXACTLY once: between fetch chunk 1 and chunk 2.
+
+    The tests above only prove _clamp_deadline computes the right number — they pass
+    unchanged if run_monitor throws that number away, because their sweeps finish either
+    way. This harness makes the two deadlines separable: the clock lands past the clamped
+    deadline but short of the `budget_min` one, so which deadline the loop is holding is
+    the only thing that decides whether the run goes partial.
+
+    FETCH_CHUNK + 1 boards = two chunks; the fake clock is frozen except for the jump the
+    120th fetch performs, which lands after chunk 1's flush and before chunk 2's deadline
+    check (monitor.run and monitor.tagworker both read the same patched time module).
+    """
+    clock = {"t": 1_000.0}
+    monkeypatch.setattr(time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(time, "time", lambda: 5_000.0)      # _clamp_deadline's wall clock
+    n = run_mod.FETCH_CHUNK + 1
+    store = FakeSheetStore([Company(f"Co{i:03d}", "greenhouse", f"co{i}", seeded=True)
+                            for i in range(n)], {})
+    calls = {"n": 0}
+
+    def fetch(ats, slug, company, session, workday_search="product"):
+        calls["n"] += 1
+        if calls["n"] == run_mod.FETCH_CHUNK:               # last board of chunk 1
+            clock["t"] = jump_to
+        return []
+
+    summary = run_monitor(store, CFG, fetch=fetch, today=TODAY, session=object(),
+                          pusher=_Pusher(), fetch_workers=1, budget_min=budget_min)
+    return summary, store
+
+
+def test_the_clamped_deadline_is_what_actually_stops_the_sweep(monkeypatch):
+    # 100s of runtime left at t=5000 -> clamped stop at monotonic 1100; the 30m budget
+    # would not stop until 2800, and the clock only ever reaches 2000.
+    monkeypatch.setenv(run_mod.RUNTIME_DEADLINE_ENV, "5100")
+    summary, store = _two_chunk_sweep(monkeypatch, jump_to=2_000.0)
+    assert summary.partial is True                          # only the clamped value stops here
+    assert summary.boards_done == run_mod.FETCH_CHUNK       # chunk 1 flushed, chunk 2 unvisited
+    assert store.sweep_cursor == "Co120"                    # parked: next run resumes there
+    assert store.health_rows == []                          # partial never rewrites the tab
+
+
+def test_without_the_runtime_hint_the_same_clock_finishes_the_sweep(monkeypatch):
+    """The control that makes the assertion above non-tautological: identical clock, identical
+    budget, only the env var differs — so a discarded clamp would show up as this passing twice."""
+    monkeypatch.delenv(run_mod.RUNTIME_DEADLINE_ENV, raising=False)
+    summary, store = _two_chunk_sweep(monkeypatch, jump_to=2_000.0)
+    assert summary.partial is False
+    assert summary.boards_done == summary.boards_total == run_mod.FETCH_CHUNK + 1
+    assert getattr(store, "sweep_cursor", "") == ""         # nothing to resume
+    assert len(store.health_rows) == run_mod.FETCH_CHUNK + 1
+
+
+def test_clamped_deadline_floors_at_60s_and_never_extends(monkeypatch):
+    started, budget_deadline = 1_000.0, 1_000.0 + 1800     # a 30m budget on the monotonic clock
+    monkeypatch.setenv(run_mod.RUNTIME_DEADLINE_ENV, str(time.time() + 5))
+    # 5s left is less than the flush needs: take the floor, not a deadline already behind us
+    assert run_mod._clamp_deadline(started, budget_deadline, 30) == pytest.approx(started + 60, abs=1)
+    monkeypatch.setenv(run_mod.RUNTIME_DEADLINE_ENV, str(time.time() + 7200))
+    assert run_mod._clamp_deadline(started, budget_deadline, 30) == budget_deadline
+    monkeypatch.setenv(run_mod.RUNTIME_DEADLINE_ENV, "nan")            # parses as float, isn't a time
+    assert run_mod._clamp_deadline(started, budget_deadline, 30) == budget_deadline
 
 
 # ---- main() wiring: config problems -> ops push; heartbeat at end

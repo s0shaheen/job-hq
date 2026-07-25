@@ -63,9 +63,22 @@ python -m tracker.provision --user dad \
     --sheet-id THEIR_SHEET_ID --owner them@gmail.com \
     --ntfy-jobs dad-jobs-<random> --ntfy-ops REDACTED-NTFY-TOPIC \
     --seed-companies --dry-run     # inspect, then re-run without --dry-run
-# 4. add them to the matrix: repo variable HQ_USERS = ["salman","dad"]
+# 4. grow their schedule lanes: cd infra/terraform && terraform plan, read it, then apply
+#    (schedules = jobs x the registry's users: keys; provision wrote the key)
+#    still-on-Actions workflows also need repo variable HQ_USERS = ["salman","dad"]
 # 5. deploy the Gmail capture Apps Script in THEIR account (appsscript/README.md)
 ```
+
+**Read the step-4 plan before applying.** A correct migration apply shows only two kinds of
+change: `+ create` for the new user's lanes (`job-hq-<job>-dad`) and `~ update in-place` on the
+existing lanes, whose `target.input` gains `"user":"salman"`. The default user
+(`default_user` in `hq.config.yaml`) deliberately keeps the flat key and flat name
+(`job-hq-monitor`, not `job-hq-monitor-salman`), because a schedule is addressed by map key in
+Terraform state and by name in AWS — renaming one is a destroy + create of a live schedule.
+**If the plan ever shows an `aws_scheduler_schedule` being destroyed, stop and work out why
+before applying**; it means something claimed the flat key away from the default user. (A
+missing or typo'd `default_user` fails the plan outright on a precondition, rather than
+quietly renaming all seven lanes.)
 
 Point every user's **ops** topic at the operator. A failure in your dad's
 instance must page the person who can fix it, not the person who can't.
@@ -92,8 +105,13 @@ Script quotas, Drive) is already per-Google-account and therefore per-user.
 
 ## Operating
 
-- Every workflow is a matrix over `vars.HQ_USERS` (default `["salman"]`, so
-  an unset variable behaves exactly like the single-user system).
+- The scheduled bots run on Lambda with one EventBridge schedule per job **per
+  user** (`job-hq-<job>-<user>`, payload `{"job":..,"user":..}`) — except the
+  default user, whose lanes keep the flat `job-hq-<job>` name so the migration
+  never destroys a live schedule; the handler exports `HQ_USER` for that
+  invocation. The workflows still on Actions are a
+  matrix over `vars.HQ_USERS` (default `["salman"]`, so an unset variable
+  behaves exactly like the single-user system).
 - `fail-fast: false` — one user's failure never cancels another's run.
 - Concurrency groups are per-user (`hq-feed-writers-${{ matrix.user }}`), so
   three users run in parallel instead of queueing behind each other.

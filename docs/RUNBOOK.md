@@ -38,8 +38,9 @@ heartbeat older than **2× its cadence**; a job that never ran shows "no heartbe
 | `heartbeat_cafe` | `monitor.wide --source cafe` | daily 08:30 CT | 48 h |
 | `heartbeat_theirstack` | `monitor.wide --source theirstack` | daily 08:50 CT | 48 h |
 | `heartbeat_simplify` | `tracker.simplify` | dispatch only (retired 2026-07-25) | not watched |
-| `heartbeat_selfheal` | `tracker.selfheal` | nightly 03:23 CT | 48 h |
-| `heartbeat_snapshot` | `tracker.snapshot` | nightly 03:23 CT | 48 h |
+| `heartbeat_selfheal` | `tracker.selfheal` | nightly 03:23 CT (Actions) | 48 h → **ops alert** "HQ backups stale" |
+| `heartbeat_snapshot` | `tracker.snapshot`, **git mode** | nightly 03:23 CT (Actions, → `snapshots/<user>/`) | 48 h → **ops alert** "HQ backups stale" |
+| `heartbeat_snapshot_s3` | `tracker.snapshot`, **S3 mode** | nightly 03:53 CT (Lambda, → S3) | 48 h → **ops alert** "HQ backups stale" |
 | `heartbeat_digest` | `tracker.digest` | daily 06:40 CT | (digest is the watchdog; its workflow alert covers it) |
 
 Deliberate heartbeat gaps (so the watchdog can catch real death): `priority` is unscheduled and unwatched; the old note below applies only if it is re-scheduled — `priority` skips its
@@ -47,11 +48,31 @@ heartbeat when *every* company fetch failed; `wide` skips it when no source swep
 `simplify` skips it on auth failure. A clean "not activated / disabled" skip DOES
 heartbeat — pre-activation silence is healthy, failure is not.
 
-Daily rhythm (America/Chicago): 03:23 self-heal + snapshot (Actions) → 04:53 PG snapshot
-(Actions) → 06:40 digest composed → ~7:00 digest email (Apps Script) → 07:00 daily monitor
-sweep → 08:30 + 08:50 wide sweeps → 10:00 tagging review → 18:00 second sweep → tracker
-chain every 2 h at :31 → Gmail capture every 15 min around the clock. Everything except the
-two snapshot commits fires from AWS EventBridge, not Actions.
+**The backup heartbeats page, they don't just print.** `heartbeat_snapshot_s3` is written by the
+Lambda `snapshot` job (03:53 CT) after every tab CSV lands in S3, so it stays fresh even when
+GitHub Actions is dead entirely — the 2026-07-24 billing lapse ran 21 h with no backup and no
+alert. If any of the three goes past 2× its cadence (or was never written), the daily digest
+ops-pushes **"HQ backups stale"** naming the dead lane; the briefing line alone was too quiet for
+a failure you discover on restore day.
+
+**One heartbeat per lane, and that is load-bearing.** `tracker.snapshot` is the same module in
+both places, but it writes `heartbeat_snapshot` in git mode and `heartbeat_snapshot_s3` in S3 mode
+(chosen by whether `HQ_BACKUP_S3_BUCKET` is set). If they shared one beat, the nightly Actions run
+would keep it fresh while the S3 copy had been dead for a week, and the digest would report
+"backed up" — the same silent death, one layer up. So the alert names the copy: **`snapshot` = the
+git/Actions copy, `snapshot_s3` = the S3/Lambda copy.** Confirm the named one before calling it
+fixed (`git log -- snapshots/hq/` for git, `aws s3api list-object-versions` for S3), and note that
+running the Actions self-heal by hand refreshes only the git pair.
+
+Until the Lambda lane's first run, `heartbeat_snapshot_s3` has no value and the digest pages
+"no heartbeat yet" — correct, not a false alarm: there is no S3 copy yet. It clears on the first
+successful `snapshot` invocation.
+
+Daily rhythm (America/Chicago): 03:23 self-heal + snapshot commit (Actions) → 03:53 snapshot → S3
+(Lambda) → 04:53 PG snapshot (Actions) → 06:40 digest composed → ~7:00 digest email (Apps Script)
+→ 07:00 daily monitor sweep → 08:30 + 08:50 wide sweeps → 10:00 tagging review → 18:00 second
+sweep → tracker chain every 2 h at :31 → Gmail capture every 15 min around the clock. Everything
+except the two Actions commits fires from AWS EventBridge.
 
 Also healthy: the digest's "Automation health" section printing
 `✅ all systems ran on schedule`, a fresh `chore: nightly HQ snapshot` commit each night, and
@@ -322,10 +343,12 @@ to make this rare.
 
 ## Restoring the sheet after a bad human edit
 
-Two independent layers; use whichever fits the damage.
+Three independent layers; use whichever fits the damage. Layers 1 and 2 are the same CSVs written
+by two different jobs on two different schedulers, on purpose — GitHub going dark takes out layer
+1 only.
 
 **Layer 1 — nightly CSV snapshots in git** (`snapshots/hq/<tab>.csv`, committed 03:23 CT by
-the self-heal workflow):
+the self-heal workflow; liveness = `heartbeat_snapshot`):
 
 ```sh
 git log --oneline -- snapshots/hq/          # find the last good night
@@ -336,7 +359,25 @@ Then in Sheets: File → Import → Upload → *Insert new sheet(s)* → copy th
 over the damaged range (or replace the tab's contents wholesale if the whole tab is toast).
 Diff first when unsure: `git diff <sha> -- snapshots/hq/pipeline.csv`.
 
-**Layer 2 — Sheets version history** (File → Version history → See version history):
+**Layer 2 — versioned CSVs in S3** (`s3://job-hq-backups-690340855657/snapshots/<user>/<tab>.csv`,
+written 03:53 CT by the Lambda `snapshot` job; `<user>` is `hq` on the single-user registry;
+liveness = `heartbeat_snapshot_s3`). The
+keys are stable and **bucket versioning is the history** — pick a version, not a filename. 90 days
+of noncurrent versions are kept. The bots' IAM role is PutObject-only, so a restore is you, with
+your own admin credentials:
+
+```sh
+B=job-hq-backups-690340855657
+aws s3api list-object-versions --bucket "$B" --prefix snapshots/hq/pipeline.csv \
+  --query 'Versions[].[LastModified,VersionId]' --output text    # newest first
+aws s3api get-object --bucket "$B" --key snapshots/hq/pipeline.csv \
+  --version-id <VersionId> /tmp/pipeline.csv
+```
+
+Then import into Sheets exactly as in layer 1. Use this when Actions has been down (no fresh
+commit to restore from) or when the git copy itself is suspect.
+
+**Layer 3 — Sheets version history** (File → Version history → See version history):
 restores the whole spreadsheet to a point in time. Use for mass damage in the last hours
 that the nightly snapshot hasn't seen.
 

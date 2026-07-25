@@ -69,12 +69,18 @@ variable "jobs" {
     digest          = { cron = "cron(40 11 * * ? *)" }   # daily 11:40 UTC  (digest)
     # selfheal intentionally NOT scheduled: the nightly job that re-asserts the schema also
     # writes the CSV snapshots and the re-pinned registry AND COMMITS THEM — git is its output,
-    # so it stays on GitHub Actions (selfheal.yml). Lambda's read-only FS silently drops both
-    # halves of that backup. The rule for this split: if a job's product is a git commit, it
-    # stays on Actions. Still dispatchable here by hand (handler.JOBS keeps "selfheal").
+    # so it stays on GitHub Actions (selfheal.yml). The rule for this split: if a job's product
+    # is a git commit, it stays on Actions. Still dispatchable here by hand (handler.JOBS keeps
+    # "selfheal"). The CSV half no longer depends on that: `snapshot` below writes to S3.
     # simplify intentionally NOT scheduled: it replays expiring simplify.jobs session cookies
     # (a fragile secret you'd babysit), and its applications already reach Pipeline via Gmail
     # capture. To revive: re-add a line here + put SIMPLIFY_AUTH_COOKIE/SIMPLIFY_CSRF in SSM.
+    # The sheet backup, on a scheduler that does not go down with GitHub. It runs 30 min after
+    # selfheal.yml's git-commit copy and the two are deliberately independent copies of the same
+    # tabs: git is human-diffable and restorable from any laptop, S3 survives a GitHub outage
+    # (Actions billing lapse, 2026-07-24 — 21 h with no backup and no alert). Losing either one
+    # must never be silent, so neither is the other's "good enough" replacement.
+    snapshot        = { cron = "cron(53 8 * * ? *)" }    # daily 08:53 UTC  (tracker.snapshot -> S3)
     wide_cafe       = { cron = "cron(30 13 * * ? *)" }   # daily 13:30 UTC  (wide --source cafe)
     wide_theirstack = { cron = "cron(50 13 * * ? *)" }   # daily 13:50 UTC  (wide --source theirstack)
   }

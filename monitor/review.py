@@ -38,6 +38,7 @@ from core import notify
 from core.profile import Profile
 from monitor import gates, geo, jobcontent, tagging, tagworker
 from monitor.config import unconfigured_reason
+from monitor.run import _clamp_deadline    # one clamp, one place: both jobs die the same way
 from monitor.sheet import HQFeedStore, SheetStore
 
 
@@ -103,7 +104,12 @@ def review_feed(store: SheetStore, *, today: str | None = None,
     deadletter_days = _int_arg(deadletter_days, "REVIEW_DEADLETTER_DAYS", 4)
     sleep = sleep or _time.sleep
     backoff = backoff or tagworker.default_backoff
-    deadline = _time.monotonic() + time_budget_min * 60
+    # Same clamp the sweep uses, for the same reason: REVIEW_TIME_BUDGET_MIN defaults to 40m
+    # and Lambda kills at 900s, so an unclamped review is SIGKILLed mid-flight — losing the
+    # final flush, mark_untaggable, set_disposition and the heartbeat. Budget-stopping early
+    # keeps all of it and the next sweep resumes from tagged_at.
+    started = _time.monotonic()
+    deadline = _clamp_deadline(started, started + time_budget_min * 60, time_budget_min)
 
     slug_by_company = {c.name: c.slug for c in store.read_companies()}
     summary = ReviewSummary()

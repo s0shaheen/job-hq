@@ -86,6 +86,35 @@ def make_tagger(session_factory=requests.Session, *, jd_fetch=None, extract=None
 
 
 FETCH_CHUNK = 120        # boards per fetch-flush cycle; writes land per chunk
+RUNTIME_DEADLINE_ENV = "HQ_RUNTIME_DEADLINE_TS"   # wall-clock ts the runtime kills us (set by the Lambda shim)
+
+
+def _clamp_deadline(started: float, deadline: float, budget: int) -> float:
+    """Never let the sweep believe it has more time than the runtime will give it.
+
+    run_budget_min is a Config-tab knob (up to 120m); Lambda's hard timeout is 900s. Past that
+    the process is killed mid-flight and the end-of-run flush, feed snapshot and heartbeat are
+    lost — strictly worse than the budget stop this clamp buys. `started` is monotonic and the
+    exported deadline is wall-clock, so convert by remaining-seconds. Sooner wins, never later.
+    """
+    raw = os.environ.get(RUNTIME_DEADLINE_ENV)
+    if not raw:
+        return deadline
+    import math
+    import time as _time
+    try:
+        ts = float(raw)
+        if not math.isfinite(ts):
+            raise ValueError(raw)
+    except ValueError:                   # a malformed hint is not a reason to skip the sweep
+        print(f"[monitor] ignoring malformed {RUNTIME_DEADLINE_ENV}={raw!r}", file=sys.stderr)
+        return deadline
+    clamped = started + max(ts - _time.time(), 60.0)   # floor: a stop still needs room to flush
+    if clamped >= deadline:
+        return deadline
+    print(f"[monitor] run_budget_min={budget}m outlives the runtime deadline — clamping to "
+          f"{(clamped - started) / 60:.1f}m; lower run_budget_min in Config", file=sys.stderr)
+    return clamped
 
 
 def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
@@ -116,7 +145,7 @@ def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
     fworkers = cfg.fetch_workers if fetch_workers is None else fetch_workers
     budget = cfg.run_budget_min if budget_min is None else budget_min
     started = _time.monotonic()
-    deadline = started + budget * 60
+    deadline = _clamp_deadline(started, started + budget * 60, budget)
 
     companies = store.read_companies()
     # Resume rotation: a budget-stopped run parks a cursor; the next run

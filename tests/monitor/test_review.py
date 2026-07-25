@@ -1,3 +1,6 @@
+import time
+
+import monitor.run as run_mod
 from monitor.models import Company, JobRecord
 from monitor.review import review_feed
 from monitor.sheet import FakeSheetStore
@@ -185,6 +188,69 @@ def test_time_budget_leaves_remainder_pending_as_backlog():
                           fetch=_fetch_const("jd"), extract=_extract_echo)
     assert summary.tagged == 0
     assert summary.backlog == 5                  # everything deferred to the next run
+
+
+# ---- runtime deadline clamp (REVIEW_TIME_BUDGET_MIN defaults to 40m; Lambda kills at 900s)
+#
+# Unclamped, the nightly sweep believes it has 40 minutes inside a 15-minute runtime and gets
+# SIGKILLed mid-flight: the final flush, mark_untaggable, set_disposition and the heartbeat all
+# die with it, so the same rows are re-fetched (and re-billed) the next night forever.
+
+FLUSH_EVERY = 100        # review_feed's default chunk; two chunks need one row more
+
+
+def _two_chunk_review(monkeypatch, *, jump_to, time_budget_min=30):
+    """A sweep whose clock moves EXACTLY once: between tagging chunk 1 and chunk 2.
+
+    Same shape as tests/monitor/test_run.py's clamp-consumption harness, and non-tautological
+    for the same reason: the clock lands past the CLAMPED deadline but short of the
+    `time_budget_min` one, so a review_feed that computed the clamp and then ignored it would
+    finish the sweep and fail these assertions.
+    """
+    clock = {"t": 1_000.0}
+    monkeypatch.setattr(time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(time, "time", lambda: 5_000.0)      # _clamp_deadline's wall clock
+    n = FLUSH_EVERY + 1
+    store = _store([_rec(f"greenhouse-{i:03d}") for i in range(n)])
+    calls = {"n": 0}
+
+    def fetch(ats, native_id, slug, url, session):
+        calls["n"] += 1
+        if calls["n"] == FLUSH_EVERY:                       # last row of chunk 1
+            clock["t"] = jump_to
+        return "own the roadmap"
+
+    summary = review_feed(store, today=TODAY, workers=1, flush_every=FLUSH_EVERY,
+                          time_budget_min=time_budget_min, fetch=fetch,
+                          extract=_extract_echo)
+    return summary, store
+
+
+def test_the_clamped_deadline_is_what_actually_stops_the_review(monkeypatch, capsys):
+    # 100s of runtime left at t=5000 -> clamped stop at monotonic 1100; the 30m budget would
+    # not stop until 2800, and the clock only ever reaches 2000.
+    monkeypatch.setenv(run_mod.RUNTIME_DEADLINE_ENV, "5100")
+    summary, store = _two_chunk_review(monkeypatch, jump_to=2_000.0)
+    assert summary.tagged == FLUSH_EVERY                    # chunk 1 tagged and flushed
+    assert summary.backlog == 1                             # chunk 2 deferred, not lost
+    assert store.tags_for("greenhouse-100") is None         # the row the deadline skipped
+    err = capsys.readouterr().err
+    assert "clamping to 1.7m" in err and "time budget reached" in err
+
+
+def test_without_the_runtime_hint_the_same_clock_finishes_the_review(monkeypatch):
+    """The control: identical clock, identical budget, only the env var differs."""
+    monkeypatch.delenv(run_mod.RUNTIME_DEADLINE_ENV, raising=False)
+    summary, store = _two_chunk_review(monkeypatch, jump_to=2_000.0)
+    assert summary.tagged == FLUSH_EVERY + 1 and summary.backlog == 0
+    assert store.tags_for("greenhouse-100") is not None
+
+
+def test_malformed_runtime_deadline_never_skips_the_review(monkeypatch, capsys):
+    monkeypatch.setenv(run_mod.RUNTIME_DEADLINE_ENV, "soonish")
+    summary, _ = _two_chunk_review(monkeypatch, jump_to=2_000.0)
+    assert summary.tagged == FLUSH_EVERY + 1                # a bad hint is not a reason to stop
+    assert "malformed" in capsys.readouterr().err
 
 
 # ---- main() wiring
