@@ -86,6 +86,24 @@ def insert(table: str, rows: list[dict[str, Any]], *,
     return len(rows)
 
 
+def rpc(fn: str, params: dict[str, Any], *,
+        session: requests.Session | None = None) -> Any:
+    """Call a Postgres function through PostgREST (`POST /rest/v1/rpc/<fn>`).
+
+    The engine's door into the same kind of function the browser calls: logic that
+    has to decide and write in ONE locked step, which no sequence of REST calls can
+    be. Arguments are named (PostgREST resolves the overload by parameter name), so
+    this stays as positional-free as the rest of this module — a misspelled key
+    fails to resolve the function rather than silently landing in the wrong slot.
+    """
+    s = session or requests.Session()
+    url = f"{base_url()}/rest/v1/rpc/{fn}"
+    resp = s.post(url, data=json.dumps(params), headers=_headers(),
+                  timeout=TIMEOUT)
+    _check(resp, f"rpc {fn}")
+    return resp.json()
+
+
 def select(table: str, query: str = "", *,
            session: requests.Session | None = None) -> list[dict]:
     """GET rows; query is a raw PostgREST query string (caller-built)."""

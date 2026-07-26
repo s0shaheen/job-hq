@@ -190,6 +190,66 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
 
+- **2026-07-26** — **P7's two "not wired" caveats are wired — the sweep-review integration
+  (`feat/sweep-review-integration`, migration 0009).** P7 shipped the `/companies` grid and was
+  honest on screen about what it could not do; both halves are now real, and the honest strings in
+  `add-form.tsx`, the propose route, `WEBAPP-BUILD.md` and 0008's own header are reworded forward.
+  **(1) The reconciler.** `public.reconcile_grounded_company` (0009) matches a grounded (ats, slug)
+  against the UNGROUNDED placeholder naming the same company and upgrades **that row in place**, so
+  the human's subscription survives with nothing to repoint — which is the entire reason it is an
+  UPDATE and not an insert-then-move. Before this, the resolver upserted on (name, ats, slug), a key
+  `('Ramp','','')` cannot hold, so grounding a pasted name wrote a SECOND row and left the person
+  subscribed to a company that reads as watched and is never pulled from. Python still owns
+  resolution and drives it once per grounded name; the decision-plus-write had to be one locked step
+  (two sweeps grounding the same name race, and the loser recreates the sibling) — same division as
+  the browser and `app_set_company_review_bulk`. **Deliberately NOT built: merge.** A placeholder
+  next to an already-grounded row is pre-0009 wreckage, and collapsing them repoints somebody's
+  subscription — so it returns `'collision'`, both rows stand, `discover_universe` warns. `name` and
+  `source` are never touched by an upgrade (the human typed the name; the paste really is where the
+  company entered the universe — what changed is `resolution_method`). Not granted to
+  `authenticated`: Supabase's default privileges grant execute on new functions to anon/authenticated,
+  so `revoke from public` alone would have left a browser able to stamp tier 1 on any name — the
+  fabricated day-of promise the propose route exists not to make. **(2) The verdict is read.**
+  `monitor/universe.py`: `swept_companies(user)` = `review_state='approved' AND monitor` (both halves
+  checked even though 0008's CHECK makes monitor imply approved — a filter leaning on a constraint
+  widens silently the day it is relaxed), returning `monitor.models.Company`, with approved-but-
+  boardless rows split off as `unpullable` rather than handed to a fetcher that would quarantine them
+  as ERRORs every sweep; `decided_name_keys` feeds `discovery_agent.discover_for_user` (everything
+  already ruled on) and `dismissed_name_keys` feeds `discover_universe.run(user_id=…)` (only "no" —
+  an approved company still belongs in the shared universe and still wants its board refreshed),
+  both dropping the name **before** grounding so a dismissal costs neither a re-ask nor an HTTP
+  probe. Both are reachable from their module's `__main__` via `HQ_PG_USER_ID`; **no scheduled job
+  passes a user yet**, because no scheduled job runs discovery at all — the ingesters are hand-run,
+  and wiring a per-user pass needs the fork below answered first. `skipped` is reported and kept out of `recall`'s
+  denominator (counting it would drift recall down for exactly the users who reviewed the most).
+  **(3) `core/companykeys.py`** is the third port of 0008's `company_name_key` and the one the
+  resolver matches on; a disagreement is silent in BOTH directions (fold more → the upgrade matches
+  nothing; fold less → the ghost returns), so all three read ONE corpus,
+  `tests/fixtures/company_name_key.golden.json`: Python in `tests/core/test_companykeys.py`, SQL
+  **inside real Postgres** in `tests/db/`, and TS in `webapp/tests/unit/parity.test.ts` (added on
+  this branch — that port had only hand-written assertions before, so two of three agreed and
+  nothing said so). Python's classes are spelled out rather than `\s`, whose superset (U+0085,
+  U+001C–1F) would have made it disagree with the database; the TS port can keep JS's `\s`, which
+  happens to exclude both. **They are NOT identical, and the corpus records it:** Postgres folds
+  'İ' (U+0130) to a bare 'i' while Python and JS emit 'i'+U+0307 — measured, carried as a `sql_key`
+  on that case. It is survivable because Python's key never reaches SQL: the RPC takes the raw name
+  and keys it itself, so every match the database makes is Postgres-vs-Postgres, and the Python port
+  only ever compares against itself. **Tests:** `tests/db` **129 → up from 101** (28 new, incl. the
+  exact P7-review scenario: paste → placeholder + subscription → resolver grounds → same id, one
+  row, subscription intact), plus fake-free unit tests that assert the PostgREST **query string**
+  so a filter losing either half goes red (`tests/monitor/test_universe.py` 21,
+  `test_discover_universe.py` 29, `tests/core/test_companykeys.py` 49). **Mutation-verified red** before green: migration deleted;
+  placeholder lookup made unmatchable; collision guard removed; `for update` dropped; the
+  anon/authenticated revoke dropped. **Migration number:** 0009 is taken by this branch; the parallel
+  **P8** branch renumbers its own to **0010** (sequencing call — this merges first).
+  **⚠ ONE OPEN FORK, needs Salman, not a build:** *which store is authoritative for which user.*
+  `monitor/run.py` still reads the sheet's Companies tab, `swept_companies` is written and
+  uncalled, and **no mirror was invented in either direction** — because the plans point two ways
+  (P2's checkpoint moved "the sheet Companies-tab columns + the sweep honoring tier/enabled" to P7;
+  P7 built only the pg side) and guessing costs a person their applications. Four options laid out
+  neutrally in `docs/plans/COMPANY-DISCOVERY.md` → *"Open fork: the sheet↔pg company bridge"*; the
+  live question is per-user store (1) vs pg-authoritative with a cutover (2).
+  **Next: settle the fork**, then P8 Pipeline (`lib/status.ts`, migration 0010).
 - **2026-07-26** — **Keyed TheirStack probe #2 DONE → the research doc's last quantitative
   unknowns are settled, and it caught a latent production bug.** Findings (full section in
   `COMPANY-DISCOVERY-RESEARCH.md`): blurred `jobs/search` + `include_total_results` + a date filter

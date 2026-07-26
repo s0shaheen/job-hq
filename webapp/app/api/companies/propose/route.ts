@@ -40,10 +40,19 @@ import { MAX_NAME_LENGTH, MAX_PASTE_NAMES, parsePastedNames } from "@/app/(app)/
  *
  * A name that IS already grounded binds to that row rather than to a new one, so
  * posting "Ramp" when the resolver has ashby/ramp subscribes the caller to the real
- * board. The reverse does not happen: nothing upgrades a tier-3 row in place. The
- * resolver upserts on (name, ats, slug), so grounding a name that was pasted first
- * writes a SECOND row and the subscription stays on the unresolved one — reconciling
- * the two belongs to the Python side that owns resolution, and it is not built.
+ * board. The reverse now holds too: when the resolver grounds a name that was pasted
+ * first, `reconcile_grounded_company` (migration 0009) upgrades THAT row in place
+ * rather than writing a second one, so the subscription this route created survives
+ * untouched — there is nothing to repoint. Driven from `monitor.discover_universe`,
+ * which owns resolution; this route still writes tier 3 / `manual`, because nothing
+ * reachable from this process has probed anything.
+ *
+ * ONE CASE STILL STALLS, and the on-screen copy says so: if the board the resolver
+ * grounds to is already held by a DIFFERENT row — a second spelling, "Aon PLC" beside
+ * "Aon" — then merging is a subscription repoint, which 0009 refuses. The pasted row
+ * stays tier 3 indefinitely. 0009 writes a `company.grounding_blocked` event to every
+ * subscriber so it is visible in the activity trail; surfacing it ON the row in this
+ * grid is UI work nobody has done, so do not describe it as a badge.
  */
 
 /** Every external boundary gets a bound (the runbook's first rule). */

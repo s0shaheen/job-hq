@@ -87,6 +87,55 @@ def test_rpc_arguments_match_the_function_signature(fn):
     )
 
 
+def test_the_reconcile_rpc_the_engine_calls_exists_in_a_migration():
+    """The same contract this file checks for the web app, for the one RPC the ENGINE calls.
+
+    `monitor.discover_universe.RECONCILE_FN` is a string handed to `core.pg.rpc`, which is a
+    `POST /rest/v1/rpc/<name>` — so a typo is a 404 at 03:00 and nothing else. The first version
+    of that constant shipped fully green through both the unit suite (the RPC is monkeypatched)
+    and the db suite (which calls the SQL function directly, never through the constant): two
+    suites, one contract, and it was between them. Parsing the migrations closes it.
+    """
+    from monitor.discover_universe import RECONCILE_FN
+
+    assert _sql_function_params(ALL_SQL, RECONCILE_FN) is not None, (
+        f"monitor.discover_universe calls {RECONCILE_FN}() but no migration defines it — "
+        f"every reconcile pass would 404 and every pasted row would stay a ghost"
+    )
+
+
+def test_the_reconcile_rpc_is_called_with_the_parameters_it_declares():
+    """Postgres resolves named arguments by name, so an extra or misspelled key does not land
+    in the wrong slot — it fails to resolve the function at all. Same check as the web app's."""
+    import inspect
+
+    from monitor import discover_universe
+
+    declared = set(_sql_function_params(ALL_SQL, discover_universe.RECONCILE_FN) or [])
+    src = inspect.getsource(discover_universe.reconcile)
+    passed = set(re.findall(r'"(p_\w+)":', src))
+    assert passed, "no p_* arguments found in reconcile() — parser out of date?"
+    assert passed <= declared, (
+        f"reconcile() passes {sorted(passed - declared)}, which "
+        f"{discover_universe.RECONCILE_FN}() does not declare (declares {sorted(declared)})"
+    )
+
+
+def test_the_engine_only_rpcs_are_not_reachable_from_a_browser():
+    """0009's two functions stamp a reliability tier and write audit events, and neither is a
+    human gesture. Supabase's default privileges grant execute on new functions to `anon` and
+    `authenticated`, so `revoke from public` alone leaves both doors open — the revoke has to
+    name the roles. Pinned here because the db suite can only prove it for a role it can
+    `set role` to, and this is cheap and total."""
+    for fn in ("reconcile_grounded_company", "note_grounding_blocked"):
+        revokes = re.findall(rf"revoke\s+all\s+on\s+function\s+public\.{fn}\s*\([^)]*\)\s*\n?\s*"
+                             rf"from\s+([^;]+);", ALL_SQL, re.I)
+        assert revokes, f"{fn}() is never revoked"
+        named = revokes[0].lower()
+        for role in ("public", "anon", "authenticated"):
+            assert role in named, f"{fn}() is not revoked from {role} — a browser can call it"
+
+
 def test_conflict_path_keeps_the_word_the_client_matches_on():
     """`supabase-source.ts` decides between the conflict path and a generic
     error by matching /conflict|stale/i on the message. That coupling is

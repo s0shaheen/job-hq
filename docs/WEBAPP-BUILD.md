@@ -354,10 +354,21 @@ Worth keeping, because each was stated confidently and was wrong:
       UI strings that promised sweep behaviour nothing implements reworded to what
       is true, and every `-linux` visual baseline re-recorded in one container run
       because /jobs and /queue predated the nav item and were passing on tolerance
-      alone. **Still not wired, and now said out loud on screen rather than in a
-      plan:** the Python sweep reads neither `review_state` nor `monitor`, and
-      nothing upgrades a pasted tier-3 row when the resolver later grounds the same
-      name — it writes a second row, and the subscription stays on the first.
+      alone. **Not wired at the time, and said out loud on screen rather than in a
+      plan:** the Python sweep read neither `review_state` nor `monitor`, and nothing
+      upgraded a pasted tier-3 row when the resolver later grounded the same name — it
+      wrote a second row, and the subscription stayed on the first. **Both are wired
+      now** (`feat/sweep-review-integration`, migration **0009**), with one honest
+      remainder each: the resolver upgrades that row in place so the subscription survives
+      with nothing to repoint — unless the board is already held by a second spelling of
+      the same company, which stalls at tier 3 and writes a `company.grounding_blocked`
+      event rather than pretending; and `monitor/universe.py` reads
+      `review_state='approved' AND monitor` and the dismissals, which the discovery agent
+      consumes, while `monitor/run.py` still reads the sheet (see the fork). The four UI strings above were
+      reworded a second time, forward this time. One piece stays open on purpose and is
+      the owner's call, not a build gap: **which store is authoritative for which user**
+      — `monitor/run.py` still reads the sheet's Companies tab, and no mirror was
+      invented in either direction (fork written up in `docs/plans/COMPANY-DISCOVERY.md`).
       **Then CI failed on two of its own new tests, both green locally** (rows 100
       and 101), and both for the same underlying reason: *the runner is not the
       machine you wrote the test on.* One was a real product bug the local fonts
@@ -367,10 +378,17 @@ Worth keeping, because each was stated confidently and was wrong:
       so state the other half: **a geometry assertion belongs in the container job,
       and a plain-e2e assertion must not be able to move when a font changes.**
 - [ ] **Next up — the rest of Track 2** (`docs/plans/HQ-V2-BUILD.md`): P8
-      `lib/status.ts` + Pipeline (0008 → renumber to 0009, P7 took 0008), P9 profile
-      wizard, P10 import, P11 digest. Track-1 discovery infra is complete except the
-      sweep honoring `review_state`/`enabled` on the Python side — see the deferred
-      list in P7's PR.
+      `lib/status.ts` + Pipeline (**renumber to 0010** — P7 took 0008 and the
+      sweep-review integration took 0009), P9 profile wizard, P10 import, P11 digest.
+      Track-1 discovery infra is complete **except the last hop**: 0009 landed the
+      reconciler and `monitor/universe.py`, which READS the verdict —
+      `review_state='approved' AND monitor` (there is no `enabled` column; `monitor` is
+      that flag) — and the discovery agent honors dismissals. What still does not
+      happen is `monitor/run.py` consuming it: the sweep takes its company list from the
+      sheet's Companies tab, and `swept_companies` is written, shape-compatible and
+      uncalled. That last hop is an owner decision, not a build item — which store is
+      authoritative for which user (`docs/plans/COMPANY-DISCOVERY.md` → *"Open fork: the
+      sheet↔pg company bridge"*).
 
 ## Stack (verified live 2026-07-21, not from memory)
 

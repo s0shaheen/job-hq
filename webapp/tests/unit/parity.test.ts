@@ -39,6 +39,25 @@ const COMPANY_REVIEW_SQL = readFileSync(
   "utf8",
 );
 
+/**
+ * The company-name corpus the OTHER two ports are pinned against:
+ * `tests/core/test_companykeys.py` runs it through `core/companykeys.py` with no database,
+ * and `tests/db/test_universe_reconcile.py` runs it through `public.company_name_key` inside
+ * real Postgres. This port was the odd one out — pinned only by the hand-written assertions
+ * below, which is how three implementations of one rule end up with two of them agreeing.
+ *
+ * A case carrying `sql_key` is a DOCUMENTED divergence: Postgres's `lower()` is
+ * locale-dependent where JS's and Python's are not (U+0130 folds to a bare 'i' there, and to
+ * 'i' + U+0307 here). `key` is the JS/Python answer, so this file asserts `key` throughout.
+ */
+type NameKeyCase = { why: string; name: string; key: string; sql_key?: string };
+const NAME_KEY_CORPUS: NameKeyCase[] = JSON.parse(
+  readFileSync(
+    path.join(REPO, "tests", "fixtures", "company_name_key.golden.json"),
+    "utf8",
+  ),
+);
+
 // ---------------------------------------------------------------- stub client
 
 type Row = Record<string, unknown>;
@@ -680,6 +699,17 @@ describe("company universe parity", () => {
       "[\\s\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]+",
     ]) {
       expect(COMPANY_REVIEW_SQL, `SQL is missing the class ${cls}`).toContain(cls);
+    }
+  });
+
+  it("companyNameKey agrees with the corpus the Python and SQL ports are pinned against", () => {
+    // Same file, three implementations. Without this the TS port could drift from the other
+    // two and every suite would stay green: the fake would call two strings one company where
+    // Postgres calls them two, and the demo would disagree with production about a duplicate.
+    expect(NAME_KEY_CORPUS.length).toBeGreaterThanOrEqual(35);
+    expect(NAME_KEY_CORPUS.some((c) => c.sql_key !== undefined)).toBe(true);
+    for (const c of NAME_KEY_CORPUS) {
+      expect(companyNameKey(c.name), `${c.why} (${JSON.stringify(c.name)})`).toBe(c.key);
     }
   });
 

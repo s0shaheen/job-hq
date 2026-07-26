@@ -113,10 +113,14 @@ export default function AddForm() {
         <div className="min-w-0">
           <p>
             <strong className="font-semibold text-text">This adds names, not boards.</strong>{" "}
-            Pasted companies are recorded at Tier&nbsp;3 — tracked, and they stay tracked. Nothing
-            here probes an ATS, and nothing upgrades one of these rows later: the discovery
-            resolver runs outside this app and writes its own row when it grounds a name. Paste a
-            company it has already resolved and you get that board instead of a new row.
+            Pasted companies are recorded at Tier&nbsp;3 — tracked, not pulled. Nothing here probes
+            an ATS. When the discovery resolver later grounds one of these names it upgrades
+            <em> this</em> row in place, so it becomes a real board and your subscription comes
+            with it. Paste a company it has already resolved and you get that board straight away.
+            One case still stalls: if the board it grounds to already belongs to another row here
+            (a second spelling, say &ldquo;Aon PLC&rdquo; next to &ldquo;Aon&rdquo;), merging them
+            would move your subscription, so nothing is changed and the row stays at Tier&nbsp;3.
+            It is recorded in your activity trail, not flagged on the row yet.
           </p>
           <p className="mt-1.5 text-muted">
             Describing a universe in words (&ldquo;Chicago finance, treasury roles&rdquo;) is not

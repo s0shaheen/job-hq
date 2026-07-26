@@ -210,3 +210,66 @@ the UI increments, the adapter build order).
 
 The **revised, grounded build sequence** now lives in
 [COMPANY-DISCOVERY-RESEARCH.md](COMPANY-DISCOVERY-RESEARCH.md) → "Revised build sequence."
+
+---
+
+## ⚠ Open fork (owner decision): the sheet↔pg company bridge
+
+**Built (2026-07-26, migration 0009):** the pg side of "the sweep honors the verdict."
+`monitor/universe.py` reads `user_companies.review_state`, so a human's decision now reaches the
+engine: `swept_companies(user)` returns only `review_state='approved' AND monitor` (an approved
+row with no board comes back as `unpullable`, not as a fetch error every sweep), and
+the review verdicts feed the two discovery entry points: `discovery_agent.discover_for_user`
+(via `decided_name_keys` — anything already ruled on, so the review pile does not grow with
+questions already answered) and `discover_universe.run(user_id=…)` (via `dismissed_name_keys` —
+only "no", because an approved company still belongs in the shared universe and still wants its
+board refreshed). Both drop the name **before** the resolver probes it. Also built: the
+reconciler, so a pasted tier-3 row is upgraded in place when the resolver grounds it instead of
+being orphaned beside a sibling — with one refusal, a board already held by a second spelling of
+the same company, which stays stuck and says so.
+
+**Who calls it:** `discover_for_user` and `run(user_id=…)` are the wired paths, reachable from
+both modules' `__main__` via `HQ_PG_USER_ID`. Nothing on the Lambda schedule passes a user yet,
+because no scheduled job runs discovery — the ingesters are run by hand. Wiring a scheduled
+per-user discovery pass waits on the fork below, since it needs to know whose universe it writes.
+
+**Not built, deliberately:** anything that makes the *sheet* honor a pg verdict, or the reverse.
+`monitor/run.py` still takes its company list from the HQ spreadsheet's Companies tab
+(`HQFeedStore.read_companies`, filtered on the sheet's `monitor` checkbox). `swept_companies`
+returns `monitor.models.Company` — deliberately the same shape — but **nothing calls it**, and no
+mirror was invented in either direction.
+
+**Why it stopped here.** The plans point two ways and neither settles it. P2's checkpoint
+(`HQ-V2-BUILD.md`, 2026-07-24) made the scope call *"Postgres-only — discovery is webapp-native;
+the sheet Companies-tab columns + the sweep honoring tier/enabled move to **P7**"*, and §P7 lists
+*"+ sweep integration honoring `enabled`/`priority`"* — but P7 shipped the grid and the pg RPCs
+only. So "the sweep" was never pinned to a store. That is a product question, and the failure mode
+of guessing is specific and expensive: two stores disagreeing about who is watched means either a
+company nobody fetches or a company somebody declined being fetched anyway, and both are invisible
+until a person notices the applications they did not get to make.
+
+**The options, neutrally:**
+
+1. **Per-user store, no bridge.** Each user's universe lives in exactly one place — Salman's in
+   the sheet, dad's and the roommate's in Postgres — and `monitor/run.py` picks its company source
+   per user (sheet-era → `HQFeedStore`, webapp-era → `universe.swept_companies`). Cheapest, and it
+   matches the strangler plan (the sheet is a generated read-only export at the end). Cost: the
+   operator's own universe gets none of the review/tier machinery until he migrates, so the grid
+   and the Companies tab stay two different products for a while.
+2. **pg authoritative, sheet becomes a projection.** One universe for everybody; the Companies tab
+   is written *from* pg by the export path and stops being an input. Cleanest end state and the
+   direction the spec already points. Cost: it is a migration with a cutover — every sheet-only
+   company has to land in `companies` + `user_companies` first (`tracker.migrate`-shaped work),
+   and until it does, editing the tab silently does nothing, which is worse than it being read-only.
+3. **Sheet authoritative, pg mirrors it.** Extend the existing sheet→pg mirror to carry
+   `monitor`/`priority` into `user_companies`. Smallest change to today's behavior. Cost: it
+   inverts P7 — the review grid's approve/dismiss becomes advisory, overwritten by the next mirror
+   pass, so the verdict stops being a verdict. Not recommended, listed because it is the one that
+   requires no migration.
+4. **Both authoritative, union'd.** Sweep the union of the two sources. Rejected here rather than
+   offered: a dismissal in one store cannot remove a row the other store asserts, so the one
+   gesture the review grid exists for is the one gesture that would not work.
+
+**What unblocks it:** a single decision from Salman on 1 vs 2 (and, if 1, whether the operator
+lane is ever migrated). Everything the engine needs for either is already written; what is missing
+is only the choice about which source `run.py` asks.

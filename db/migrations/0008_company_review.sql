@@ -553,13 +553,21 @@ grant execute on function public.app_set_company_flags(bigint, boolean, boolean,
  * the human to it. Binding to the grounded row instead means a paste of a known
  * company is a subscription, not a downgrade.
  *
- * WHAT IT STILL DOES NOT DO, stated because the earlier version of this comment
- * claimed otherwise: nothing upgrades a tier-3 row in place. The resolver upserts
- * on (name, ats, slug), so when it later grounds a name that was pasted first it
- * writes a SECOND, grounded row and this user's subscription stays pointed at the
- * unresolved one. Reconciling those two is a job for the Python side (it owns the
- * resolution) and it is not built. Until it is, the honest description of a pasted
- * row is "tracked, and it will stay tracked" — which is what the UI now says.
+ * THE OTHER DIRECTION IS NOW BUILT TOO, and this comment used to say it was not.
+ * When the resolver later grounds a name that was pasted first, migration 0009's
+ * `reconcile_grounded_company` upgrades THAT row in place — the placeholder becomes
+ * the board — instead of upserting a second, grounded row on (name, ats, slug) and
+ * leaving this user subscribed to the unresolved one. An in-place upgrade needs no
+ * subscription repoint, so the paste and its grounding end as one row and one
+ * subscription. Python still drives it (it owns resolution); the decision and the
+ * write are one locked step in SQL, which is the part a caller cannot do safely.
+ *
+ * THE EXCEPTION, because "now built" is not "always works": if the board that name
+ * grounds to is already held by another row — two spellings of one company, "Aon PLC"
+ * beside "Aon" — 0009 answers 'collision' and changes nothing, because collapsing
+ * them is the subscription repoint above. That user's row stays tier 3 for good. They
+ * get a `company.grounding_blocked` event so it is at least visible in their trail;
+ * fixing it is a hand merge, and 0009's header documents the query to find them.
  *
  * `monitor` is false: a proposal is not in the sweep until a human approves it, and
  * app_set_company_review_bulk('approved') is what turns it on.

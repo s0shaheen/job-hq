@@ -1,0 +1,198 @@
+[
+  {
+    "why": "plain name is lowercased",
+    "name": "Aon",
+    "key": "aon"
+  },
+  {
+    "why": "already normalized is a fixed point",
+    "name": "aon",
+    "key": "aon"
+  },
+  {
+    "why": "all caps folds to the same company",
+    "name": "AON",
+    "key": "aon"
+  },
+  {
+    "why": "surrounding spaces are trimmed",
+    "name": "  Aon  ",
+    "key": "aon"
+  },
+  {
+    "why": "interior runs collapse to one space",
+    "name": "Northern   Trust",
+    "key": "northern trust"
+  },
+  {
+    "why": "tab is whitespace",
+    "name": "Kraft\tHeinz",
+    "key": "kraft heinz"
+  },
+  {
+    "why": "newline is whitespace",
+    "name": "Kraft\nHeinz",
+    "key": "kraft heinz"
+  },
+  {
+    "why": "carriage return is whitespace",
+    "name": "Kraft\r\nHeinz",
+    "key": "kraft heinz"
+  },
+  {
+    "why": "NBSP is the copy-paste artefact btrim() does not strip",
+    "name": "Aon\u00a0",
+    "key": "aon"
+  },
+  {
+    "why": "interior NBSP is a space",
+    "name": "Aon\u00a0Group",
+    "key": "aon group"
+  },
+  {
+    "why": "narrow NBSP is a space",
+    "name": "Aon\u202fGroup",
+    "key": "aon group"
+  },
+  {
+    "why": "ogham space mark is a space",
+    "name": "Aon\u1680Group",
+    "key": "aon group"
+  },
+  {
+    "why": "thin space is a space",
+    "name": "Ramp\u2009Inc",
+    "key": "ramp inc"
+  },
+  {
+    "why": "hair space is a space",
+    "name": "Ramp\u200aInc",
+    "key": "ramp inc"
+  },
+  {
+    "why": "medium mathematical space is a space",
+    "name": "Cboe\u205fGlobal",
+    "key": "cboe global"
+  },
+  {
+    "why": "line separator is a space",
+    "name": "Exelon\u2028Corp",
+    "key": "exelon corp"
+  },
+  {
+    "why": "paragraph separator is a space",
+    "name": "Exelon\u2029Corp",
+    "key": "exelon corp"
+  },
+  {
+    "why": "ideographic space is a space",
+    "name": "ADM\u3000Investor Services",
+    "key": "adm investor services"
+  },
+  {
+    "why": "zero-width space vanishes",
+    "name": "Aon\u200b",
+    "key": "aon"
+  },
+  {
+    "why": "zero-width non-joiner vanishes",
+    "name": "Aon\u200c",
+    "key": "aon"
+  },
+  {
+    "why": "zero-width joiner vanishes",
+    "name": "Aon\u200d",
+    "key": "aon"
+  },
+  {
+    "why": "a leading BOM vanishes",
+    "name": "\ufeffAon",
+    "key": "aon"
+  },
+  {
+    "why": "a BOM does not become a trailing space",
+    "name": "Aon\ufeff",
+    "key": "aon"
+  },
+  {
+    "why": "mixed invisibles still collapse to one company",
+    "name": "\ufeff  Northern\u00a0\u200b  Trust  \u200d",
+    "key": "northern trust"
+  },
+  {
+    "why": "U+0085 is whitespace to Python's backslash-s but not to Postgres \u2014 must survive",
+    "name": "Aon\u0085Group",
+    "key": "aon\u0085group"
+  },
+  {
+    "why": "U+001C is a C1 control, not whitespace here \u2014 must survive",
+    "name": "Aon\u001cGroup",
+    "key": "aon\u001cgroup"
+  },
+  {
+    "why": "punctuation SURVIVES \u2014 a wrong merge is unrecoverable",
+    "name": "Guggenheim Partners, LLC",
+    "key": "guggenheim partners, llc"
+  },
+  {
+    "why": "and the unpunctuated name stays a different company",
+    "name": "Guggenheim Partners LLC",
+    "key": "guggenheim partners llc"
+  },
+  {
+    "why": "apostrophes survive",
+    "name": "McDonald's",
+    "key": "mcdonald's"
+  },
+  {
+    "why": "ampersands survive",
+    "name": "AT&T",
+    "key": "at&t"
+  },
+  {
+    "why": "dots and spacing survive",
+    "name": "W. W. Grainger, Inc.",
+    "key": "w. w. grainger, inc."
+  },
+  {
+    "why": "hyphens survive",
+    "name": "Kraft-Heinz",
+    "key": "kraft-heinz"
+  },
+  {
+    "why": "digits survive",
+    "name": "project44",
+    "key": "project44"
+  },
+  {
+    "why": "accented letters lowercase",
+    "name": "Z\u00dcRICH Insurance",
+    "key": "z\u00fcrich insurance"
+  },
+  {
+    "why": "MEASURED DIVERGENCE: Postgres folds U+0130 to a bare i, Python/JS add U+0307",
+    "name": "\u0130s Bank",
+    "key": "i\u0307s bank",
+    "sql_key": "is bank"
+  },
+  {
+    "why": "empty is empty",
+    "name": "",
+    "key": ""
+  },
+  {
+    "why": "whitespace only is empty",
+    "name": "   ",
+    "key": ""
+  },
+  {
+    "why": "invisibles only is empty",
+    "name": "\u200b\ufeff\u200c",
+    "key": ""
+  },
+  {
+    "why": "whitespace and invisibles only is empty",
+    "name": " \u00a0\u200b\u3000 ",
+    "key": ""
+  }
+]
