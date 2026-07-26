@@ -8,10 +8,12 @@ You run ~5 commands. Everything else is the code in this directory. I can't touc
 `terraform plan` validates everything before anything is created, so nothing here is destructive
 until you approve a plan.
 
-**Not migrated, on purpose:** the jobs whose *product is a git commit* — `selfheal.yml`
-(schema re-assert + the re-pinned registry + commit) and `pgdump.yml`. Lambda's `/var/task` is
-read-only, so both writes there are silently skipped, and a backup that silently doesn't happen is
-worse than no backup. They stay on GitHub Actions until there's a sink for them (see Known gaps).
+**Not migrated, on purpose:** the job whose *product is a git commit* — `selfheal.yml` (schema
+re-assert + the re-pinned registry + commit). Lambda's `/var/task` is read-only, so that write
+there is silently skipped, and a backup that silently doesn't happen is worse than no backup. It
+stays on GitHub Actions until there's a sink for it (see Known gaps). (`pgdump.yml` was the other
+one; it was gated off with no database behind it and got deleted in the 2026-07-25 workflow
+cleanup — resurrectable from git history.)
 The sheet backup itself no longer waits on that: `snapshot` runs here and writes the tab CSVs to
 the S3 bucket in `backups.tf`, so it survives GitHub being down (Actions billing lapse,
 2026-07-24 — 21 h with no backup and no alert). Seven schedules live here: `monitor`, `review`,
@@ -127,10 +129,13 @@ If a secret is missing you'll see a loud error here (fail-loud by design), not s
 terraform output schedule_names                      # job-hq-monitor, job-hq-tracker, ...
 ```
 
-The `schedule:` blocks are gone from `.github/workflows/monitor|review|tracker|digest|wide-*|
-simplify.yml` — every one keeps `workflow_dispatch`, so a manual re-run (or a run when AWS itself
-is the problem) is still one click with the same code and the same repo secrets. `selfheal.yml`,
-`pgdump.yml`, `ci.yml` and `resume.yml` still run on Actions.
+Those per-bot workflows are gone too (2026-07-25, after the cutover proved out). The manual lane is
+now a single workflow, **`run-bot.yml` "Run a bot"**: pick a `job` from a dropdown pinned to the
+`JOBS` table below, optionally a `user` lane and `extra_args`, and `scripts/runjob.py` runs that
+job's exact module chain with the same code and the repo secrets. That is the manual re-run path,
+the run-when-AWS-is-the-problem path, and the only thing that refreshes the git-diffable snapshot
+copies. `.github/workflows/` is now four files: `ci.yml`, `resume.yml`, `selfheal.yml`,
+`run-bot.yml`.
 
 ---
 
@@ -176,15 +181,16 @@ aws cloudwatch describe-alarms --alarm-names $(terraform output -json alarm_name
 
 ## Known gaps (all documented, none silent)
 
-- **`pgdump` still runs on GitHub Actions, and is still gated OFF by `PGDUMP_ENABLED`.** There is
-  no live Supabase behind it, so there is nothing to dump; moving it here would need a `pg_dump`
-  binary baked into the image *and* a live database. Deferred deliberately — an empty backup job
-  running in two places is not redundancy.
+- **`pgdump` is deleted, not ported.** There is no live Supabase behind it, so there was nothing to
+  dump, and it sat gated OFF by `PGDUMP_ENABLED` — a workflow file impersonating a backup. Bringing
+  it here instead of to Actions would need a `pg_dump` binary baked into the image *and* a live
+  database. Restore the workflow from git history when both exist (`docs/RUNBOOK.md` § PG snapshot
+  has the commands).
 - **The re-pinned registry still needs Actions.** `selfheal.yml` re-pins `hq.config.yaml` and
   commits it; git is its product, so it stays there. The *sheet* backup no longer depends on that
   (see below) — only the registry half does.
-- **The git-diffable copies still only refresh on an Actions run** (`snapshots/hq/*.csv`,
-  `monitor/snapshots/*.json`). That is the point: the S3 copy and the git copy are two independent
+- **The git-diffable copies still only refresh on an Actions run** — `snapshots/hq/*.csv` nightly
+  from `selfheal.yml`, `monitor/snapshots/*.json` only on a **Run a bot** dispatch. That is the point: the S3 copy and the git copy are two independent
   backups on two independent schedulers, not one with a fallback. Losing either is now loud —
   the daily digest ops-pushes **"HQ backups stale"** when `heartbeat_selfheal`,
   `heartbeat_snapshot` (git copy) or `heartbeat_snapshot_s3` (S3 copy) goes past 2x its cadence.
@@ -221,7 +227,9 @@ Closed on this branch (kept here so the history is readable):
 
 1. Add its `python -m` sequence to `JOBS` in `infra/app/handler.py`.
 2. Add an entry to `var.jobs` in `variables.tf` with its cron.
-3. Rebuild+push the image (step 4) and `terraform apply`.
+3. Add the name to `run-bot.yml`'s `job` choice list (`tests/test_runjob.py` fails until you do —
+   that pin is what keeps the manual lane and the schedules running the same chain).
+4. Rebuild+push the image (step 4 above) and `terraform apply`.
 
 ## Add another project later
 

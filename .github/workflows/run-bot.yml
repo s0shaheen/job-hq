@@ -1,0 +1,117 @@
+# Run any HQ bot by hand — the one manual lane, replacing eleven per-bot workflows.
+#
+# WHY ONE FILE. The 2026-07-25 cutover moved every cron to AWS Lambda + EventBridge and kept each
+# bot's old workflow as dispatch-only, as the rollback path for cutover week. The cutover held, so
+# those eleven files stopped being a rollback plan and became surface area: eleven copies of the
+# same checkout/pip/env/ops-alert boilerplate, each a place for the module chain to drift from the
+# one the Lambda actually runs. They are all in git history if a per-bot workflow is ever wanted
+# back (pgdump.yml is the best-written model).
+#
+# WHAT THIS IS FOR, in order of how often it happens:
+#   1. Re-running a bot after fixing whatever made it fail (the runbook points here).
+#   2. The day AWS itself is the problem — same code, same bots, GitHub's secrets instead of SSM.
+#   3. Refreshing the git-diffable copies (snapshots/, monitor/snapshots/) that Lambda's read-only
+#      filesystem cannot write. That is why this workflow, unlike the Lambda, commits.
+# Phone-friendly: GitHub app -> Actions -> "Run a bot" -> Run workflow, pick the job, done.
+#
+# The job list is NOT maintained here: scripts/runjob.py reads JOBS from infra/app/handler.py, the
+# same table EventBridge dispatches against, and tests/test_runjob.py pins the choice list below to
+# it. Add a bot in one place (handler.py) and it appears here.
+name: Run a bot
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which bot (the handler's job names)"
+        type: choice
+        required: true
+        options:
+          - monitor
+          - review
+          - tracker
+          - digest
+          - selfheal
+          - snapshot
+          - simplify
+          - wide_cafe
+          - wide_theirstack
+      user:
+        description: "HQ user lane (blank = the flat single-user registry)"
+        type: string
+        default: ""
+      extra_args:
+        description: "Extra argv for the LAST module in the chain, e.g. --dry-run"
+        type: string
+        default: ""
+
+permissions:
+  contents: write          # the snapshot/registry commit below
+
+jobs:
+  run:
+    concurrency:
+      # Per job AND per user: two dispatches of the SAME job serialize, two different bots or two
+      # users' lanes don't queue behind each other. cancel-in-progress stays false — killing a
+      # half-written sweep is worse than waiting. This mirrors the Lambda, which has no cross-job
+      # lane either (EventBridge just never overlaps them); the old per-bot workflows shared a
+      # `hq-feed-writers-<user>` group, so if you hand-dispatch `monitor` and a `wide_*` sweep in
+      # the same minute they can now both append to Feed at once. Don't — dedup keys are checked
+      # within a run, not across two.
+      group: run-bot-${{ inputs.job }}-${{ inputs.user }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    # The ceiling of everything this replaced (review's 50; monitor's 45; most were 8-15), applied to
+    # every job because one file can't know which you picked. Deliberately loose: this is a
+    # supervised manual run, so an over-long ceiling costs a runner minute, while a short one costs a
+    # killed sweep you have to notice and re-dispatch. monitor's own `run_budget_min` (Config) is
+    # still the working limit for the sweep.
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Run ${{ inputs.job }}
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          THEIRSTACK_API_KEY: ${{ secrets.THEIRSTACK_API_KEY }}
+          SIMPLIFY_AUTH_COOKIE: ${{ secrets.SIMPLIFY_AUTH_COOKIE }}
+          SIMPLIFY_CSRF: ${{ secrets.SIMPLIFY_CSRF }}
+          # Empty = unset as far as core.config is concerned, i.e. the flat single-user registry.
+          HQ_USER: ${{ inputs.user }}
+          PYTHONUNBUFFERED: "1"
+        # Every secret a bot might want is wired above, whichever job you picked; the ones a given
+        # bot doesn't read are ignored, and an unset one is a clean documented skip (APIFY_TOKEN,
+        # THEIRSTACK_API_KEY, SIMPLIFY_*), not a crash.
+        run: |
+          mkdir -p monitor/snapshots
+          python scripts/runjob.py "${{ inputs.job }}" ${{ inputs.extra_args }}
+      - name: Commit snapshots + registry re-pins
+        # Unquoted extra_args above is intentional (that is how --dry-run reaches the module) and
+        # only dispatchable by someone who already has write access to this repo.
+        #
+        # The push loop gives up quietly after 3 attempts, unlike pgdump.yml's loud version, because
+        # here the commit is ancillary: the bot's real work already landed in the sheet, and
+        # selfheal.yml is the backup of record. Failing the run over a rejected push would ops-alert
+        # about a sweep that actually succeeded.
+        run: |
+          git config user.name "hq-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add snapshots/ monitor/snapshots/ hq.config.yaml || true
+          git commit -m "chore: ${{ inputs.job }} run ${{ inputs.user || 'salman' }} $(date -u +%Y-%m-%d)" || echo "no changes"
+          for attempt in 1 2 3; do
+            git push && break
+            echo "push rejected (attempt ${attempt}) — rebasing"; git pull --rebase origin "${GITHUB_REF_NAME}"
+          done
+      - name: Ops alert on failure
+        # cancelled() covers the timeout-minutes kill — a cancelled job is NOT failure(), which is
+        # how six days of dead runs once never paged anyone.
+        if: failure() || cancelled()
+        run: |
+          curl -s -H "Title: [${{ inputs.user || 'salman' }}] Run a bot: ${{ inputs.job }} failed" \
+            -H "Priority: high" -H "Tags: warning" \
+            -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "https://ntfy.sh/${{ secrets.HQ_OPS_NTFY_TOPIC || 'REDACTED-NTFY-TOPIC' }}" || true

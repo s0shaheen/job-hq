@@ -28,8 +28,8 @@ from core.sheets import HQ, RowNotFound
 # `priority` and `simplify` are deliberately ABSENT: both are dispatch-only now, so
 # watching their heartbeats would print a stale warning every single day — and a
 # briefing that cries wolf daily is one you stop reading.
-# Keep in sync with the schedules: infra/terraform/variables.tf `jobs` (Lambda) plus
-# selfheal.yml + pgdump.yml (the two that still cron on GitHub Actions).
+# Keep in sync with the schedules: infra/terraform/variables.tf `jobs` (Lambda) plus selfheal.yml,
+# the only cron left on GitHub Actions (pgdump.yml was deleted 2026-07-25 — gated off, no database).
 CADENCE_HOURS = {
     "monitor": 12, "review": 24, "tracker": 2,
     # cafe and theirstack are SEPARATE channels, not one "wide": they are

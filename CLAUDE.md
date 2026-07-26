@@ -3,8 +3,8 @@
 One Google Sheet ("Job Search HQ") is the cockpit; this monorepo is the engine — discovery
 bots, tracker bots, the resume pipeline, the phone editor, and the Apps Script sources all
 live here. The recurring bots run on **AWS Lambda + EventBridge cron** (`infra/`); GitHub
-Actions keeps CI, the resume pipeline, the two git-committing backups, and every bot as a
-dispatch-only manual run. Gmail is the status ground truth: ATS
+Actions keeps CI, the resume pipeline, the git-committing self-heal backup, and one **Run a
+bot** dispatch that runs any bot by hand. Gmail is the status ground truth: ATS
 confirmation/rejection/OA/interview emails are captured by an Apps Script in Salman's main
 account and auto-advance Pipeline rows with evidence links — nobody marks "applied" by hand.
 Humans (Salman + the scout) only touch the spreadsheet; behavior changes happen in its Config
@@ -38,7 +38,8 @@ built and populated; tab gids are pinned in `hq.config.yaml`.
   Events tab) and `drive-upload/` (resume publish web app). Provisioning: `appsscript/README.md`.
 - `resume/` — `base.yaml` + `design.yaml`, **the resume source of truth**.
 - `scripts/` — `render-alt.sh` (alt-email render), `publish_to_drive.py`, `yaml_to_docx.py`,
-  `new-job.sh` + `package.sh` (per-job tailoring intake/packaging).
+  `new-job.sh` + `package.sh` (per-job tailoring intake/packaging), `runjob.py` (run one
+  `handler.JOBS` job locally or from `run-bot.yml`), `sysmap.py` (regenerate `docs/SYSTEM.md`).
 - `applications/` — symlink to Google Drive (`My Drive/Job Search & Recruiting/Job
   Applications`): one folder per tailored application + `applications-log.csv`.
 - `docs/` — `SPEC.md` (the approved consolidation spec), `RUNBOOK.md` (ops bible),
@@ -49,7 +50,8 @@ built and populated; tab gids are pinned in `hq.config.yaml`.
 - `infra/` — the cron platform: `Dockerfile` (one image, all bots), `app/handler.py` (the
   `{"job": …}` dispatch shim + per-job failure push), `alerter/index.py` (SNS→ntfy),
   `terraform/` (Lambda, EventBridge schedules, alarms). Runbook: `infra/README.md`.
-- `.github/workflows/` — CI, the git-committing backups, and dispatch-only runs (table below).
+- `.github/workflows/` — four files: CI, the resume pipeline, the git-committing self-heal, and
+  `run-bot.yml` (the one manual lane; `scripts/runjob.py` runs `handler.JOBS`). Table below.
 - `hq.config.yaml` — machine-owned registry: sheet id, tab gids, ntfy topics, Drive folder
   ids, service-account email. bootstrap writes it, self-heal re-pins it. **Never hand-edit.**
 - `master-resume.md` / `jd-playbook.md` / `references/` / `content-workshop.md` — the resume
@@ -113,13 +115,15 @@ mask a dead S3 copy, which is the same silent death the S3 lane exists to remove
 | Workflow | Trigger | Runs |
 |---|---|---|
 | `selfheal.yml` Self-heal + snapshot | cron `23 8 * * *` (03:23 CT) | selfheal + snapshot + commit — **stays on Actions: its product is a git commit** |
-| `pgdump.yml` PG snapshot | cron `53 9 * * *` (04:53 CT) | pg_dump → `snapshots/pg/` + commit (gated on `PGDUMP_ENABLED`) |
 | `resume.yml` Resume render & publish | push to `main` touching `resume/**` | render base + alt, one-page gate, Drive publish, ntfy w/ preview |
-| `ci.yml` CI | every push/PR | pytest; dispatch inputs: adapter smoke / whoami / bootstrap |
-| `monitor.yml`, `review.yml`, `tracker.yml`, `digest.yml`, `wide-*.yml` | dispatch only | the same bots, one click — manual re-run path, and the fallback if AWS is the problem |
-| `simplify.yml` | dispatch only | retired cron (expiring session cookies, #56); Gmail capture covers the same data |
-| `priority.yml` | dispatch only | `monitor.priority` (retired 2026-07-21; the 2x/day sweep covers every company) |
-| `bootstrap.yml`, `whoami.yml` | dispatch only | sheet provisioning / print SA email |
+| `ci.yml` CI | every push/PR | pytest; dispatch inputs: adapter smoke / whoami / bootstrap / migrate / seed |
+| `run-bot.yml` Run a bot | dispatch only | **the one manual lane.** Inputs `job` (any key of `JOBS` in `infra/app/handler.py`) + `user` + `extra_args`; `scripts/runjob.py` runs that job's exact module chain, then commits `snapshots/`, `monitor/snapshots/`, `hq.config.yaml`. The re-run path, and the fallback if AWS is the problem |
+
+Four files, down from 14 on 2026-07-25: the eleven per-bot dispatch workflows were cutover-week
+rollback paths, and `pgdump.yml` was gated off with no database behind it. All are resurrectable
+from git history (`pgdump.yml` is the model if a live Supabase ever appears). **Never re-add a
+per-bot workflow**: the job list lives in `handler.JOBS`, and `tests/test_runjob.py` pins it to
+`run-bot.yml`'s choice options so the manual path can never run a different chain than the Lambda.
 
 Every Actions workflow still ops-pushes on failure (ntfy topic `REDACTED-NTFY-TOPIC`) with a
 click-through to the run. Ops procedures: `docs/RUNBOOK.md`.

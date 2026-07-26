@@ -1,8 +1,9 @@
 """AWS Lambda entrypoint for the HQ scheduled bots.
 
 EventBridge Scheduler invokes this with a payload like {"job": "monitor"}. JOBS maps each
-job to the exact sequence of `python -m <module>` runs the old GitHub Actions workflow ran —
-so the bots themselves are unchanged; this is only the invocation shim.
+job to its exact `python -m <module>` sequence and is the ONE job registry: the schedules
+(variables.tf), the manual-fallback workflow (run-bot.yml via scripts/runjob.py) and the
+tests all read it, so a job exists everywhere or nowhere. This is only the invocation shim.
 
 Secrets live in SSM Parameter Store under SSM_PREFIX (default /job-hq/) as SecureStrings and
 are loaded into the environment once per cold start, so the bots read os.environ exactly as
@@ -26,7 +27,7 @@ import time
 
 DEADLINE_ENV = "HQ_RUNTIME_DEADLINE_TS"   # consumed by monitor.run (same name there)
 
-# job -> ordered [(module, argv-tail)], mirroring .github/workflows/*.yml step order.
+# job -> ordered [(module, argv-tail)]. Also run by scripts/runjob.py on Actions dispatch.
 JOBS: dict[str, list[tuple[str, list[str]]]] = {
     "monitor":         [("monitor.run", [])],
     "review":          [("monitor.regate", []), ("monitor.review", [])],
@@ -35,7 +36,7 @@ JOBS: dict[str, list[tuple[str, list[str]]]] = {
     "digest":          [("tracker.digest", [])],
     "selfheal":        [("tracker.selfheal", [])],            # schema re-assert (its git-commit half stays on Actions)
     "snapshot":        [("tracker.snapshot", [])],            # tab CSVs -> S3 (no git, no GitHub)
-    # simplify.yml order: scrape Simplify, then import the CSV it drops. Needs SIMPLIFY_* cookies;
+    # simplify: scrape Simplify, then import the CSV it drops. Needs SIMPLIFY_* cookies;
     # its tracker/data/*.csv round-trip is repo-relative so not yet Lambda-FS-safe (follow-on).
     "simplify":        [("tracker.simplify", []), ("tracker.migrate", ["--simplify-csv"])],
     "wide_cafe":       [("monitor.wide", ["--source", "cafe"])],

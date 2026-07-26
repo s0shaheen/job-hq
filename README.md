@@ -27,11 +27,11 @@ anything, and a nightly self-heal + CSV snapshot makes any catastrophe a git res
 | Subsystem | Entrypoint | When | What |
 |---|---|---|---|
 | Discovery monitor | `python -m monitor.run` | 07:00 + 18:00 CT | full sweep, reconcile Feed, Health tab, YoE-gated push |
-| Priority watch | `python -m monitor.priority` | dispatch only (retired) | handpicked companies → push within the hour; the 2×/day sweep replaced it |
+| Priority watch | `python -m monitor.priority` | retired — local runs only | handpicked companies → push within the hour; the 2×/day sweep replaced it |
 | Tagging review | `python -m monitor.review` | daily 10:00 CT | Haiku-tags any Feed row discovery couldn't tag inline |
 | Wide sweep | `python -m monitor.wide` | daily 08:30 + 08:50 CT | hiring.cafe (Apify) + TheirStack safety net |
 | Tracker chain | `python -m tracker.promote` → `quickadd` → `scout` → `stale` → `join` | every 2 h | ★-promotions, URL enrich, scout sync + flags, stale flags, email-event join |
-| Simplify import | `python -m tracker.simplify` | dispatch only (retired) | best-effort saved-queue import; Gmail capture sees the same applications |
+| Simplify import | `python -m tracker.simplify` | dispatch only (retired) — Actions → "Run a bot" | best-effort saved-queue import; Gmail capture sees the same applications |
 | Daily digest | `python -m tracker.digest` | daily 06:40 CT | briefing row (Apps Script emails it ~7:00) + capture/backup watchdogs |
 | Self-heal + snapshot | `python -m tracker.selfheal` + `python -m tracker.snapshot` | nightly 03:23 CT (git) + 03:53 CT (S3) | re-assert schema/protections/gids; per-tab CSVs to `snapshots/hq/` (git) and the versioned S3 bucket |
 | Gmail capture | `appsscript/capture/` | every 15 min (in Gmail) | ATS-mail gate → Haiku classify → Email Events + instant OA/interview pushes |
@@ -59,9 +59,9 @@ Tests: `uv run --python 3.11 --with-requirements requirements.txt --no-project -
 
 **≈ $2–5/month.** Haiku tagging + email classification ~$2–3 · AWS Lambda + EventBridge +
 SSM inside the always-free tier, minus pennies of ECR storage (the 2026-07-25 move off
-Actions minutes removed the only metered wall) · the two snapshot-committing jobs still on
-the GitHub Actions free tier · Apify wide sweep inside the free $5 credit · ntfy, Vercel
-hobby, TheirStack free tier: $0.
+Actions minutes removed the only metered wall) · the nightly snapshot-committing self-heal
+still on the GitHub Actions free tier · Apify wide sweep inside the free $5 credit · ntfy,
+Vercel hobby, TheirStack free tier: $0.
 
 ## Provenance
 

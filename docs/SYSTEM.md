@@ -43,16 +43,23 @@ CI instead of shipping.
 | Where | What lives there | Secrets from |
 |---|---|---|
 | **AWS Lambda + EventBridge** | every recurring bot: one container image, one function, one schedule per job | SSM Parameter Store, `/job-hq/*` |
-| **GitHub Actions** | CI, the resume render/publish, the two jobs whose product is a git commit — plus every bot kept as a dispatch-only manual run | GitHub repo secrets |
+| **GitHub Actions** | CI, the resume render/publish, the one job whose product is a git commit — plus "Run a bot", the single dispatch that runs any bot by hand | GitHub repo secrets |
 | **Google Apps Script** | Gmail capture + the 7am digest email (in your account); the Drive uploader the resume pipeline publishes through | Script properties |
 | **Vercel** | the phone editor | its own env |
 
 **The rule for the split: if a job's product is a git commit, it stays on GitHub Actions.**
 Lambda's filesystem is read-only, so a commit-shaped job there would silently write nothing, and
 a backup that silently doesn't happen is worse than none. That is why self-heal (schema re-assert
-+ CSV snapshots + the re-pinned `hq.config.yaml`) and the PG dump stayed behind when everything
-else moved to AWS on 2026-07-25. Every bot that moved kept its workflow as dispatch-only: the
-one-click manual re-run, and the fallback for the day the problem *is* AWS.
++ CSV snapshots + the re-pinned `hq.config.yaml`) stayed behind when everything else moved to AWS
+on 2026-07-25.
+
+Every bot that moved kept its own dispatch-only workflow for cutover week, as the rollback path.
+The cutover held, so those eleven files came out and **one workflow, "Run a bot", took their
+place**: pick the job from a dropdown, optionally a user lane and extra args like `--dry-run`. It
+runs the exact module chain `infra/app/handler.py` gives the Lambda, so the manual path and the
+scheduled path can't drift, and it commits the git-diffable copies Lambda can't write. That is
+the one-click manual re-run and the fallback for the day the problem *is* AWS. The deleted files
+are in git history if a per-bot workflow is ever wanted back.
 
 ## 3. What pages your phone, and when
 
@@ -91,8 +98,8 @@ infra/deploy.sh
 # What has drifted / what would an apply change? Read-only, changes nothing.
 cd infra/terraform && terraform plan
 
-# Re-run a bot when AWS is the problem: GitHub app → Actions → the workflow → Run workflow.
-# Same code, same secrets — every migrated bot kept that trigger for exactly this.
+# Re-run a bot when AWS is the problem: GitHub app → Actions → "Run a bot" → Run workflow,
+# pick the job. Same code, same bots, GitHub's secrets instead of SSM.
 
 # Restore a tab after a bad human edit — two independent copies, pick either.
 git show <sha>:snapshots/hq/pipeline.csv > /tmp/pipeline.csv     # the git copy
@@ -122,8 +129,11 @@ Symptom → cause → fix: `docs/RUNBOOK.md`. AWS setup and ops detail: `infra/R
 
 ## 6. The forks not taken, and the known gaps
 
-- **PG dump is gated off** (`PGDUMP_ENABLED` repo variable): no live Supabase behind it, so
-  there is nothing to dump. An empty backup job running in two places is not redundancy.
+- **PG dump is deleted, resurrectable from git history when Supabase exists.** It sat gated off
+  behind the `PGDUMP_ENABLED` repo variable with no live database to dump, which is a workflow file
+  pretending to be a backup — so it came out with the migration scaffolding rather than staying as
+  decoration. `git log -- .github/workflows/pgdump.yml` brings it back the day there is something
+  to dump (it was the best-written of the deleted files; use it as the model).
 - **ntfy.sh is the only alert channel** unless you opt in: `var.alert_email` adds an SNS email
   subscription for the day ntfy is down, and is empty on purpose because an unconfirmed
   subscription looks like redundancy without being any. Set it, apply, tap the AWS email once.
@@ -131,10 +141,16 @@ Symptom → cause → fix: `docs/RUNBOOK.md`. AWS setup and ops detail: `infra/R
   lands the spreadsheet is the human surface, and this map describes the sheet-era system.
 - **The git-diffable copies only refresh on an Actions run** — the point of two lanes, not a bug,
   but `snapshots/hq/*.csv` is only as fresh as last night's self-heal and `monitor/snapshots/*.json`
-  only as fresh as the last *dispatched* `monitor.yml`.
-- **Retired but kept dispatchable:** the hourly priority watch (the twice-daily sweep covers every
-  company) and the Simplify import (expiring session cookies; Gmail capture sees the same
-  applications).
+  only as fresh as the last **Run a bot** dispatch of `monitor`.
+- **Eleven per-bot workflows became one "Run a bot".** They were cutover-week rollback paths;
+  once the Lambda schedules were proven they were eleven copies of the same boilerplate and eleven
+  chances for a module chain to drift from the one AWS actually runs. The dropdown is now generated
+  from `handler.JOBS` and pinned to it by `tests/test_runjob.py`. Two of those jobs have no
+  EventBridge schedule and only ever run by hand: `selfheal` (the nightly Actions workflow owns
+  that lane, because its product is a commit) and `simplify` (expiring session cookies; Gmail
+  capture sees the same applications). The old hourly priority watch has no lane at all now — the
+  twice-daily sweep covers every company, and `python -m monitor.priority` is still there if a
+  genuine priority tier is ever defined by something better than a hand-maintained flag.
 - **One Config-tab knob to check** (`docs/RUNBOOK.md` § Changing behavior): `run_budget_min`
   defaults to 30, from the Actions era; Lambda's hard ceiling is 15 minutes. #59's deadline clamp
   means an over-budget sweep now stops cleanly rather than being killed mid-flight, but #58 still
@@ -157,7 +173,7 @@ flowchart LR
     LAM --> SHEET["Google Sheet<br/>Job Search HQ"]
     LAM --> S3["S3 backups bucket<br/>$HQ_BACKUP_S3_BUCKET"]
     LAM --> NTFY["ntfy → your phone<br/>jobs topic + ops topic"]
-    ACT["GitHub Actions<br/>selfheal · pgdump · CI · resume"] --> GIT["git commits on main<br/>tab CSVs · re-pinned gids · pg dumps"]
+    ACT["GitHub Actions<br/>selfheal · CI · resume · Run a bot"] --> GIT["git commits on main<br/>tab CSVs · re-pinned gids"]
     ACT --> DRIVE["Google Drive<br/>Resume/Current + Archive"]
     ACT --> NTFY
     GS["Gmail Apps Script<br/>capture, every 15 min"] --> EV["Email Events tab"]
@@ -201,22 +217,12 @@ aws lambda invoke --function-name job-hq-bots \
 <!-- sysmap:begin actions-workflows -->
 | Workflow | File | Trigger |
 |---|---|---|
-| Bootstrap HQ sheet | `.github/workflows/bootstrap.yml` | **dispatch only** |
 | CI | `.github/workflows/ci.yml` | push (branches `**`) · pull_request · dispatch |
-| Daily digest | `.github/workflows/digest.yml` | **dispatch only** |
-| Job monitor | `.github/workflows/monitor.yml` | **dispatch only** |
-| PG snapshot | `.github/workflows/pgdump.yml` | cron `53 9 * * *` (~04:53 CT) · dispatch |
-| Priority watch | `.github/workflows/priority.yml` | **dispatch only** |
 | Resume render & publish | `.github/workflows/resume.yml` | push (branches `main`; paths `resume/**`, `scripts/render-alt.sh`, `scripts/yaml_to_docx.py`, `scripts/publish_to_drive.py`) · dispatch |
-| Tagging review | `.github/workflows/review.yml` | **dispatch only** |
+| Run a bot | `.github/workflows/run-bot.yml` | **dispatch only** |
 | Self-heal and snapshot | `.github/workflows/selfheal.yml` | cron `23 8 * * *` (~03:23 CT) · dispatch |
-| Simplify import | `.github/workflows/simplify.yml` | **dispatch only** |
-| Tracker | `.github/workflows/tracker.yml` | **dispatch only** |
-| Service account whoami | `.github/workflows/whoami.yml` | **dispatch only** |
-| Wide sweep — hiring.cafe | `.github/workflows/wide-cafe.yml` | **dispatch only** |
-| Wide sweep — TheirStack | `.github/workflows/wide-theirstack.yml` | **dispatch only** |
 
-Dispatch-only workflows are the manual re-run path — same code, same repo secrets — and the fallback for the day AWS itself is the problem. The scheduled ones are the jobs whose product is a git commit, plus CI and the resume pipeline.
+**Run a bot** is the whole manual lane: one dispatch, pick any job from `infra/app/handler.py`'s `JOBS`, same code and same repo secrets as the Lambda — the re-run path and the fallback for the day AWS itself is the problem. The eleven per-bot workflows it replaced were cutover scaffolding and live on in git history. Everything else here is scheduled because its product is a git commit, plus CI and the resume pipeline.
 <!-- sysmap:end actions-workflows -->
 
 ## Backup lanes
@@ -227,8 +233,8 @@ Dispatch-only workflows are the manual re-run path — same code, same repo secr
 | CSV → git (Actions) | 11 of 13 tab CSVs (never `email_events`, `scout_prefs`) | `snapshots/<user>/*.csv`, committed by `selfheal.yml` | `23 8 * * *` (~03:23 CT) | `heartbeat_snapshot` | workflow ops push on failure; digest pages **HQ backups stale** once the beat passes 2× its cadence |
 | CSV → S3 (Lambda) | the same tab CSVs | `s3://$HQ_BACKUP_S3_BUCKET/snapshots/<user>/<tab>.csv` (versioned bucket) | `cron(53 8 * * ? *)` (~03:53 CT) | `heartbeat_snapshot_s3` | a failed upload **raises**, so `handler.py` names the job in an ops push; staleness pages from the digest |
 | Schema + gid re-pin (Actions) | re-asserted headers/dropdowns/protections and the re-pinned `hq.config.yaml` | a git commit on `main` | `23 8 * * *` (~03:23 CT) | `heartbeat_selfheal` | same as the git CSV lane |
-| Feed JSON (best effort) | `monitor.run`'s feed history | `monitor/snapshots/*.json` in git on a dispatched Actions run; `feeds/<label>.json` in S3 when the FS is read-only | with each sweep | none | prints a warning and never fails a completed sweep — the CSV lanes are the Feed tab's real backup |
-| PG dump (Actions) | `pg_dump` of the Supabase mirror | `snapshots/pg/` + commit | `53 9 * * *` (~04:53 CT) | none | gated OFF by the `PGDUMP_ENABLED` repo variable — nothing runs until a live database exists |
+| Feed JSON (best effort) | `monitor.run`'s feed history | `monitor/snapshots/*.json` in git on a **Run a bot** dispatch; `feeds/<label>.json` in S3 when the FS is read-only | with each sweep | none | prints a warning and never fails a completed sweep — the CSV lanes are the Feed tab's real backup |
+| PG dump | `pg_dump` of the Supabase mirror | `snapshots/pg/` + commit | **none — deleted** | none | nothing runs and nothing watches it: `pgdump.yml` was gated OFF with no database behind it, so it went with the migration scaffolding. Resurrectable from git history when a live Supabase exists |
 
 The git and S3 CSV lanes are deliberately independent copies on independent schedulers, each with its **own** heartbeat: one shared beat would let the nightly Actions run keep it fresh while the S3 copy had been dead for a week. Restore procedure (both lanes plus Sheets' own version history): `docs/RUNBOOK.md` § Restoring the sheet.
 <!-- sysmap:end backup-lanes -->

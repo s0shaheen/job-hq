@@ -319,9 +319,10 @@ def selfheal_cron() -> str:
     return _need(m and m.group(1), "selfheal.yml cron")
 
 
-def pgdump_cron() -> str:
-    m = re.search(r'-\s*cron:\s*"([^"]+)"', _read(".github/workflows/pgdump.yml"))
-    return _need(m and m.group(1), "pgdump.yml cron")
+# There is no pgdump_cron(): `pgdump.yml` was deleted with the rest of the migration scaffolding
+# (it was gated OFF and had no database behind it). Its row in the backup-lanes table below is a
+# literal, not a parse — resurrect the workflow from git history and re-add a parser here if a
+# live Supabase ever exists.
 
 
 # ------------------------------------------------------------------ section renderers
@@ -367,9 +368,11 @@ def sec_actions_workflows() -> str:
         lines.append(f"| {name} | `.github/workflows/{filename}` | {trigger} |")
     lines += [
         "",
-        "Dispatch-only workflows are the manual re-run path — same code, same repo secrets — and "
-        "the fallback for the day AWS itself is the problem. The scheduled ones are the jobs whose "
-        "product is a git commit, plus CI and the resume pipeline.",
+        "**Run a bot** is the whole manual lane: one dispatch, pick any job from "
+        "`infra/app/handler.py`'s `JOBS`, same code and same repo secrets as the Lambda — the "
+        "re-run path and the fallback for the day AWS itself is the problem. The eleven per-bot "
+        "workflows it replaced were cutover scaffolding and live on in git history. Everything else "
+        "here is scheduled because its product is a git commit, plus CI and the resume pipeline.",
     ]
     return "\n".join(lines)
 
@@ -378,7 +381,7 @@ def sec_backup_lanes() -> str:
     s = snapshot_facts()
     jobs = dict((j, c) for j, c, _ in terraform_jobs())
     snap_cron = jobs.get("snapshot", "—")
-    sh_cron, pg_cron = selfheal_cron(), pgdump_cron()
+    sh_cron = selfheal_cron()
     tabs = [k for k, _ in schema_tabs()]
     kept = len(tabs) - len(s["never"])
     never = ", ".join(f"`{n}`" for n in s["never"])
@@ -397,12 +400,13 @@ def sec_backup_lanes() -> str:
         f"re-pinned `hq.config.yaml` | a git commit on `main` | `{sh_cron}` "
         f"(~{cron_to_ct(sh_cron)} CT) | `heartbeat_selfheal` | same as the git CSV lane |",
         f"| Feed JSON (best effort) | `monitor.run`'s feed history | `monitor/snapshots/*.json` in "
-        f"git on a dispatched Actions run; `{s['feed_key']}` in S3 when the FS is read-only | with "
+        f"git on a **Run a bot** dispatch; `{s['feed_key']}` in S3 when the FS is read-only | with "
         "each sweep | none | prints a warning and never fails a completed sweep — the CSV lanes are "
         "the Feed tab's real backup |",
-        f"| PG dump (Actions) | `pg_dump` of the Supabase mirror | `snapshots/pg/` + commit | "
-        f"`{pg_cron}` (~{cron_to_ct(pg_cron)} CT) | none | gated OFF by the `PGDUMP_ENABLED` repo "
-        "variable — nothing runs until a live database exists |",
+        "| PG dump | `pg_dump` of the Supabase mirror | `snapshots/pg/` + commit | **none — "
+        "deleted** | none | nothing runs and nothing watches it: `pgdump.yml` was gated OFF with no "
+        "database behind it, so it went with the migration scaffolding. Resurrectable from git "
+        "history when a live Supabase exists |",
         "",
         "The git and S3 CSV lanes are deliberately independent copies on independent schedulers, "
         "each with its **own** heartbeat: one shared beat would let the nightly Actions run keep it "
@@ -563,8 +567,8 @@ def sec_big_picture() -> str:
         '    LAM --> SHEET["Google Sheet<br/>Job Search HQ"]',
         f'    LAM --> S3["S3 backups bucket<br/>${s["bucket_env"]}"]',
         '    LAM --> NTFY["ntfy → your phone<br/>jobs topic + ops topic"]',
-        '    ACT["GitHub Actions<br/>selfheal · pgdump · CI · resume"] --> '
-        'GIT["git commits on main<br/>tab CSVs · re-pinned gids · pg dumps"]',
+        '    ACT["GitHub Actions<br/>selfheal · CI · resume · Run a bot"] --> '
+        'GIT["git commits on main<br/>tab CSVs · re-pinned gids"]',
         '    ACT --> DRIVE["Google Drive<br/>Resume/Current + Archive"]',
         "    ACT --> NTFY",
         '    GS["Gmail Apps Script<br/>capture, every 15 min"] --> EV["Email Events tab"]',

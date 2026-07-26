@@ -126,8 +126,10 @@ happens on its own.
 
 > **Historical, as of 2026-07-25.** The recurring bots have since moved to AWS Lambda +
 > EventBridge (`infra/README.md`), so their crons no longer depend on the default branch at
-> all — only `selfheal.yml` and `pgdump.yml` still cron on Actions. A fresh activation now
-> also needs `/job-hq/*` secrets in SSM and one `terraform apply`.
+> all — only `selfheal.yml` still crons on Actions (`pgdump.yml` was deleted in the
+> 2026-07-25 workflow cleanup, along with the eleven per-bot dispatch workflows; the manual
+> lane is now the single "Run a bot" workflow). A fresh activation now also needs
+> `/job-hq/*` secrets in SSM and one `terraform apply`.
 
 After merging, the first healthy signs, same day: the 07:00 CT monitor sweep populates
 Feed + Health; the tracker runs at :31 every 2 h; 06:40 CT tomorrow the first digest

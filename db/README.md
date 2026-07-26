@@ -80,8 +80,10 @@ sheet stays the system of record until stage 3 flips triage writes to the app.
 ## Backups
 
 - Nightly `pg_dump --schema=public` → gzipped SQL committed to
-  `snapshots/pg/` by `.github/workflows/pgdump.yml` (same ritual as the sheet
-  CSV snapshots; single-digit MB gzipped at this scale for years). The dump is
+  `snapshots/pg/` by `.github/workflows/pgdump.yml` — **deleted 2026-07-25** (it was gated off with
+  no database behind it; restore it from git history when this schema is live, per
+  `docs/RUNBOOK.md` § PG snapshot). The design below is what it did, and what to restore:
+  same ritual as the sheet CSV snapshots, single-digit MB gzipped at this scale for years. The dump is
   **scoped to `public` on purpose**: Supabase's `auth` schema holds the
   family's identities, sessions, and refresh tokens — those must never land in
   git, and a restore must not collide with the managed schemas a fresh project

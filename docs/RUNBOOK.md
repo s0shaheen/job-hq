@@ -10,16 +10,20 @@ fails. Silence means healthy. Triage is always the same three steps:
      on stderr before exiting.
    - `HQ bots ALARM: job-hq-bots-*` → a CloudWatch alarm, i.e. a failure the bot couldn't
      report itself. See [A CloudWatch alarm fired](#a-cloudwatch-alarm-fired).
-   - `[salman] <name> failed` → a GitHub Actions run (self-heal, PG snapshot, resume, or a
-     job you dispatched by hand). Open the run from the push.
+   - `[salman] <name> failed` → a GitHub Actions run (self-heal, resume, or a **Run a bot**
+     dispatch — that one's title reads `[salman] Run a bot: <job> failed`). Open the run from
+     the push.
 2. Cross-check the sheet: **Log** tab (append-only audit of every bot action), **Health**
    tab (per-company fetch results), and the `heartbeat_*` rows in **Config**.
 3. Fix per the matching section below, then re-run — all jobs are idempotent and safe to
    re-run, two ways:
    - Lambda: `aws lambda invoke --function-name job-hq-bots --payload '{"job":"tracker"}'
      --cli-binary-format raw-in-base64-out /tmp/out.json`
-   - Actions: every workflow still supports `workflow_dispatch` with the same code and
-     secrets — the fallback when AWS itself is the problem.
+   - Actions: **Actions → "Run a bot" → Run workflow**, pick the `job` (optionally a `user`
+     lane and `extra_args` like `--dry-run`). Same code and the repo secrets instead of SSM —
+     the fallback when AWS itself is the problem, and the phone-only path. It runs the same
+     module chain the Lambda would, because both read `JOBS` in `infra/app/handler.py`.
+     Every "re-run X" below means this one workflow with that `job` selected.
 
 ---
 
@@ -32,12 +36,12 @@ heartbeat older than **2× its cadence**; a job that never ran shows "no heartbe
 |---|---|---|---|
 | `heartbeat_capture` | Apps Script (Gmail) | 15 min trigger (cadence 1.5 h) | 3 h → **ops alert** from digest |
 | `heartbeat_tracker` | `tracker.join` (end of chain) | every 2 h | 4 h |
-| `heartbeat_priority` | `monitor.priority` | dispatch only (retired) | not watched |
+| `heartbeat_priority` | `monitor.priority` | retired — local runs only, no workflow | not watched |
 | `heartbeat_monitor` | `monitor.run` | daily 07:00 CT | 48 h |
 | `heartbeat_review` | `monitor.review` | daily 10:00 CT | 48 h |
 | `heartbeat_cafe` | `monitor.wide --source cafe` | daily 08:30 CT | 48 h |
 | `heartbeat_theirstack` | `monitor.wide --source theirstack` | daily 08:50 CT | 48 h |
-| `heartbeat_simplify` | `tracker.simplify` | dispatch only (retired 2026-07-25) | not watched |
+| `heartbeat_simplify` | `tracker.simplify` | dispatch only (retired 2026-07-25) — **Run a bot**, `job = simplify` | not watched |
 | `heartbeat_selfheal` | `tracker.selfheal` | nightly 03:23 CT (Actions) | 48 h → **ops alert** "HQ backups stale" |
 | `heartbeat_snapshot` | `tracker.snapshot`, **git mode** | nightly 03:23 CT (Actions, → `snapshots/<user>/`) | 48 h → **ops alert** "HQ backups stale" |
 | `heartbeat_snapshot_s3` | `tracker.snapshot`, **S3 mode** | nightly 03:53 CT (Lambda, → S3) | 48 h → **ops alert** "HQ backups stale" |
@@ -69,10 +73,11 @@ Until the Lambda lane's first run, `heartbeat_snapshot_s3` has no value and the 
 successful `snapshot` invocation.
 
 Daily rhythm (America/Chicago): 03:23 self-heal + snapshot commit (Actions) → 03:53 snapshot → S3
-(Lambda) → 04:53 PG snapshot (Actions) → 06:40 digest composed → ~7:00 digest email (Apps Script)
-→ 07:00 daily monitor sweep → 08:30 + 08:50 wide sweeps → 10:00 tagging review → 18:00 second
-sweep → tracker chain every 2 h at :31 → Gmail capture every 15 min around the clock. Everything
-except the two Actions commits fires from AWS EventBridge.
+(Lambda) → 06:40 digest composed → ~7:00 digest email (Apps Script) → 07:00 daily monitor sweep →
+08:30 + 08:50 wide sweeps → 10:00 tagging review → 18:00 second sweep → tracker chain every 2 h at
+:31 → Gmail capture every 15 min around the clock. Everything except the self-heal commit fires
+from AWS EventBridge. (The 04:53 PG snapshot is gone — see
+[PG snapshot](#pg-snapshot-deleted-resurrectable).)
 
 Also healthy: the digest's "Automation health" section printing
 `✅ all systems ran on schedule`, a fresh `chore: nightly HQ snapshot` commit each night, and
@@ -111,8 +116,8 @@ paged anyone" once happened on Actions.
 - Check the schedules exist and are ENABLED: `aws scheduler list-schedules --name-prefix job-hq`
 - Then the scheduler role (`job-hq-scheduler`) and the function itself
   (`aws lambda get-function --function-name job-hq-bots`).
-- If AWS is the problem and the sheet needs work now: dispatch the equivalent workflow on GitHub
-  Actions — every bot kept its `workflow_dispatch` trigger and repo secrets exactly for this.
+- If AWS is the problem and the sheet needs work now: **Actions → "Run a bot"** with the job you
+  need — the workflow and the repo secrets exist for exactly this.
 - Terraform is the repair tool: `cd infra/terraform && terraform plan` shows anything drifted or
   deleted, and `apply` re-creates it.
 
@@ -127,26 +132,31 @@ the morning; `heartbeat_monitor` stale.
 - Google auth: `GOOGLE_SERVICE_ACCOUNT_JSON` secret invalid, or the sheet lost its share to
   the service account (email in `hq.config.yaml`). Re-share as Editor.
 - Sheets API quota/5xx storm (rare at this scale; the backoff client absorbs normal blips).
-- `[monitor] SKIPPED — HQ sheet_id is unset` — registry never pinned; run the Bootstrap
-  workflow.
+- `[monitor] SKIPPED — HQ sheet_id is unset` — registry never pinned; run Actions → CI → Run
+  workflow with `bootstrap: true` (the old `bootstrap.yml` folded into CI as a gated job).
 
 **Not a failure:** individual company errors. One company can never kill the run — it is
 quarantined as an ERROR row in Health and the sweep continues.
 
-**Fix:** address the printed cause, re-run "Job monitor" via workflow_dispatch. Reconcile is
+**Fix:** address the printed cause, re-run via **Run a bot** with `job = monitor`. Reconcile is
 idempotent (keys dedupe), so a partial run followed by a full run is safe.
 
 ## Priority watch failed
 
+**Retired, and now unreachable from any workflow.** `monitor.priority` has no cron (since
+2026-07-21 the twice-daily sweep covers every company), no Lambda job, and — since the workflow
+cleanup — no dispatch either. The module still works: `python -m monitor.priority` locally. Keep
+this section only because an old alert can still be in your history.
+
 **Symptom:** either ops push "Priority watch failed" (crash) or "Priority watch: every
 company failed" (all fetches errored). `heartbeat_priority` goes stale in the second case
-too — that is deliberate.
+too — that is deliberate, and nothing watches it now.
 
-**Causes:** every-company failure usually means network/bot-wall trouble from the Actions
-runner (Azure IPs) or an expired Google credential; a single company erroring repeatedly is
-that company's adapter/slug (check Log tab, `priority / fetch_error` rows).
+**Causes:** every-company failure usually means network/bot-wall trouble from datacenter egress
+(Azure IPs) or an expired Google credential; a single company erroring repeatedly is that
+company's adapter/slug (check Log tab, `priority / fetch_error` rows).
 
-**Fix:** for systemic failure, check one company's board URL by hand and re-run. For one
+**Fix:** for systemic failure, check one company's board URL by hand and re-run locally. For one
 company, treat as [ERROR in Health](#a-company-shows-error-or-zero-in-health). Priority
 skips not-yet-seeded companies by design (`skip_unseeded` in Log) — the daily monitor seeds
 them first; that is not an error.
@@ -166,8 +176,8 @@ stale → join`, run in that order; the first module to fail stops the chain, an
   Delete or re-key the copy.
 - Header damage on any tab in the chain → [SchemaAnomaly](#schemaanomaly--schema-anomaly-abort).
 
-**Fix:** remove the duplicates / repair the header named in the message, re-run "Tracker".
-Everything downstream (a Quick Add row stuck blank, an unsynced scout row) self-processes on
+**Fix:** remove the duplicates / repair the header named in the message, re-run via **Run a bot**
+with `job = tracker`. Everything downstream (a Quick Add row stuck blank, an unsynced scout row) self-processes on
 the next successful pass — latches (`· status`, `· synced_at`, `promoted_at`, `matched_key`)
 mean nothing is double-processed.
 
@@ -178,8 +188,8 @@ no retry loop). Clear the `· status` cell to make the bot retry that row.
 
 **Symptom:** ops push "Digest failed"; no morning digest row/ping.
 
-**Fix:** usual sheet triage (auth / SchemaAnomaly), re-run "Daily digest" — same-day re-runs
-refresh the body and keep `sent_at`.
+**Fix:** usual sheet triage (auth / SchemaAnomaly), re-run via **Run a bot** with
+`job = digest` — same-day re-runs refresh the body and keep `sent_at`.
 
 **Digest ran but no email arrived:** composing and mailing are separate. The Python job
 writes the Digest tab row; the **Apps Script** `sendDigest` (7–8 am CT trigger) emails the
@@ -203,12 +213,14 @@ optional and never fatal on its own).
 **Fix:** check the Apify console (usage + actor run logs). If the actor is dead, swap
 `ACTOR_ID` in `monitor/wide.py` for the alternate documented in
 `docs/research/aggregator-apis.md`. Cursors (`wide_cursor`, `wide_theirstack_cursor` in
-Config) are just optimizations — safe to blank; keys re-dedupe everything.
+Config) are just optimizations — safe to blank; keys re-dedupe everything. Re-run one source at a
+time via **Run a bot** with `job = wide_cafe` or `job = wide_theirstack` (separate jobs on
+purpose: a stalled Apify run must never starve TheirStack).
 
 ## Simplify import failed
 
 **Symptom:** ops push "Simplify auth expired" (at most once per day) and/or the digest
-health line flags `simplify` stale. The workflow itself exits 0 on auth failure — the alert
+health line flags `simplify` stale. The run itself exits 0 on auth failure — the alert
 and the missing heartbeat are the signal.
 
 **Cause:** the session JWT died (undocumented TTL; expiry is the one expected fragility).
@@ -233,12 +245,17 @@ its web app calls, authenticated by two of your own cookies.
    gh secret set SIMPLIFY_CSRF        --repo s0shaheen/job-hq   # paste the csrf value
    ```
 
-6. Re-run: Actions → "Simplify import" → Run workflow. Success looks like
-   `[simplify] saved_new=… filled=…` in the log and a fresh `heartbeat_simplify`.
+6. Re-run: Actions → **"Run a bot"** → Run workflow with `job = simplify` (it runs
+   `tracker.simplify` then `tracker.migrate --simplify-csv`, the same pair the old
+   `simplify.yml` did). Success looks like `[simplify] saved_new=… filled=…` in the log and a
+   fresh `heartbeat_simplify`.
 
 Since 2026-07-25 this runs **only** when you dispatch it: the cron was retired rather than
 re-created on Lambda, because babysitting a cookie that expires every few weeks buys nothing the
-Gmail capture doesn't already file into Pipeline. Re-auth when you actually want a sweep.
+Gmail capture doesn't already file into Pipeline. Re-auth when you actually want a sweep. The
+dedicated `simplify.yml` is gone (2026-07-25 workflow cleanup) but the job is not — it is one of
+the choices in **Run a bot**, and `aws lambda invoke --payload '{"job":"simplify"}'` still works
+if the cookies are also in SSM.
 
 The daily-alert dedup key `simplify_alert_date` in Config resets itself; don't edit it.
 
@@ -255,7 +272,27 @@ auto-resolve (`duplicate required headers [...] — resolve manually`: a human c
 second column with a bot header's name — delete/rename the extra column); GitHub push
 rejection on the snapshot commit (re-run).
 
-**Fix:** repair in the sheet, re-run "Self-heal and snapshot".
+**Fix:** repair in the sheet, re-run Actions → "Self-heal and snapshot" → Run workflow. That
+workflow is the one that *commits* (schema re-assert + tab CSVs + re-pinned gids), so use it — not
+**Run a bot** with `job = selfheal`, which re-asserts the schema but only commits `hq.config.yaml`
+if a gid actually moved.
+
+## PG snapshot (deleted, resurrectable)
+
+`pgdump.yml` no longer exists. It was gated off behind the `PGDUMP_ENABLED` repo variable with no
+live Supabase behind it — a workflow that dumped nothing every night — so it came out on
+2026-07-25 with the rest of the migration scaffolding. Nothing alerts on it, and no heartbeat
+watches it.
+
+**If you get an old "PG snapshot failed" push:** it is history; there is no workflow to re-run.
+
+**When a live database exists:** `git log --diff-filter=D -- .github/workflows/pgdump.yml` finds
+the deleting commit and `git show <sha>^:.github/workflows/pgdump.yml` prints the file. It was the
+best-written of the deleted workflows (pinned `postgresql-client-17`, `set -euo pipefail`, a
+size-plausibility gate, `gzip -t`, and a push loop that fails loud instead of swallowing a
+rejection) — restore it as-is, keep the `PGDUMP_ENABLED` gate, and re-add a `pgdump_cron()` parser
+to `scripts/sysmap.py` so the backup-lanes table states its cadence again. Context:
+`db/README.md` § Backups.
 
 ## Resume pipeline failed
 
@@ -336,10 +373,11 @@ run is recoverable, a guessed write is corruption.
   self-heal, which appends missing bot headers).
 
 **Fix:** repair exactly what the message names — restore/rename the header cell, delete the
-duplicate row(s) — then re-run the failed workflow. Self-heal re-asserts the full structure
-(headers, frozen row, dropdowns, checkboxes, protections, gids) every night at 03:23 CT and
-can be dispatched immediately from Actions. Header row 1 is protected and frozen precisely
-to make this rare.
+duplicate row(s) — then re-run the failed job (**Run a bot**, or `aws lambda invoke`; intro step
+3). Self-heal re-asserts the full structure
+(headers, frozen row, dropdowns, checkboxes, protections, gids) every night at 03:23 CT and can be
+dispatched immediately: Actions → "Self-heal and snapshot". Header row 1 is protected and frozen
+precisely to make this rare.
 
 ## Restoring the sheet after a bad human edit
 
@@ -381,7 +419,7 @@ commit to restore from) or when the git copy itself is suspect.
 restores the whole spreadsheet to a point in time. Use for mass damage in the last hours
 that the nightly snapshot hasn't seen.
 
-**Afterwards, always:** run "Self-heal and snapshot" once. If a tab was deleted/recreated
+**Afterwards, always:** run Actions → "Self-heal and snapshot" once. If a tab was deleted/recreated
 its gid changed — self-heal re-pins `hq.config.yaml` and commits it; then update the gid
 constants in the capture Apps Script CONFIG block if `email_events`/`config`/`digest` were
 among them. Bots re-fill their own readout columns (`stale`, scout flags) on the next pass.
@@ -463,9 +501,10 @@ default (`core/config_defaults.yaml`) and pushes the problem to ops.
 | `fetch_workers` | 8 | int 1–32 | monitor | Concurrent board fetches in the daily sweep (network only; sheet writes stay serial) |
 | `run_budget_min` | 30 | int 5–120 | monitor | Soft wall-clock budget; a budget-stopped sweep flushes, parks a resume cursor, and continues next run |
 
-After changing any `filter_*` knob, re-stamp existing rows: Actions → Tagging review →
-Run workflow with **regate = true** (or `python -m monitor.regate` locally; `--dry-run`
-first prints the would-be counts).
+After changing any `filter_*` knob, re-stamp existing rows: Actions → **Run a bot** → Run
+workflow with `job = review` (its chain is `monitor.regate` → `monitor.review`, so the re-gate is
+no longer a separate checkbox), or `python -m monitor.regate` locally — `--dry-run` first prints
+the would-be counts.
 
 **Machine-maintained Config keys — never edit:** every `heartbeat_*`, `wide_cursor`,
 `wide_theirstack_cursor`, `monitor_sweep_cursor`, `simplify_alert_date`,
@@ -489,9 +528,10 @@ cost cap per monitor run (60; env `MONITOR_INLINE_TAG_MAX`).
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | every sheet job | everything sheet-touching fails loudly |
 | `ANTHROPIC_API_KEY` | monitor, priority, review, tracker (quickadd), wide | tagging/enrichment skips or degrades; discovery unaffected |
 | `APPSSCRIPT_UPLOAD_URL` / `APPSSCRIPT_UPLOAD_SECRET` | resume publish | publish step skipped/fails; render gates still run |
-| `SIMPLIFY_AUTH_COOKIE` / `SIMPLIFY_CSRF` | simplify | see [Simplify re-auth](#simplify-re-auth) |
+| `SIMPLIFY_AUTH_COOKIE` / `SIMPLIFY_CSRF` | **Run a bot** `job = simplify` only (no cron anywhere) | expired = one ops push, clean exit 0; see [Simplify re-auth](#simplify-re-auth). Refresh them right before a dispatch, not on a schedule |
 | `APIFY_TOKEN` | wide | unset = clean skip; the wide layer is off |
 | `THEIRSTACK_API_KEY` | wide (optional) | second wide source off; never fatal |
+| `SUPABASE_DB_URL` | **nothing** — its only reader was `pgdump.yml` | inert since the workflow was deleted ([PG snapshot](#pg-snapshot-deleted-resurrectable)). Leave it or delete it; either way nothing breaks until the workflow is restored |
 | `HQ_NTFY_TOPIC` / `HQ_OPS_NTFY_TOPIC` | all (optional overrides) | unset = defaults from `hq.config.yaml` |
 
 (The capture Apps Script keeps its own `ANTHROPIC_API_KEY` copy in Script Properties; the
@@ -499,9 +539,9 @@ editor keeps `EDITOR_PASSCODE` + `GITHUB_TOKEN` in Vercel env — neither is a r
 
 **Two stores since the Lambda cutover.** The scheduled bots read the same names from **AWS SSM
 Parameter Store** under `/job-hq/` (SecureStrings, loaded into env per cold start); the GitHub
-repo secrets above now serve CI, the resume pipeline, the snapshot workflows, and any bot you
-dispatch by hand. A rotated key has to be updated in **both** places, or the dispatch fallback
-quietly runs with the stale one:
+repo secrets above now serve CI, the resume pipeline, the self-heal workflow, and any bot you
+dispatch through **Run a bot**. A rotated key has to be updated in **both** places, or the
+dispatch fallback quietly runs with the stale one:
 
 ```sh
 aws ssm put-parameter --name /job-hq/ANTHROPIC_API_KEY --type SecureString --overwrite --value 'sk-ant-…'

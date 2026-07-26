@@ -80,7 +80,9 @@ def test_other_parsers_cannot_render_hollow_sections():
 
     for _name, filename, _trigger in sysmap.workflows():
         assert filename in secs["actions-workflows"]
-    assert len(sysmap.workflows()) >= 10
+    # Four since the migration scaffolding came out: ci, resume, selfheal, run-bot. A parse that
+    # collapsed to nothing must still fail here, so this stays a floor, not a decoration.
+    assert len(sysmap.workflows()) >= 4
 
 
 def test_mermaid_blocks_are_fenced_and_use_supported_diagram_types():
