@@ -65,7 +65,7 @@ variable "jobs" {
     # watch could be retired; a once-a-day port would have quietly halved discovery freshness.
     monitor         = { cron = "cron(0 12,23 * * ? *)" }  # daily 12:00 + 23:00 UTC (monitor.run)
     review          = { cron = "cron(0 15 * * ? *)" }    # daily 15:00 UTC  (regate + review)
-    tracker         = { cron = "cron(31 0/2 * * ? *)" }  # every 2h at :31  (promote/quickadd/scout/stale/join)
+    tracker         = { cron = "cron(31 0/2 * * ? *)" }  # every 2h at :31  (promote/quickadd/scout/stale/join/outbox)
     digest          = { cron = "cron(40 11 * * ? *)" }   # daily 11:40 UTC  (digest)
     # selfheal intentionally NOT scheduled: the nightly job that re-asserts the schema also
     # writes the CSV snapshots and the re-pinned registry AND COMMITS THEM — git is its output,

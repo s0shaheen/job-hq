@@ -2,6 +2,10 @@ requests==2.32.3
 gspread==6.2.1
 google-auth==2.35.0
 PyYAML==6.0.2
+# zoneinfo reads the SYSTEM tz database first and only falls back to this
+# package. Pinned so quiet hours cannot depend on whether the base image
+# happens to ship /usr/share/zoneinfo (core/channels.py).
+tzdata==2026.3
 pytest==8.3.3
 anthropic==0.104.1
 apify-client>=1.8,<3

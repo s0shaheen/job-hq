@@ -22,6 +22,7 @@ callers pass in the already-loaded UserConfig.
 """
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -51,8 +52,22 @@ class Profile:
     geo_unknown: str = "filter"
     yoe_unknown: str = "seniority-proxy"
     board_search_term: str = "product"    # corpus-wide boards (Workday et al)
+    # The coarse notification CEILING: `email` means this person never gets an
+    # ntfy push, whatever the per-event matrix below says (core/channels.py).
     notify_channel: str = "ntfy"          # ntfy | email | none
     notify_email: str = ""
+    # Per-event refinement, push | email | both | none. Blank inherits the
+    # ceiling, so an existing profile.yaml that names none of these keeps
+    # behaving exactly as it did.
+    notify_digest: str = ""
+    notify_new_roles: str = ""
+    notify_status_change: str = ""
+    notify_oa_interview: str = ""
+    notify_stale_nudge: str = ""
+    # quiet hours: a LOCAL wall-clock window in which a non-urgent push is
+    # deferred to its end, never dropped (core/channels.py)
+    timezone: str = "America/Chicago"
+    quiet_hours: str = "21:00-06:30"
 
     @classmethod
     def load(cls, user: str = "", cfg=None) -> "Profile":
@@ -65,6 +80,15 @@ class Profile:
           2. users/<name>/profile.yaml — what this person is looking for.
           3. their Config tab, but only the cells they actually changed
              (see overlay_config).
+
+        A NAMED user with no profile file is the one case that does not simply
+        fall through to the defaults: `notify_channel` drops to `none`. The
+        committed default is `ntfy`, so falling through would start pushing
+        somebody's job search at a person who has never stated a preference —
+        and on a flat registry it lands on the OPERATOR's topic, not theirs.
+        `core/channels.py` already resolves an unreadable ceiling to silence for
+        the same reason; a missing one is less readable, not more. Single-user
+        mode (`user=""`) is untouched: there is no file to miss.
         """
         from core.config import defaults as _committed
         base = _committed()
@@ -81,6 +105,13 @@ class Profile:
                 for k, v in data.items():
                     if k in cls.__dataclass_fields__ and k != "name":
                         setattr(prof, k, v)
+            else:
+                prof.notify_channel = "none"
+                print(f"::warning title=No profile for {user}::"
+                      f"{PROFILE_DIRNAME}/{user}/profile.yaml is missing — running the "
+                      f"committed default search and sending {user} NO pushes. Add the "
+                      f"file (and rebuild the Lambda image, which copies users/).",
+                      file=sys.stderr)
 
         if cfg is not None:
             prof.overlay_config(cfg)
@@ -98,7 +129,17 @@ class Profile:
                ("filter_work_model_exclude", "work_model_exclude"),
                ("filter_geo_unknown", "geo_unknown"),
                ("filter_yoe_unknown", "yoe_unknown"),
-               ("workday_search", "board_search_term"))
+               ("workday_search", "board_search_term"),
+               # notification matrix — same key name on both sides, so the
+               # Config tab, profile.yaml and the committed defaults all spell
+               # it identically (core/channels.py resolves it)
+               ("notify_digest", "notify_digest"),
+               ("notify_new_roles", "notify_new_roles"),
+               ("notify_status_change", "notify_status_change"),
+               ("notify_oa_interview", "notify_oa_interview"),
+               ("notify_stale_nudge", "notify_stale_nudge"),
+               ("notify_timezone", "timezone"),
+               ("notify_quiet_hours", "quiet_hours"))
 
     def overlay_config(self, cfg) -> None:
         """Apply ONLY the knobs this user actually changed in their sheet.

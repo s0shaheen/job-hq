@@ -193,16 +193,19 @@ def test_mid_chunk_deadline_flushes_and_parks_cursor(monkeypatch):
     assert store.health_rows == []                 # partial -> no health rewrite
 
 
-def test_email_only_user_never_gets_a_phone_push():
+def test_email_only_user_never_gets_a_phone_push(blocked_ntfy):
     # dad's profile says notify_channel: email — the digest carries his
-    # matches; an ntfy push would go to a topic he does not watch
+    # matches; an ntfy push would go to a topic he does not watch.
+    # No fake pusher here on purpose: the enforcement moved into
+    # core.notify.push (core/channels.py), so a spy substituted for the choke
+    # point would prove nothing. `pushed == 0` is the consequence — a dropped
+    # push leaves the rows unmarked, exactly as an unsent one does.
     cos = [Company(name="Acme", ats="greenhouse", slug="a", monitor=True, seeded=True)]
     jobs = {"Acme": [Job("greenhouse", "1", "Acme", "Product Manager",
                          "Chicago, IL", "http://x")]}
-    pusher = _Pusher()
     store = FakeSheetStore(cos, {})
     s = run_monitor(store, _cfg(), fetch=_fetch_returns(jobs),
                     tagger=lambda rec, slug: Tags(yoe="2+ years"),
-                    today=TODAY, session=object(), pusher=pusher,
-                    fetch_workers=1, push_channel="email")
-    assert s.new_count == 1 and s.pushed == 0 and pusher.calls == []
+                    today=TODAY, session=blocked_ntfy,
+                    fetch_workers=1, user="dad")
+    assert s.new_count == 1 and s.pushed == 0 and blocked_ntfy.posts == []

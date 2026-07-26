@@ -35,10 +35,19 @@ countries: [United States]
 metros: [Chicago]              # a LOCAL search; [] = anywhere in countries
 yoe_max: 30
 yoe_unknown: keep              # a finance ladder makes the PM proxy wrong
-notify_channel: email          # ntfy | email | none
+notify_channel: email          # ntfy | email | none — the notification CEILING
+notify_stale_nudge: email      # per-event override; the rest inherit the ceiling
 titles_include: [...]
 titles_exclude: [...]
 ```
+
+`notify_channel` is a **ceiling, not a preference**: `email` means no ntfy push
+for that person from any job, ever. `notify_<event>` (`digest`, `new_roles`,
+`status_change`, `oa_interview`, `stale_nudge` — each `push | email | both |
+none`) refines within it and cannot widen it, so the committed `notify_digest:
+both` still resolves to `email` for Dad. That resolution happens in exactly one
+place, `core/channels.py`, reached from `core.notify.push`. It used to happen at
+the call sites, where two of the four push paths simply never did it.
 
 `tag_domain` matters more than it looks: the tagger used to be told it was
 reading "product-manager job postings" and to normalize seniority to

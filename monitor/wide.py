@@ -52,7 +52,7 @@ from urllib.parse import quote
 
 import requests
 
-from core import notify
+from core import notify, outbox
 from core.jobkeys import is_strong, job_key
 from core.sheets import HQ, RowNotFound, today as _today
 from monitor import gates, geo
@@ -532,8 +532,14 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
                  for r in pushable[:PUSH_MAX_LINES]]
         if len(pushable) > PUSH_MAX_LINES:
             lines.append(f"…and {len(pushable) - PUSH_MAX_LINES} more")
+        # this call had NO channel check at all until the policy moved into
+        # core.notify.push (core/channels.py) — an email-only user got swept
+        # roles pushed to a topic they never watch. `profile=prof` carries the
+        # Config-tab overlay loaded above; without it the notify_* cells are inert.
         push(f"Wide sweep: {len(pushable)} matching role(s)", "\n".join(lines),
-             kind="jobs", tags=["telescope"], click=pushable[0]["url"], session=session)
+             event="new_roles", kind="jobs", tags=["telescope"],
+             click=pushable[0]["url"], session=session,
+             user=getattr(hq, "user", ""), outbox=outbox.sink(hq), profile=prof)
         s.pushed = len(pushable)
 
     hq.log("wide", "sweep", detail=f"cafe={s.fetched} theirstack={s.ts_fetched} "

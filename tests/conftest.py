@@ -11,9 +11,29 @@ Tests that assert on push *content* are unaffected and keep doing what they alre
 `core.notify.ops_alert`, or pass their own fake `session` (push uses `session or requests`, so a
 fake session never reaches this stub).
 """
+import datetime as _dt
+
 import pytest
 
-from core import notify
+from core import channels, notify
+
+#: Midday in Chicago (17:00Z = 12:00 CDT) — comfortably outside every default
+#: quiet window, on a date with no DST transition anywhere near it.
+FIXED_NOW = _dt.datetime(2026, 7, 20, 17, 0, tzinfo=_dt.timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def fixed_clock(monkeypatch):
+    """Pin `core.channels`' wall clock for the whole suite.
+
+    Quiet hours are real policy now (`core/channels.py`), so any test that
+    reaches `notify.push` reads a clock. Left free, half the suite would pass by
+    day and fail at 22:00 — a test that only sometimes holds is worse than no
+    test, and worse still when it is the notification path. Tests ABOUT quiet
+    hours pass `now=` explicitly and never depend on this.
+    """
+    monkeypatch.setattr(channels, "_now", lambda: FIXED_NOW)
+    return FIXED_NOW
 
 
 class _NoNetwork:

@@ -92,7 +92,7 @@ SHA) and ops: `infra/README.md`.
 |---|---|---|---|
 | `monitor` | `0 12,23 * * ?` | 07:00 + 18:00 daily | `monitor.run` |
 | `review` | `0 15 * * ?` | 10:00 daily | `monitor.regate` → `monitor.review` |
-| `tracker` | `31 0/2 * * ?` | every 2 h at :31 | promote → quickadd → scout → stale → join |
+| `tracker` | `31 0/2 * * ?` | every 2 h at :31 | promote → quickadd → scout → stale → join → outbox (the quiet-hours flush) |
 | `digest` | `40 11 * * ?` | 06:40 daily | `tracker.digest` |
 | `snapshot` | `53 8 * * ?` | 03:53 nightly | `tracker.snapshot` → tab CSVs to the versioned S3 backup bucket (no git, no GitHub) |
 | `wide_cafe` | `30 13 * * ?` | 08:30 daily | `monitor.wide --source cafe` |

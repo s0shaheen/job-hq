@@ -31,8 +31,11 @@ DEADLINE_ENV = "HQ_RUNTIME_DEADLINE_TS"   # consumed by monitor.run (same name t
 JOBS: dict[str, list[tuple[str, list[str]]]] = {
     "monitor":         [("monitor.run", [])],
     "review":          [("monitor.regate", []), ("monitor.review", [])],
+    # tracker.outbox last: it delivers whatever quiet hours held back, so the
+    # 2-hourly cadence of this chain IS the flush cadence (core/outbox.py)
     "tracker":         [("tracker.promote", []), ("tracker.quickadd", []),
-                        ("tracker.scout", []), ("tracker.stale", []), ("tracker.join", [])],
+                        ("tracker.scout", []), ("tracker.stale", []),
+                        ("tracker.join", []), ("tracker.outbox", [])],
     "digest":          [("tracker.digest", [])],
     "selfheal":        [("tracker.selfheal", [])],            # schema re-assert (its git-commit half stays on Actions)
     "snapshot":        [("tracker.snapshot", [])],            # tab CSVs -> S3 (no git, no GitHub)

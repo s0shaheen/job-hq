@@ -34,11 +34,13 @@ TABS = {
     "health":       "Health",
     "log":          "Log",
     "digest":       "Digest",
+    "outbox":       "Outbox",
 }
 
 # Tabs no human should edit (self-heal applies full protection, editors =
 # owner + service account). Everything else is human territory.
-BOT_ONLY_TABS = ["feed", "email_events", "health", "log", "digest", "scout_daily"]
+BOT_ONLY_TABS = ["feed", "email_events", "health", "log", "digest", "scout_daily",
+                 "outbox"]
 
 # ---------------------------------------------------------------- headers
 
@@ -92,6 +94,17 @@ HEADERS = {
     "health": ["company", "ats", "result", "count", "message", "checked_at"],
     "log": ["ts", "actor", "action", "key", "detail"],
     "digest": ["date", "body", "sent_at"],
+    # Quiet-hours queue: a push suppressed at 22:00 lands here with the wake
+    # time the policy computed, and tracker.outbox delivers it. `outcome` is the
+    # honest record of what happened to a row that was never sent (dropped
+    # because the user's channel changed, or abandoned after MAX_ATTEMPTS) —
+    # marking those "delivered" with no explanation is the silent drop this
+    # whole tab exists to remove.
+    "outbox": [
+        KEY, "user", "event", "urgency", "channel", "priority", "tags", "click",
+        "title", "body", "deliver_after", "created_at", "delivered_at",
+        "attempts", "outcome",
+    ],
     "scout_daily": ["date", "jobs_added", "applied", "duplicates_flagged"],
     "scout_prefs": [],   # free-form layout, rebuilt by bootstrap from a template; bots read, never write
 }

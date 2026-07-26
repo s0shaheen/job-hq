@@ -20,7 +20,7 @@ from datetime import date
 
 import requests
 
-from core import notify
+from core import notify, outbox as core_outbox
 from core.profile import Profile
 from monitor import gates, geo, jobcontent, snapshot, tagging, tagworker
 from monitor.config import RuntimeConfig, get_runtime_config, unconfigured_reason
@@ -124,7 +124,7 @@ def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
                 inline_tag_workers: int | None = None,
                 fetch_workers: int | None = None,
                 budget_min: int | None = None,
-                push_channel: str = "ntfy") -> RunSummary:
+                user: str = "", outbox=None, profile=None) -> RunSummary:
     """One reconcile pass, chunked: fetch FETCH_CHUNK boards concurrently
     (network only — every sheet write stays on this thread, per the core.sheets
     contract), reconcile serially, flush that chunk's writes, print progress,
@@ -134,7 +134,14 @@ def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
 
     tagger=None disables inline tagging (no ANTHROPIC_API_KEY, or tests) —
     review.py catches untagged rows nightly. pusher defaults late to
-    core.notify.push so monkeypatching works."""
+    core.notify.push so monkeypatching works.
+
+    `user` decides WHOSE notification policy the push is judged against,
+    `profile` is that user's Profile *with their Config-tab overlay applied*
+    (without it the policy re-reads profile.yaml alone and every notify_* cell
+    in the sheet is inert), and `outbox` (core.outbox.sink(hq)) is where a push
+    suppressed by that user's quiet hours is held. None of the three is a
+    channel check: this function no longer has one (core/channels.py owns it)."""
     import time as _time
 
     today = today or date.today().isoformat()
@@ -301,9 +308,14 @@ def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
 
     # push policy: one push, only QUALIFIED roles (gates: geo + YoE) whose min
     # required YoE also clears the tighter push bar; untagged/over-bar roles
-    # are a Feed count. Nothing new -> silence. A user whose profile says
-    # email (or none) never gets a phone push — their digest carries it.
-    if all_new and cfg.push_new_jobs and push_channel == "ntfy":
+    # are a Feed count. Nothing new -> silence.
+    #
+    # WHICH CHANNEL is not decided here. It used to be (`push_channel == "ntfy"`),
+    # and the same check copied into priority.py while wide.py and digest.py
+    # never got one is why it now lives in core.notify.push -> core.channels
+    # (one enforcement point; see core/channels.py). An email-only user's
+    # pusher call simply returns False, so nothing is marked pushed.
+    if all_new and cfg.push_new_jobs:
         def yoe_of(rec: JobRecord) -> int | str:
             t = tags_by_id.get(rec.id)
             if t is not None:
@@ -327,8 +339,9 @@ def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
                     for r in matched if r.id in tags_by_id}
             title, body = format_new_jobs(matched, comp,
                                           more_in_feed=len(all_new) - len(matched))
-            if pusher(title, body, tags=["briefcase"], click=matched[0].url,
-                      session=session):
+            if pusher(title, body, event="new_roles", tags=["briefcase"],
+                      click=matched[0].url, session=session, user=user,
+                      outbox=outbox, profile=profile):
                 store.mark_pushed([r.id for r in matched], today)
                 summary.pushed = len(matched)
 
@@ -360,8 +373,8 @@ def main() -> int:
             print("::warning title=Monitor tagging skipped::ANTHROPIC_API_KEY unset — "
                   "new rows land untagged (review.py will drain them if the key "
                   "exists there)")
-        s = run_monitor(store, cfg, session=session, tagger=tagger,
-                        push_channel=prof.notify_channel)
+        s = run_monitor(store, cfg, session=session, tagger=tagger, user=hq.user,
+                        outbox=core_outbox.sink(hq), profile=prof)
         print(f"[monitor] boards={s.boards_done}/{s.boards_total} new={s.new_count} "
               f"pushed={s.pushed} tagged={s.tagged} ok={s.ok} zero={s.zero} "
               f"errored={s.errored} partial={s.partial}", file=sys.stderr)

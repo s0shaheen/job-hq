@@ -22,7 +22,7 @@ from typing import Callable, Optional
 
 import requests
 
-from core import notify
+from core import notify, outbox
 from core.sheets import HQ, today as _today
 from monitor import jobcontent, tagging
 from monitor.fetchers import get_jobs_for
@@ -153,10 +153,18 @@ def run(hq: HQ, *, session: requests.Session | None = None, fetch=get_jobs_for,
         feed.append_records(rows)
         for j in fresh:
             hq.log("priority", "new_role", key=j.id, detail=f"{name} — {j.title}")
-        if pushable and prof.notify_channel == "ntfy":
+        # no channel check here: it lives in core.notify.push -> core.channels,
+        # the single enforcement point (this call site's copy of it is exactly
+        # what wide.py and digest.py were missing). `profile=prof` is the
+        # overlaid one loaded above — without it the policy re-reads
+        # profile.yaml alone and every notify_* Config cell is inert.
+        if pushable:
             sent = push(f"Priority: {name} posted {len(pushable)} role(s)",
-                        _lines(pushable), kind="jobs", tags=["dart"], priority="high",
-                        click=pushable[0].url, session=session)
+                        _lines(pushable), event="new_roles", kind="jobs",
+                        tags=["dart"], priority="high",
+                        click=pushable[0].url, session=session,
+                        user=getattr(hq, "user", ""), outbox=outbox.sink(hq),
+                        profile=prof)
             if not sent:
                 hq.log("priority", "push_failed", key=pushable[0].id, detail=name)
             s.pushes += 1

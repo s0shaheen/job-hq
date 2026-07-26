@@ -194,7 +194,7 @@ One Lambda function (`job-hq-bots`, one container image) runs every job; EventBr
 |---|---|---|---|---|
 | `monitor` | `cron(0 12,23 * * ? *)` | 07:00 + 18:00 | `monitor.run` | daily 12:00 + 23:00 UTC (monitor.run) |
 | `review` | `cron(0 15 * * ? *)` | 10:00 | `monitor.regate` → `monitor.review` | daily 15:00 UTC  (regate + review) |
-| `tracker` | `cron(31 0/2 * * ? *)` | every 2 h at :31 | `tracker.promote` → `tracker.quickadd` → `tracker.scout` → `tracker.stale` → `tracker.join` | every 2h at :31  (promote/quickadd/scout/stale/join) |
+| `tracker` | `cron(31 0/2 * * ? *)` | every 2 h at :31 | `tracker.promote` → `tracker.quickadd` → `tracker.scout` → `tracker.stale` → `tracker.join` → `tracker.outbox` | every 2h at :31  (promote/quickadd/scout/stale/join/outbox) |
 | `digest` | `cron(40 11 * * ? *)` | 06:40 | `tracker.digest` | daily 11:40 UTC  (digest) |
 | `snapshot` | `cron(53 8 * * ? *)` | 03:53 | `tracker.snapshot` | daily 08:53 UTC  (tracker.snapshot -> S3) |
 | `wide_cafe` | `cron(30 13 * * ? *)` | 08:30 | `monitor.wide --source cafe` | daily 13:30 UTC  (wide --source cafe) |
@@ -230,7 +230,7 @@ aws lambda invoke --function-name job-hq-bots \
 <!-- sysmap:begin backup-lanes -->
 | Lane | What | Where it lands | Cadence | Own heartbeat | How its death reaches you |
 |---|---|---|---|---|---|
-| CSV → git (Actions) | 11 of 13 tab CSVs (never `email_events`, `scout_prefs`) | `snapshots/<user>/*.csv`, committed by `selfheal.yml` | `23 8 * * *` (~03:23 CT) | `heartbeat_snapshot` | workflow ops push on failure; digest pages **HQ backups stale** once the beat passes 2× its cadence |
+| CSV → git (Actions) | 11 of 14 tab CSVs (never `email_events`, `outbox`, `scout_prefs`) | `snapshots/<user>/*.csv`, committed by `selfheal.yml` | `23 8 * * *` (~03:23 CT) | `heartbeat_snapshot` | workflow ops push on failure; digest pages **HQ backups stale** once the beat passes 2× its cadence |
 | CSV → S3 (Lambda) | the same tab CSVs | `s3://$HQ_BACKUP_S3_BUCKET/snapshots/<user>/<tab>.csv` (versioned bucket) | `cron(53 8 * * ? *)` (~03:53 CT) | `heartbeat_snapshot_s3` | a failed upload **raises**, so `handler.py` names the job in an ops push; staleness pages from the digest |
 | Schema + gid re-pin (Actions) | re-asserted headers/dropdowns/protections and the re-pinned `hq.config.yaml` | a git commit on `main` | `23 8 * * *` (~03:23 CT) | `heartbeat_selfheal` | same as the git CSV lane |
 | Feed JSON (best effort) | `monitor.run`'s feed history | `monitor/snapshots/*.json` in git on a **Run a bot** dispatch; `feeds/<label>.json` in S3 when the FS is read-only | with each sweep | none | prints a warning and never fails a completed sweep — the CSV lanes are the Feed tab's real backup |
@@ -304,8 +304,9 @@ The tabs `core/schema.py` owns. bootstrap creates them, self-heal re-asserts the
 | `health` | Health | yes |
 | `log` | Log | yes |
 | `digest` | Digest | yes |
+| `outbox` | Outbox | no — `NEVER_SNAPSHOT` |
 
-`NEVER_SNAPSHOT` tabs are excluded because a snapshot is forever: the scout preferences tab is free text a human has pasted credentials into, and Email Events holds third-party personal mail that Gmail capture can rebuild. Both are still covered by Sheets' own version history.
+`NEVER_SNAPSHOT` tabs are excluded because a snapshot is forever: the scout preferences tab is free text a human has pasted credentials into, Email Events holds third-party personal mail that Gmail capture can rebuild, and Outbox holds the rendered text of pending notifications. All three are still covered by Sheets' own version history.
 <!-- sysmap:end sheet-tabs -->
 
 ## Users and schedule lanes

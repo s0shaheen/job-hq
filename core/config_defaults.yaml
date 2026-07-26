@@ -34,6 +34,22 @@ tag_deadletter_days: 4     # give up on a row still FAILING this many days after
 untagged_backlog_alert: 50 # ops-alert when this many open rows are still untagged after a sweep (0 = off)
 inline_tag_max: 200        # cap on inline JD-fetch+LLM at discovery per run; overflow drains in review
 inline_tag_workers: 8      # concurrent inline taggers at discovery
+# --- notification policy, per event type (core/channels.py is the choke point) ---
+# push | email | both | none. `notify_channel` in users/<name>/profile.yaml is the
+# coarse CEILING (email = never an ntfy push for that person); these refine within
+# it and can never widen it. Values below are the OWNER column of the matrix in
+# docs/plans/PHASE-DIGEST.md §4.1 — other people's deviations live in their profile.
+notify_digest: both          # daily briefing: phone ping + the email
+notify_new_roles: push       # discovery sweeps (monitor, priority watch, wide)
+notify_status_change: push   # an email event advanced a Pipeline row
+notify_oa_interview: push    # OA / interview invite — urgent, ignores quiet hours
+notify_stale_nudge: none     # follow-up nudges belong in the digest, not the phone
+# Quiet hours: a LOCAL wall-clock window in which a non-urgent push is DEFERRED to
+# the end of the window (tracker.outbox delivers it) — never dropped. `off` disables.
+# Ends 06:30, not 07:00: the digest job composes at 06:40 CT, and a 07:00 window
+# would hold the daily briefing until the next 2-hourly outbox flush at 07:31.
+notify_quiet_hours: "21:00-06:30"
+notify_timezone: America/Chicago   # which local day and clock the window is read on
 push_new_jobs: true
 push_status_events: true
 simplify_enabled: true

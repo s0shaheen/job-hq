@@ -11,6 +11,11 @@ RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
 COPY core/          ${LAMBDA_TASK_ROOT}/core/
 COPY monitor/       ${LAMBDA_TASK_ROOT}/monitor/
 COPY tracker/       ${LAMBDA_TASK_ROOT}/tracker/
+# users/<name>/profile.yaml IS runtime input, not documentation: core/profile.py
+# reads it for the search AND for the notification channel. Left out of the
+# image, every user's lane silently falls back to the committed defaults — i.e.
+# Salman's PM search and a phone push for someone who asked for email only.
+COPY users/         ${LAMBDA_TASK_ROOT}/users/
 COPY hq.config.yaml ${LAMBDA_TASK_ROOT}/
 COPY infra/app/handler.py ${LAMBDA_TASK_ROOT}/
 

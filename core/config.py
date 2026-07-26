@@ -119,6 +119,31 @@ def _csv(s: str) -> list[str]:
     return [x for x in parts if x]
 
 
+def _quiet_hours(s: str) -> str:
+    """`HH:MM-HH:MM` local, or off/none/blank. Parsed by the same function the
+    policy uses, so a value the sheet accepts can never be one core.channels
+    then silently ignores."""
+    from core.channels import _QUIET_OFF, quiet_window
+    v = str(s).strip()
+    if v.casefold() in _QUIET_OFF:
+        return v.casefold()
+    if quiet_window(v) is None:
+        raise ValueError(f"not an HH:MM-HH:MM window: {s!r}")
+    return v
+
+
+def _timezone(s: str) -> str:
+    """An IANA zone name. Rejected here rather than falling back at push time:
+    a silent fallback means someone's 3am is someone else's noon."""
+    from zoneinfo import ZoneInfo
+    v = str(s).strip()
+    try:
+        ZoneInfo(v)
+    except Exception as e:   # ZoneInfoNotFoundError is a KeyError; normalize it
+        raise ValueError(f"unknown timezone {s!r}") from e
+    return v
+
+
 def _choice(*allowed: str):
     def p(s: str) -> str:
         v = str(s).strip().casefold()
@@ -151,6 +176,15 @@ VALIDATORS = {
     "untagged_backlog_alert": _int(0, 100000),
     "inline_tag_max":       _int(0, 100000),
     "inline_tag_workers":   _int(1, 32),
+    # per-event notification channels; the allowed set is core.channels.CHANNELS
+    # (pinned by tests/core/test_channels.py so the two cannot drift)
+    "notify_digest":        _choice("push", "email", "both", "none"),
+    "notify_new_roles":     _choice("push", "email", "both", "none"),
+    "notify_status_change": _choice("push", "email", "both", "none"),
+    "notify_oa_interview":  _choice("push", "email", "both", "none"),
+    "notify_stale_nudge":   _choice("push", "email", "both", "none"),
+    "notify_quiet_hours":   _quiet_hours,
+    "notify_timezone":      _timezone,
     "push_new_jobs":      _bool,
     "push_status_events": _bool,
     "simplify_enabled":   _bool,

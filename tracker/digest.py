@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import datetime as _dt
 
-from core import config, notify
+from core import config, notify, outbox
+from core.profile import Profile
 from core.sheets import HQ, RowNotFound
 
 # Expected run cadence per heartbeat, in hours; a heartbeat older than 2x its
@@ -222,9 +223,16 @@ def run(hq: HQ, *, now: _dt.datetime | None = None) -> dict:
         t.append_records([{"date": today_s, "body": body, "sent_at": ""}])
 
     sheet_id = hq.registry.get("sheet_id", "") or config.sheet_id()
+    # the digest row above is written for EVERY user; only the phone ping is
+    # channel-gated, and that gate lives in core.notify.push (core/channels.py)
+    # — this call had none until then, so an email-only user was pinged daily.
+    # The profile is built from the same `cfg` read above, so the notify_* cells
+    # a human edited in the Config tab are what the policy actually reads.
+    prof = Profile.load(getattr(hq, "user", ""), cfg=cfg)
     notify.push(f"HQ digest — {n_new} new roles, {len(change_lines)} updates",
                 f"{n_review} to review · {len(follow_lines)} follow-ups",
-                kind="jobs", tags=["newspaper"],
+                event="digest", kind="jobs", tags=["newspaper"],
+                user=getattr(hq, "user", ""), outbox=outbox.sink(hq), profile=prof,
                 click=f"https://docs.google.com/spreadsheets/d/{sheet_id}" if sheet_id else "")
 
     # Whose instance died. One ops topic carries every user's failures (MULTIUSER.md:

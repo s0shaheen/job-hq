@@ -42,6 +42,24 @@ def test_secret_bearing_tabs_never_reach_disk(tmp_path):
         assert not (out / f"{logical}.csv").exists()
 
 
+def test_the_three_excluded_tabs_are_named_not_merely_derived(tmp_path):
+    """The test above iterates `NEVER_SNAPSHOT`, so it passes whatever the set
+    contains — including an empty one. These three are named so that removing
+    any of them is a red test and a deliberate decision, which is what the
+    constant's own docstring asks for.
+
+    `outbox` joined them because it is the first tab to carry RENDERED
+    notification content: the title and body of a push, verbatim, in columns of
+    their own. A git commit is forever, and a flushed queue is empty anyway."""
+    assert snapshot.NEVER_SNAPSHOT == {"scout_prefs", "email_events", "outbox"}
+    counts = snapshot.run(fake_hq(), tmp_path / "snaps")
+    for logical in ("scout_prefs", "email_events", "outbox"):
+        assert logical not in counts
+        assert not (tmp_path / "snaps" / f"{logical}.csv").exists()
+    for header in ("title", "body"):        # what makes outbox one of them
+        assert header in schema.HEADERS["outbox"]
+
+
 def test_heartbeat_written(tmp_path):
     hq = fake_hq()
     snapshot.run(hq, tmp_path / "snaps")

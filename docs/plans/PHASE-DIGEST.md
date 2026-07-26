@@ -234,6 +234,47 @@ matrix, so no existing YAML breaks; the matrix overrides per type.
 - Local calendar day, not UTC — same trap as edge case G14 (snooze at 23:50).
   Computed with `zoneinfo`, no offset arithmetic.
 
+### 4.2b What increments 1 and 2 actually landed
+
+Written down because the sections above describe the design and the design is
+larger than what ships. Verified against the code, not the intent:
+
+- **The shipped default window is `21:00-06:30`, not `21:00-07:00`.** The digest
+  composes at 06:40 CT and a 07:00 window would hold the daily briefing until
+  the next flush at 07:31.
+- **Two of the five events have a producer.** `digest` (`tracker.digest`) and
+  `new_roles` (`monitor.run`, `monitor.wide`, and `monitor.priority`, which is
+  retired to local runs — in no workflow and no `handler.JOBS` chain).
+  `status_change`, `oa_interview` and `stale_nudge` are knobs with validators,
+  Profile fields and no Python caller — reserved, and labelled as such in the
+  RUNBOOK's knob table.
+- **The Outbox tab will stay near-empty until a later phase.** Every scheduled
+  producer composes between 06:40 and 18:00 CT in daylight time, and the flush
+  re-asks the policy before delivering, so nothing sends inside the window
+  either. The crons are fixed UTC: in standard time the digest (05:40 CT) and
+  the morning sweep (06:00 CT) do fall inside it and will start deferring in
+  November. Until then a rows-in-Outbox observation is a signal, not routine.
+- **The Apps Script capture path is not behind the choke point.**
+  `appsscript/capture/Code.gs` calls `jobsPush_` for OA / interview / recruiter
+  / offer on a 15-minute trigger and posts to ntfy directly — no channel
+  ceiling, no quiet hours, a 3am push. For OA and interview that agrees with
+  the policy (both are urgent and exempt). For recruiter and offer it does not.
+  It has no Python runtime, so `core.channels` cannot reach it; the fix lands
+  with the Apps Script work, not here.
+- **A leak today reaches the operator, not Dad.** The live registry is flat, so
+  `core.notify._topic` resolves one jobs topic for every user. An AC24
+  regression right now is noise on Salman's phone; it becomes a real leak the
+  day the registry grows per-user topics, which is why the enforcement lands
+  before the users do.
+- **Accepted trade: a queued push is marked "pushed" before it is sent.**
+  `push()` returns True for "sent OR durably queued", and `monitor.run` stamps
+  `pushed_at` on the Feed rows on that True. If the row is later abandoned
+  those rows still read as pushed and are never re-pushed. Un-marking would
+  mean reaching back into three producers' sheets hours later to reverse a
+  write — a larger correctness surface than the failure it fixes. Instead the
+  abandon path pages ops with the row key and the notification's own text, so
+  the affected roles are named exactly once more.
+
 ### 4.3 Unsubscribe
 
 - Visible footer link → `/n/unsub/<token>` where the token carries the **event

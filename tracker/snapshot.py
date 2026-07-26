@@ -39,9 +39,15 @@ from core.sheets import HQ
 #: perpetuity. It is also derived: Gmail is the source of truth and capture
 #: rebuilds it.
 #:
-#: Both remain fully backed up by Sheets' own version history. Removing a name
-#: from this set is a deliberate decision to publish that tab's contents.
-NEVER_SNAPSHOT = frozenset({"scout_prefs", "email_events"})
+#: ``outbox`` is the first tab that carries RENDERED NOTIFICATION CONTENT — the
+#: title and body of a push, verbatim, in `title`/`body` columns. Same rationale
+#: as ``scout_prefs``: whatever a notification says about somebody's job search
+#: ends up in it, and a git commit is forever. It is also short-lived working
+#: state, not history worth restoring — a flushed queue is empty.
+#:
+#: All three remain fully backed up by Sheets' own version history. Removing a
+#: name from this set is a deliberate decision to publish that tab's contents.
+NEVER_SNAPSHOT = frozenset({"scout_prefs", "email_events", "outbox"})
 
 
 #: Env var naming the S3 backup bucket. Set only on Lambda (backups.tf); unset

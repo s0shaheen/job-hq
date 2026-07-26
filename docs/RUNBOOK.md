@@ -35,7 +35,7 @@ heartbeat older than **2× its cadence**; a job that never ran shows "no heartbe
 | Heartbeat | Written by | Cadence | Stale-flagged after |
 |---|---|---|---|
 | `heartbeat_capture` | Apps Script (Gmail) | 15 min trigger (cadence 1.5 h) | 3 h → **ops alert** from digest |
-| `heartbeat_tracker` | `tracker.join` (end of chain) | every 2 h | 4 h |
+| `heartbeat_tracker` | `tracker.join` (5th of 6 in the chain; `outbox` runs after it and writes no beat of its own) | every 2 h | 4 h |
 | `heartbeat_priority` | `monitor.priority` | retired — local runs only, no workflow | not watched |
 | `heartbeat_monitor` | `monitor.run` | daily 07:00 CT | 48 h |
 | `heartbeat_review` | `monitor.review` | daily 10:00 CT | 48 h |
@@ -164,8 +164,10 @@ them first; that is not an error.
 ## Tracker run failed
 
 **Symptom:** ops push "Tracker run failed". The chain is `promote → quickadd → scout →
-stale → join`, run in that order; the first module to fail stops the chain, and
-`heartbeat_tracker` (written only by `join`, last) goes stale.
+stale → join → outbox`, run in that order; the first module to fail stops the chain, and
+`heartbeat_tracker` (written only by `join`) goes stale. `outbox` runs last and delivers
+whatever quiet hours held back — a failure there leaves the beat healthy, so it reports
+itself (`tracker/outbox failed`) rather than relying on the watchdog.
 
 **Causes:**
 - **Duplicate Quick Add URLs** — the same URL pasted twice makes rows unaddressable:
@@ -183,6 +185,63 @@ mean nothing is double-processed.
 
 Note: a Quick Add row whose `· status` says `error: ...` stays failed on purpose (dead URL,
 no retry loop). Clear the `· status` cell to make the bot retry that row.
+
+## A push arrived late (or the Outbox tab has rows in it)
+
+Not a failure. A non-urgent push raised inside a user's quiet hours
+(`notify_quiet_hours`, default `21:00-06:30` local) is **deferred, never dropped**: it lands
+in the bot-owned **Outbox** tab with the wake time the policy computed, and the next
+`tracker` chain run past that time delivers it. So a sweep at 22:00 buzzes the phone on the
+first flush after 06:30, which on the `:31` cadence is 07:31 CT. An OA or interview invite
+ignores quiet hours entirely and goes out at once.
+
+Read the row, not the silence — every outcome is written down:
+
+| `outcome` | Meaning |
+|---|---|
+| blank, `delivered_at` blank | still queued; `deliver_after` says when |
+| `sent` | delivered by the flush |
+| `dropped: …` | the user's channel changed before delivery (they moved to email, or turned that event off); their newer answer won |
+| `requeued: deferred again at delivery …` | the policy said "still quiet" at delivery time; a NEW row with a later wake time carries the notification, and this one closes |
+| `abandoned after N failed sends` | the wire (or an unset topic) refused it N times — also ops-pushed as **HQ outbox row abandoned** |
+| `abandoned after N attempts: …quiet hours…` | it never left the window; same ops push |
+
+An abandoned notification is the one case where a row is closed and nothing was sent. Its
+ops push repeats the notification's own title and body, because `monitor.run` marks the Feed
+rows `pushed_at` when a push is **queued** — those rows will not be re-pushed, so that alert
+is the last place the roles are named. Act on it from the message or the Outbox row.
+
+**"HQ outbox row failed" push:** one row could not be processed (usually a hand-edited
+`attempts` cell). The rest of the batch went out; the row is untouched and retried next
+flush. Fix the cell.
+
+**"Outbox tab missing" warning in a tracker run:** expected only in the window between
+shipping the tab and the first self-heal that creates it. Fix by running **Run a bot** with
+`job = selfheal` (which also re-pins the gid); nothing is lost, because a queue write that
+fails ops-pushes **HQ outbox write failed** rather than swallowing the notification.
+
+**Turning quiet hours off:** Config tab, `notify_quiet_hours` = `off`.
+
+**Why the tab is usually empty.** Only two events have a Python producer today: `digest`
+(`tracker.digest`) and `new_roles` (`monitor.run`, `monitor.wide`, and `monitor.priority`,
+which is retired to local runs — it is in no workflow and no `handler.JOBS` chain). The
+other three knobs are reserved. Every one of the scheduled ones composes between
+06:40 and 18:00 CT in daylight time — outside the default window — and the flush re-asks the
+policy before delivering, so it cannot send inside the window either. The crons are fixed
+UTC, so in **standard** time the digest composes at 05:40 CT and the morning sweep at 06:00
+CT, both inside the window: from November those two defer and land on the 06:31 CT flush.
+
+**The path quiet hours does not cover.** The Gmail capture Apps Script pushes OA / interview
+/ recruiter / offer events itself (`appsscript/capture/Code.gs`, `jobsPush_`) on a 15-minute
+trigger, without asking `core.channels` — no channel ceiling, no quiet hours. An OA at 3am
+buzzes. For OA and interview that matches the policy (they are urgent and exempt anyway);
+for recruiter and offer it does not. Known hole, closed when the Apps Script path moves
+behind the same choke point.
+
+**Who a mis-routed push reaches.** The live registry is flat (no `users:` map), so
+`core.notify` resolves one jobs topic for everybody. A notification that escapes a user's
+ceiling today lands on the **operator's** phone, not theirs — noise, not a leak. That
+changes the day the registry grows per-user topics.
 
 ## Digest failed
 
@@ -489,6 +548,11 @@ default (`core/config_defaults.yaml`) and pushes the problem to ops.
 | `dna_companies` | Capital One, Discover, Bank of America, Citi | same | scout | Do-not-apply guard — flags (never blocks) matching companies on the scout tab |
 | `workday_search` | `product` | non-empty string | monitor, priority | Search keyword sent to corpus-wide boards (Workday, Amazon, Eightfold, Oracle HCM, Google, Apple, Goldman, Radancy) |
 | `push_new_jobs` | true | true/false | monitor, wide | Master switch for new-role pushes |
+| `notify_digest` | both | push / email / both / none | every push (`core.channels`) | Where the daily briefing goes |
+| `notify_new_roles` | push | same | monitor, priority, wide | Where newly discovered roles go |
+| `notify_status_change` | push | same | *(reserved — no Python job pushes status changes yet; the Apps Script does)* | Where status advances go |
+| `notify_oa_interview` | push | same | *(reserved — same Apps Script path)* | OA/interview invites. **Urgent: ignores quiet hours** |
+| `notify_stale_nudge` | none | same | *(reserved — nudges ride the digest today)* | Follow-up nudges on silent applications |
 | `simplify_enabled` | true | true/false | simplify | Daily Simplify sync on/off |
 | `push_status_events` | true | true/false | *(reserved — no job acts on it yet; instant status pushes come from the Apps Script)* | — |
 | `digest_hour_ct` | 7 | int 0–23 | *(reserved — compose time is the digest workflow cron, send time the Apps Script trigger)* | — |
@@ -500,6 +564,13 @@ default (`core/config_defaults.yaml`) and pushes the problem to ops.
 | `filter_seniority_exclude` | Senior, Staff, GPM, Director, VP | comma-separated | same | Seniority tags treated as over-bar when YoE is unknown |
 | `fetch_workers` | 8 | int 1–32 | monitor | Concurrent board fetches in the daily sweep (network only; sheet writes stay serial) |
 | `run_budget_min` | 30 | int 5–120 | monitor | Soft wall-clock budget; a budget-stopped sweep flushes, parks a resume cursor, and continues next run |
+
+**The `notify_*` knobs refine, they never widen.** `notify_channel` in
+`users/<name>/profile.yaml` is the per-person ceiling (`email` = never an ntfy push, `none`
+= silence), so a `both`/`push` value above is clamped down for anyone who set one.
+`core/channels.py` is the single enforcement point — reached through `core.notify.push`,
+which is the only door to ntfy. Do not re-check a channel at a call site: two enforcement
+points is how `monitor/wide.py` and `tracker/digest.py` ended up with none.
 
 After changing any `filter_*` knob, re-stamp existing rows: Actions → **Run a bot** → Run
 workflow with `job = review` (its chain is `monitor.regate` → `monitor.review`, so the re-gate is

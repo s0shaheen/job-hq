@@ -35,7 +35,7 @@ def test_multi_module_job_runs_the_handlers_chain_in_order(argvs):
     assert runjob.main(["tracker"]) == 0
     assert [a[0] for a in argvs] == [m for m, _ in runjob.handler.JOBS["tracker"]]
     assert [a[0] for a in argvs] == ["tracker.promote", "tracker.quickadd", "tracker.scout",
-                                     "tracker.stale", "tracker.join"]
+                                     "tracker.stale", "tracker.join", "tracker.outbox"]
 
 
 def test_extra_args_land_on_the_last_module_only(argvs):

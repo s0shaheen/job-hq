@@ -55,8 +55,8 @@ def test_format_truncates_to_preview():
 def test_push_sends_and_survives_non_latin1_title(monkeypatch):
     monkeypatch.setenv("HQ_NTFY_TOPIC", "topic-x")
     session = _Latin1Session()
-    assert push("⚠ heads up — new roles", "body", tags=["briefcase"],
-                click="http://x", session=session) is True
+    assert push("⚠ heads up — new roles", "body", event="new_roles",
+                tags=["briefcase"], click="http://x", session=session) is True
     assert session.url == "https://ntfy.sh/topic-x"
     assert session.headers["Tags"] == "briefcase"
     assert session.headers["Click"] == "http://x"
@@ -66,7 +66,7 @@ def test_push_returns_false_when_no_topic_configured(monkeypatch):
     monkeypatch.delenv("HQ_NTFY_TOPIC", raising=False)
     monkeypatch.setattr("core.config.registry", lambda: {})   # no committed fallback
     session = _Latin1Session()
-    assert push("t", "b", session=session) is False
+    assert push("t", "b", event="new_roles", session=session) is False
     assert session.url is None                                # nothing sent
 
 

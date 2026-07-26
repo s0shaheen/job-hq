@@ -509,9 +509,9 @@ def sec_sheet_tabs() -> str:
     lines.append("")
     lines.append(
         "`NEVER_SNAPSHOT` tabs are excluded because a snapshot is forever: the scout preferences "
-        "tab is free text a human has pasted credentials into, and Email Events holds third-party "
-        "personal mail that Gmail capture can rebuild. Both are still covered by Sheets' own "
-        "version history.")
+        "tab is free text a human has pasted credentials into, Email Events holds third-party "
+        "personal mail that Gmail capture can rebuild, and Outbox holds the rendered text of "
+        "pending notifications. All three are still covered by Sheets' own version history.")
     return "\n".join(lines)
 
 
