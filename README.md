@@ -6,6 +6,9 @@ ground truth** (ATS emails auto-advance the tracker; "applied" is never marked b
 It absorbs five previously disconnected fragments: the PM job monitor, the scout's
 spreadsheet, Simplify, the inbox, and the RenderCV resume pipeline.
 
+**New here, or forgot how it works? → [docs/SYSTEM.md](docs/SYSTEM.md)** — the owner-facing map:
+what runs where, what pages your phone, and the six commands that matter.
+
 **How it works:** scheduled bots (AWS Lambda + EventBridge; `infra/`) fetch ~640 companies'
 boards through 12 live-verified ATS
 adapters (plus a hiring.cafe wide sweep for everything else) into a **Feed** tab, tag each
@@ -23,20 +26,20 @@ anything, and a nightly self-heal + CSV snapshot makes any catastrophe a git res
 
 | Subsystem | Entrypoint | When | What |
 |---|---|---|---|
-| Discovery monitor | `python -m monitor.run` | daily 07:00 CT | full sweep, reconcile Feed, Health tab, YoE-gated push |
-| Priority watch | `python -m monitor.priority` | hourly 06–23 CT | handpicked companies → push within the hour, no YoE gate |
+| Discovery monitor | `python -m monitor.run` | 07:00 + 18:00 CT | full sweep, reconcile Feed, Health tab, YoE-gated push |
+| Priority watch | `python -m monitor.priority` | dispatch only (retired) | handpicked companies → push within the hour; the 2×/day sweep replaced it |
 | Tagging review | `python -m monitor.review` | daily 10:00 CT | Haiku-tags any Feed row discovery couldn't tag inline |
-| Wide sweep | `python -m monitor.wide` | daily 08:30 CT | hiring.cafe (Apify) + TheirStack safety net; off until `APIFY_TOKEN` |
+| Wide sweep | `python -m monitor.wide` | daily 08:30 + 08:50 CT | hiring.cafe (Apify) + TheirStack safety net |
 | Tracker chain | `python -m tracker.promote` → `quickadd` → `scout` → `stale` → `join` | every 2 h | ★-promotions, URL enrich, scout sync + flags, stale flags, email-event join |
-| Simplify import | `python -m tracker.simplify` | daily 09:07 CT | best-effort saved-queue import via session cookies |
-| Daily digest | `python -m tracker.digest` | daily 06:40 CT | briefing row (Apps Script emails it ~7:00) + capture watchdog |
-| Self-heal + snapshot | `python -m tracker.selfheal` + `python -m tracker.snapshot` | nightly 03:23 CT | re-assert schema/protections/gids; commit per-tab CSVs to `snapshots/hq/` |
+| Simplify import | `python -m tracker.simplify` | dispatch only (retired) | best-effort saved-queue import; Gmail capture sees the same applications |
+| Daily digest | `python -m tracker.digest` | daily 06:40 CT | briefing row (Apps Script emails it ~7:00) + capture/backup watchdogs |
+| Self-heal + snapshot | `python -m tracker.selfheal` + `python -m tracker.snapshot` | nightly 03:23 CT (git) + 03:53 CT (S3) | re-assert schema/protections/gids; per-tab CSVs to `snapshots/hq/` (git) and the versioned S3 bucket |
 | Gmail capture | `appsscript/capture/` | every 15 min (in Gmail) | ATS-mail gate → Haiku classify → Email Events + instant OA/interview pushes |
 | Resume pipeline | `.github/workflows/resume.yml` | on push to `resume/**` | render base + alt (rendercv==2.8), one-page gate, publish to Drive, preview to phone |
 | Resume editor | `editor/` (Vercel) | on demand | phone-first editor for the two YAMLs; comment-preserving commits |
 | Provisioning | `python -m tracker.bootstrap` / `tracker.migrate` | one-time | create/repair the spreadsheet; import legacy history |
 
-Tests: **334 passing** — `uv run --python 3.11 --with-requirements requirements.txt --no-project -- pytest`
+Tests: `uv run --python 3.11 --with-requirements requirements.txt --no-project -- pytest`
 
 ## Docs
 

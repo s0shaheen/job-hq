@@ -44,6 +44,8 @@ built and populated; tab gids are pinned in `hq.config.yaml`.
 - `docs/` — `SPEC.md` (the approved consolidation spec), `RUNBOOK.md` (ops bible),
   `ACTIVATION.md` (go-live checklist), `scout-instructions.md`, `research/` (6 verified
   research reports — cite these, don't re-research).
+  `SYSTEM.md` — owner-facing map; its tables/diagrams are generated, so run
+  `python scripts/sysmap.py` after any infra/schedule/alert/schema change (CI-enforced).
 - `infra/` — the cron platform: `Dockerfile` (one image, all bots), `app/handler.py` (the
   `{"job": …}` dispatch shim + per-job failure push), `alerter/index.py` (SNS→ntfy),
   `terraform/` (Lambda, EventBridge schedules, alarms). Runbook: `infra/README.md`.
@@ -128,7 +130,7 @@ Env vars per `.env.example` (at minimum `GOOGLE_SERVICE_ACCOUNT_JSON`; `ANTHROPI
 for anything that tags/classifies). Then:
 
 ```sh
-# tests (the canonical command — 334 passing)
+# tests (the canonical command)
 uv run --python 3.11 --with-requirements requirements.txt --no-project -- pytest
 
 # discovery / tracker jobs — same entrypoints CI uses
