@@ -231,14 +231,66 @@ class Tab:
 
     def advance_status(self, key: str, new_status: str, *, evidence: str = "",
                        status_header: str = "status",
-                       key_header: str = schema.KEY) -> str:
+                       key_header: str = schema.KEY,
+                       locked_header: str = "status_actor") -> str:
         """Move status FORWARD only. Never downgrades, never touches a
-        human-invented status. Returns 'advanced'|'kept'."""
+        human-invented status, and never touches a row a human has claimed.
+        Returns 'advanced' | 'kept' | 'locked'.
+
+        `locked` is a THIRD answer rather than a second flavour of `kept`, and
+        the distinction is load-bearing rather than cosmetic. The caller must
+        respond differently: a rank-`kept` move is a stale email arriving after
+        the row moved on, and recording "suggests Applied" on an Interview row
+        would be noise; a `locked` one is the bot holding a real opinion about a
+        row it may not write, which is precisely what `suggested_status` is for.
+        Collapsing them loses acceptance criterion 14's second half — the human
+        keeps their Offer AND sees that a rejection came in.
+
+        Two separate guards, because they answer different questions:
+
+        * **rank** — is this move forward? An `Interview` row does not go back
+          to `Applied` because a delayed confirmation email arrived.
+        * **`status_actor`** — did a person choose the current value? Rank
+          cannot answer that, and the gap was a live defect: `Rejected` ranks
+          above `Offer`, so a 0.99-confidence rejection overwrote an Offer a
+          human had set (acceptance criterion 14). A row whose `status_actor`
+          cell reads `user` is off-limits to every bot write, regardless of
+          rank and regardless of confidence — the caller's job is then to
+          record the bot's opinion in `suggested_status` instead, which is
+          what `tracker/join.py` does with a "kept" answer.
+
+        The lock is skipped when the column is absent rather than assumed
+        unlocked-by-exception: `header_map()` already aborts the run for a
+        missing REQUIRED header, so the only way to get here without the column
+        is a caller that named a non-schema one.
+        """
         hmap = self.header_map()
         rownum = self.key_index(key_header).get(key)
         if rownum is None:
             raise RowNotFound(f"[{self.logical}] key {key!r} not found")
-        current = str(self.ws.cell(rownum, hmap[status_header]).value or "").strip()
+        # ONE batched read for both cells, not two `cell()` calls.
+        #
+        # `advance_status` is called once per matched email inside `join`'s loop, so
+        # a second per-row API call doubles this path's Sheets quota consumption for
+        # a value that sits beside the one already being fetched. `batch_get` costs
+        # the same single request as `cell()` did.
+        # Imported locally, matching `set_by_key` above — gspread's utils are not
+        # module-level here.
+        from gspread.utils import rowcol_to_a1
+
+        lock_col = hmap.get(locked_header)
+        cells = [rowcol_to_a1(rownum, hmap[status_header])]
+        if lock_col is not None:
+            cells.append(rowcol_to_a1(rownum, lock_col))
+        got = self.ws.batch_get(cells)
+
+        def _val(i: int) -> str:
+            block = got[i] if i < len(got) else None
+            return str((block[0][0] if block and block[0] else "") or "").strip()
+
+        if lock_col is not None and _val(1).casefold() == "user":
+            return "locked"
+        current = _val(0)
         if schema.status_rank(new_status) <= schema.status_rank(current):
             return "kept"
         vals: dict[str, Any] = {status_header: new_status, "last_activity": today()}

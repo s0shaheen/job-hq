@@ -260,3 +260,66 @@ def test_an_authenticated_user_has_no_direct_write_to_saved_views(conn, two_user
             (u["a"],),
         )
     assert "policy" in str(exc.value).lower() or "permission denied" in str(exc.value).lower()
+
+# ------------------------------------------------------- application notes (0010)
+
+def test_a_user_cannot_read_another_users_application_notes(conn, two_users):
+    """Notes are the most private thing on the pipeline — "adverse selection
+    worries me here", "recruiter was rude". Spec §I mandates a two-real-user test
+    per per-user table, and every other one lives in THIS file; this one lived
+    only in test_pipeline.py, so a reader auditing tenancy would have concluded
+    the table had no such test.
+
+    Both directions, in the order that matters: the owner CAN read their own note
+    first. Without that control, "B sees nothing" passes when nobody can read the
+    table at all, and would keep passing with the policy dropped.
+    """
+    u = two_users
+    app_ids = {}
+    for who in ("a", "b"):
+        conn.execute("reset role")
+        conn.execute("select set_config('hq.test_user', %s, false)", (u[who],))
+        app_ids[who] = conn.execute(
+            "select id from public.applications where user_id = %s", (u[who],)
+        ).fetchone()[0]
+        conn.execute(
+            "select public.app_add_note(%s, %s, %s)",
+            (app_ids[who], f"{who} private note", str(uuid.uuid4())),
+        )
+
+    as_authenticated(conn, u["a"])
+    assert count(conn, "select count(*) from public.application_notes") == 1, (
+        "the owner cannot read their own note — the read policy is wrong, and every "
+        "negative assertion below would pass for the wrong reason"
+    )
+    assert count(
+        conn, "select count(*) from public.application_notes where body like %s", "b private%"
+    ) == 0, "user A can read user B's notes"
+
+    as_authenticated(conn, u["b"])
+    assert count(
+        conn, "select count(*) from public.application_notes where body like %s", "a private%"
+    ) == 0, "user B can read user A's notes"
+
+
+def test_an_authenticated_user_has_no_direct_write_to_application_notes(conn, two_users):
+    """Append-only is a GRANT, not a convention: writes go through `app_add_note`
+    or not at all. Duplicated from test_pipeline.py on purpose — this file is where
+    someone auditing tenancy looks, and the revoke is the reason "editing a note
+    means appending a correction" is true rather than aspirational."""
+    u = two_users
+    as_authenticated(conn, u["a"])
+    app_id = None
+    for stmt, args in (
+        ("insert into public.application_notes (user_id, application_id, body) "
+         "values (%s, 1, 'sneaky')", (u["a"],)),
+        ("update public.application_notes set body = 'edited'", ()),
+        ("delete from public.application_notes", ()),
+    ):
+        with pytest.raises(psycopg.errors.Error) as exc:
+            conn.execute(stmt, args)
+        assert "permission denied" in str(exc.value).lower() or "policy" in str(
+            exc.value
+        ).lower(), stmt
+    assert app_id is None  # nothing above was supposed to return a row
+

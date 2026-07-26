@@ -48,6 +48,27 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page).toHaveScreenshot(`queue-${theme}.png`, { fullPage: true });
   });
 
+  test(`the pipeline looks right — ${theme}`, async ({ page }) => {
+    // Earned for the reason the /companies pair is: this surface carries three
+    // geometry assertions in plain e2e (the status pill at large type, the
+    // reserved toast strip, the render budget), and matrix row 101's rule is that
+    // a pixel claim belongs in the container job where the fonts are pinned. A
+    // baseline is the check those three cannot be.
+    //
+    // `?open=Applied` rather than the default: it pins one expanded group and
+    // several collapsed ones in one image, which is the shape a regression in the
+    // grouped layout would show up in. No `?demo=` param — the seams exist to
+    // perturb state, and a baseline wants the resting one.
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto("/pipeline?open=Applied");
+    await expect(page.getByTestId("pipeline")).toBeVisible();
+    // Idle, not merely painted: "Saving…" appears and disappears, so a shot taken
+    // mid-write would be a different image every run.
+    await expect(page.locator('[data-testid="pipeline"][data-saving="false"]')).toBeAttached();
+    await page.waitForLoadState("load");
+    await expect(page).toHaveScreenshot(`pipeline-${theme}.png`, { fullPage: true });
+  });
+
   test(`the jobs grid looks right — ${theme}`, async ({ page }) => {
     // The "looks like Airtable" surface, the one most worth pinning visually:
     // dense rows, sticky header, aligned numerics, the muted em dash.

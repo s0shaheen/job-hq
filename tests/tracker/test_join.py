@@ -64,6 +64,91 @@ def test_forward_only_never_downgrades_but_bumps_activity():
     assert _ev_row(hq)["applied_status"] == "kept:Applied"
 
 
+def test_human_owned_status_survives_a_099_rejection():
+    """Acceptance criterion 14, the whole of it.
+
+    This was a LIVE DEFECT: `status_rank("Rejected")` is above
+    `status_rank("Offer")`, so a rejection classified at 0.99 overwrote an
+    Offer a human had chosen. Rank protected an INVENTED status and nothing
+    protected a canonical one somebody picked on purpose.
+
+    Both halves matter. The human keeps their Offer, AND the bot\'s opinion is
+    visible as a suggestion with its evidence link — a lock that silently
+    swallowed the rejection would trade one wrong answer for another.
+    """
+    hq = fake_hq()
+    _pipe(hq, status="Offer", status_actor="user")
+    _event(hq, job_url=GH, event_type="rejection", confidence="0.99")
+    join.run(hq)
+    row = _pipe_row(hq, "greenhouse-123")
+    assert row["status"] == "Offer"
+    assert row["suggested_status"] == "Rejected"
+    assert row["evidence"] == THREAD
+    assert row["last_activity"] != ""
+    assert _ev_row(hq)["applied_status"] == "locked:Rejected"
+
+
+def test_an_unclaimed_row_is_still_advanced_by_the_same_email():
+    """The positive control for the test above: with `status_actor` left at its
+    default, the identical event still advances the row. Without this, the lock
+    could be hardcoded to fire on every row and both tests would pass."""
+    hq = fake_hq()
+    _pipe(hq, status="Offer")
+    _event(hq, job_url=GH, event_type="rejection", confidence="0.99")
+    join.run(hq)
+    row = _pipe_row(hq, "greenhouse-123")
+    assert row["status"] == "Rejected"
+    assert _ev_row(hq)["applied_status"] == "advanced:Rejected"
+
+
+def test_a_locked_row_keeps_its_evidence_when_the_event_has_none():
+    """The suggestion must not cost the row its only actionable link.
+
+    `evidence` was written unconditionally on the locked branch, so an event with
+    no `thread_link` — a classifier that read a forwarded mail, a capture that
+    lost the id — BLANKED the link a human had. `advance_status` has always
+    guarded that same field (`if evidence and "evidence" in hmap`); this branch
+    did not.
+    """
+    hq = fake_hq()
+    _pipe(hq, status="Offer", status_actor="user", evidence="https://mail/keepme")
+    _event(hq, job_url=GH, event_type="rejection", confidence="0.99", thread_link="")
+    join.run(hq)
+    row = _pipe_row(hq, "greenhouse-123")
+    assert row["evidence"] == "https://mail/keepme"
+    assert row["suggested_status"] == "Rejected"     # the opinion still lands
+
+
+def test_a_locked_row_takes_a_better_evidence_link_when_there_is_one():
+    """The positive control: guarding the write must not stop a real link
+    arriving, or the suggestion becomes unactionable in the other direction."""
+    hq = fake_hq()
+    _pipe(hq, status="Offer", status_actor="user", evidence="https://mail/old")
+    _event(hq, job_url=GH, event_type="rejection", confidence="0.99")
+    join.run(hq)
+    assert _pipe_row(hq, "greenhouse-123")["evidence"] == THREAD
+
+
+def test_a_below_gate_suggestion_also_keeps_an_existing_link():
+    hq = fake_hq()
+    _pipe(hq, evidence="https://mail/keepme")
+    _event(hq, job_url=GH, event_type="rejection", confidence="0.5", thread_link="")
+    join.run(hq)
+    assert _pipe_row(hq, "greenhouse-123")["evidence"] == "https://mail/keepme"
+
+
+def test_a_rank_kept_move_does_not_become_a_suggestion():
+    """`locked` and `kept` are different answers and must stay so. A stale
+    confirmation email arriving at an Interview row is not an opinion worth
+    recording — "suggests Applied" there is noise that teaches people to ignore
+    the column."""
+    hq = fake_hq()
+    _pipe(hq, status="Interview")
+    _event(hq, job_url=GH, event_type="received", confidence="0.99")
+    join.run(hq)
+    assert _pipe_row(hq, "greenhouse-123")["suggested_status"] == ""
+
+
 def test_low_confidence_hard_rule_lands_in_suggested():
     hq = fake_hq()
     _pipe(hq)

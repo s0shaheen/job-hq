@@ -175,3 +175,62 @@ def test_new_tabs_are_created_wide_enough_for_their_schema():
     ws, created = sheets.ensure_tab(sh, "Feed", headers=schema.HEADERS["feed"])
     assert created and ws.col_count >= len(schema.HEADERS["feed"])
     sheets.ensure_headers(ws, schema.HEADERS["feed"])   # must not raise
+
+
+# ------------------------------------------------ the human-wins lock (AC 14)
+
+def test_advance_status_refuses_a_row_a_human_claimed():
+    """Acceptance criterion 14, at the sheet layer.
+
+    Rank alone cannot express "a person chose this": `Rejected` ranks above
+    `Offer`, so a 0.99-confidence rejection used to overwrite an Offer a human
+    had set. `status_actor = user` is the lock, and it holds for EVERY
+    canonical target — including ones that rank far above the current value.
+    """
+    hq = fake_hq(["pipeline"])
+    t = _pipeline(hq)
+    t.append_records([{"key": "locked", "status": "Offer", "status_actor": "user"},
+                      {"key": "open", "status": "Offer", "status_actor": "system"},
+                      {"key": "blank", "status": "Applied"}])
+
+    for target in schema.STATUSES:
+        assert t.advance_status("locked", target) == "locked", target
+    assert [r for r in t.records() if r["key"] == "locked"][0]["status"] == "Offer"
+
+    # The positive control. Without it this test would keep passing with the
+    # lock hardcoded to fire on every row — the "a negative assertion is only
+    # meaningful beside its positive control" rule from docs/WEBAPP-BUILD.md.
+    assert t.advance_status("open", "Rejected") == "advanced"
+    assert t.advance_status("blank", "Interview") == "advanced"
+
+
+def test_advance_status_lock_is_case_and_whitespace_tolerant():
+    """The cell is a dropdown, but a human can paste over a dropdown and the
+    sheet keeps the pasted text. A lock that only recognises exactly `user` is
+    a lock that silently opens."""
+    hq = fake_hq(["pipeline"])
+    t = _pipeline(hq)
+    t.append_records([{"key": "k1", "status": "Applied", "status_actor": " User "}])
+    assert t.advance_status("k1", "Interview") == "locked"
+
+
+def test_resolved_statuses_outrank_terminal_and_stay_below_invented():
+    assert (schema.status_rank("Offer")
+            < schema.status_rank("Rejected")
+            < schema.status_rank("Offer-Accepted")
+            < schema.status_rank("some human thing"))
+
+
+def test_no_bot_rule_can_name_a_human_only_status():
+    """`STATUS_RESOLVED` is human-only, and the enforcement is that the table of
+    bot-writable statuses cannot name one. Asserted here because that table is
+    hand-edited: adding an `offer_accepted` event type with a hard rule would
+    otherwise end someone\'s search from a classified email."""
+    named = {s for s, _hard in schema.EVENT_STATUS_RULES.values() if s}
+    assert named.isdisjoint(schema.STATUS_RESOLVED), named & set(schema.STATUS_RESOLVED)
+
+
+def test_status_vocabulary_has_no_duplicates_across_its_three_tiers():
+    """A value in two tiers would rank as whichever branch ran first, which is
+    an ordering nobody wrote down."""
+    assert len(schema.STATUSES) == len(set(schema.STATUSES))

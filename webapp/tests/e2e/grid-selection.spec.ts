@@ -344,7 +344,11 @@ test("bulk i on 3 rows creates 3 applications through one action with ONE undo t
   // them back — client state cannot fake this.
   const pipeline = await context.newPage();
   await pipeline.goto("/pipeline");
-  for (const j of picks) await expect(pipeline.getByText(j.company)).toBeVisible();
+  // Scoped to the surface rather than a bare getByText: a pipeline row carries
+  // its company in the visible text AND in two control aria-labels, so the
+  // loose locator now matches three elements and trips strict mode.
+  const surface = pipeline.getByTestId("pipeline");
+  for (const j of picks) await expect(surface).toContainText(j.company);
 });
 
 test("the single Undo reverts the whole batch — rows return, applications are gone", async ({

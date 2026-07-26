@@ -17,7 +17,25 @@ import { collectPaintedOverflow, describeOffenders } from "./painted-overflow";
  * scrollWidth assertion here passed unconditionally while content was
  * genuinely unreachable; see painted-overflow.ts for the measurement.
  */
-const PAGES = ["/queue", "/pipeline", "/health", "/jobs", "/companies", "/companies/add"];
+const PAGES = [
+  "/queue",
+  "/pipeline",
+  "/health",
+  "/jobs",
+  "/companies",
+  "/companies/add",
+  // The pipeline's other GROUPING states — everything collapsed, and a subset
+  // open. Group headers are the widest thing on the row once the rows are gone.
+  //
+  // `?demo=conflict:3` was here too and is deliberately gone: this file sets no
+  // `hq_demo_id`, so all twelve runs shared one demo store and each visit MUTATED
+  // it for whatever ran next. It also bought nothing — the conflict seam moves a
+  // row's status and version token, and the rendered HTML is byte-identical to
+  // plain /pipeline, so there was no new geometry to measure. The conflict
+  // RENDERING is covered in pipeline.spec.ts, where every test owns its store.
+  "/pipeline?open=",
+  "/pipeline?open=Applied,Interview",
+];
 const WIDTHS = [375, 414, 768, 1024, 1280, 1920];
 
 test.describe("nothing paints past the page edge", () => {
@@ -27,6 +45,42 @@ test.describe("nothing paints past the page edge", () => {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(path);
         await page.waitForLoadState("load");
+
+        const offenders = await page.evaluate(collectPaintedOverflow);
+        expect(offenders, describeOffenders(offenders)).toEqual([]);
+      });
+    }
+  }
+});
+
+/**
+ * The same sweep with the large type scale on — spec §D's Dad persona.
+ *
+ * Separate from the loop above rather than folded into it because it needs a
+ * cookie set before the first paint, and because the failure it guards is
+ * different: at `large` every type token grows by roughly a third, so a status
+ * pill, a group header count or an inline date input that fitted at 13px can
+ * clip or push its row past the edge. Matrix row 123.
+ *
+ * The 200%-zoom test in resilience.spec.ts is NOT the same check: that multiplies
+ * the root font size (which the token scale is expressed in), so it exercises the
+ * default scale at 2x rather than this scale at 1x — different token ratios, and
+ * the pill fits one and not the other.
+ */
+test.describe("nothing paints past the edge at the large type scale", () => {
+  for (const path of ["/pipeline", "/pipeline?open=", "/queue", "/jobs"]) {
+    for (const width of WIDTHS) {
+      test(`${path} @ ${width}px`, async ({ page, context }) => {
+        await context.addCookies([
+          { name: "hq_display", value: "large,comfortable", url: "http://127.0.0.1:3210" },
+        ]);
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(path);
+        await page.waitForLoadState("load");
+
+        // The cookie has to have actually applied, or this whole describe block
+        // is a duplicate of the sweep above wearing a different name.
+        await expect(page.locator("html")).toHaveAttribute("data-type-scale", "large");
 
         const offenders = await page.evaluate(collectPaintedOverflow);
         expect(offenders, describeOffenders(offenders)).toEqual([]);

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { FixtureDataSource } from "@/lib/data/fixture-source";
 import { FIXTURE_JOBS } from "@/lib/data/fixtures";
 import { CADENCE, SupabaseDataSource, toCompanyView, toJobView } from "@/lib/data/supabase-source";
-import { companyNameKey, PROPOSE_SOURCE_TAGS } from "@/lib/data/view-models";
+import { blankTrim, companyNameKey, PROPOSE_SOURCE_TAGS } from "@/lib/data/view-models";
 import type { CompanyView, JobView, ReviewState, Triage } from "@/lib/data/view-models";
 
 /**
@@ -36,6 +36,10 @@ const WRITE_PATH_SQL = readFileSync(
 );
 const COMPANY_REVIEW_SQL = readFileSync(
   path.join(REPO, "db", "migrations", "0008_company_review.sql"),
+  "utf8",
+);
+const PIPELINE_SQL = readFileSync(
+  path.join(REPO, "db", "migrations", "0010_pipeline.sql"),
   "utf8",
 );
 
@@ -856,5 +860,239 @@ describe("comp parsing parity", () => {
     expect(viaDb("$45/hour")).toEqual([null, null]);
     expect(viaDb("")).toEqual([null, null]);
     expect(viaDb(null)).toEqual([null, null]);
+  });
+});
+
+describe("pipeline write parity with migration 0010", () => {
+  /**
+   * The messages the fake returns are the messages the SQL raises.
+   *
+   * A user meets one of these strings, so the two implementations disagreeing
+   * means the demo teaches a behaviour production does not have. There is no way
+   * to compare a plpgsql RAISE to a TS return except by asserting the text is in
+   * both, which is what these do — the same technique the triage and company
+   * blocks above use.
+   */
+  const src = () => new FixtureDataSource();
+  let seq = 0;
+  const idem = () => `parity-${++seq}`;
+
+  it("refuses a blank status with the SQL's own message", async () => {
+    const res = await src().setStatus({
+      applicationId: 3,
+      status: "  ",
+      idempotencyKey: idem(),
+      expectedUpdatedAt: null,
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok && res.kind === "error") expect(PIPELINE_SQL).toContain(res.message);
+  });
+
+  it("refuses an empty note with the SQL's own message", async () => {
+    const res = await src().addNote({
+      applicationId: 3,
+      body: "",
+      idempotencyKey: idem(),
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok && res.kind === "error") expect(PIPELINE_SQL).toContain(res.message);
+  });
+
+  it("refuses a noteless reopen with the SQL's own message", async () => {
+    const res = await src().setStatus({
+      applicationId: 5,               // Datadog, Rejected
+      status: "Applied",
+      idempotencyKey: idem(),
+      expectedUpdatedAt: null,
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok && res.kind === "error") expect(PIPELINE_SQL).toContain(res.message);
+  });
+
+  it("shares the SQL's bounds, so the UI never discovers one from a Postgres error", () => {
+    for (const bound of [
+      "status is too long (max 80 characters)",
+      "note is too long (max 4000 characters)",
+      "next action is too long (max 500 characters)",
+      "idempotency key required",
+    ]) {
+      expect(PIPELINE_SQL, `SQL is missing the bound ${bound}`).toContain(bound);
+    }
+  });
+
+  it("keeps the word the conflict path matches on", () => {
+    // supabase-source.ts decides between the conflict branch and a generic
+    // "Couldn't save that" by matching /conflict|stale/i. Rewording the
+    // exception turns a handled conflict into an unhandled error.
+    expect(PIPELINE_SQL).toContain("raise exception 'conflict: this application changed");
+  });
+
+  it("blankTrim trims exactly what hq_blank_trim trims, character by character", () => {
+    // The PREVIOUS version of this test asserted three substrings were present in
+    // the SQL, all of them inside the unicode tail — so deleting `\t` from the
+    // migration left all 444 vitest tests green. A pin that only checks the part
+    // nobody edits is not a pin.
+    //
+    // This one extracts the SQL's own character classes by their markers, expands
+    // the ranges, and runs every codepoint through BOTH implementations. It is the
+    // closest thing to executing the plpgsql from here, and it is what caught the
+    // `\v`-is-the-letter-v corruption staying invisible.
+    const zeroWidth = /\/\* HQ_BLANK_ZERO_WIDTH \*\/ '\[([^\]]*)\]'/.exec(PIPELINE_SQL);
+    // `(.*?)\]\+'` and not `[^\]]*`: the class contains `[:space:]`, whose own
+    // `]` truncated the capture and made the marker look absent.
+    const separators = /\/\* HQ_BLANK_SEPARATORS \*\/\s*\n\s*'\^\[(.*?)\]\+'/.exec(
+      PIPELINE_SQL,
+    );
+    expect(zeroWidth, "HQ_BLANK_ZERO_WIDTH marker not found in the SQL").toBeTruthy();
+    expect(separators, "HQ_BLANK_SEPARATORS marker not found in the SQL").toBeTruthy();
+
+    /** Expand a Postgres regex character class into the codepoints it matches. */
+    function expand(cls: string): Set<number> {
+      const out = new Set<number>();
+      // `[[:space:]]` is POSIX: space, tab, newline, vertical tab, form feed, CR.
+      let body = cls;
+      if (body.includes("[:space:]")) {
+        for (const c of [0x20, 0x09, 0x0a, 0x0b, 0x0c, 0x0d]) out.add(c);
+        body = body.replace("[:space:]", "");
+      }
+      // \uXXXX escapes, optionally as a range.
+      const token = /\\u([0-9A-Fa-f]{4})(?:-\\u([0-9A-Fa-f]{4}))?/g;
+      let m: RegExpExecArray | null;
+      let consumed = 0;
+      while ((m = token.exec(body)) !== null) {
+        consumed += m[0].length;
+        const lo = parseInt(m[1], 16);
+        const hi = m[2] ? parseInt(m[2], 16) : lo;
+        for (let c = lo; c <= hi; c++) out.add(c);
+      }
+      // Anything left over is a literal this parser does not understand, and a
+      // silent skip is how the old pin failed. Fail instead.
+      expect(consumed, `unparsed characters in SQL class ${JSON.stringify(cls)}`).toBe(
+        body.length,
+      );
+      return out;
+    }
+
+    const sqlZeroWidth = expand(zeroWidth![1]);
+    const sqlSeparators = expand(separators![1]);
+    // Guard against a regex that matched but captured nothing.
+    expect(sqlZeroWidth.size).toBeGreaterThanOrEqual(4);
+    expect(sqlSeparators.size).toBeGreaterThanOrEqual(20);
+
+    // The two halves of the SQL's second class must be identical — it is written
+    // twice (once anchored at each end), and a divergence would trim one end only.
+    const tail = /'\|\[(.*?)\]\+\$'/.exec(PIPELINE_SQL);
+    expect(tail, "the trailing-edge class was not found").toBeTruthy();
+    expect(tail![1]).toBe(separators![1]);
+
+    // Now the actual comparison: for every codepoint either side claims, the two
+    // implementations must agree about whether it is padding.
+    const candidates = new Set<number>([...sqlZeroWidth, ...sqlSeparators]);
+    // Plus everything JS `\s` matches below U+3001, so a character the SQL forgot
+    // is caught rather than simply absent from both lists.
+    for (let c = 0; c <= 0x3001; c++) if (/\s/.test(String.fromCodePoint(c))) candidates.add(c);
+
+    const disagreements: string[] = [];
+    for (const c of candidates) {
+      const ch = String.fromCodePoint(c);
+      const sqlTrims = sqlZeroWidth.has(c) || sqlSeparators.has(c);
+      const jsTrims = blankTrim(`${ch}x${ch}`) === "x" && blankTrim(ch) === "";
+      if (sqlTrims !== jsTrims) {
+        disagreements.push(
+          `U+${c.toString(16).toUpperCase().padStart(4, "0")}: sql=${sqlTrims} js=${jsTrims}`,
+        );
+      }
+    }
+    expect(disagreements).toEqual([]);
+
+    // And the corruption case, spelled out: a leading letter is not padding.
+    expect(blankTrim("verify comp band")).toBe("verify comp band");
+    expect(blankTrim("v")).toBe("v");
+    // The SQL must not carry a btrim character LIST any more — that shape is what
+    // turned `\v` into the letter v, and it reads identically to a regex class.
+    expect(PIPELINE_SQL).not.toMatch(/btrim\(\s*\n?\s*regexp_replace/);
+  });
+
+  it("reject leaves status alone in the SQL as well as in the fake", () => {
+    // Matrix row 42, asserted on both sides. The fake's behaviour is covered in
+    // pipeline-source.test.ts; this is the half that would catch someone
+    // "simplifying" the SQL's two branches into one update.
+    const fn = PIPELINE_SQL.slice(
+      PIPELINE_SQL.indexOf("function public.app_resolve_suggestion"),
+      PIPELINE_SQL.indexOf("revoke all on function public.app_resolve_suggestion"),
+    );
+    expect(fn).toBeTruthy();
+    // Comments stripped first. The reject branch EXPLAINS itself in a comment
+    // that names the columns it leaves alone, so a checker reading prose would
+    // fail on the correct code — the exact trap `_strip_sql_comments` exists for
+    // in tests/core/test_migrations.py.
+    // Bounded to the branch's UPDATE — `else` to its `end if` — and not to the
+    // rest of the body. Both branches legitimately mention `v_suggested`
+    // afterwards, because the audit event records what was suggested either way;
+    // a slice that ran to the end of the function would fail on that and say
+    // nothing about the update.
+    const branchStart = fn.indexOf("else", fn.indexOf("if p_decision = 'confirm'"));
+    const reject = fn
+      .slice(branchStart, fn.indexOf("end if;", branchStart))
+      .replace(/--[^\n]*/g, "");
+    expect(reject).toContain("set suggested_status = ''");
+    expect(reject).toContain("update public.applications");
+    // The two things reject must not do: apply the suggestion, or claim the row.
+    expect(reject).not.toContain("v_suggested");
+    expect(reject).not.toContain("status_actor");
+    // And it must not declare itself a human status write, because it is not one.
+    expect(reject).not.toContain("hq.status_write");
+  });
+
+  it("declares the human write and clears the flag again", () => {
+    // The lock's escape hatch is a transaction-local session flag, so the thing
+    // that matters is that it is CLEARED: a flag left standing unlocks every
+    // later write in the same transaction. Set/clear must come in pairs.
+    const setters = PIPELINE_SQL.match(/set_config\('hq\.status_write', 'human', true\)/g) ?? [];
+    const clearers = PIPELINE_SQL.match(/set_config\('hq\.status_write', '', true\)/g) ?? [];
+    expect(setters.length).toBeGreaterThan(0);
+    expect(clearers.length).toBe(setters.length);
+    // And the trigger must NOT be the naive version, which an already-locked row
+    // satisfies for free because an UPDATE inherits unmentioned columns.
+    expect(PIPELINE_SQL).toContain(
+      "coalesce(current_setting('hq.status_write', true), '') = 'human'",
+    );
+    // And the latch guards ITSELF: `update … set status_actor='system'` was a
+    // one-statement unlock, so the trigger refuses an undeclared change to the
+    // actor column too.
+    expect(PIPELINE_SQL).toContain("new.status_actor is distinct from old.status_actor");
+  });
+
+  it("every column APPLICATION_COLS reads is in app_application_row's shape", () => {
+    // Two shapes reach toApplicationView — a PostgREST select and the function's
+    // jsonb — and a key present in one and absent from the other renders blanks
+    // only on the path nothing happened to test. `app_company_row` lost
+    // `updated_at` this way once and the whole suite stayed green.
+    const row = PIPELINE_SQL.slice(
+      PIPELINE_SQL.indexOf("function public.app_application_row"),
+      PIPELINE_SQL.indexOf("revoke all on function public.app_application_row"),
+    );
+    expect(row).toBeTruthy();
+    for (const key of [
+      "id", "posting_key", "company", "title", "url", "status", "status_actor",
+      "suggested_status", "evidence", "applied_date", "next_action",
+      "next_action_date", "notes", "updated_at",
+      // The three derived ones the view model needs and no column supplies.
+      "posting_status", "note_count", "latest_note",
+    ]) {
+      expect(row, `app_application_row omits '${key}'`).toContain(`'${key}'`);
+    }
+  });
+
+  it("orders the note embed deterministically on both sides", () => {
+    // Two notes written in the same millisecond would otherwise be ordered by
+    // whatever the plan produced, and `latestNote` would flip between reads —
+    // the same undefined tie that queue ordering was pinned for above.
+    expect(PIPELINE_SQL).toContain("order by n.created_at desc, n.id desc");
+    const ts = readFileSync(
+      path.join(REPO, "webapp", "lib", "data", "supabase-source.ts"),
+      "utf8",
+    );
+    expect(ts).toContain('referencedTable: "application_notes", ascending: false');
   });
 });

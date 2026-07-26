@@ -1,3 +1,4 @@
+import { exportNote } from "@/lib/data/view-models";
 import type { ApplicationView, JobView } from "@/lib/data/view-models";
 
 /**
@@ -59,6 +60,14 @@ export const APPLICATION_COLUMNS: Column<ApplicationView>[] = [
     value: (a) => a.nextActionDate,
     type: "date",
   },
-  { key: "notes", header: "Notes", value: (a) => a.notes },
+  // The NEWEST note, falling back to the flat `applications.notes` column.
+  //
+  // Migration 0010 made notes an append-only entity and copied the column into
+  // it WITHOUT clearing the column, because spec §E round-trips `notes` and this
+  // is the reader that would have gone blank (matrix row 44). `exportNote` is
+  // that fallback, and it is correct in all three states a row can be in: a
+  // pre-migration row (column only), a backfilled one (both), and one written
+  // since (notes only, column empty).
+  { key: "notes", header: "Notes", value: (a) => exportNote(a) },
   { key: "url", header: "URL", value: (a) => a.url },
 ];

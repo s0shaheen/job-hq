@@ -350,7 +350,10 @@ export default function TriageQueue({
     <div
       data-testid="triage"
       data-ready={ready ? "true" : "false"}
-      className="mx-auto max-w-2xl px-4 py-5 sm:px-6 data-[ready=false]:[&_kbd]:opacity-40"
+      // `invisible` rather than `opacity-40`, for the export dialog's reason:
+      // dimming with opacity is a contrast failure axe reports, and it reports it
+      // on whichever machine is slow enough to scan before hydration.
+      className="mx-auto max-w-2xl px-4 py-5 sm:px-6 data-[ready=false]:[&_kbd]:invisible"
     >
       <div className="mb-3 flex items-baseline justify-between text-xs text-muted">
         <span className="tabular" data-testid="progress">

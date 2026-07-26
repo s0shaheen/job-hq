@@ -172,7 +172,8 @@ def _simplify(tmp_path):
 def test_simplify_csv_maps_status_source_and_applied(tmp_path):
     hq = fake_hq()
     rep = migrate.migrate_simplify_csv(hq, _simplify(tmp_path), dry_run=False)
-    assert rep == {"rows": 3, "created": 3, "advanced_existing": 0, "unkeyed": 0}
+    assert rep == {"rows": 3, "created": 3, "advanced_existing": 0, "unkeyed": 0,
+                   "locked_suggested": 0}
     rows = {r["company"]: r for r in hq.tab("pipeline").records()}
     assert rows["Garner Health"]["status"] == "Applied"
     assert rows["Garner Health"]["source"] == "simplify"
@@ -182,6 +183,41 @@ def test_simplify_csv_maps_status_source_and_applied(tmp_path):
     assert rows["Plaid"]["applied_via"] == ""
     assert rows["Ramp"]["status"] == "Interview"
     assert rows["Ramp"]["notes"] == "note here"
+
+
+def test_simplify_import_defers_to_a_human_locked_status_and_says_so(tmp_path):
+    """`advance_status` grew a THIRD outcome (`locked`) and this loop ignored it:
+    an imported status was dropped on a row a human owns, with no suggestion and
+    no trace, while the row was counted `advanced`.
+
+    Same half of acceptance criterion 14 `tracker/join.py` handles — the human
+    keeps their status AND the import's opinion stays visible.
+    """
+    hq = fake_hq()
+    hq.tab("pipeline").append_records([{
+        "key": "greenhouse-6101768004", "company": "Garner Health", "title": "PM",
+        "status": "Offer", "status_actor": "user",
+    }])
+    rep = migrate.migrate_simplify_csv(hq, _simplify(tmp_path), dry_run=False)
+
+    row = {r["key"]: r for r in hq.tab("pipeline").records()}["greenhouse-6101768004"]
+    assert row["status"] == "Offer"                    # the human wins
+    assert row["suggested_status"] == "Applied"        # and sees what the import wanted
+    assert rep["locked_suggested"] == 1                # reported, not swallowed
+
+
+def test_simplify_import_still_advances_an_unclaimed_row(tmp_path):
+    """The positive control: without it the locked branch could fire on every row
+    and the test above would still pass."""
+    hq = fake_hq()
+    hq.tab("pipeline").append_records([{
+        "key": "greenhouse-6101768004", "company": "Garner Health", "title": "PM",
+        "status": "Inbox",
+    }])
+    rep = migrate.migrate_simplify_csv(hq, _simplify(tmp_path), dry_run=False)
+    row = {r["key"]: r for r in hq.tab("pipeline").records()}["greenhouse-6101768004"]
+    assert row["status"] == "Applied"
+    assert rep["locked_suggested"] == 0
 
 
 def test_simplify_csv_idempotent_and_forward_only(tmp_path):

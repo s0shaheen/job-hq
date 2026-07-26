@@ -13,6 +13,7 @@
  *     path testable without unplugging anything.
  */
 import type {
+  AppWriteResult,
   BulkReviewInput,
   BulkReviewResult,
   BulkTriageInput,
@@ -22,11 +23,15 @@ import type {
   DataSource,
   DeleteViewInput,
   DeleteViewResult,
+  NextActionInput,
+  NoteInput,
   ProposeCompaniesInput,
   ProposeCompaniesResult,
   QueueOptions,
   SaveViewInput,
   SaveViewResult,
+  StatusInput,
+  SuggestionInput,
   TriageInput,
   WriteResult,
 } from "./source";
@@ -37,12 +42,14 @@ import {
   FIXTURE_NOW,
 } from "./fixtures";
 import { FIXTURE_COMPANIES } from "./company-fixtures";
-import { companyNameKey, PROPOSE_SOURCE_TAGS } from "./view-models";
+import { isTerminalStatus } from "@/lib/status";
+import { blankTrim, companyNameKey, PROPOSE_SOURCE_TAGS } from "./view-models";
 import type {
   ApplicationView,
   ChannelHealthView,
   CompanyView,
   JobView,
+  NoteView,
   SavedView,
 } from "./view-models";
 
@@ -101,6 +108,16 @@ export class FixtureDataSource implements DataSource {
     // (matrix row 15's lesson, and the "every collection a fake owns comes from
     // its constructor" rule that followed it).
     for (const c of companies) this.companiesById.set(c.id, { ...c });
+
+    // 0010's backfill, reproduced: one `import`-authored note per non-empty flat
+    // `notes` column, and the column left in place. Without this the fake starts
+    // with an empty history for rows that visibly have a note, so the notes
+    // dialog's populated state would be unreachable through the only source the
+    // tests can drive — matrix row 15's failure, on a new surface.
+    for (const a of this.apps) {
+      const flat = blankTrim(a.notes ?? "");
+      if (flat) this.appendNote(a.id, flat, "import");
+    }
   }
 
   /** Force the next write to fail, so the UI's failure path can be tested. */
@@ -133,7 +150,24 @@ export class FixtureDataSource implements DataSource {
   }
 
   async applications(): Promise<ApplicationView[]> {
-    return this.apps.map((a) => ({ ...a }));
+    // `withNotes` rather than a bare copy: `noteCount`/`latestNote` are DERIVED
+    // in `app_application_row`, so a fake that served the constructor's values
+    // would show a stale count the moment a note was added — and every test
+    // asserting a note landed would pass against a number nothing maintains.
+    return this.apps.map((a) => this.withNotes(a));
+  }
+
+  /**
+   * The board's status for a posting, so the delisted badge can be derived.
+   *
+   * Mirrors the `postings(status)` embed and its RLS limitation: only postings
+   * this store knows about answer, and everything else is null. An application
+   * whose posting is not in the store therefore reads as still-listed, which is
+   * the same false negative production has.
+   */
+  private postingStatusFor(app: ApplicationView): string | null {
+    if (!app.postingKey) return null;
+    return this.jobsByKey.get(app.postingKey)?.status ?? null;
   }
 
   async health(): Promise<ChannelHealthView[]> {
@@ -197,12 +231,20 @@ export class FixtureDataSource implements DataSource {
         title: updated.title,
         url: updated.url,
         status: "Queued",
+        // A bot created it, so the bots may keep advancing it. This is the
+        // default the column has in 0001 and the state acceptance criterion 11
+        // depends on: an un-triage removes a still-`Queued` row precisely
+        // because nothing human has claimed it.
+        statusActor: "system",
         suggestedStatus: null,
         evidence: null,
         appliedDate: null,
         nextAction: null,
         nextActionDate: null,
         notes: null,
+        noteCount: 0,
+        latestNote: null,
+        postingStatus: updated.status,
         updatedAt: updated.updatedAt,
       });
     }
@@ -278,6 +320,286 @@ export class FixtureDataSource implements DataSource {
   }
 
   private seenBulkKeys = new Map<string, BulkWriteResult>();
+
+  // ---- the pipeline (P8) -------------------------------------------------
+
+  private notesByApp = new Map<number, NoteView[]>();
+  private seenAppKeys = new Map<string, AppWriteResult>();
+  private noteSeq = 0;
+
+  /**
+   * Simulate the other device: move the row on without the client knowing.
+   *
+   * Playwright cannot call a method on a server-side object and a server action
+   * cannot be invoked from `page.evaluate`, so the browser-facing channel is the
+   * `?demo=conflict:N` search param the pipeline page reads — this is what it
+   * calls. A search param rather than a hidden button, because a button in the
+   * DOM changes the visual baseline and a param does not.
+   */
+  simulateExternalEdit(applicationId: number, patch: Partial<ApplicationView> = {}): void {
+    const current = this.apps.find((a) => a.id === applicationId);
+    if (!current) return;
+    Object.assign(current, patch, {
+      // The version token MUST move, or there is no conflict to detect — that
+      // is the whole mechanism being simulated.
+      updatedAt: new Date(
+        new Date(current.updatedAt ?? FIXTURE_NOW).getTime() + 60_000,
+      ).toISOString(),
+    });
+  }
+
+  private appById(id: number): ApplicationView | undefined {
+    return this.apps.find((a) => a.id === id);
+  }
+
+  /**
+   * A fresh version token for an application row.
+   *
+   * `+1s` from the row's OWN previous value, deliberately not `Date.now()`: the
+   * demo store is what the visual baselines and the pinned-clock E2Es render, and
+   * a real wall clock would make every screenshot a new image. What matters for
+   * concurrency is only that the token CHANGES and never repeats, which a
+   * monotonic step guarantees more reliably than a clock with millisecond
+   * resolution — two writes inside one millisecond would collide.
+   *
+   * The honest divergence from `now()`: the fake's tokens are not comparable
+   * ACROSS rows, so it cannot reproduce a global recency ordering. Nothing depends
+   * on one — the pipeline sorts by id (see pipeline-table.tsx) precisely so a row
+   * does not move while it is being edited.
+   */
+  private bumpedApp(a: ApplicationView): string {
+    return new Date(new Date(a.updatedAt ?? FIXTURE_NOW).getTime() + 1000).toISOString();
+  }
+
+  /** Recompute the derived note fields, exactly as `app_application_row` does. */
+  private withNotes(a: ApplicationView): ApplicationView {
+    const list = this.notesByApp.get(a.id) ?? [];
+    return {
+      ...a,
+      noteCount: list.length,
+      latestNote: list.length ? { ...list[0] } : null,
+      // Derived on every read, never stored — the same rule the SQL follows, and
+      // the reason matrix row 54 cannot regress: there is no field to go stale.
+      postingStatus: this.postingStatusFor(a),
+    };
+  }
+
+  /**
+   * The guard rails every pipeline write shares, in the order the SQL applies
+   * them. Returns an error result, or the locked row to write.
+   *
+   * Ordering is load-bearing and mirrors 0010: replay first (a replay is free
+   * even for a gesture that would now be refused), then validation, then
+   * existence, then the version check. A fake that checked the version before
+   * the replay would report a conflict for a retry that had already landed.
+   */
+  private beginAppWrite(
+    idempotencyKey: string,
+    applicationId: number,
+    expectedUpdatedAt: string | null,
+  ):
+    | { replay: AppWriteResult }
+    | { error: AppWriteResult }
+    | { row: ApplicationView } {
+    const replay = this.seenAppKeys.get(idempotencyKey);
+    if (replay) return { replay };
+
+    if (!idempotencyKey || idempotencyKey.length > 200) {
+      return { error: { ok: false, kind: "error", message: "idempotency key required" } };
+    }
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { error: { ok: false, kind: "error", message: msg } };
+    }
+    const current = this.appById(applicationId);
+    if (!current) {
+      return {
+        error: {
+          ok: false,
+          kind: "error",
+          message: `no such application for this user: ${applicationId}`,
+        },
+      };
+    }
+    if (
+      expectedUpdatedAt !== null &&
+      current.updatedAt !== null &&
+      expectedUpdatedAt !== current.updatedAt
+    ) {
+      return {
+        error: { ok: false, kind: "conflict", current: this.withNotes(current) },
+      };
+    }
+    return { row: current };
+  }
+
+  private settleApp(key: string, row: ApplicationView): AppWriteResult {
+    const result: AppWriteResult = { ok: true, application: this.withNotes(row) };
+    this.seenAppKeys.set(key, result);
+    return result;
+  }
+
+  private appendNote(applicationId: number, body: string, author = "user"): void {
+    const list = this.notesByApp.get(applicationId) ?? [];
+    // Newest first, which is both the read order and what `latestNote` takes.
+    list.unshift({
+      id: ++this.noteSeq + 5000,
+      body,
+      author,
+      createdAt: new Date(new Date(FIXTURE_NOW).getTime() + this.noteSeq * 1000).toISOString(),
+    });
+    this.notesByApp.set(applicationId, list);
+  }
+
+  async notes(applicationId: number): Promise<NoteView[]> {
+    return (this.notesByApp.get(applicationId) ?? []).map((n) => ({ ...n }));
+  }
+
+  async setStatus(input: StatusInput): Promise<AppWriteResult> {
+    // The migration's own guards, verbatim where they produce a message the UI
+    // shows — parity.test.ts pins these strings to the SQL, so the fake and the
+    // database cannot drift apart silently.
+    const status = blankTrim(input.status);
+    const note = blankTrim(input.note ?? "");
+    if (!status) {
+      return { ok: false, kind: "error", message: "a status is required" };
+    }
+    if (status.length > 80) {
+      return { ok: false, kind: "error", message: "status is too long (max 80 characters)" };
+    }
+    if (note.length > 4000) {
+      return { ok: false, kind: "error", message: "note is too long (max 4000 characters)" };
+    }
+
+    const begun = this.beginAppWrite(
+      input.idempotencyKey,
+      input.applicationId,
+      input.expectedUpdatedAt,
+    );
+    if ("replay" in begun) return begun.replay;
+    if ("error" in begun) return begun.error;
+    const current = begun.row;
+
+    // A reopen needs a reason. Checked against the row as it IS, not against
+    // whatever the client believed — the client's idea of the current status is
+    // exactly the thing that may be stale.
+    const reopening = isTerminalStatus(current.status) && !isTerminalStatus(status);
+    if (reopening && !note) {
+      return { ok: false, kind: "error", message: "reopening needs a note saying why" };
+    }
+
+    // A gesture that changes nothing writes nothing (0003's rule). Re-selecting
+    // a status a BOT set is not a no-op — the human is claiming the row, and the
+    // lock is the entire value of that gesture.
+    if (current.status === status && current.statusActor === "user" && !note) {
+      return this.settleApp(input.idempotencyKey, current);
+    }
+
+    Object.assign(current, {
+      status,
+      statusActor: "user" as const,
+      // A human choosing a status answers the suggestion by making it moot.
+      suggestedStatus: null,
+      updatedAt: this.bumpedApp(current),
+    });
+    if (note) this.appendNote(current.id, note);
+    return this.settleApp(input.idempotencyKey, current);
+  }
+
+  async resolveSuggestion(input: SuggestionInput): Promise<AppWriteResult> {
+    if (input.decision !== "confirm" && input.decision !== "reject") {
+      return {
+        ok: false,
+        kind: "error",
+        message: `invalid decision: ${String(input.decision)}`,
+      };
+    }
+    const begun = this.beginAppWrite(
+      input.idempotencyKey,
+      input.applicationId,
+      input.expectedUpdatedAt,
+    );
+    if ("replay" in begun) return begun.replay;
+    if ("error" in begun) return begun.error;
+    const current = begun.row;
+
+    const suggested = blankTrim(current.suggestedStatus ?? "");
+    // Nothing to resolve is free, not an error: a second Confirm arriving after
+    // the first honestly means "already done", and a double-tap on a slow
+    // connection produces exactly that.
+    if (!suggested) return this.settleApp(input.idempotencyKey, current);
+
+    if (input.decision === "confirm") {
+      Object.assign(current, {
+        status: suggested,
+        statusActor: "user" as const,   // confirming IS a human decision
+        suggestedStatus: null,
+        updatedAt: this.bumpedApp(current),
+      });
+    } else {
+      Object.assign(current, {
+        suggestedStatus: null,
+        // status and statusActor deliberately untouched. Declining one
+        // suggestion is not a claim over the row — a later, better-evidenced
+        // email should still be able to advance it.
+        updatedAt: this.bumpedApp(current),
+      });
+    }
+    return this.settleApp(input.idempotencyKey, current);
+  }
+
+  async addNote(input: NoteInput): Promise<AppWriteResult> {
+    const body = blankTrim(input.body);
+    if (!body) {
+      return { ok: false, kind: "error", message: "a note needs something in it" };
+    }
+    if (body.length > 4000) {
+      return { ok: false, kind: "error", message: "note is too long (max 4000 characters)" };
+    }
+    // No expectedUpdatedAt: a note cannot conflict with anything.
+    const begun = this.beginAppWrite(input.idempotencyKey, input.applicationId, null);
+    if ("replay" in begun) return begun.replay;
+    if ("error" in begun) return begun.error;
+
+    this.appendNote(begun.row.id, body);
+    // Deliberately NOT bumping updatedAt: the application row did not change,
+    // and bumping it would invalidate every open tab's token and produce a
+    // phantom conflict on the next real gesture — for typing a comment.
+    return this.settleApp(input.idempotencyKey, begun.row);
+  }
+
+  async setNextAction(input: NextActionInput): Promise<AppWriteResult> {
+    const text = blankTrim(input.nextAction);
+    if (text.length > 500) {
+      return {
+        ok: false,
+        kind: "error",
+        message: "next action is too long (max 500 characters)",
+      };
+    }
+    const begun = this.beginAppWrite(
+      input.idempotencyKey,
+      input.applicationId,
+      input.expectedUpdatedAt,
+    );
+    if ("replay" in begun) return begun.replay;
+    if ("error" in begun) return begun.error;
+    const current = begun.row;
+
+    const date = input.nextActionDate ?? null;
+    // Saved on blur, so this fires constantly on a field nobody edited.
+    if ((current.nextAction ?? "") === text && (current.nextActionDate ?? null) === date) {
+      return this.settleApp(input.idempotencyKey, current);
+    }
+
+    Object.assign(current, {
+      nextAction: text || null,
+      nextActionDate: date,
+      updatedAt: this.bumpedApp(current),
+    });
+    return this.settleApp(input.idempotencyKey, current);
+  }
 
   // ---- the company universe (P7) ----------------------------------------
 

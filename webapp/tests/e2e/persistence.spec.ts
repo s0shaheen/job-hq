@@ -57,7 +57,10 @@ test("an interested decision reaches the pipeline", async ({ page, context }) =>
   await expect(page.getByText(/^Saved /)).toBeVisible();
 
   await page.goto("/pipeline");
-  await expect(page.getByRole("table")).toContainText(company.slice(0, 20));
+  // `getByTestId("pipeline")`, not `getByRole("table")`: the pipeline became a
+  // grouped list of editable rows in P8. The claim is unchanged — a second
+  // reader of the same store, on a different route, sees the row.
+  await expect(page.getByTestId("pipeline")).toContainText(company.slice(0, 20));
 });
 
 test("the export count matches the screen after triaging", async ({ page, context }) => {

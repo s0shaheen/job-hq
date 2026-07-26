@@ -36,6 +36,29 @@ test.describe("accessibility", () => {
       test(`${path} — ${scheme}`, async ({ page }) => {
         await page.emulateMedia({ colorScheme: scheme });
         await page.goto(path);
+        // Scan the HYDRATED page, not whatever has painted so far.
+        //
+        // `goto` resolves when the server HTML lands, which is before React has
+        // attached — and the interactive tree is not the same DOM: Radix mounts
+        // portalled and visually-hidden nodes for its Select and Dialog
+        // primitives during hydration. Scanning in that window measures a
+        // half-built page, and this suite saw it exactly once out of ~500 tests,
+        // on the mobile project, unreproducible in isolation. A one-in-500
+        // failure reads as a real one and is the worst kind (matrix row 45), so
+        // the window is closed rather than retried.
+        // `load` plus one animation frame after it.
+        //
+        // The first attempt waited for `main, [data-testid]` to exist, which the
+        // SERVER HTML already satisfies — so it waited for nothing and the window
+        // it claimed to close stayed open. There is no app-wide readiness flag to
+        // wait on (the queue and the grid have their own; these six pages do not),
+        // so this waits for the frame after load, which is when React has attached
+        // and its portalled nodes exist. Honest about what it is: a bound on the
+        // race rather than a signal from the app.
+        await page.waitForLoadState("load");
+        await page.evaluate(
+          () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+        );
         const results = await new AxeBuilder({ page })
           .withTags(["wcag2a", "wcag2aa"])
           .analyze();
@@ -68,19 +91,46 @@ test.describe("accessibility", () => {
   }
 });
 
+/** A focused control outside the viewport is a keyboard trap in practice: the
+ *  user cannot see what they are about to activate. */
+const FOCUS_IS_VISIBLE = () => {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el || el === document.body) return true;
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0 && r.top >= -1 && r.left >= -1;
+};
+
 test("every interactive element is reachable and visible when focused", async ({ page }) => {
   await page.goto("/queue");
   for (let i = 0; i < 12; i++) {
     await page.keyboard.press("Tab");
-    const ok = await page.evaluate(() => {
-      const el = document.activeElement as HTMLElement | null;
-      if (!el || el === document.body) return true;
-      const r = el.getBoundingClientRect();
-      // a focused control that sits outside the viewport is a keyboard trap
-      // in practice: the user cannot see what they are about to activate
-      return r.width > 0 && r.height > 0 && r.top >= -1 && r.left >= -1;
-    });
-    expect(ok).toBe(true);
+    expect(await page.evaluate(FOCUS_IS_VISIBLE)).toBe(true);
+  }
+});
+
+test("the pipeline's controls stay reachable, including with a popover open", async ({
+  page,
+}) => {
+  // The pipeline is the densest surface for tab order: every row carries a
+  // Select, a dialog trigger, two inline inputs and sometimes three buttons. The
+  // walk is longer than the queue's for that reason.
+  await page.goto("/pipeline");
+  await expect(page.getByTestId("pipeline")).toBeVisible();
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press("Tab");
+    expect(await page.evaluate(FOCUS_IS_VISIBLE), `after ${i + 1} tabs`).toBe(true);
+  }
+
+  // With the status listbox open. Radix moves focus INTO the popover, so this is
+  // the state where an off-screen render becomes a dead end rather than a
+  // cosmetic problem (matrix row 48).
+  const trigger = page.locator("[data-testid^='status-trigger-']").first();
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("listbox")).toBeVisible();
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press("ArrowDown");
+    expect(await page.evaluate(FOCUS_IS_VISIBLE), `in the popover, step ${i + 1}`).toBe(true);
   }
 });
 

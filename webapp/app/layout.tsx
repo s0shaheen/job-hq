@@ -33,6 +33,30 @@ try {
   /* Private mode can throw on localStorage. A theme is never worth a blank
      page, so fall through and keep the default light palette. */
 }
+try {
+  /* Type scale and density, from a cookie, in the same before-paint window as
+     the theme and for the same reason: applying them after hydration means the
+     large-type user watches the page reflow on every navigation.
+
+     A COOKIE rather than localStorage, unlike the theme — this is the channel a
+     server can write. Today nothing does: the persona default belongs in
+     'profiles', and no profile read exists in the data layer yet (that is
+     PHASE-PROFILE's). So the mechanism ships, the values are settable, and the
+     wizard that will set them is honestly still missing. Playwright drives both
+     states through the same cookie.
+
+     Unrecognised values are ignored rather than applied, so a stale or
+     hand-edited cookie cannot leave the app in a state no CSS defines. */
+  var m = document.cookie.match(/(?:^|;\\s*)hq_display=([^;]*)/);
+  if (m) {
+    var parts = decodeURIComponent(m[1]).split(",");
+    var r = document.documentElement;
+    if (parts.indexOf("large") !== -1) r.setAttribute("data-type-scale", "large");
+    if (parts.indexOf("comfortable") !== -1) r.setAttribute("data-density", "comfortable");
+  }
+} catch (e) {
+  /* Same rule: a display preference is never worth a blank page. */
+}
 `;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

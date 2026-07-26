@@ -225,8 +225,31 @@ export const FIXTURE_JOBS: JobView[] = [
   }),
 ];
 
+/**
+ * One application, with the fields P8 added defaulted.
+ *
+ * A helper rather than five hand-written literals: `statusActor` decides whether
+ * the human-wins lock is engaged, and a row that got it wrong by omission would
+ * be a fixture quietly asserting the opposite of what its test says. The derived
+ * fields (`noteCount`, `latestNote`, `postingStatus`) are here only to satisfy
+ * the type — `FixtureDataSource.withNotes()` recomputes all three on every read,
+ * because a stored copy is exactly what matrix row 54 is about.
+ */
+function app(
+  a: Omit<ApplicationView, "statusActor" | "noteCount" | "latestNote" | "postingStatus"> &
+    Partial<Pick<ApplicationView, "statusActor">>,
+): ApplicationView {
+  return {
+    statusActor: "system",
+    noteCount: 0,
+    latestNote: null,
+    postingStatus: null,
+    ...a,
+  };
+}
+
 export const FIXTURE_APPLICATIONS: ApplicationView[] = [
-  {
+  app({
     id: 1, postingKey: "greenhouse-4410982", company: "Stripe",
     title: "Product Manager, Billing", url: "https://example.com/jobs/greenhouse-4410982",
     status: "Interview", suggestedStatus: null,
@@ -234,37 +257,66 @@ export const FIXTURE_APPLICATIONS: ApplicationView[] = [
     appliedDate: daysAgo(21), nextAction: "Prep the ledger case study",
     nextActionDate: daysAgo(-2), notes: "Recruiter screen went well. Panel is 3 rounds.",
     updatedAt: stampAgo(30),
-  },
-  {
+  }),
+  // The suggestion row: Applied with a bot suggesting Rejected, which is what
+  // Confirm / Not-this are driven against. `statusActor` stays `system` — the
+  // whole point is that nothing human has claimed it yet.
+  app({
     id: 2, postingKey: "ashby-3f21a9c4", company: "Plaid",
     title: "Product Manager, Payments", url: "https://example.com/jobs/ashby-3f21a9c4",
     status: "Applied", suggestedStatus: "Rejected",
     evidence: "https://mail.google.com/mail/u/0/#inbox/def456",
     appliedDate: daysAgo(14), nextAction: null, nextActionDate: null,
     notes: null, updatedAt: stampAgo(50),
-  },
-  {
+  }),
+  app({
     id: 3, postingKey: null, company: "Anthropic",
     title: "Product Manager, Developer Platform", url: "https://example.com/jobs/manual-1",
     status: "Applied", suggestedStatus: null, evidence: null,
     appliedDate: daysAgo(9), nextAction: "Follow up with referrer",
     nextActionDate: daysAgo(-1), notes: "Referred by a UIUC alum.",
     updatedAt: stampAgo(72),
-  },
-  {
+  }),
+  app({
     id: 4, postingKey: "greenhouse-8814021", company: "Ramp",
     title: "Product Manager, Core Platform", url: "https://example.com/jobs/greenhouse-8814021",
     status: "Queued", suggestedStatus: null, evidence: null,
     appliedDate: null, nextAction: "Tailor résumé", nextActionDate: daysAgo(-1),
     notes: null, updatedAt: stampAgo(4),
-  },
-  {
+  }),
+  // Terminal, so Reopen is reachable — and Reopen is the one gesture the
+  // database refuses without a note.
+  app({
     id: 5, postingKey: null, company: "Datadog", title: "Product Manager, Observability",
     url: null, status: "Rejected", suggestedStatus: null,
     evidence: "https://mail.google.com/mail/u/0/#inbox/ghi789",
     appliedDate: daysAgo(35), nextAction: null, nextActionDate: null,
     notes: "Auto-rejection 3 weeks after applying.", updatedAt: stampAgo(200),
-  },
+  }),
+  // An application whose posting the BOARD has dropped (greenhouse-5540118 is
+  // the Closed row in FIXTURE_JOBS). The delisted badge is derived from that
+  // posting on every read, so without this row nothing could assert it appears —
+  // and, just as importantly, the row must STAY in its status group: §G2 is
+  // explicit that a delisted posting does not remove the application.
+  app({
+    id: 6, postingKey: "greenhouse-5540118", company: "Affirm",
+    title: "Product Manager, Checkout", url: "https://example.com/jobs/greenhouse-5540118",
+    status: "Screen", suggestedStatus: null,
+    evidence: "https://mail.google.com/mail/u/0/#inbox/jkl012",
+    appliedDate: daysAgo(18), nextAction: null, nextActionDate: null,
+    notes: null, updatedAt: stampAgo(90),
+  }),
+  // A status no vocabulary defines. The sheet allows one and `statusRank` ranks
+  // it highest by construction; without a row like this, "an invented status
+  // still renders" (matrix row 53) is unfalsifiable. Claimed by a human, so it
+  // also covers the locked-row rendering.
+  app({
+    id: 7, postingKey: null, company: "Brex", title: "Product Manager, Spend",
+    url: "https://example.com/jobs/manual-2",
+    status: "waiting on referral", statusActor: "user", suggestedStatus: null,
+    evidence: null, appliedDate: daysAgo(6), nextAction: "Ping Dev again",
+    nextActionDate: daysAgo(-4), notes: null, updatedAt: stampAgo(120),
+  }),
 ];
 
 export const FIXTURE_HEALTH: ChannelHealthView[] = [

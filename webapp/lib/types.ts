@@ -78,6 +78,14 @@ export type Application = {
   url: string;
   source: string;
   status: string;
+  /**
+   * Who last set `status` — 'system' or 'user' (0010). NOT NULL with a default,
+   * so it arrives as a string, never null. When it reads 'user' no bot write may
+   * change the status: the lock that makes acceptance criterion 14 hold.
+   */
+  status_actor: string;
+  /** When `status` was last set, by anyone. Null on a row nothing has set. */
+  status_set_at: string | null;
   suggested_status: string;
   evidence: string;
   applied_date: string | null;
@@ -86,9 +94,29 @@ export type Application = {
   last_activity: string | null;
   next_action: string;
   next_action_date: string | null;
+  /**
+   * The flat legacy column, KEPT. 0010 copied it into `application_notes` and
+   * left it in place: spec §E round-trips it and the export reads it, so a
+   * destructive migration here would blank a column in every export.
+   */
   notes: string;
   created_at: string;
   updated_at: string;
+};
+
+/**
+ * One append-only note (0010). There is no `updated_at` because there is no
+ * update — `revoke update, delete` is what makes that structural rather than a
+ * convention, and a nullable "edited at" column would invite the opposite.
+ */
+export type ApplicationNote = {
+  // bigint identity: PostgREST serializes int8 as a JSON number
+  id: number;
+  user_id: string;
+  application_id: number;
+  body: string;
+  author: string;
+  created_at: string;
 };
 
 export type ChannelRun = {

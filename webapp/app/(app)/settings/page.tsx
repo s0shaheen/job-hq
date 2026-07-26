@@ -1,4 +1,5 @@
 import { Settings } from "lucide-react";
+import { DisplayPrefs } from "./display-prefs";
 
 export const metadata = { title: "Search profile — Job Search HQ" };
 
@@ -68,6 +69,10 @@ export default function SettingsPage() {
             where a change takes effect.
           </span>
         </p>
+
+        {/* The one thing on this page that IS editable here. It sets a cookie and
+            needs no store, which is why it does not wait for PHASE-PROFILE. */}
+        <DisplayPrefs />
 
         {SETTINGS.map((s) => (
           <section

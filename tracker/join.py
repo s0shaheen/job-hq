@@ -72,18 +72,52 @@ def _apply_rules(hq: HQ, pipeline, key: str, ev: dict) -> str:
     etype = (ev.get("event_type") or "").strip()
     status, hard = schema.EVENT_STATUS_RULES.get(etype, (None, False))
     evid = ev.get("thread_link", "")
+    # A bot may only ever write a status EVENT_STATUS_RULES names, and that
+    # table structurally cannot name a STATUS_RESOLVED value — "Offer-Accepted"
+    # is a decision only a person can have made. Asserted rather than trusted
+    # because the table is edited by hand: adding an `offer_accepted` event type
+    # with a hard rule would otherwise let the classifier end someone's search
+    # for them, silently, from an email it read at 0.9 confidence.
+    if status is not None and status in schema.STATUS_RESOLVED:
+        raise AssertionError(
+            f"EVENT_STATUS_RULES[{etype!r}] names {status!r}, which is human-only "
+            f"(schema.STATUS_RESOLVED) — no bot may write it")
     if status is None:
         pipeline.set_by_key(key, {"last_activity": today()})
         hq.log("join", "matched", key, etype)
         return "matched"
     if hard and _confidence(ev.get("confidence")) >= schema.HARD_WRITE_MIN_CONFIDENCE:
         res = pipeline.advance_status(key, status, evidence=evid)
-        if res == "kept":   # advance_status only stamps activity when it moves
+        if res == "locked":
+            # A human owns this row's status (status_actor = user). The bot's
+            # opinion is still worth having — acceptance criterion 14 is "the
+            # human keeps their Offer AND sees the rejection" — so it lands in
+            # suggested_status, which is bot-owned and safe to overwrite.
+            #
+            # `evidence` only when there IS one. Writing it unconditionally
+            # blanked an existing link whenever the incoming event had no
+            # thread_link, which is the one field on the row a person actually
+            # needs to act — and `advance_status` has always guarded it the same
+            # way (`if evidence and "evidence" in hmap`). A suggestion with no
+            # reachable email is weak; a suggestion that DESTROYED the reachable
+            # email is worse than the status it was reporting.
+            vals = {"suggested_status": status, "last_activity": today()}
+            if evid:
+                vals["evidence"] = evid
+            pipeline.set_by_key(key, vals)
+        elif res == "kept":   # advance_status only stamps activity when it moves
+            # Deliberately NOT a suggestion. This branch is a stale or
+            # out-of-order email — "suggests Applied" on an Interview row is
+            # noise that trains people to ignore the column.
             pipeline.set_by_key(key, {"last_activity": today()})
         hq.log("join", f"{res}_status", key, f"{etype} -> {status}")
         return f"{res}:{status}"
-    pipeline.set_by_key(key, {"suggested_status": status, "evidence": evid,
-                              "last_activity": today()})
+    # Same rule on the below-the-gate path, for the same reason: a suggestion is
+    # not worth the evidence link it overwrites.
+    vals = {"suggested_status": status, "last_activity": today()}
+    if evid:
+        vals["evidence"] = evid
+    pipeline.set_by_key(key, vals)
     hq.log("join", "suggested_status", key, f"{etype} -> {status}")
     return f"suggested:{status}"
 

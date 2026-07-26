@@ -111,7 +111,40 @@
 
   --color-ring: var(--ring);
 
-  /* Type scale. 13px body is the grid default — dense without being cramped. */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* System stack, deliberately. Naming a webfont we never load means silent
+     per-machine fallback (and a different rendering on every visitor's
+     screen); loading one adds a network dependency that can fail or be
+     blocked by CSP. The system UI font is already installed, already
+     hinted, and never fails. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+
+/*
+ * Type scale — a plain `@theme`, NOT `@theme inline`, and the difference is the
+ * whole feature.
+ *
+ * `inline` substitutes a token's value into every utility at build time:
+ * `text-xs` compiles to `font-size: .75rem`, a literal. That is exactly what the
+ * colour tokens above need (it collapses the `--color-x: var(--x)` indirection so
+ * that overriding `--x` under `.dark` reaches the utility), and it is exactly what
+ * makes a RUNTIME type scale impossible — overriding `--text-xs` on a selector has
+ * nothing to override, because no utility references it.
+ *
+ * Found by measuring: the large-type cookie changed the body font (which IS a
+ * `var()` reference, in `@layer base` below) while every `text-*` utility on the
+ * page stayed put, so a status pill grew its text and not its box. Non-inline
+ * emits `font-size: var(--text-xs)`, and the override below works.
+ *
+ * 13px body is the default — dense without being cramped.
+ */
+@theme {
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
   --text-xs: 0.75rem;
@@ -126,20 +159,6 @@
   --text-xl--line-height: 1.75rem;
   --text-2xl: 1.5rem;
   --text-2xl--line-height: 2rem;
-
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
-
-  /* System stack, deliberately. Naming a webfont we never load means silent
-     per-machine fallback (and a different rendering on every visitor's
-     screen); loading one adds a network dependency that can fail or be
-     blocked by CSP. The system UI font is already installed, already
-     hinted, and never fails. */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
 }
 
 @layer base {
@@ -171,6 +190,107 @@
   }
   ::selection {
     background: var(--accent-subtle);
+  }
+}
+
+/*
+ * Per-user type scale (spec §D — Dad reads large type on EVERY surface).
+ *
+ * The TOKENS are scaled, not a `zoom` and not a root `font-size` multiplier. The
+ * `@theme` block above is the single source of type size, so nothing else in the
+ * app has to know this exists — and the 200%-zoom overflow test still means
+ * exactly what it meant, because it multiplies the root font size on top of
+ * whichever scale is active rather than fighting it.
+ *
+ * This only works because that block is NOT `@theme inline`; see the note there.
+ *
+ * Line heights move with the sizes. Scaling font-size alone is how large type
+ * turns a comfortable list into overlapping rows.
+ *
+ * It is an attribute on <html>, not a class, so it composes with `.dark`
+ * (a class) without either having to know about the other — and per-user is the
+ * right scope: a shared link must not impose the sharer's eyesight, which is
+ * why this is NOT in the URL (matrix row 67, learned on /jobs).
+ */
+:root[data-type-scale="large"] {
+  --text-2xs: 0.8125rem;
+  --text-2xs--line-height: 1.25rem;
+  --text-xs: 0.9375rem;
+  --text-xs--line-height: 1.375rem;
+  --text-sm: 1rem;
+  --text-sm--line-height: 1.5rem;
+  --text-base: 1.125rem;
+  --text-base--line-height: 1.625rem;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.5rem;
+  --text-xl--line-height: 2rem;
+  --text-2xl: 1.875rem;
+  --text-2xl--line-height: 2.375rem;
+}
+
+/*
+ * The opt-out: a subtree that already scales its own type.
+ *
+ * `/jobs` had a per-VIEW type scale before this per-USER one existed, and it does
+ * more than change a font size — `colScale` in `jobs-grid.tsx` widens every fixed
+ * column by the same ratio, because the widths are tuned for 14px and a fixed
+ * width ellipsizes "$165,000 - $210,000" at 18px. Once the token override became
+ * reachable there, the two scales COMPOUNDED: the cells grew a second time and
+ * `colScale` knew nothing about it, so 15 of 19 comp cells clipped — a comp column
+ * hiding its own numbers, which is matrix row 81 arriving through a different door.
+ *
+ * Re-declaring the default tokens on the subtree restores them for everything
+ * inside it (custom properties inherit), so the grid keeps exactly the one scale
+ * it manages itself. This is a HOLDING measure, not the destination: plans/README
+ * conflict C6 wants one per-user mechanism, and unifying them means moving
+ * `typeScale` out of saved-view state — which is P9's, when the value moves to
+ * `profiles`. Recorded in the deferral list rather than left as a surprise.
+ */
+:root[data-type-scale="large"] [data-type-scale-scope="own"] {
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.25rem;
+  --text-lg: 1rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+}
+
+/*
+ * Row density for the surfaces that opt in, via `.hq-row`.
+ *
+ * **Scope, stated accurately:** driven by `hq_display`, this is ONE GLOBAL COOKIE
+ * and therefore per-USER, which is NOT what plans/README conflict C6 resolves
+ * (typeScale per-user, density per-VIEW — density belongs in `saved_views.state`).
+ * An earlier version of this comment called it per-surface, which it never was.
+ *
+ * Shipped anyway, and recorded as a deviation rather than mislabelled: the
+ * pipeline has no saved views (`savedViews("pipeline")` is unprovisioned), so
+ * per-view density here would mean building that store first. `/jobs` keeps its
+ * own per-view density untouched, so nothing regresses — what exists is two
+ * mechanisms on two surfaces, which C6 exists to collapse. The deferral list in
+ * docs/WEBAPP-BUILD.md carries it.
+ *
+ * `dense` lives in the class itself and `comfortable` is the override, so the two
+ * knobs cannot fight. Written as CSS rather than a Tailwind conditional because
+ * the switch has to reach rows the component tree does not re-render.
+ */
+@layer base {
+  .hq-row {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+  :root[data-density="comfortable"] .hq-row {
+    padding-top: 1.125rem;
+    padding-bottom: 1.125rem;
   }
 }
 

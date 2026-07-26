@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  AppWriteResult,
   BulkReviewInput,
   BulkReviewResult,
   BulkTriageInput,
@@ -9,11 +10,15 @@ import type {
   DataSource,
   DeleteViewInput,
   DeleteViewResult,
+  NextActionInput,
+  NoteInput,
   ProposeCompaniesInput,
   ProposeCompaniesResult,
   QueueOptions,
   SaveViewInput,
   SaveViewResult,
+  StatusInput,
+  SuggestionInput,
   TriageInput,
   WriteResult,
 } from "./source";
@@ -23,6 +28,7 @@ import type {
   CompanyView,
   Disposition,
   JobView,
+  NoteView,
   ReliabilityTier,
   ReviewState,
   SavedView,
@@ -44,6 +50,27 @@ function toSavedView(r: Record<string, unknown>): SavedView {
 const POSTING_COLS =
   "key, company, title, location, url, posted, first_seen, last_seen, status, tags, geo, source";
 const CHANNEL_RUN_COLS = "channel, ran_at, fetched, new_rows, filtered, tagged, errors";
+/**
+ * The note embed on a pipeline read, and its bound.
+ *
+ * The view model uses exactly two things from this: `noteCount` and the NEWEST
+ * note. The embed nevertheless pulled every note on every row of every render and
+ * every export — one long-running application with a hundred notes multiplied the
+ * payload for a panel nobody had opened, while `notes()` (the panel's own read)
+ * has always been capped at 200.
+ *
+ * `count` cannot be selected alongside rows in one PostgREST embed, so the honest
+ * bound is a small window: enough to hold the newest note reliably, small enough
+ * that the payload cannot grow with a row's history. The disclosed consequence is
+ * that `noteCount` saturates — said in `toApplicationView`, where the number is
+ * built, rather than left for a reader to discover.
+ */
+const NOTE_EMBED_LIMIT = 5;
+const NOTE_EMBED = "application_notes(id, body, author, created_at)";
+
+const APPLICATION_COLS =
+  "id, posting_key, company, title, url, status, status_actor, suggested_status, " +
+  "evidence, applied_date, next_action, next_action_date, notes, updated_at";
 const COMPANY_COLS = "id, name, ats, slug, source, reliability_tier, resolution_method";
 
 /** jsonb fields arrive untyped; coerce narrowly and never guess a value. */
@@ -200,6 +227,82 @@ export function toCompanyView(uc: Record<string, unknown>): CompanyView | null {
   };
 }
 
+export function toNoteView(r: Record<string, unknown>): NoteView {
+  return {
+    id: Number(r.id ?? 0),
+    body: String(r.body ?? ""),
+    author: String(r.author ?? "user"),
+    createdAt: str(r.created_at),
+  };
+}
+
+/**
+ * One `applications` row → ApplicationView.
+ *
+ * Two shapes arrive here and both must work: a PostgREST select with embeds
+ * (`postings`, `application_notes`), and the flat jsonb `app_application_row`
+ * builds inside migration 0010 — which supplies `posting_status`, `note_count`
+ * and `latest_note` directly rather than as embeds. Handling both in one mapper
+ * is what stops a write's returned row from rendering differently to the same
+ * row re-read a moment later.
+ *
+ * `status_actor` is coerced through the CHECK the database enforces rather than
+ * trusted, and an unrecognised value reads as `"system"`. That direction is
+ * deliberate: `"user"` is a claim that a person decided something, and inventing
+ * it from a value the design does not define would lock a row nobody claimed —
+ * with no UI in this phase to unlock it.
+ */
+export function toApplicationView(r: Record<string, unknown>): ApplicationView {
+  const posting = (Array.isArray(r.postings) ? r.postings[0] : r.postings) as
+    | Record<string, unknown>
+    | undefined;
+  const embedded = Array.isArray(r.application_notes)
+    ? (r.application_notes as Record<string, unknown>[])
+    : [];
+  const latestFromFn = (r.latest_note ?? null) as Record<string, unknown> | null;
+
+  const notes = embedded.map(toNoteView);
+  const latestNote = notes.length
+    ? notes[0]
+    : latestFromFn
+      ? toNoteView(latestFromFn)
+      : null;
+  // `note_count` when the function supplied it, the embed's length otherwise.
+  // Not `embedded.length || num(...)`: a genuine zero would fall through to the
+  // other branch, which is the class of bug `??` exists to prevent.
+  //
+  // The function's count is EXACT. The embed's is capped at `NOTE_EMBED_LIMIT`,
+  // because that read is windowed rather than unbounded — so a row with more notes
+  // reads as exactly the cap until a write returns the real number. The
+  // alternative was pulling every note on every row of every render to make a
+  // badge one higher, which is the trade this loses on purpose.
+  const noteCount = embedded.length
+    ? embedded.length
+    : (num(r.note_count) ?? (latestNote ? 1 : 0));
+
+  const actor = String(r.status_actor ?? "system").trim();
+
+  return {
+    id: Number(r.id ?? 0),
+    postingKey: str(r.posting_key),
+    company: String(r.company ?? ""),
+    title: String(r.title ?? ""),
+    url: str(r.url),
+    status: String(r.status ?? "Inbox"),
+    statusActor: actor === "user" ? "user" : "system",
+    suggestedStatus: str(r.suggested_status),
+    evidence: str(r.evidence),
+    appliedDate: str(r.applied_date),
+    nextAction: str(r.next_action),
+    nextActionDate: str(r.next_action_date),
+    notes: str(r.notes),
+    noteCount,
+    latestNote,
+    postingStatus: posting ? str(posting.status) : str(r.posting_status),
+    updatedAt: str(r.updated_at),
+  };
+}
+
 export class SupabaseDataSource implements DataSource {
   constructor(
     private readonly supabase: SupabaseClient,
@@ -255,26 +358,146 @@ export class SupabaseDataSource implements DataSource {
     const { data, error } = await this.supabase
       .from("applications")
       .select(
-        "id, posting_key, company, title, url, status, suggested_status, evidence, applied_date, next_action, next_action_date, notes, updated_at",
+        `${APPLICATION_COLS},
+         postings(status),
+         ${NOTE_EMBED}`,
       )
       .eq("user_id", this.userId)
+      // Newest note first, and `id` behind it: two notes written in the same
+      // millisecond would otherwise be ordered by whatever the plan produced,
+      // and `latestNote` would flip between them across reads.
+      .order("created_at", { referencedTable: "application_notes", ascending: false })
+      .order("id", { referencedTable: "application_notes", ascending: false })
+      .limit(NOTE_EMBED_LIMIT, { referencedTable: "application_notes" })
       .order("updated_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return (data ?? []).map((r: Record<string, unknown>) => ({
-      id: Number(r.id),
-      postingKey: str(r.posting_key),
-      company: String(r.company ?? ""),
-      title: String(r.title ?? ""),
-      url: str(r.url),
-      status: String(r.status ?? "Inbox"),
-      suggestedStatus: str(r.suggested_status),
-      evidence: str(r.evidence),
-      appliedDate: str(r.applied_date),
-      nextAction: str(r.next_action),
-      nextActionDate: str(r.next_action_date),
-      notes: str(r.notes),
-      updatedAt: str(r.updated_at),
-    }));
+    return (data ?? []).map((r) => toApplicationView(r as Record<string, unknown>));
+  }
+
+  /**
+   * One application's note history, newest first.
+   *
+   * A separate read rather than a second use of the embed above: the dialog is
+   * opened on one row, and paying for every row's full history on every pipeline
+   * load to serve a panel nobody has opened yet is the wrong trade. RLS scopes
+   * it — the `user_id` filter is here for the query plan, not for safety.
+   */
+  async notes(applicationId: number): Promise<NoteView[]> {
+    const { data, error } = await this.supabase
+      .from("application_notes")
+      .select("id, body, author, created_at")
+      .eq("user_id", this.userId)
+      .eq("application_id", applicationId)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(200);
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r) => toNoteView(r as Record<string, unknown>));
+  }
+
+  /**
+   * Every pipeline write goes through the same shape, so it is written once.
+   *
+   * The re-read on a conflict is what makes matrix row 46 possible: a toast
+   * alone leaves the stale value on screen, and the UI needs the SERVER's row to
+   * render instead of the one it optimistically wrote.
+   */
+  private async appWrite(
+    fn: string,
+    args: Record<string, unknown>,
+    applicationId: number,
+  ): Promise<AppWriteResult> {
+    const { data, error } = await this.supabase.rpc(fn, args);
+    if (error) {
+      if (/conflict|stale/i.test(error.message)) {
+        const fresh = await this.oneApplication(applicationId);
+        if (fresh) return { ok: false, kind: "conflict", current: fresh };
+      }
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const row = data as Record<string, unknown> | null;
+    if (!row || row.id === undefined || row.id === null) {
+      const fresh = await this.oneApplication(applicationId);
+      if (fresh) return { ok: true, application: fresh };
+      return {
+        ok: false,
+        kind: "error",
+        message: "Write succeeded but the row could not be re-read",
+      };
+    }
+    return { ok: true, application: toApplicationView(row) };
+  }
+
+  private async oneApplication(applicationId: number): Promise<ApplicationView | null> {
+    const { data, error } = await this.supabase
+      .from("applications")
+      .select(
+        `${APPLICATION_COLS},
+         postings(status),
+         ${NOTE_EMBED}`,
+      )
+      .eq("user_id", this.userId)
+      .eq("id", applicationId)
+      .order("created_at", { referencedTable: "application_notes", ascending: false })
+      .order("id", { referencedTable: "application_notes", ascending: false })
+      .limit(NOTE_EMBED_LIMIT, { referencedTable: "application_notes" })
+      .limit(1);
+    if (error) throw new Error(error.message);
+    const row = (data ?? [])[0] as Record<string, unknown> | undefined;
+    return row ? toApplicationView(row) : null;
+  }
+
+  setStatus(input: StatusInput): Promise<AppWriteResult> {
+    return this.appWrite(
+      "app_set_status",
+      {
+        p_application_id: input.applicationId,
+        p_status: input.status,
+        p_note: input.note ?? null,
+        p_idem: input.idempotencyKey,
+        p_expected_updated_at: input.expectedUpdatedAt,
+      },
+      input.applicationId,
+    );
+  }
+
+  resolveSuggestion(input: SuggestionInput): Promise<AppWriteResult> {
+    return this.appWrite(
+      "app_resolve_suggestion",
+      {
+        p_application_id: input.applicationId,
+        p_decision: input.decision,
+        p_idem: input.idempotencyKey,
+        p_expected_updated_at: input.expectedUpdatedAt,
+      },
+      input.applicationId,
+    );
+  }
+
+  addNote(input: NoteInput): Promise<AppWriteResult> {
+    return this.appWrite(
+      "app_add_note",
+      {
+        p_application_id: input.applicationId,
+        p_body: input.body,
+        p_idem: input.idempotencyKey,
+      },
+      input.applicationId,
+    );
+  }
+
+  setNextAction(input: NextActionInput): Promise<AppWriteResult> {
+    return this.appWrite(
+      "app_set_next_action",
+      {
+        p_application_id: input.applicationId,
+        p_next_action: input.nextAction,
+        p_next_action_date: input.nextActionDate,
+        p_idem: input.idempotencyKey,
+        p_expected_updated_at: input.expectedUpdatedAt,
+      },
+      input.applicationId,
+    );
   }
 
   async health(): Promise<ChannelHealthView[]> {

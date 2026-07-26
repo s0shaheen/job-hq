@@ -51,6 +51,11 @@ const CONTRACT: Record<string, string> = {
   // drift check that cannot fail on it.
   companies: "Company",
   user_companies: "UserCompany",
+  // 0010. `applications` was already here, so its two new columns were caught
+  // by this guard the moment the migration landed; the notes table is added
+  // because the pipeline reads it directly (`notes()`), and an append-only
+  // table is exactly the kind whose shape must not drift silently.
+  application_notes: "ApplicationNote",
 };
 
 // ---------------------------------------------------------------- SQL side

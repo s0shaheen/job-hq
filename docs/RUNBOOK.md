@@ -438,6 +438,31 @@ duplicate row(s) — then re-run the failed job (**Run a bot**, or `aws lambda i
 dispatched immediately: Actions → "Self-heal and snapshot". Header row 1 is protected and frozen
 precisely to make this rare.
 
+### Deploying a release that adds a required column
+
+**Run self-heal FIRST, before the release is live — do not wait for the cron.**
+
+A new entry in `core.schema.HEADERS` is a REQUIRED header the moment the code ships, and
+`header_map()` refuses to guess: from the deploy until self-heal appends the column, every
+read and write on that tab raises `SchemaAnomaly` and aborts with zero writes. That is the
+durability contract working exactly as designed — nothing is corrupted, and nothing runs
+either. On the Pipeline tab that means `promote`, `quickadd`, `scout`, `stale` and `join` all
+stop, so a full working day of email-driven status updates can be missed if the deploy lands
+in the morning.
+
+    Actions → "Self-heal and snapshot"        # or:
+    aws lambda invoke --function-name job-hq-bots --payload '{"job":"selfheal"}' /dev/stderr
+
+Then re-run the affected chain (**Run a bot**, `job = tracker`) so the skipped cycle catches
+up. Releases known to need this:
+
+| Release | Column added | Tab |
+|---|---|---|
+| P8 pipeline (`0010_pipeline.sql`) | `status_actor` | Pipeline |
+
+Check it landed before declaring the deploy done: the header exists in row 1, and a `tracker`
+run completes without a `SchemaAnomaly` push.
+
 ## Restoring the sheet after a bad human edit
 
 Three independent layers; use whichever fits the damage. Layers 1 and 2 are the same CSVs written

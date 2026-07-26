@@ -48,6 +48,12 @@ _TARGET_STATUSES = ["researching", "reached out", "replied", "referred", "dead"]
 # (logical, header, options, strict)
 _DROPDOWNS = [
     ("pipeline", "status", schema.STATUSES, True),
+    # The human-wins lock, as a two-value dropdown rather than free text: it is
+    # the one cell whose exact spelling decides whether the bots may keep
+    # writing this row, and "User " with a trailing space reading as unlocked is
+    # the kind of silent failure a dropdown removes. (advance_status folds case
+    # anyway; the dropdown is what makes the gesture discoverable in the sheet.)
+    ("pipeline", "status_actor", schema.STATUS_ACTORS, True),
     ("pipeline", "source", schema.SOURCES, False),
     ("feed", "status", schema.FEED_STATUSES, True),
     ("targets", "status", _TARGET_STATUSES, False),

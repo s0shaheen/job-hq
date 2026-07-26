@@ -96,3 +96,53 @@ for (const scheme of ["light", "dark"] as const) {
     expect(serious, detail).toEqual([]);
   });
 }
+
+test("the per-user type cookie does not compound the view's own type scale", async ({
+  page,
+  context,
+}) => {
+  // The regression this guards is a COMPOSITION bug, not a sizing one.
+  //
+  // /jobs scaled its own type per view long before the per-user `hq_display`
+  // cookie existed, and it scales column WIDTHS by the same ratio (`colScale`)
+  // because the widths are tuned for 14px. When the token override became
+  // reachable here, both applied: cells grew twice, `colScale` knew nothing about
+  // the second one, and 15 of 19 comp cells clipped. The existing test above sets
+  // the view scale and never the cookie, so it could not see it.
+  await context.addCookies([
+    { name: "hq_display", value: "large,comfortable", url: "http://127.0.0.1:3210" },
+  ]);
+  await gotoJobs(page, context);
+  await expect(page.locator("html")).toHaveAttribute("data-type-scale", "large");
+
+  // First: the cookie must not reach the grid at all — its font is the view's.
+  const cellFont = await page
+    .locator('[role="gridcell"][data-col="comp"]')
+    .first()
+    .evaluate((el) => getComputedStyle(el).fontSize);
+
+  await page.getByTestId("view-switcher").click();
+  await page.getByRole("menuitemradio", { name: "Large type" }).click();
+  await expect(page.locator('[data-testid="jobs-grid"][data-ready="true"]')).toBeAttached();
+
+  const largeFont = await page
+    .locator('[role="gridcell"][data-col="comp"]')
+    .first()
+    .evaluate((el) => getComputedStyle(el).fontSize);
+  // The VIEW's own switch still works — this is the positive control, and without
+  // it the opt-out could have frozen the grid's type entirely.
+  expect(parseFloat(largeFont)).toBeGreaterThan(parseFloat(cellFont));
+
+  // And nothing clips, which is the failure the composition produced.
+  const overflow = await page.evaluate(() => {
+    const cells = [...document.querySelectorAll('[role="gridcell"][data-col="comp"]')];
+    return cells
+      .filter((c) => /\d/.test(c.textContent ?? ""))
+      .filter((c) => (c as HTMLElement).scrollWidth > (c as HTMLElement).clientWidth + 1)
+      .map((c) => c.textContent);
+  });
+  expect(
+    overflow,
+    `comp cells clipped with the cookie AND the view scale: ${overflow.join(" | ")}`,
+  ).toEqual([]);
+});

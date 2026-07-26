@@ -22,6 +22,7 @@ import type {
   ChannelHealthView,
   CompanyView,
   JobView,
+  NoteView,
   ReviewState,
   SavedView,
   Triage,
@@ -167,6 +168,65 @@ export type ProposeCompaniesResult =
   | { ok: false; kind: "auth" }
   | { ok: false; kind: "error"; message: string };
 
+/**
+ * A human choosing a status. `status` is free text on purpose: the sheet allows
+ * an invented status and `statusRank` ranks one highest by construction, so
+ * refusing it here would make the app strictly less capable than the
+ * spreadsheet it replaces.
+ *
+ * `note` is REQUIRED when the move is a reopen (terminal → live). The database
+ * enforces that, not this type — `app_set_status` refuses an empty body, so the
+ * rule holds for a replayed outbox gesture and for any other caller.
+ */
+export type StatusInput = {
+  applicationId: number;
+  status: string;
+  note?: string | null;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+export type SuggestionInput = {
+  applicationId: number;
+  decision: "confirm" | "reject";
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+/**
+ * Appending a note. No `expectedUpdatedAt`, deliberately: a note cannot
+ * conflict with anything, because it overwrites no value. "Somebody else wrote
+ * one first" is not an error, it is two notes — and demanding a version token
+ * would reject a good comment because an unrelated status changed while it was
+ * being typed, which is how people learn to keep their notes somewhere else.
+ */
+export type NoteInput = {
+  applicationId: number;
+  body: string;
+  idempotencyKey: string;
+};
+
+export type NextActionInput = {
+  applicationId: number;
+  nextAction: string;
+  nextActionDate: string | null;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+/**
+ * The result of a pipeline write.
+ *
+ * Same four-way shape as `WriteResult` and for the same reasons — `auth` is
+ * separate from `error` because an expired session is a deferral, not a
+ * rejection, and collapsing them throws away the last thing the user did.
+ */
+export type AppWriteResult =
+  | { ok: true; application: ApplicationView }
+  | { ok: false; kind: "conflict"; current: ApplicationView }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
 export interface DataSource {
   /** Qualified, untriaged, freshest first. */
   queue(opts?: QueueOptions): Promise<JobView[]>;
@@ -177,6 +237,18 @@ export interface DataSource {
   setTriage(input: TriageInput): Promise<WriteResult>;
   /** One triage applied to N postings in one transaction — all or nothing. */
   setTriageBulk(input: BulkTriageInput): Promise<BulkWriteResult>;
+
+  // ---- the pipeline (P8) --------------------------------------------------
+
+  /** A human sets a status. Always claims the row against later bot writes. */
+  setStatus(input: StatusInput): Promise<AppWriteResult>;
+  /** Confirm or reject a bot's `suggestedStatus`. Reject touches status not at all. */
+  resolveSuggestion(input: SuggestionInput): Promise<AppWriteResult>;
+  /** Append a note. Never overwrites — there is no edit. */
+  addNote(input: NoteInput): Promise<AppWriteResult>;
+  setNextAction(input: NextActionInput): Promise<AppWriteResult>;
+  /** One application's note history, newest first. */
+  notes(applicationId: number): Promise<NoteView[]>;
 
   /**
    * The user's slice of the shared company universe — proposals included.
@@ -202,5 +274,11 @@ export interface DataSource {
  * while showing invented jobs, which is worse than an error page.
  */
 export function isDemoMode(): boolean {
+  // Both arms are deliberate and they answer different questions. `HQ_DEMO` is
+  // read at request time on the server, which is what every caller here needs.
+  // `NEXT_PUBLIC_HQ_DEMO` is inlined at BUILD time — useless for a server-side
+  // decision, and kept because `playwright.config.ts` sets it and a future client
+  // component that has to know (a demo banner, a seam control) can only see the
+  // public one. If no such component exists by P11, drop it.
   return process.env.HQ_DEMO === "1" || process.env.NEXT_PUBLIC_HQ_DEMO === "1";
 }

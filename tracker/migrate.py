@@ -333,7 +333,7 @@ def migrate_simplify_csv(hq: HQ, path: str, *, dry_run: bool = False) -> dict:
 
     pipe = hq.tab("pipeline")
     have = set(pipe.key_index())
-    created, advanced, filled, unkeyed = 0, 0, 0, 0
+    created, advanced, filled, unkeyed, locked = 0, 0, 0, 0, 0
     new_recs = []
     for r in rows:
         url = _clean(r.get("Job URL"))
@@ -352,7 +352,15 @@ def migrate_simplify_csv(hq: HQ, path: str, *, dry_run: bool = False) -> dict:
 
         if key in have:
             if not dry_run:
-                pipe.advance_status(key, status, evidence="simplify")
+                # `advance_status` has a THIRD outcome now (`locked`): a row whose
+                # `status_actor` reads `user` refuses every bot status write. This
+                # loop ignored it and counted the row `advanced`, so an imported
+                # status was dropped with no trace and no suggestion — the same
+                # half of acceptance criterion 14 `join.py` handles.
+                if pipe.advance_status(key, status, evidence="simplify") == "locked":
+                    pipe.set_by_key(key, {"suggested_status": status},
+                                    only_if_blank=True)
+                    locked += 1
                 blanks = {"source": "simplify"}
                 if is_applied:
                     blanks["applied_via"] = "simplify"
@@ -377,7 +385,10 @@ def migrate_simplify_csv(hq: HQ, path: str, *, dry_run: bool = False) -> dict:
     if not dry_run:
         pipe.append_records(new_recs)
     return {"rows": len(rows), "created": created,
-            "advanced_existing": advanced, "unkeyed": unkeyed}
+            "advanced_existing": advanced, "unkeyed": unkeyed,
+            # Reported, not swallowed: a locked row is a human decision the
+            # import deferred to, and the count is how anyone notices.
+            "locked_suggested": locked}
 
 
 # ------------------------------------------------------------------- main

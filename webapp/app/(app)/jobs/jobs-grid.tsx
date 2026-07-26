@@ -1049,16 +1049,28 @@ export default function JobsGrid({
           role="region"
           aria-label="Job postings, scrollable"
           tabIndex={0}
+          // This grid scales its own type AND its column widths together
+          // (`colScale`), so the per-user `data-type-scale` cookie must not scale
+          // it a second time — the two compounded and clipped the comp band. See
+          // the opt-out block in globals.css.
+          data-type-scale-scope="own"
           className={cn(
             "min-h-0 flex-1 overflow-auto bg-surface focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
             // Type scale: the container's font-size cascades into every cell
             // (cells set no size of their own). Never html { font-size } —
             // that would fight the 200%-zoom test and rescale the chrome.
+            // Every branch names a size, including the default one. Leaving the
+            // dense case to inherit was fine until the per-user `data-type-scale`
+            // cookie existed: the container then inherited the SCALED body size in
+            // px, so switching the view to "Large type" resolved `--text-lg` (a
+            // token the opt-out pins to its default) to the SAME 16px it had
+            // already inherited — the view's own control silently stopped working.
+            // A subtree that opts out of an inherited scale has to state its size.
             displayState.typeScale === "large"
               ? "text-lg"
               : displayState.density === "comfortable"
                 ? "text-base"
-                : undefined,
+                : "text-sm",
           )}
         >
           {/* w-max: the grid is as wide as its columns and the CONTAINER

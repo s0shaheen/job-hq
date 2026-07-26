@@ -190,7 +190,17 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
       <DialogTrigger asChild>
         <Button variant="secondary" size="sm" data-testid="export-open" data-ready={ready}>
           <Download aria-hidden="true" className="size-3.5" /> Export
-          <Kbd className={cn(!ready && "opacity-40")}>⌘E</Kbd>
+          {/* `invisible`, not `opacity-40`.
+              The intent is right — never advertise a shortcut that is not wired
+              yet — and the implementation re-broke the exact rule Kbd's own
+              docstring records: an opacity multiplier turns an 8.6:1 token into
+              2:1 on screen, and axe DOES flag aria-hidden text for contrast. On a
+              slow machine (the Playwright container, a throttled runner) the scan
+              lands while `ready` is still false, so the violation is real rather
+              than a race artefact. `visibility: hidden` keeps the layout
+              identical, so nothing shifts when it appears, and there is no colour
+              left to fail. */}
+          <Kbd className={cn(!ready && "invisible")}>⌘E</Kbd>
         </Button>
       </DialogTrigger>
 

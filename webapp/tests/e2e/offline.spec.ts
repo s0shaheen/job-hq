@@ -115,7 +115,7 @@ test.describe("offline", () => {
 
     // And it really landed: an interested decision creates a pipeline row.
     await page.goto("/pipeline");
-    await expect(page.getByRole("table")).toBeVisible();
+    await expect(page.getByTestId("pipeline")).toBeVisible();
   });
 
   test("undo works offline, because nothing was ever sent", async ({ page, context }) => {

@@ -16,6 +16,8 @@
  * surface loses trust.
  */
 
+import type { StatusActor } from "@/lib/status";
+
 export type Disposition = "qualified" | "filtered" | "needs-info";
 export type Triage = "" | "interested" | "dismissed" | "snoozed";
 
@@ -137,6 +139,27 @@ const NAME_SPACES = /[\s\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]
 
 export function companyNameKey(name: string): string {
   return (name ?? "").replace(NAME_ZERO_WIDTH, "").replace(NAME_SPACES, " ").trim().toLowerCase();
+}
+
+/**
+ * The mirror of `public.hq_blank_trim(text)` in migration 0010, and it must stay
+ * byte-identical to it (`parity.test.ts` pins the character set to the SQL).
+ *
+ * It exists because SQL's `btrim(x)` with no character set trims SPACES ONLY \u2014
+ * so `btrim(E'\n\t')` is not empty, and a note consisting of one newline passed
+ * every "must not be blank" check in 0010 into an append-only table that cannot
+ * delete it. Found by running it, not by reading it.
+ *
+ * JS `\s` is a superset of what the SQL trims, so the classes are spelled out on
+ * both sides rather than left to either language's default \u2014 writing both
+ * explicitly is what keeps the fake and the database agreeing about which
+ * strings are empty.
+ */
+const BLANK_TRIM_EDGES =
+  /^[\s\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]+|[\s\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]+$/g;
+
+export function blankTrim(text: string | null | undefined): string {
+  return (text ?? "").replace(NAME_ZERO_WIDTH, "").replace(BLANK_TRIM_EDGES, "");
 }
 
 /**
@@ -321,6 +344,34 @@ export function sourceLabel(source: string): string {
   return labels[s] ?? source.trim();
 }
 
+/**
+ * One note on an application. Append-only — there is no edit and no delete,
+ * in the type as in the table (`revoke update, delete`, migration 0010).
+ */
+export type NoteView = {
+  id: number;
+  body: string;
+  /** user | scout | system | import. Rendered verbatim if unrecognised. */
+  author: string;
+  createdAt: string | null;
+};
+
+/** How a note's author is named to a person. */
+const NOTE_AUTHOR_LABELS: Record<string, string> = {
+  user: "you",
+  scout: "the scout",
+  system: "the system",
+  import: "imported",
+};
+
+export function noteAuthorLabel(author: string): string {
+  const a = (author ?? "").trim().toLowerCase();
+  if (!a) return "unknown";
+  // Verbatim for an unrecognised tag, for `sourceLabel`'s reason: a future
+  // writer may legitimately mint one, and hiding it loses real provenance.
+  return NOTE_AUTHOR_LABELS[a] ?? author.trim();
+}
+
 /** One application as the pipeline renders it. */
 export type ApplicationView = {
   id: number;
@@ -329,6 +380,11 @@ export type ApplicationView = {
   title: string;
   url: string | null;
   status: string;
+  /**
+   * Who last set `status`. `"user"` means a human chose it and no bot write may
+   * change it — the lock that makes acceptance criterion 14 hold (0010).
+   */
+  statusActor: StatusActor;
   /** A status a bot proposes but will not apply on its own. */
   suggestedStatus: string | null;
   /** Deep link to the email that justified the current status. */
@@ -336,9 +392,56 @@ export type ApplicationView = {
   appliedDate: string | null;
   nextAction: string | null;
   nextActionDate: string | null;
+  /**
+   * The flat legacy column. KEPT: spec §E round-trips it and the export column
+   * reads it, so 0010 copied it into `application_notes` and left it in place.
+   * New writes go to the notes entity; this is what a pre-0010 row still has.
+   */
   notes: string | null;
+  /** How many notes exist, so the UI can say so without fetching them. */
+  noteCount: number;
+  /** The newest note, or null. What the export writes, in preference to `notes`. */
+  latestNote: NoteView | null;
+  /**
+   * The board's lifecycle status for this application's posting, or null when
+   * there is no posting or it is not visible to this user.
+   *
+   * DERIVED on every read, never stored — a stored `delisted` flag lies the
+   * moment the board reposts the role (matrix row 122).
+   */
+  postingStatus: string | null;
   updatedAt: string | null;
 };
+
+/**
+ * Has the board dropped this posting?
+ *
+ * The honest limitation, worth stating where the function is rather than in a
+ * plan: `postings` is only readable through a `user_postings` row
+ * (0002_invariants.sql:16), so a manually-added application whose `posting_key`
+ * points at a posting this user was never gated returns `null` here and reads
+ * as still-listed. That is a false NEGATIVE, and it is the right way round —
+ * the other direction tells someone a live job is dead.
+ */
+export function isDelisted(app: ApplicationView): boolean {
+  return (app.postingStatus ?? "").trim().toLowerCase() === "closed";
+}
+
+/**
+ * The note body the export writes for a row.
+ *
+ * Newest note first, falling back to the flat column. That ordering is the only
+ * one correct both before and after 0010's backfill: a pre-migration row has a
+ * column and no notes, a post-migration row has both, and a row written since
+ * has notes and an empty column. Matrix row 109 — the backfill copies and never
+ * clears, and this is the reader that makes both states work.
+ */
+export function exportNote(app: ApplicationView): string | null {
+  const latest = app.latestNote?.body?.trim();
+  if (latest) return latest;
+  const flat = app.notes?.trim();
+  return flat ? flat : null;
+}
 
 export type ChannelHealthView = {
   channel: string;

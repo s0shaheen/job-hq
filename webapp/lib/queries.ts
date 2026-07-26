@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { statusRank } from "@/lib/status";
 import type { Application, ChannelRun, Posting, QueueItem } from "@/lib/types";
 
 /**
@@ -54,17 +55,21 @@ export async function fetchQueue(
 }
 
 /**
+ * UNUSED as of P8 — kept, and said so rather than left to be discovered.
+ *
+ * `SupabaseDataSource.applications()` is the pipeline's only reader now; this
+ * helper has zero importers. It is retained because it is the typed-query shape
+ * the other `fetch*` helpers in this file share, and deleting one of four would
+ * make the file read as arbitrary. If a second reader never appears, delete all
+ * of them together.
+ *
  * /pipeline — this user's applications ordered by PIPELINE PROGRESSION
  * (Inbox → … → Offer, then terminal states), newest activity first within a
  * stage. Postgres would sort the status text alphabetically ("Applied" above
  * "Inbox"), which buries early-stage rows, so the canonical order from
- * core/schema.py is applied here after the fetch.
+ * core/schema.py is applied here after the fetch — via `lib/status.ts`, which
+ * is the one copy of that vocabulary and is parity-tested against the Python.
  */
-const STATUS_ORDER = [
-  "Inbox", "Queued", "Applied", "OA", "Screen", "Interview", "Final", "Offer",
-  "Rejected", "Withdrawn", "Closed",
-];
-
 export async function fetchPipeline(
   supabase: SupabaseClient,
   userId: string,
@@ -80,14 +85,11 @@ export async function fetchPipeline(
   if (error) return { rows: [], error: error.message };
 
   // A human-invented status (the sheet allows them) sorts after every known
-  // one rather than vanishing or landing mid-pipeline.
-  const rank = (s: string) => {
-    const i = STATUS_ORDER.indexOf(s);
-    return i === -1 ? STATUS_ORDER.length : i;
-  };
+  // one rather than vanishing or landing mid-pipeline — `statusRank` gives it
+  // the highest tier by construction.
   const rows = ((data ?? []) as unknown as Application[])
     .slice()
-    .sort((a, b) => rank(a.status) - rank(b.status));
+    .sort((a, b) => statusRank(a.status) - statusRank(b.status));
 
   return { rows, error: null };
 }
