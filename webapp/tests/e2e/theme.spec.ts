@@ -22,7 +22,7 @@ async function bg(page: import("@playwright/test").Page) {
 // and the grid is a whole new surface — a deep link straight to /jobs on a dark
 // OS is a real entry point (a shared filtered view), and nothing asserted its
 // background until this list did.
-const ROUTES = ["/queue", "/jobs", "/pipeline", "/health"];
+const ROUTES = ["/queue", "/jobs", "/pipeline", "/health", "/companies"];
 
 test.describe("dark OS preference", () => {
   test.use({ colorScheme: "dark" });

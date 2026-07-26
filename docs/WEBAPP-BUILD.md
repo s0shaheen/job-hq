@@ -170,6 +170,25 @@ not the requirement. This is the actual list, with what enforces each.
 | 80 | **Selected rows are indistinguishable in dark mode** | A dedicated `--selected` token (not `accent-subtle`, which sits a hair off the dark background); tuned to stand off both the base and the hover in each theme. Found by looking at it, not by a test | ✅ |
 | 81 | **The Comp column ellipsizes its own band at large type** | Column widths scale with the type ratio (18/14), applied identically to header and body so their edges stay aligned; `grid-polish.spec.ts` measures every comp cell for clip at large type | ✅ |
 | 82 | **A selected row's muted text fails AA contrast on the tint** | On a selected row muted text is promoted to `text-2`; a tint strong enough to read as selection is too dark for `#707067` at AA (3.97:1). Caught by `grid-polish.spec.ts`'s axe-with-selection scan the first time it ran — the at-rest sweep in `resilience.spec.ts` never selects | ✅ |
+| 83 | **A reliability tier is rendered as if it were measured** | The whole reason `/companies` exists as its own surface. Two rows can both read "Tier 1 · day-of" while one had a Greenhouse API answer and the other is an unprobed Common Crawl slug from a corpus the research pass found "contains dead boards". `resolutionConfidence()` derives verified / inferred / asserted / unresolved from `resolution_method`, the chip always carries the word beside the tier, and the coverage meter's HEADLINE is the verified count with the tier-1 total shown separately as the softer number. **Fails closed:** an unrecognised method is never "verified", and a tiered row with an unreadable method is kept out of every tier bucket. `company-resolution.test.ts` + `coverage.test.ts` + an e2e that asserts the two Tier-1 rows are distinguishable on screen | ✅ |
+| 84 | **A coverage meter implies recall it cannot compute** | `monitor/oracle.py` is the only thing that can size a facet's universe; it is a keyed Python job and nothing writes its result where the web app reads. `ORACLE_UNMEASURED` is an explicitly-empty slot and the meter says "Recall: not measured" in words — omitting the row would let a reader take "84% verified" as recall, which is the misreading the design fears. The e2e asserts the slot contains no `%` at all | ✅ |
+| 85 | **A pasted company name claims a reliability tier nobody earned** | Nothing reachable from the web app probes an ATS (the waterfall is `monitor/discover.py`, in Python). `app_propose_companies` writes tier 3 / `manual`, the API route refuses to accept an `ats`/`slug`/`tier` from its caller, and a paste never demotes a company the resolver already grounded. Pinned in SQL (`test_company_review.py`), in the fake (`parity.test.ts`, against the migration's own text), and end-to-end | ✅ |
+| 86 | **An unreviewed company gets swept behind the user's back** | The review gate is enforced in SQL, not only in the UI: `app_set_company_flags` raises on a row whose `review_state <> 'approved'`, and approving is what turns `monitor` on. Watched go red with the gate removed | ✅ |
+| 87 | **A bulk review half-applies** | One `setCompanyReviewAction` → `app_set_company_review_bulk` (atomic; the fixture models the same all-or-nothing, `test_company_review.py` proves the SQL by staging a conflict on the LAST row and asserting the FIRST was not left written). A conflict reverts every optimistic row and restores the selection | ✅ |
+| 88 | **A keyboard write-verb fires on a selection the user already cleared** | The parent read the selection out of the `bulkBar` render prop — which is only called while something is selected, so a Clear left it holding the last non-empty set and the next `a` would have decided invisible rows. `onSelectionChange` fires on the empty selection too; the e2e presses `j` then `a` with nothing selected and asserts the row count is unchanged | ✅ |
+| 89 | **A pasted list is mis-split into companies that do not exist** | `parsePastedNames` is shared by the preview, the server action and the API route, so what is shown is byte-identical to what is written — and the add form previews the parse BEFORE submitting, which is how a guess becomes something a person can correct. Found by looking at that preview: `- 1. McDonald's` came through as `1. McDonald's` because the marker strip ran once and markers combine. Now one regex with a repeat group, and `paste.test.ts` covers CSV cells, comma-joined sentences, CRLF, bullets, `3M`, and a line of pure markers | ✅ |
+| 90 | **The `/companies` skeleton drops the grid 8px when data lands** | The coverage band sits BETWEEN the toolbar and the grid, and its headline row is `h-6` (the toggle button sets the height), not `h-4`. Measured, not assumed: `companies.spec.ts` compares the skeleton's column rail against the loaded one on desktop, and separately asserts the skeleton carries all four bands at any viewport. The first version was 8px short and the test said so | ✅ |
+| 91 | **Two Playwright projects share one demo store and assert on each other's leftovers** | Desktop and mobile run the same specs against the same server process, so a bare `hq_demo_id` put both runs in one store: whichever ran second found the pasted companies already added. The id now carries the project name. Three "mobile" failures that said nothing about the mobile viewport | ✅ |
+| 92 | **A drift guard cannot see the columns it is supposed to guard** | `types-contract.test.ts` parsed `alter table … add column a, add column b;` and registered only the first column, then swallowed the rest into its default clause — so `companies.resolution_method` and `user_companies.updated_at` were invisible to it. Adding those two tables to the contract exposed it; the parser now splits the statement on top-level commas. Verified red by deleting one field from `UserCompany` | ✅ |
+| 93 | **A pasted name creates a permanent ghost beside the company it names** | `app_propose_companies` inserted on `(name, '', '')`, and the resolver only ever writes rows with a non-empty ats+slug — so a paste of an already-grounded name collided with nothing: a second tier-3 row, and the human's subscription bound to it. A company that reads as watched and is never pulled from. The lookup is now `company_name_key(name)` across every row, grounded first, plus a PARTIAL unique index on the normalized name for the race a lookup cannot cover. Fixes the two cross-paste duplicates in the same stroke ('Aon'/'aon', and the trailing NBSP `btrim()` does not strip). Watched go red with the raw key restored, in the SQL and in the fake | ✅ |
+| 94 | **A bare insert lands a swept-but-unreviewed row** | `monitor` defaults to TRUE (0001), so any writer inserting a proposal without naming it fails OPEN on the one flag whose whole purpose is that a human said yes first. `app_set_company_flags` guarded the UI's door only; `check (monitor = false or review_state = 'approved')` guards every other one | ✅ |
+| 95 | **Two tabs reviewing one selection in different sort orders deadlock** | The grid sends ids in DISPLAY order, so a name-sorted tab and a tier-sorted tab hand `app_set_company_review_bulk` the same selection in opposite sequences and each holds the row the other wants next — 40P01, surfaced to the user as a generic failure for a perfectly valid gesture. Every id is now locked in ascending order before any write. The db test runs both directions concurrently over 40 rows: wide enough that the unordered version fails on the first round, and the ordered one cannot fail at all | ✅ |
+| 96 | **A non-RPC writer freezes the version token** | `user_companies` was the only versioned table without `touch_updated_at`. The three RPCs set `updated_at` themselves, so the column looked fine; a backfill, a psql fix or a future bot changed the row and left the token where it was, and the next client holding the old value passed its conflict check and clobbered a write it never saw | ✅ |
+| 97 | **A live write endpoint with no caller** | `app_set_company_flags` + `setCompanyFlagsAction` existed, were granted to `authenticated`, and nothing in the app reached them — so row 86 guarded an unreachable path while a security-definer door sat unwatched. `sweep-toggle.tsx` is the one honest caller: a single flag, approved rows only (the SQL refuses the rest, and a switch that always errors is worse than none), optimistic against the row's token, the server's row on conflict. E2E across a reload, absent on unreviewed rows, reverting on a failed write | ✅ |
+| 98 | **An open prefix launders an unknown method into "verified"** | `resolutionConfidence` matched `startsWith("discover-")`, so any future `discover-<anything>` — a new adapter, a typo, a hand-edited row — counted as a first-party board call nobody made. The exact false confidence the fail-closed default exists to prevent, arriving through the one branch that skipped it. Verified is now the five strings `monitor/discover.py` can emit; an unknown `discover-*` is `inferred`. `explainResolution` names the API from the ROW's `ats`, so a mismatched pair cannot print a confident sentence about a board the company does not have | ✅ |
+| 99 | **A capability this table counts has no way to be exercised** | `FixtureDataSource.failNextWrite()` — the mechanism behind rows 8 and 9 — had ZERO CALLERS. That is the shape the adversarial sweep already named once, grown back. `hq_demo_fail` is the channel a browser-driven test needs, mirroring `hq_demo_session=expired`; `/companies` now proves a rejected batch reverts every optimistic row and that the store holds none of it after a reload. Arming it needed a duck-typed check rather than `instanceof`: the store is constructed in one server bundle and read in another, so the class objects differ — the three-stores bug, one layer down, found by watching the new test fail | ✅ |
+| 100 | **The confirmation toast covers the button that produced it** | On a phone `/companies/add` is almost exactly one screen. Typing a second list re-opens the preview, which pushes "Add N companies" from y=689 to y=773 — into the 749–823 strip the previous paste's toast occupies — and with the document exactly viewport-height there is nowhere to scroll it clear. Waiting does not reliably help either: sonner pauses its 8s dismiss timer while a finger (or Playwright's cursor) rests on the toaster, so the click retried for its full 30s. A `pb-40` safe area below the form means the page always scrolls far enough to lift the action out of the strip; `closeButton` on the Toaster is the second way out. The e2e scrolls to the end and hit-tests the button's own centre — verified red with the safe area removed. **Not claimed:** that a bottom-anchored toast never overlaps anything; reserving the strip app-wide is a bigger change and the /jobs selection bar has the same shape | ✅ |
+| 101 | **A pixel assertion runs where the fonts are not pinned** | The `/companies` skeleton-rail measurement lived in `companies.spec.ts`, so it ran on the bare `webapp` runner: skeleton 185, loaded 221, while macOS *and* the Playwright container both measure 0. Nothing was wrong with the skeleton — the loaded page is 36px taller above the rail on that runner's fonts, because the header subtitle and the coverage headline wrap where they do not wrap elsewhere, and a skeleton of fixed-height blocks cannot track a line-box count. It moved to `visual.spec.ts`, which is this repo's existing answer to exactly this ("a check that fails for a font mismatch is the permanently-red check the matrix is careful never to ship"). Plain e2e keeps band count + ordering + rail-below-coverage, which is font-independent and is the half that caught the real bug (row 90). Widening to 40px was rejected: at 40 the assertion can no longer tell a correct skeleton from one missing its coverage band | ✅ |
 
 Row 21 is the rule working as intended. A Linux CI runner failed the keyboard
 test that had always passed on the Mac: `goto` resolves when the server HTML
@@ -308,12 +327,50 @@ Worth keeping, because each was stated confidently and was wrong:
       export scope menu, atomic bulk triage (`0006` migration + db tests)
 - [x] **Grid G5** — Linux visual baselines (row 14 closed), axe-with-selection,
       large-type column scaling. **The grid phase (build-order step 4) is complete.**
-- [ ] **Next up — company discovery** (`docs/plans/COMPANY-DISCOVERY.md`): the
-      active design thread. How dad/roommate populate their company universe by
-      NL / filters / pasted list, agentically and grounded. Forks resolved; the
-      next action is a read-only research pass (confirm with Salman before
-      launching). Remaining build-order phases (pipeline, import, profile,
-      digest) still stand — see `docs/plans/README.md`.
+- [x] **P7 — `/companies` universe review grid** (`docs/plans/HQ-V2-BUILD.md` §P7,
+      built in the order `COMPANY-DISCOVERY-RESEARCH.md`'s UX teardown binds:
+      provenance column → bulk verbs → coverage meter → NL bar → personas).
+      Migration **0008** (`review_state` + `updated_at` on `user_companies`, three
+      RPCs); the grid extends the /jobs primitives rather than replacing them —
+      `selection.ts` unmodified, `why-popover.tsx` **copied** as the Resolution
+      column, `view-switcher.tsx`'s pattern **copied** for sets + personas. Neither
+      original was touched; "re-skinned" reads as reuse and would send the next
+      session looking for a shared component that does not exist. Matrix rows
+      83–101. **The honest scope line:** the NL half of the "add companies" bar is a
+      paste box, because the discovery agent (`monitor/discovery_agent.py`) is Python
+      on the Lambda schedule with no route into the app — `POST /api/companies/propose`
+      answers **501** for a `facet`, with the reason, so the contract is ready and
+      the gap is visible rather than mimed.
+- [x] **P7 fix pass** — two adversarial reviews, both executed against real
+      Postgres and real mutants rather than read off the diff. Rows 93–99 came out
+      of it, and the worst of them (93) is the shape worth remembering: **a
+      uniqueness key that cannot collide with the rows it is meant to deduplicate.**
+      `(name, '', '')` looked like a conflict key and was a guarantee of a
+      duplicate, because every grounded row has a non-empty ats+slug by
+      construction. Nothing was going to catch it — the test that should have was
+      itself broken (`slug or uuid4()` turned `slug=""` into a random slug, so the
+      row it built was grounded after all and the key under test was never
+      exercised). Also out of this pass: 40 db tests where there were 22, the four
+      UI strings that promised sweep behaviour nothing implements reworded to what
+      is true, and every `-linux` visual baseline re-recorded in one container run
+      because /jobs and /queue predated the nav item and were passing on tolerance
+      alone. **Still not wired, and now said out loud on screen rather than in a
+      plan:** the Python sweep reads neither `review_state` nor `monitor`, and
+      nothing upgrades a pasted tier-3 row when the resolver later grounds the same
+      name — it writes a second row, and the subscription stays on the first.
+      **Then CI failed on two of its own new tests, both green locally** (rows 100
+      and 101), and both for the same underlying reason: *the runner is not the
+      machine you wrote the test on.* One was a real product bug the local fonts
+      hid (a toast covering the button that produced it); the other was a pixel
+      assertion running outside the one environment where pixels mean anything.
+      The rule that follows is already half-written above under visual baselines,
+      so state the other half: **a geometry assertion belongs in the container job,
+      and a plain-e2e assertion must not be able to move when a font changes.**
+- [ ] **Next up — the rest of Track 2** (`docs/plans/HQ-V2-BUILD.md`): P8
+      `lib/status.ts` + Pipeline (0008 → renumber to 0009, P7 took 0008), P9 profile
+      wizard, P10 import, P11 digest. Track-1 discovery infra is complete except the
+      sweep honoring `review_state`/`enabled` on the Python side — see the deferred
+      list in P7's PR.
 
 ## Stack (verified live 2026-07-21, not from memory)
 

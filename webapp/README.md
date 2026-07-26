@@ -108,8 +108,14 @@ middleware.ts       # session refresh + redirect unauthenticated -> /login
 
 ## Visual regression baselines
 
-`tests/e2e/visual.spec.ts` pins how the queue and the jobs grid look, as
-`-linux` PNG baselines. Pixel baselines only mean something where the fonts
+`tests/e2e/visual.spec.ts` pins how the queue, the jobs grid, and the companies
+grid + coverage meter look, as `-linux` PNG baselines. The companies pair earns a
+baseline for a reason the others do not: that surface's whole job is a
+colour-coded distinction (verified / inferred / unverified / unresolved), so a
+token that quietly drifts in one theme changes what the page CLAIMS about its own
+evidence, and no assertion would notice.
+
+Pixel baselines only mean something where the fonts
 match, so both the recording and the CI check happen inside one image — the
 official Playwright container. The `visual` CI job runs there automatically; the
 ordinary `webapp` job skips these (it leaves `HQ_VISUAL` unset) so a font
@@ -123,12 +129,21 @@ docker run --rm -v "$PWD":/host mcr.microsoft.com/playwright:v1.61.1-noble bash 
   cp -a /host/webapp/. /work/ && cd /work
   rm -rf node_modules .next test-results playwright-report
   npm install --no-audit --no-fund
-  HQ_VISUAL=1 HQ_DEMO=1 npx playwright test tests/e2e/visual.spec.ts --update-snapshots
+  HQ_VISUAL=1 HQ_DEMO=1 npx playwright test tests/e2e/visual.spec.ts --update-snapshots=all
   cp tests/e2e/visual.spec.ts-snapshots/*-linux.png /host/webapp/tests/e2e/visual.spec.ts-snapshots/
 '
 ```
 
-Then look at the changed PNGs before committing — a baseline you did not look at
+**`=all`, not bare `--update-snapshots`.** The bare form rewrites only the
+baselines that FAIL, so a shot that changed by less than `maxDiffPixelRatio`
+stays on disk as the old image and the gate goes on defending it. That is how
+the `/jobs` and `/queue` baselines survived a nav item being added to every
+page: passing, and no longer pictures of the app. Re-record the whole set in one
+run, always.
+
+Then check it in CHECK mode, in the same container, **twice** — a baseline
+recorded against its own rendering noise passes the first time by construction.
+And look at the changed PNGs before committing: a baseline you did not look at
 is a screenshot the check will defend without anyone having seen it. Recording
 on a Mac writes `-darwin` baselines the CI job never reads; only `-linux`
 counts.

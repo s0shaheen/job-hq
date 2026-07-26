@@ -13,11 +13,17 @@
  *     path testable without unplugging anything.
  */
 import type {
+  BulkReviewInput,
+  BulkReviewResult,
   BulkTriageInput,
   BulkWriteResult,
+  CompanyFlagsInput,
+  CompanyFlagsResult,
   DataSource,
   DeleteViewInput,
   DeleteViewResult,
+  ProposeCompaniesInput,
+  ProposeCompaniesResult,
   QueueOptions,
   SaveViewInput,
   SaveViewResult,
@@ -30,12 +36,18 @@ import {
   FIXTURE_JOBS,
   FIXTURE_NOW,
 } from "./fixtures";
+import { FIXTURE_COMPANIES } from "./company-fixtures";
+import { companyNameKey, PROPOSE_SOURCE_TAGS } from "./view-models";
 import type {
   ApplicationView,
   ChannelHealthView,
+  CompanyView,
   JobView,
   SavedView,
 } from "./view-models";
+
+/** 0008's ceiling on one user's review pile. */
+const MAX_PENDING_PROPOSALS = 2000;
 
 const DEFAULT_QUEUE_LIMIT = 20;
 
@@ -79,10 +91,16 @@ export class FixtureDataSource implements DataSource {
     seed: JobView[] = FIXTURE_JOBS,
     apps: ApplicationView[] = FIXTURE_APPLICATIONS,
     channels: ChannelHealthView[] = FIXTURE_HEALTH,
+    companies: CompanyView[] = FIXTURE_COMPANIES,
   ) {
     for (const j of seed) this.jobsByKey.set(j.key, { ...j });
     this.apps = apps.map((a) => ({ ...a }));
     this.channels = channels.map((c) => ({ ...c }));
+    // Injectable for the same reason health is: the `empty` demo seed must be
+    // able to produce a zero-row /companies, or its empty state ships unlooked-at
+    // (matrix row 15's lesson, and the "every collection a fake owns comes from
+    // its constructor" rule that followed it).
+    for (const c of companies) this.companiesById.set(c.id, { ...c });
   }
 
   /** Force the next write to fail, so the UI's failure path can be tested. */
@@ -260,6 +278,259 @@ export class FixtureDataSource implements DataSource {
   }
 
   private seenBulkKeys = new Map<string, BulkWriteResult>();
+
+  // ---- the company universe (P7) ----------------------------------------
+
+  private companiesById = new Map<number, CompanyView>();
+  private seenCompanyKeys = new Map<
+    string,
+    BulkReviewResult | CompanyFlagsResult | ProposeCompaniesResult
+  >();
+  private companySeq = 900; // above the fixture ids, so a pasted row is distinguishable
+
+  /** The one ordering contract, shared with SupabaseDataSource.companies():
+   *  by name ascending, id ascending on a tie. A tie direction left undefined is
+   *  the divergence parity.test.ts exists to pin. */
+  private static byName(a: CompanyView, b: CompanyView): number {
+    return a.name.localeCompare(b.name) || a.id - b.id;
+  }
+
+  async companies(): Promise<CompanyView[]> {
+    return [...this.companiesById.values()]
+      .sort(FixtureDataSource.byName)
+      .map((c) => ({ ...c }));
+  }
+
+  private bumped(c: CompanyView): string {
+    return new Date(new Date(c.updatedAt ?? FIXTURE_NOW).getTime() + 1000).toISOString();
+  }
+
+  async setCompanyReviewBulk(input: BulkReviewInput): Promise<BulkReviewResult> {
+    const replay = this.seenCompanyKeys.get(input.idempotencyKey) as BulkReviewResult | undefined;
+    if (replay) return replay;
+
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    // The migration's own guards, verbatim, so the UI cannot ship a gesture
+    // Postgres rejects (parity.test.ts pins these strings to the SQL).
+    if (input.companyIds.length === 0) {
+      return { ok: false, kind: "error", message: "no companies selected" };
+    }
+    if (input.companyIds.length > 1000) {
+      return { ok: false, kind: "error", message: "too many companies in one batch" };
+    }
+    if (!["proposed", "approved", "dismissed"].includes(input.reviewState)) {
+      return { ok: false, kind: "error", message: `invalid review state: ${input.reviewState}` };
+    }
+    if (input.expectedUpdatedAt.length !== input.companyIds.length) {
+      return { ok: false, kind: "error", message: "version tokens must match the selection" };
+    }
+
+    // Validate the WHOLE batch before touching anything, exactly as the
+    // transaction does — a conflict on the last row must leave the first row
+    // untouched. A fake that applied greedily would model a partial write the
+    // SQL cannot produce, and hide the atomicity bug rather than reproduce it.
+    for (let i = 0; i < input.companyIds.length; i++) {
+      const current = this.companiesById.get(input.companyIds[i]);
+      if (!current) {
+        return {
+          ok: false,
+          kind: "error",
+          message: `no such company for this user: ${input.companyIds[i]}`,
+        };
+      }
+      const exp = input.expectedUpdatedAt[i] ?? null;
+      if (exp !== null && current.updatedAt !== null && exp !== current.updatedAt) {
+        return { ok: false, kind: "conflict" };
+      }
+    }
+
+    const enabled = input.reviewState === "approved";
+    const companies: CompanyView[] = [];
+    for (const id of input.companyIds) {
+      const current = this.companiesById.get(id)!;
+      // No-op rows keep their version token, exactly as the SQL does: bumping it
+      // would invalidate every other tab's token for a row nothing changed.
+      if (current.reviewState === input.reviewState && current.enabled === enabled) {
+        companies.push({ ...current });
+        continue;
+      }
+      const updated: CompanyView = {
+        ...current,
+        reviewState: input.reviewState,
+        enabled,
+        updatedAt: this.bumped(current),
+      };
+      this.companiesById.set(id, updated);
+      companies.push({ ...updated });
+    }
+
+    const result: BulkReviewResult = { ok: true, companies };
+    this.seenCompanyKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  async setCompanyFlags(input: CompanyFlagsInput): Promise<CompanyFlagsResult> {
+    const replay = this.seenCompanyKeys.get(input.idempotencyKey) as CompanyFlagsResult | undefined;
+    if (replay) return replay;
+
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    const current = this.companiesById.get(input.companyId);
+    if (!current) {
+      return {
+        ok: false,
+        kind: "error",
+        message: `no such company for this user: ${input.companyId}`,
+      };
+    }
+    if (
+      input.expectedUpdatedAt !== null &&
+      current.updatedAt !== null &&
+      input.expectedUpdatedAt !== current.updatedAt
+    ) {
+      return { ok: false, kind: "conflict", current: { ...current } };
+    }
+    // The review gate, reproduced. The SQL refuses this, so a fake that allowed
+    // it would let the UI ship a control that puts an unreviewed company into the
+    // sweep — the one thing the proposal state exists to prevent.
+    if (current.reviewState !== "approved") {
+      return {
+        ok: false,
+        kind: "error",
+        message: `company ${input.companyId} is not approved; review it first`,
+      };
+    }
+
+    if (current.enabled === input.enabled && current.priority === input.priority) {
+      const noop: CompanyFlagsResult = { ok: true, company: { ...current } };
+      this.seenCompanyKeys.set(input.idempotencyKey, noop);
+      return noop;
+    }
+
+    const updated: CompanyView = {
+      ...current,
+      enabled: input.enabled,
+      priority: input.priority,
+      updatedAt: this.bumped(current),
+    };
+    this.companiesById.set(updated.id, updated);
+    const result: CompanyFlagsResult = { ok: true, company: { ...updated } };
+    this.seenCompanyKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  async proposeCompanies(input: ProposeCompaniesInput): Promise<ProposeCompaniesResult> {
+    const replay = this.seenCompanyKeys.get(input.idempotencyKey) as
+      | ProposeCompaniesResult
+      | undefined;
+    if (replay) return replay;
+
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    if (input.names.length === 0) {
+      return { ok: false, kind: "error", message: "no company names given" };
+    }
+    if (input.names.length > 500) {
+      return { ok: false, kind: "error", message: "too many companies in one paste (limit 500)" };
+    }
+
+    const source = (input.source.trim() || "manual").toLowerCase();
+    if (source.length > 40) return { ok: false, kind: "error", message: "source tag too long" };
+    // The closed vocabulary 0008's ALLOWED_SOURCES enforces. A fake that accepted
+    // any tag would let the UI ship a provenance value production refuses.
+    if (!(PROPOSE_SOURCE_TAGS as readonly string[]).includes(source)) {
+      return { ok: false, kind: "error", message: `unknown source tag: ${input.source.trim()}` };
+    }
+
+    // The SQL's ceiling on the review pile, not just on one paste.
+    const pending = [...this.companiesById.values()].filter(
+      (c) => c.reviewState === "proposed",
+    ).length;
+    if (pending >= MAX_PENDING_PROPOSALS) {
+      return {
+        ok: false,
+        kind: "error",
+        message:
+          `review backlog is full: ${pending} companies already await review ` +
+          `(limit ${MAX_PENDING_PROPOSALS}) — review or dismiss some first`,
+      };
+    }
+
+    const companies: CompanyView[] = [];
+    const seen = new Set<string>();
+    let added = 0;
+    for (const raw of input.names) {
+      const name = raw.trim();
+      if (!name || name.length > 200) continue; // a blank line in a paste is not an error
+      const key = companyNameKey(name);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+
+      // Bind to whatever already represents this NORMALIZED name, grounded row
+      // first — `app_propose_companies`'s lookup, reproduced.
+      //
+      // The previous version matched `name.toLowerCase()` AND required ats='' and
+      // slug='', which is what the SQL used to do and what made the ghost: the
+      // resolver only ever writes rows with a non-empty ats+slug, so a paste of an
+      // already-grounded name matched nothing and minted a permanent tier-3
+      // duplicate the human then bound to. A fake that reproduced the old key
+      // would now be kinder than Postgres in the one direction that matters.
+      const existing = [...this.companiesById.values()]
+        .filter((c) => companyNameKey(c.name) === key)
+        .sort(
+          (a, b) =>
+            Number(Boolean(b.ats && b.slug)) - Number(Boolean(a.ats && a.slug)) ||
+            (a.tier ?? 9) - (b.tier ?? 9) ||
+            a.id - b.id,
+        )[0];
+      if (existing) {
+        // Leave the human's decision alone: re-proposing an approved company would
+        // pull it back out of the swept set.
+        companies.push({ ...existing });
+        continue;
+      }
+
+      const row: CompanyView = {
+        key: String(++this.companySeq),
+        id: this.companySeq,
+        name,
+        ats: "",
+        slug: "",
+        source,
+        // Tier 3 / manual, never 1. Nothing here resolved a board, and claiming a
+        // tier this app cannot verify would be a fabricated reliability promise.
+        tier: 3,
+        resolutionMethod: "manual",
+        reviewState: "proposed",
+        enabled: false,
+        priority: false,
+        seeded: false,
+        updatedAt: new Date(
+          new Date(FIXTURE_NOW).getTime() + this.companySeq * 1000,
+        ).toISOString(),
+      };
+      this.companiesById.set(row.id, row);
+      companies.push({ ...row });
+      added++;
+    }
+
+    const result: ProposeCompaniesResult = { ok: true, companies, added };
+    this.seenCompanyKeys.set(input.idempotencyKey, result);
+    return result;
+  }
 
   // ---- saved views ------------------------------------------------------
 

@@ -40,6 +40,24 @@ const DEMO_COOKIE = "hq_demo_id";
 const SEED_COOKIE = "hq_demo_seed";
 type SeedName = "full" | "empty" | "filtered";
 
+/**
+ * Arms `FixtureDataSource.failNextWrite()` for the NEXT write in this demo store.
+ *
+ * `failNextWrite` is the mechanism behind matrix rows 8 and 9 — a failed write
+ * must revert the optimistic row rather than leave a phantom — and it had **zero
+ * callers**. The adversarial sweep already named that shape once: a capability
+ * counted in the matrix that nothing exercises is the same thing as a test that
+ * cannot fail. There was no way for a browser-driven test to arm it, so there was
+ * no way to test the branch, so the branch was never tested.
+ *
+ * A cookie, for the reason `hq_demo_session=expired` is a cookie: an E2E drives
+ * the real UI and needs to change what the SERVER does mid-journey, and a cookie
+ * is the only channel it has. `isDemoMode()` gates it as narrowly as the seed
+ * cookie — a deployment falling back to fixtures for a missing env var must not
+ * let a visitor break its own writes.
+ */
+const FAIL_COOKIE = "hq_demo_fail";
+
 function parseSeed(value: string | undefined): SeedName {
   // An unrecognised value falls back to the full set rather than to nothing:
   // a typo should not present as an app with no data in it.
@@ -50,10 +68,16 @@ function buildStore(seed: SeedName): DataSource {
   // "Nothing at all" includes the channels: a store with no data that still
   // reports six healthy channels is not an empty system, it is an inconsistent
   // one, and /health would never render its own zero-row state.
-  if (seed === "empty") return new FixtureDataSource([], [], []);
+  // "Nothing at all" now includes the company universe: a store with no data
+  // that still reported a dozen companies would leave /companies' empty state
+  // unreachable through the only source the tests can drive — matrix row 15's
+  // failure, exactly, on a new surface.
+  if (seed === "empty") return new FixtureDataSource([], [], [], []);
   if (seed === "filtered") {
     // The channels are alive and reporting; the postings they found were all
-    // gated out. That is the state this seed exists to show.
+    // gated out. That is the state this seed exists to show. The universe is
+    // untouched, because "every posting was gated out" says nothing about which
+    // companies are being watched — that is what produced the gated postings.
     return new FixtureDataSource(
       FIXTURE_JOBS.filter((j) => j.disposition === "filtered"),
       [],
@@ -139,14 +163,30 @@ export async function getDataSource(): Promise<DataSource> {
   if (isDemoMode()) {
     let id = "shared";
     let seed: SeedName = "full";
+    let fail: string | undefined;
     try {
       const jar = await cookies();
       id = jar.get(DEMO_COOKIE)?.value || "shared";
       seed = parseSeed(jar.get(SEED_COOKIE)?.value);
+      fail = jar.get(FAIL_COOKIE)?.value;
     } catch {
       // cookies() is unavailable in some contexts; the shared store is fine
     }
-    return demoStore(id, seed);
+    const store = demoStore(id, seed);
+    // Duck-typed, NOT `instanceof`, and that is the same lesson as the globalThis
+    // map above it. Next compiles pages, server actions and route handlers into
+    // separate bundles, each with its own copy of this module AND its own
+    // `FixtureDataSource` class object — so a store constructed in the page bundle
+    // is not `instanceof` the action bundle's class, and the arming silently never
+    // happened. (Found by watching the test fail: the toast never appeared.)
+    const armable = store as { failNextWrite?: (m: string) => void };
+    if (fail && typeof armable.failNextWrite === "function") {
+      // Armed on every resolve while the cookie is set, and consumed by the first
+      // WRITE — reads leave it alone. So a test sets the cookie, makes one
+      // gesture, and clears it; there is no ordering to get right.
+      armable.failNextWrite(fail.slice(0, 200));
+    }
+    return store;
   }
 
   if (!getSupabaseEnv()) throw new NotConfiguredError();

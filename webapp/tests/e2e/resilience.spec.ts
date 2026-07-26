@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { collectPaintedOverflow, describeOffenders } from "./painted-overflow";
 
-const PAGES = ["/queue", "/pipeline", "/health", "/jobs"];
+const PAGES = ["/queue", "/pipeline", "/health", "/jobs", "/companies", "/companies/add"];
 
 /**
  * The known ways a frontend breaks, each turned into a check.

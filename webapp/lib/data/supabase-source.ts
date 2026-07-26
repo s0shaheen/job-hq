@@ -1,10 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  BulkReviewInput,
+  BulkReviewResult,
   BulkTriageInput,
   BulkWriteResult,
+  CompanyFlagsInput,
+  CompanyFlagsResult,
   DataSource,
   DeleteViewInput,
   DeleteViewResult,
+  ProposeCompaniesInput,
+  ProposeCompaniesResult,
   QueueOptions,
   SaveViewInput,
   SaveViewResult,
@@ -14,8 +20,11 @@ import type {
 import type {
   ApplicationView,
   ChannelHealthView,
+  CompanyView,
   Disposition,
   JobView,
+  ReliabilityTier,
+  ReviewState,
   SavedView,
   Triage,
 } from "./view-models";
@@ -35,6 +44,7 @@ function toSavedView(r: Record<string, unknown>): SavedView {
 const POSTING_COLS =
   "key, company, title, location, url, posted, first_seen, last_seen, status, tags, geo, source";
 const CHANNEL_RUN_COLS = "channel, ran_at, fetched, new_rows, filtered, tagged, errors";
+const COMPANY_COLS = "id, name, ats, slug, source, reliability_tier, resolution_method";
 
 /** jsonb fields arrive untyped; coerce narrowly and never guess a value. */
 function num(v: unknown): number | null {
@@ -138,6 +148,55 @@ export function toJobView(up: Record<string, unknown>): JobView | null {
     triage: (String(up.triage ?? "") as Triage),
     snoozeUntil: str(up.snooze_until),
     updatedAt: str(up.updated_at),
+  };
+}
+
+/**
+ * One user_companies row (with its nested company) → CompanyView.
+ *
+ * The tier is coerced through the same CHECK the database enforces
+ * (`null | 1 | 2 | 3`), rather than trusted: `reliability_tier` is a smallint, and
+ * a value outside that set could only come from a schema drift or a direct write
+ * that bypassed the constraint. Reading it as "unresolved" is the honest answer —
+ * inventing a tier from a number the design does not define is exactly the
+ * false-confidence the provenance vocabulary exists to prevent.
+ *
+ * `review_state` gets the same treatment for the same reason, defaulting to
+ * "proposed": an unrecognised state must land in the pile that awaits a human,
+ * never in the approved set that feeds the sweep.
+ */
+export function toCompanyView(uc: Record<string, unknown>): CompanyView | null {
+  const c = (Array.isArray(uc.companies) ? uc.companies[0] : uc.companies) as
+    | Record<string, unknown>
+    | undefined;
+  if (!c) return null;
+  const id = Number(c.id ?? uc.company_id ?? 0);
+  if (!Number.isFinite(id) || id === 0) return null;
+
+  const rawTier = num(c.reliability_tier);
+  const tier: ReliabilityTier =
+    rawTier === 1 || rawTier === 2 || rawTier === 3 ? rawTier : null;
+
+  const rawState = String(uc.review_state ?? "").trim();
+  const reviewState: ReviewState =
+    rawState === "approved" || rawState === "dismissed" || rawState === "proposed"
+      ? rawState
+      : "proposed";
+
+  return {
+    key: String(id),
+    id,
+    name: String(c.name ?? ""),
+    ats: String(c.ats ?? ""),
+    slug: String(c.slug ?? ""),
+    source: String(c.source ?? ""),
+    tier,
+    resolutionMethod: String(c.resolution_method ?? ""),
+    reviewState,
+    enabled: bool(uc.monitor),
+    priority: bool(uc.priority),
+    seeded: bool(uc.seeded),
+    updatedAt: str(uc.updated_at),
   };
 }
 
@@ -324,6 +383,98 @@ export class SupabaseDataSource implements DataSource {
       .map((r) => toJobView(r as Record<string, unknown>))
       .filter((j): j is JobView => j !== null);
     return { ok: true, jobs };
+  }
+
+  // ---- the company universe (P7) ----------------------------------------
+
+  private async userCompanies(filter?: (q: any) => any): Promise<CompanyView[]> {
+    let q = this.supabase
+      .from("user_companies")
+      .select(
+        `company_id, monitor, priority, seeded, review_state, updated_at,
+         companies!inner(${COMPANY_COLS})`,
+      )
+      .eq("user_id", this.userId);
+    if (filter) q = filter(q);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return (data ?? [])
+      .map((r) => toCompanyView(r as Record<string, unknown>))
+      .filter((c): c is CompanyView => c !== null);
+  }
+
+  companies(): Promise<CompanyView[]> {
+    // Ordered by name with an id tiebreak, for `jobs()`'s reason: the cap means
+    // the ordering decides WHICH rows survive it, so it cannot be left to the
+    // query plan on a tie. Slug-only rows (Common Crawl mines boards, not names)
+    // sort under "" — visible at the top rather than lost at the end, since an
+    // unnamed row is precisely one a human needs to look at.
+    return this.userCompanies((q) =>
+      q
+        .order("companies(name)", { ascending: true })
+        .order("company_id", { ascending: true })
+        .limit(5000),
+    );
+  }
+
+  async setCompanyReviewBulk(input: BulkReviewInput): Promise<BulkReviewResult> {
+    const { data, error } = await this.supabase.rpc("app_set_company_review_bulk", {
+      p_company_ids: input.companyIds,
+      p_review_state: input.reviewState,
+      p_idem: input.idempotencyKey,
+      p_expected_updated_at: input.expectedUpdatedAt,
+    });
+    if (error) {
+      if (/conflict|stale/i.test(error.message)) return { ok: false, kind: "conflict" };
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const rows = (data as { rows?: unknown[] } | null)?.rows ?? [];
+    const companies = rows
+      .map((r) => toCompanyView(r as Record<string, unknown>))
+      .filter((c): c is CompanyView => c !== null);
+    return { ok: true, companies };
+  }
+
+  async setCompanyFlags(input: CompanyFlagsInput): Promise<CompanyFlagsResult> {
+    const { data, error } = await this.supabase.rpc("app_set_company_flags", {
+      p_company_id: input.companyId,
+      p_monitor: input.enabled,
+      p_priority: input.priority,
+      p_idem: input.idempotencyKey,
+      p_expected_updated_at: input.expectedUpdatedAt,
+    });
+    if (error) {
+      if (/conflict|stale/i.test(error.message)) {
+        const [fresh] = await this.userCompanies((q) =>
+          q.eq("company_id", input.companyId).limit(1),
+        );
+        if (fresh) return { ok: false, kind: "conflict", current: fresh };
+      }
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const company = toCompanyView((data ?? {}) as Record<string, unknown>);
+    if (!company) {
+      return {
+        ok: false,
+        kind: "error",
+        message: "Write succeeded but the row could not be re-read",
+      };
+    }
+    return { ok: true, company };
+  }
+
+  async proposeCompanies(input: ProposeCompaniesInput): Promise<ProposeCompaniesResult> {
+    const { data, error } = await this.supabase.rpc("app_propose_companies", {
+      p_names: input.names,
+      p_source: input.source,
+      p_idem: input.idempotencyKey,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    const payload = (data ?? {}) as { rows?: unknown[]; added?: number };
+    const companies = (payload.rows ?? [])
+      .map((r) => toCompanyView(r as Record<string, unknown>))
+      .filter((c): c is CompanyView => c !== null);
+    return { ok: true, companies, added: Number(payload.added ?? 0) };
   }
 
   // ---- saved views ------------------------------------------------------

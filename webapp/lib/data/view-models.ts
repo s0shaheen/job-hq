@@ -74,6 +74,253 @@ export type JobView = {
   updatedAt: string | null;
 };
 
+/**
+ * How reliably a company's jobs can be pulled (docs/plans/COMPANY-DISCOVERY.md):
+ * 1 = direct ATS adapter, day-of · 2 = aggregator-covered, lagged · 3 = manual /
+ * best-effort, tracked but not auto-pulled · null = the waterfall has not
+ * grounded it yet.
+ */
+export type ReliabilityTier = 1 | 2 | 3 | null;
+
+/** The human decision on a proposed company (user_companies.review_state, 0008). */
+export type ReviewState = "proposed" | "approved" | "dismissed";
+
+/** One row of the shared company universe, as the /companies grid renders it. */
+export type CompanyView = {
+  /** Stable row key for selection and writes — `companies.id` as a string. */
+  key: string;
+  /** Numeric id the write path takes. Kept beside `key` so no caller parses one. */
+  id: number;
+  /** The company's name. "" for a slug-only row (Common Crawl mines boards, not names). */
+  name: string;
+  /** ATS family the board belongs to, or "" when unresolved. */
+  ats: string;
+  /** Board slug within that ATS, or "" when unresolved. */
+  slug: string;
+  /** Where it was discovered: dork / commoncrawl / edgar / formadv / manual / … */
+  source: string;
+  tier: ReliabilityTier;
+  /** Which waterfall step grounded it — the provenance the popover explains. */
+  resolutionMethod: string;
+  reviewState: ReviewState;
+  /** user_companies.monitor — is the sweep pulling this company for this user. */
+  enabled: boolean;
+  /** user_companies.priority — is it on the more frequent watch list. */
+  priority: boolean;
+  /** True when the row came from the seeded sheet rather than from discovery. */
+  seeded: boolean;
+  /** Optimistic-concurrency token: sent back with any write. */
+  updatedAt: string | null;
+};
+
+/**
+ * The identity of a company NAME — the mirror of `public.company_name_key(text)`
+ * in migration 0008, and it must stay byte-identical to it.
+ *
+ * The paste path matches on this rather than on the raw string, because the shared
+ * table's unique key is (name, ats, slug) and a paste knows only the name. Three
+ * things it fixes, all reproduced against real Postgres: 'Aon' and 'aon' pasted in
+ * two sessions became two companies; a name copied out of a web page carries a
+ * trailing NBSP, which is not whitespace to `btrim()`, so it became a third; and a
+ * paste of an already-GROUNDED name did not collide with it at all.
+ *
+ * Deliberately not a slugifier. Punctuation stays — "Guggenheim Partners, LLC" and
+ * "Guggenheim Partners LLC" are different registered names, and a wrong merge is
+ * unrecoverable where a duplicate is merely untidy.
+ *
+ * The character classes are spelled out rather than left to JS `\s`, which is a
+ * superset of Postgres's: writing both sides explicitly is what keeps the fake and
+ * the database from disagreeing about which strings are the same company.
+ */
+const NAME_ZERO_WIDTH = /[\u200B\u200C\u200D\uFEFF]/g;
+const NAME_SPACES = /[\s\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]+/g;
+
+export function companyNameKey(name: string): string {
+  return (name ?? "").replace(NAME_ZERO_WIDTH, "").replace(NAME_SPACES, " ").trim().toLowerCase();
+}
+
+/**
+ * The provenance tags the paste/propose path accepts — `ALLOWED_SOURCES` in 0008.
+ *
+ * Closed for 0007's `reliability_tier` reason: `source` is a reporting dimension
+ * the coverage meter groups by, and `app_propose_companies` is granted to
+ * `authenticated`, so an unbounded string from a browser writes a novel into a
+ * group-by. It is a constraint on that FUNCTION, not on `companies.source` — the
+ * Python ingesters write that column through one bulk upsert, and a table-wide
+ * closed set would let a single unknown tag fail a 500-row chunk and wedge the
+ * mirror. Which is why `sourceLabel` below still renders an unrecognised tag
+ * verbatim: the engine may legitimately mint one, and hiding it would lose real
+ * provenance.
+ */
+export const PROPOSE_SOURCE_TAGS = [
+  "manual",
+  "paste",
+  "api",
+  "import",
+  "seed",
+  "agent",
+  "dork",
+  "commoncrawl",
+  "common-crawl",
+  "edgar",
+  "formadv",
+  "form-adv",
+  "theirstack",
+] as const;
+
+/**
+ * How much a row's tier is EVIDENCE rather than a guess.
+ *
+ * This vocabulary exists because of a specific caveat in
+ * docs/plans/COMPANY-DISCOVERY-RESEARCH.md: a coverage meter built on
+ * `reliability_tier` alone "would render T1's soft estimate as if measured". The
+ * research pass's own Dad figure was 47% *grounded* against a ~75%
+ * *best-estimate*, and the gap between those two numbers is the whole thing a
+ * reader needs to know. So a tier is never shown without saying how it was
+ * established:
+ *
+ *   verified   — the resolver called the board's own API and it answered. This is
+ *                the only value that means "we have pulled jobs from here".
+ *   inferred   — the ATS was identified from a fingerprint (a careers-page match,
+ *                an aggregator's index) with no first-party board call behind it.
+ *   asserted   — a slug or a name taken on trust from a third-party corpus or a
+ *                human, never re-verified. Common Crawl is the live example: the
+ *                research pass found it "contains dead boards".
+ *   unresolved — no tier at all. Not a failure state; just not done.
+ *
+ * The mapping is over the `resolution_method` values the engine actually writes
+ * (monitor/discover_universe.py) plus the ones 0007 documents. An UNRECOGNISED
+ * method is `asserted`, never `verified` — a method this code has never heard of
+ * cannot be counted as evidence, and defaulting the other way is precisely how a
+ * meter manufactures false confidence.
+ */
+export type ResolutionConfidence = "verified" | "inferred" | "asserted" | "unresolved";
+
+/**
+ * The methods that mean "a board API answered", enumerated rather than matched by
+ * prefix.
+ *
+ * `monitor/discover.py`'s waterfall probes exactly these four families and demands
+ * a live posting back, and `_resolve()` writes `discover-<ats>` for whichever one
+ * answered — so this list IS the set of strings that can honestly claim evidence.
+ *
+ * It used to be `startsWith("discover-")`, which is an OPEN prefix: any future
+ * `discover-<anything>` — a new adapter, a hand-typed row, a typo, an ingester
+ * that borrows the naming — was counted as a first-party board call nobody made.
+ * That is the same false confidence the fail-closed default exists to prevent,
+ * arriving through the one branch that skipped it. An unknown `discover-*` now
+ * reads as `inferred`: something identified it as a board, and no call this code
+ * knows about confirmed it.
+ */
+const VERIFIED_METHODS: ReadonlySet<string> = new Set([
+  "discover-greenhouse",
+  "discover-ashby",
+  "discover-lever",
+  "discover-smartrec",
+  // discover.py's Workday branch gates every slug on a CXS jobs POST — "the single
+  // source of truth, never DNS/pod-guessing" — and writes this exact string.
+  "workday-redirect",
+]);
+
+export function resolutionConfidence(company: CompanyView): ResolutionConfidence {
+  if (company.tier === null) return "unresolved";
+  const m = company.resolutionMethod.trim().toLowerCase();
+  if (!m) return "unresolved";
+  if (VERIFIED_METHODS.has(m)) return "verified";
+  if (m === "aggregator" || m === "web-search" || m === "fingerprint") return "inferred";
+  // A `discover-*` this code does not know: a board was identified, but not by a
+  // probe in the waterfall we can name. Inferred, never verified.
+  if (m.startsWith("discover-")) return "inferred";
+  return "asserted";
+}
+
+const CONFIDENCE_LABELS: Record<ResolutionConfidence, string> = {
+  verified: "verified",
+  inferred: "inferred",
+  asserted: "unverified",
+  unresolved: "unresolved",
+};
+
+/** The one word the provenance chip carries beside the tier. */
+export function confidenceLabel(c: ResolutionConfidence): string {
+  return CONFIDENCE_LABELS[c];
+}
+
+/** Tier as a person reads it, with the latency that is the point of the tier. */
+export function tierLabel(tier: ReliabilityTier): string {
+  if (tier === 1) return "Tier 1 · day-of";
+  if (tier === 2) return "Tier 2 · lagged";
+  if (tier === 3) return "Tier 3 · manual";
+  return "Unresolved";
+}
+
+/**
+ * The full sentence behind a row's tier — what the popover says.
+ *
+ * Every branch names the EVIDENCE, not the conclusion: "the Greenhouse API
+ * answered for slug `x`" rather than "reliable". A reader deciding whether to
+ * trust a coverage number needs the former.
+ */
+export function explainResolution(company: CompanyView): string {
+  const board = company.ats && company.slug ? `${company.ats}/${company.slug}` : null;
+  const m = company.resolutionMethod.trim().toLowerCase();
+  if (company.tier === null || !m) {
+    return "Not resolved yet — no board has been found for this company, so nothing is pulled from it.";
+  }
+  if (m === "workday-redirect") {
+    return `Resolved by following the company's own careers page to ${board ?? "a Workday board"}, then confirming it with a Workday CXS jobs call. Jobs are pulled directly, day-of.`;
+  }
+  if (VERIFIED_METHODS.has(m)) {
+    // The API is named from the ROW's ats, not from the method's suffix. They
+    // agree today because `_resolve()` writes `discover-<ats>`; taking the word
+    // out of the string would let a mismatched pair (a `discover-lever` method on
+    // an `ashby` row — a mirror bug, or a hand-edited row) print a confident
+    // sentence about a board this company does not have. The ats column is the
+    // one the sweep will actually fetch from.
+    const api = company.ats || m.slice("discover-".length);
+    return `Resolved by probing the ${api} API: ${board ?? "the board"} answered with live postings. Jobs are pulled directly, day-of.`;
+  }
+  if (m.startsWith("discover-")) {
+    // A `discover-*` outside the waterfall's four families. Something named a
+    // board; no probe this app can vouch for confirmed it.
+    return `Recorded as "${company.resolutionMethod}" against ${board ?? "no board"} — that is not one of the four boards the resolver probes (greenhouse, ashby, lever, smartrec), so nothing here confirms the board answered. Treat it as a lead.`;
+  }
+  if (m === "ingested-slug") {
+    return `The board ${board ?? ""} came from a mined corpus and was passed through without being probed. It may be a dead board — treat the tier as unverified until a sweep pulls from it.`;
+  }
+  if (m === "manual") {
+    return "Added by hand as a name only. Nothing has resolved a board for it, so it is tracked rather than pulled.";
+  }
+  if (m === "aggregator") {
+    return "Covered through the aggregator net rather than a first-party board call — postings arrive, but lagged, and no direct board has been confirmed.";
+  }
+  if (m === "web-search") {
+    return "The ATS was identified from a web search of the company's careers page, not from a board API that answered. Treat it as a lead, not a confirmation.";
+  }
+  return `Resolved by "${company.resolutionMethod}" — a method this app does not recognise, so its tier is reported as unverified.`;
+}
+
+/** Where a company was discovered, as a person reads it. */
+export function sourceLabel(source: string): string {
+  const s = source.trim().toLowerCase();
+  if (!s) return "unknown";
+  const labels: Record<string, string> = {
+    manual: "added by hand",
+    paste: "pasted list",
+    dork: "ATS search",
+    commoncrawl: "Common Crawl",
+    "common-crawl": "Common Crawl",
+    edgar: "SEC EDGAR",
+    formadv: "Form ADV",
+    "form-adv": "Form ADV",
+    theirstack: "TheirStack",
+    import: "imported",
+    seed: "seed list",
+    agent: "discovery agent",
+  };
+  return labels[s] ?? source.trim();
+}
+
 /** One application as the pipeline renders it. */
 export type ApplicationView = {
   id: number;

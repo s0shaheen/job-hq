@@ -1,6 +1,6 @@
 "use client";
 
-import { Inbox, LayoutGrid, ListChecks, Plus, Activity, Settings } from "lucide-react";
+import { Inbox, LayoutGrid, ListChecks, Building2, Plus, Activity, Settings } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -25,6 +25,10 @@ const PRIMARY: readonly NavItem[] = [
   { href: "/queue", label: "Triage", icon: Inbox },
   { href: "/jobs", label: "Jobs", icon: LayoutGrid },
   { href: "/pipeline", label: "Pipeline", icon: ListChecks },
+  // Not marked `soon`: /companies is a live surface. It sits after Pipeline because
+  // it is upstream plumbing — deciding which companies get watched — and the three
+  // above it are the daily work.
+  { href: "/companies", label: "Companies", icon: Building2 },
   { href: "/add", label: "Add", icon: Plus, soon: true },
 ];
 

@@ -5,8 +5,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 import { FixtureDataSource } from "@/lib/data/fixture-source";
 import { FIXTURE_JOBS } from "@/lib/data/fixtures";
-import { CADENCE, SupabaseDataSource, toJobView } from "@/lib/data/supabase-source";
-import type { JobView, Triage } from "@/lib/data/view-models";
+import { CADENCE, SupabaseDataSource, toCompanyView, toJobView } from "@/lib/data/supabase-source";
+import { companyNameKey, PROPOSE_SOURCE_TAGS } from "@/lib/data/view-models";
+import type { CompanyView, JobView, ReviewState, Triage } from "@/lib/data/view-models";
 
 /**
  * The two DataSource implementations, compared on observable behaviour.
@@ -31,6 +32,10 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..");
 const WRITE_PATH_SQL = readFileSync(
   path.join(REPO, "db", "migrations", "0003_write_path.sql"),
+  "utf8",
+);
+const COMPANY_REVIEW_SQL = readFileSync(
+  path.join(REPO, "db", "migrations", "0008_company_review.sql"),
   "utf8",
 );
 
@@ -388,6 +393,389 @@ describe("write rejection parity with app_set_triage", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
     expect(result.job.snoozeUntil).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- the universe
+
+/**
+ * The /companies read path and its write guards, through both implementations.
+ *
+ * The same trap that produced this whole file is live here: the fixture store is
+ * what the E2E suite and demo mode drive, so any way it is kinder than Postgres is
+ * a class of bug no other test can see. Two guards in migration 0008 matter enough
+ * to be compared directly — the review gate on `setCompanyFlags`, and the tier-3
+ * floor on `proposeCompanies` — because both are places where a forgiving fake
+ * would let the UI ship a control production refuses, or a claim production does
+ * not make.
+ */
+describe("company universe parity", () => {
+  function cv(seed: Partial<CompanyView> & Pick<CompanyView, "id">): CompanyView {
+    return {
+      key: String(seed.id),
+      name: "Co",
+      ats: "greenhouse",
+      slug: `slug-${seed.id}`,
+      source: "seed",
+      tier: 1,
+      resolutionMethod: "discover-greenhouse",
+      reviewState: "approved",
+      enabled: true,
+      priority: false,
+      seeded: false,
+      updatedAt: STAMP,
+      ...seed,
+    };
+  }
+
+  function ucRow(o: {
+    id: number;
+    name: string;
+    userId?: string;
+    reviewState?: string;
+    tier?: number | null;
+    method?: string;
+  }): Row {
+    return {
+      user_id: o.userId ?? "u1",
+      company_id: o.id,
+      monitor: true,
+      priority: false,
+      seeded: false,
+      review_state: o.reviewState ?? "approved",
+      updated_at: STAMP,
+      companies: {
+        id: o.id,
+        name: o.name,
+        ats: "greenhouse",
+        slug: `slug-${o.id}`,
+        source: "seed",
+        reliability_tier: o.tier === undefined ? 1 : o.tier,
+        resolution_method: o.method ?? "discover-greenhouse",
+      },
+    };
+  }
+
+  // Names deliberately out of alphabetical order, with a nameless row (Common
+  // Crawl mines boards, not names) and a NAME TIE so the id tiebreak is exercised.
+  const seeds = [
+    { id: 30, name: "Zurich" },
+    { id: 10, name: "Aon" },
+    { id: 25, name: "" },
+    { id: 21, name: "Ramp" },
+    { id: 20, name: "Ramp" },
+  ];
+  const EXPECTED = [25, 10, 20, 21, 30]; // "" first, then A→Z, ids ascending on a tie
+
+  const supabase = () =>
+    new SupabaseDataSource(
+      stubClient({
+        user_companies: [
+          ...seeds.map((s) => ucRow(s)),
+          ucRow({ id: 99, name: "Someone Else Co", userId: "u2" }),
+        ],
+      }),
+      "u1",
+    );
+  const fixture = (rows = seeds.map((s) => cv({ id: s.id, name: s.name }))) =>
+    new FixtureDataSource([], [], [], rows);
+
+  it("both implementations order the universe by name with an id tiebreak", async () => {
+    expect((await supabase().companies()).map((c) => c.id)).toEqual(EXPECTED);
+    expect((await fixture().companies()).map((c) => c.id)).toEqual(EXPECTED);
+  });
+
+  it("another user's subscription never appears", async () => {
+    expect((await supabase().companies()).map((c) => c.id)).not.toContain(99);
+  });
+
+  it("toCompanyView refuses a tier the schema's CHECK could not have produced", () => {
+    // reliability_tier is a smallint with `check (… in (1,2,3))`. A 4 could only
+    // come from a schema drift or a write that bypassed the constraint, and
+    // inventing a meaning for it is exactly the false confidence the provenance
+    // vocabulary exists to prevent — so it reads as unresolved.
+    expect(toCompanyView(ucRow({ id: 1, name: "Drifted", tier: 4 }))!.tier).toBeNull();
+  });
+
+  it("an unrecognised review_state lands in the review pile, not the universe", () => {
+    // Fail-closed direction: an unknown state must await a human rather than join
+    // the approved set that feeds the sweep.
+    expect(toCompanyView(ucRow({ id: 1, name: "Odd", reviewState: "pending" }))!.reviewState).toBe(
+      "proposed",
+    );
+  });
+
+  it("the fixture refuses a flag change on an unapproved row, as 0008 does", async () => {
+    // The review gate. Turning `monitor` on for a proposal would put it into the
+    // sweep behind the user's back — the one thing the proposal state exists to
+    // prevent — so a fake that allowed it would let the UI ship that control.
+    const store = fixture([cv({ id: 5, reviewState: "proposed", enabled: false })]);
+    const res = await store.setCompanyFlags({
+      companyId: 5,
+      enabled: true,
+      priority: false,
+      idempotencyKey: "flags-1",
+      expectedUpdatedAt: STAMP,
+    });
+    expect(res).toMatchObject({ ok: false, kind: "error" });
+    if (res.ok || res.kind !== "error") throw new Error("unreachable");
+    expect(res.message).toContain("not approved");
+    // Pinned to the migration text so the fake and the database cannot drift apart
+    // silently — the technique parity already uses for app_set_triage.
+    expect(COMPANY_REVIEW_SQL).toContain("is not approved; review it first");
+  });
+
+  it("the fixture applies a bulk review all-or-nothing, as the transaction does", async () => {
+    // A conflict on the LAST row must leave the FIRST row untouched. A fake that
+    // applied greedily would model a partial write the SQL cannot produce, and
+    // hide the atomicity bug rather than reproduce it.
+    const store = fixture([
+      cv({ id: 1, reviewState: "proposed", enabled: false }),
+      cv({ id: 2, reviewState: "proposed", enabled: false }),
+    ]);
+    const res = await store.setCompanyReviewBulk({
+      companyIds: [1, 2],
+      reviewState: "approved",
+      idempotencyKey: "rev-1",
+      expectedUpdatedAt: [STAMP, "2020-01-01T00:00:00.000Z"], // second token is stale
+    });
+    expect(res).toEqual({ ok: false, kind: "conflict" });
+    expect((await store.companies()).map((c) => c.reviewState)).toEqual(["proposed", "proposed"]);
+  });
+
+  it("approving turns the sweep on and dismissing turns it off", async () => {
+    const store = fixture([cv({ id: 1, reviewState: "proposed", enabled: false })]);
+    const ok = await store.setCompanyReviewBulk({
+      companyIds: [1],
+      reviewState: "approved",
+      idempotencyKey: "rev-2",
+      expectedUpdatedAt: [null],
+    });
+    expect(ok.ok && ok.companies[0].enabled).toBe(true);
+    const off = await store.setCompanyReviewBulk({
+      companyIds: [1],
+      reviewState: "dismissed",
+      idempotencyKey: "rev-3",
+      expectedUpdatedAt: [null],
+    });
+    expect(off.ok && off.companies[0].enabled).toBe(false);
+  });
+
+  it("a no-op review does not bump the version token", async () => {
+    // 0006's rule: re-approving an already-approved row must not invalidate every
+    // other tab's token for a row nothing changed.
+    const store = fixture([cv({ id: 1, reviewState: "approved", enabled: true })]);
+    const res = await store.setCompanyReviewBulk({
+      companyIds: [1],
+      reviewState: "approved",
+      idempotencyKey: "rev-4",
+      expectedUpdatedAt: [STAMP],
+    });
+    expect(res.ok && res.companies[0].updatedAt).toBe(STAMP);
+  });
+
+  it("a rejected review state is refused with the migration's own words", async () => {
+    const res = await fixture([cv({ id: 1 })]).setCompanyReviewBulk({
+      companyIds: [1],
+      reviewState: "banana" as ReviewState,
+      idempotencyKey: "rev-5",
+      expectedUpdatedAt: [null],
+    });
+    expect(res).toMatchObject({ ok: false, kind: "error" });
+    if (res.ok || res.kind !== "error") throw new Error("unreachable");
+    expect(COMPANY_REVIEW_SQL).toContain("invalid review state");
+  });
+
+  it("a pasted name is written at tier 3 / manual in the fixture too", async () => {
+    // The load-bearing claim. Nothing in the web app resolves a board, so a demo
+    // store that handed back tier 1 would show a reliability promise production
+    // never makes — and the demo is what the owner is shown.
+    const res = await fixture([]).proposeCompanies({
+      names: ["Kraft Heinz"],
+      source: "paste",
+      idempotencyKey: "prop-1",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("unreachable");
+    expect(res.added).toBe(1);
+    expect(res.companies[0]).toMatchObject({
+      tier: 3,
+      resolutionMethod: "manual",
+      reviewState: "proposed",
+      enabled: false,
+      ats: "",
+      slug: "",
+    });
+    expect(COMPANY_REVIEW_SQL).toContain("values (v_name, '', '', v_source, 3, 'manual')");
+  });
+
+  it("the propose insert's ON-CONFLICT ACTION is do-nothing, never do-update", () => {
+    // Pinning the ACTION, not just the row it inserts.
+    //
+    // `do update` here would rewrite `source`, `reliability_tier` and
+    // `resolution_method` on a row the resolver already grounded — turning a
+    // verified tier-1 board into a tier-3 guess, which is a fabricated DOWNGRADE
+    // of real evidence and exactly as dishonest as a fabricated upgrade. The
+    // conflict path is now race-only (the lookup above it binds to any existing
+    // row first), so no db test can reach it; a text pin is what is left, and it
+    // is the same technique parity already uses for the migration's messages.
+    const propose = COMPANY_REVIEW_SQL.slice(
+      COMPANY_REVIEW_SQL.indexOf("function public.app_propose_companies"),
+    );
+    expect(propose).toContain("values (v_name, '', '', v_source, 3, 'manual')");
+    // Between the insert and the next statement there is exactly one on-conflict,
+    // and it does nothing.
+    const insert = propose.slice(propose.indexOf("insert into public.companies"));
+    expect(insert.slice(0, insert.indexOf(";"))).toContain("on conflict do nothing");
+    expect(propose).not.toMatch(/on\s+conflict[^;]*do\s+update/i);
+  });
+
+  it("a paste binds to an ALREADY-GROUNDED row instead of minting a tier-3 ghost", async () => {
+    // The worst bug this feature had, and the fake reproduced it faithfully because
+    // it reproduced the wrong key. The SQL's conflict key was (name, '', '') and the
+    // resolver only ever writes rows with a NON-EMPTY ats+slug — so a paste of an
+    // already-resolved name collided with nothing, created a second permanent
+    // tier-3 row, and bound the human to a company that reads as watched and is
+    // never pulled from.
+    //
+    // The fixture's old `find` required ats === "" && slug === "" for the same
+    // reason and would now be KINDER than Postgres in the one direction that
+    // matters — which is the whole failure mode this file exists to catch.
+    const store = fixture([
+      cv({ id: 7, name: "Ramp", ats: "ashby", slug: "ramp", tier: 1, resolutionMethod: "discover-ashby" }),
+    ]);
+    const res = await store.proposeCompanies({
+      names: ["ramp"],
+      source: "paste",
+      idempotencyKey: "prop-grounded",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("unreachable");
+    expect(res.added).toBe(0);
+    expect(res.companies[0]).toMatchObject({ id: 7, tier: 1, resolutionMethod: "discover-ashby" });
+    expect((await store.companies()).length).toBe(1);
+    // And the SQL matches on the normalized name across ANY ats/slug, grounded first.
+    expect(COMPANY_REVIEW_SQL).toContain("where public.company_name_key(name) = v_key");
+    expect(COMPANY_REVIEW_SQL).toContain(
+      "order by (ats <> '' and slug <> '') desc, reliability_tier nulls last, id",
+    );
+  });
+
+  it("companyNameKey folds exactly what public.company_name_key folds", () => {
+    // The fake and the database must agree about which strings are the SAME
+    // company, or the demo shows a duplicate production would not create (or
+    // hides one it would). The character classes are asserted against the SQL
+    // text because there is no other way to compare a JS regex to a Postgres one.
+    expect(companyNameKey("Aon")).toBe("aon");
+    expect(companyNameKey("  aon  ")).toBe("aon");
+    expect(companyNameKey("A\u00a0O\u00a0N")).toBe("a o n");
+    expect(companyNameKey("Aon\u200b")).toBe("aon");
+    expect(companyNameKey("Aon\u3000Group")).toBe("aon group");
+    // Punctuation is NOT folded: two different registered names stay two companies.
+    expect(companyNameKey("Guggenheim Partners, LLC")).not.toBe(
+      companyNameKey("Guggenheim Partners LLC"),
+    );
+    for (const cls of [
+      "[\\u200B\\u200C\\u200D\\uFEFF]",
+      "[\\s\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]+",
+    ]) {
+      expect(COMPANY_REVIEW_SQL, `SQL is missing the class ${cls}`).toContain(cls);
+    }
+  });
+
+  it("pasting over an approved company leaves the human's decision alone", async () => {
+    // Re-proposing an approved company would pull it back out of the swept set — a
+    // silent regression of a decision already made. The SQL leaves it; so must the
+    // fake.
+    const store = fixture([
+      cv({ id: 1, name: "Wintrust", ats: "", slug: "", reviewState: "approved", enabled: true }),
+    ]);
+    const res = await store.proposeCompanies({
+      names: ["wintrust"],
+      source: "paste",
+      idempotencyKey: "prop-2",
+    });
+    expect(res.ok && res.added).toBe(0);
+    expect((await store.companies())[0]).toMatchObject({ reviewState: "approved", enabled: true });
+  });
+
+  it("blank lines and duplicates in a paste collapse, in both", async () => {
+    const res = await fixture([]).proposeCompanies({
+      // Case, surrounding whitespace, an NBSP and a zero-width space are all the
+      // same company — the three shapes the reviews reproduced as separate rows.
+      names: ["Aon", "", "   ", "aon", " Aon\u00a0", "Aon\u200b", "Exelon"],
+      source: "paste",
+      idempotencyKey: "prop-3",
+    });
+    expect(res.ok && res.added).toBe(2);
+  });
+
+  it("an unknown source tag is refused with the migration's own vocabulary", async () => {
+    const res = await fixture([]).proposeCompanies({
+      names: ["Somebody"],
+      source: "a-novel-about-provenance",
+      idempotencyKey: "prop-src",
+    });
+    expect(res).toMatchObject({ ok: false, kind: "error" });
+    if (res.ok || res.kind !== "error") throw new Error("unreachable");
+    expect(res.message).toContain("unknown source tag");
+    expect(COMPANY_REVIEW_SQL).toContain("unknown source tag");
+    // Every tag the UI accepts is one the SQL accepts.
+    const allowed = COMPANY_REVIEW_SQL.slice(
+      COMPANY_REVIEW_SQL.indexOf("ALLOWED_SOURCES constant text[]"),
+    ).slice(0, 400);
+    for (const tag of PROPOSE_SOURCE_TAGS) {
+      expect(allowed, `SQL does not allow the tag ${tag}`).toContain(`'${tag}'`);
+    }
+  });
+
+  it("the review backlog has the same ceiling in both", async () => {
+    // 500 bounds one paste; nothing bounded the total until 0008 grew this. The
+    // fake has to refuse at the same number or the demo grows a pile production
+    // would have stopped.
+    const many = Array.from({ length: 2000 }, (_, i) =>
+      cv({ id: 1000 + i, name: `Pending ${i}`, reviewState: "proposed", enabled: false }),
+    );
+    const res = await fixture(many).proposeCompanies({
+      names: ["One More Please"],
+      source: "paste",
+      idempotencyKey: "prop-backlog",
+    });
+    expect(res).toMatchObject({ ok: false, kind: "error" });
+    if (res.ok || res.kind !== "error") throw new Error("unreachable");
+    expect(res.message).toContain("backlog is full");
+    expect(COMPANY_REVIEW_SQL).toContain("review backlog is full");
+    expect(COMPANY_REVIEW_SQL).toContain("MAX_PENDING constant int := 2000");
+  });
+
+  it("a paste past the SQL's bound is refused with the same limit", async () => {
+    const res = await fixture([]).proposeCompanies({
+      names: Array.from({ length: 501 }, (_, i) => `Co ${i}`),
+      source: "paste",
+      idempotencyKey: "prop-4",
+    });
+    expect(res).toMatchObject({ ok: false, kind: "error" });
+    if (res.ok || res.kind !== "error") throw new Error("unreachable");
+    expect(res.message).toContain("limit 500");
+    expect(COMPANY_REVIEW_SQL).toContain("too many companies in one paste (limit 500)");
+  });
+
+  it("every company gesture replays under its idempotency key", async () => {
+    const store = fixture([cv({ id: 1, reviewState: "proposed", enabled: false })]);
+    const first = await store.setCompanyReviewBulk({
+      companyIds: [1],
+      reviewState: "approved",
+      idempotencyKey: "same",
+      expectedUpdatedAt: [null],
+    });
+    const again = await store.setCompanyReviewBulk({
+      companyIds: [1],
+      reviewState: "dismissed", // different intent, same key
+      idempotencyKey: "same",
+      expectedUpdatedAt: [null],
+    });
+    expect(again).toEqual(first);
+    expect((await store.companies())[0].reviewState).toBe("approved");
   });
 });
 

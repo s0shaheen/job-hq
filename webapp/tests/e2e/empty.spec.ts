@@ -47,6 +47,7 @@ const SURFACES = [
   { path: "/queue", heading: "Nothing found yet" },
   { path: "/pipeline", heading: "No applications yet" },
   { path: "/health", heading: "No runs reported yet" },
+  { path: "/companies", heading: "No companies yet" },
 ] as const;
 
 test.describe("zero rows", () => {

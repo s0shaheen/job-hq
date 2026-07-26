@@ -114,7 +114,11 @@ test("back/forward replays filter and sort decisions, one per step (criterion 22
   await page.waitForURL("**/queue");
   await page.goBack();
   await ready(page);
-  expect(page.url()).toBe(fullUrl);
+  // `expect(page).toHaveURL` and not `expect(page.url()).toBe(...)`: a bare
+  // synchronous read races the history entry becoming current, and it lost that
+  // race on the mobile project — which reads as a product bug and is the test
+  // disagreeing with itself (matrix row 45).
+  await expect(page).toHaveURL(fullUrl);
   await expect(companyCells(page)).toHaveText(afterTwo.map((j) => j.company));
   await expect(page.getByTestId("grid-count")).toContainText(
     `${afterTwo.length} of ${QUEUE.length}`,
@@ -127,7 +131,7 @@ test("back/forward replays filter and sort decisions, one per step (criterion 22
 
   // And forward restores it.
   await page.goForward();
-  expect(page.url()).toBe(fullUrl);
+  await expect(page).toHaveURL(fullUrl);
   await expect(page.locator('[role="columnheader"][data-col="comp"]')).toHaveAttribute(
     "aria-sort",
     "ascending",

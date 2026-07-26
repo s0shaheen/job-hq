@@ -112,3 +112,40 @@ export type UserRow = {
   is_operator: boolean;
   created_at: string;
 };
+
+/**
+ * The shared company universe (0001) plus the discovery metadata 0007 added.
+ *
+ * `reliability_tier` is the one nullable column and deliberately so: a company is
+ * *unresolved* until the resolution waterfall has actually pulled its jobs, and
+ * null says that rather than picking a tier on its behalf. `source` and
+ * `resolution_method` are NOT NULL with '' defaults, so an unresolved row arrives
+ * as an empty string, never null — the mirror inserts name/ats/slug only.
+ */
+export type Company = {
+  // bigint identity: PostgREST serializes int8 as a JSON number
+  id: number;
+  name: string;
+  ats: string;
+  slug: string;
+  source: string;
+  reliability_tier: number | null;
+  resolution_method: string;
+};
+
+/**
+ * One user's subscription to a company: the per-user half of the shared universe.
+ *
+ * `review_state` and `updated_at` arrived in 0008 — the human decision on a
+ * proposal is per-user by construction, and the table had no optimistic-
+ * concurrency token at all before then.
+ */
+export type UserCompany = {
+  user_id: string;
+  company_id: number;
+  monitor: boolean;
+  priority: boolean;
+  seeded: boolean;
+  review_state: string;
+  updated_at: string;
+};

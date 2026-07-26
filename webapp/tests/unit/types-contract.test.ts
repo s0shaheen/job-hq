@@ -42,6 +42,15 @@ const CONTRACT: Record<string, string> = {
   applications: "Application",
   channel_runs: "ChannelRun",
   users: "UserRow",
+  // The /companies universe grid reads exactly these two tables, across three
+  // migrations (0001 created them, 0007 added the discovery metadata, 0008 the
+  // review state). Adding them here found a real hole in the parser below: a
+  // single `alter table … add column a, add column b;` registered only the first
+  // column, so `companies.resolution_method` and `user_companies.updated_at`
+  // were invisible to this guard — a drift check that cannot see a column is a
+  // drift check that cannot fail on it.
+  companies: "Company",
+  user_companies: "UserCompany",
 };
 
 // ---------------------------------------------------------------- SQL side
@@ -55,6 +64,7 @@ const SQL_KIND: Record<string, Kind> = {
   timestamptz: "string",
   bigint: "number", // int8 arrives as a JSON number through PostgREST
   integer: "number",
+  smallint: "number", // companies.reliability_tier (0007)
   numeric: "number",
   boolean: "boolean",
   jsonb: "json",
@@ -125,12 +135,29 @@ function sqlTables(sql: string): Map<string, Map<string, Column>> {
     tables.set(name, cols);
   }
 
-  // Later migrations widen tables in place (0002 adds user_postings.created_at).
-  for (const m of clean.matchAll(
-    /alter\s+table\s+public\.(\w+)\s+add\s+column\s+(?:if\s+not\s+exists\s+)?(\w+)\s+([^;]+);/gi,
-  )) {
-    const parsed = parseColumnDef(`${m[2]} ${m[3]}`);
-    if (parsed) tables.get(m[1])?.set(parsed[0], parsed[1]);
+  // Later migrations widen tables in place (0002 adds user_postings.created_at;
+  // 0007 and 0008 add three and two columns respectively).
+  //
+  // ONE statement may carry SEVERAL columns, comma-separated:
+  //
+  //   alter table public.user_companies
+  //     add column if not exists review_state text not null default 'approved',
+  //     add column if not exists updated_at timestamptz not null default now();
+  //
+  // The previous single-column regex matched only the first, and `[^;]+` then
+  // swallowed the rest into its default clause — so the trailing columns were
+  // silently absent from the contract. Splitting the statement body on top-level
+  // commas (the same helper CREATE TABLE uses) is what makes every added column
+  // visible.
+  for (const m of clean.matchAll(/alter\s+table\s+public\.(\w+)\s+([^;]*?add\s+column[^;]*);/gi)) {
+    const table = tables.get(m[1]);
+    if (!table) continue;
+    for (const clause of splitTopLevel(m[2])) {
+      const def = clause.replace(/^add\s+column\s+(?:if\s+not\s+exists\s+)?/i, "");
+      if (def === clause) continue; // not an add-column clause (e.g. a trailing constraint)
+      const parsed = parseColumnDef(def);
+      if (parsed) table.set(parsed[0], parsed[1]);
+    }
   }
 
   return tables;

@@ -58,6 +58,94 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page).toHaveScreenshot(`jobs-${theme}.png`, { fullPage: true });
   });
 
+  test(`the companies grid looks right — ${theme}`, async ({ page }) => {
+    // The one surface whose whole point is a COLOUR-CODED distinction: verified /
+    // inferred / unverified / unresolved provenance chips, and the coverage rail
+    // built from the same four tokens. A drift in any of those hues is a drift in
+    // what the page claims about its own evidence, and no assertion would catch a
+    // token that quietly went the wrong shade in one theme.
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto("/companies?set=all");
+    await expect(page.locator('[data-testid="companies-grid"][data-ready="true"]')).toBeAttached();
+    await page.waitForLoadState("load");
+    await expect(page).toHaveScreenshot(`companies-${theme}.png`, { fullPage: true });
+  });
+
+  test(`the coverage meter looks right — ${theme}`, async ({ page }) => {
+    // Expanded, because the collapsed rail hides the confidence glossary and the
+    // "Recall: not measured" slot — the two pieces of copy that keep this widget
+    // honest, and the ones most likely to be quietly deleted by a later edit.
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto("/companies");
+    await expect(page.locator('[data-testid="companies-grid"][data-ready="true"]')).toBeAttached();
+    await page.getByTestId("coverage-toggle").click();
+    await expect(page.getByTestId("coverage-detail")).toBeVisible();
+    await page.waitForLoadState("load");
+    await expect(page).toHaveScreenshot(`coverage-${theme}.png`, { fullPage: true });
+  });
+
+  test(`the /companies skeleton lands the grid where the loaded page does — ${theme}`, async ({
+    page,
+  }, testInfo) => {
+    // A PIXEL claim, so it lives with the pixel claims.
+    //
+    // It used to sit in companies.spec.ts, ran on the bare `webapp` runner, and
+    // failed there while passing on macOS AND in this container: skeleton rail 185,
+    // loaded rail 221. Nothing was wrong with the skeleton. The loaded page is 36px
+    // taller above the rail on that runner's fonts, because the header subtitle and
+    // the coverage headline each wrap where they do not wrap here — and a skeleton
+    // made of fixed-height blocks cannot track a line-box count.
+    //
+    // The rejected alternative was reserving the worst-case line boxes in BOTH the
+    // real page and the skeleton, which makes the geometry font-independent and buys
+    // it with ~36px of permanent dead space in the header on every render, to remove
+    // a transient jump that only happens where the text genuinely needs the room.
+    // Widening the tolerance to 40 was the other option and it is not one: at 40 the
+    // assertion no longer distinguishes a correct skeleton from one missing its
+    // coverage band, which is the exact bug it was written for (row 90).
+    //
+    // So it moves to where the fonts are pinned, which is this file's whole premise,
+    // and companies.spec.ts keeps the band count + ordering — font-independent, and
+    // the half that caught the real regression.
+    test.skip(theme !== "light", "geometry is theme-independent; once is enough");
+    test.skip(testInfo.project.name !== "desktop", "skeleton widths are tuned for desktop");
+
+    await page.goto("/health");
+    await page.route(/\/companies/, async (route) => {
+      await new Promise((r) => setTimeout(r, 1500));
+      await route.continue();
+    });
+    await page.getByRole("link", { name: "Companies" }).click();
+    await page
+      .locator('[data-testid="companies-skeleton"]')
+      .waitFor({ state: "attached", timeout: 10_000 });
+
+    const skeletonRail = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="companies-skeleton-colheads"]');
+      return el ? Math.round(el.getBoundingClientRect().top) : -1;
+    });
+    expect(skeletonRail, "no skeleton column rail was rendered").toBeGreaterThan(0);
+
+    // NOT unrouted first. `unroute` while the handler is still inside its own sleep
+    // invalidates the route it is about to continue, so the RSC payload never
+    // arrives and the grid never renders (matrix row 45).
+    await expect(
+      page.locator('[data-testid="companies-grid"][data-ready="true"]'),
+    ).toBeAttached({ timeout: 20_000 });
+    const loadedRail = await page.evaluate(() => {
+      const el = document.querySelector('[role="row"][aria-rowindex="1"]');
+      return el ? Math.round(el.getBoundingClientRect().top) : -1;
+    });
+    expect(loadedRail).toBeGreaterThan(0);
+
+    // A few pixels for sub-pixel line-box rounding. A missing coverage band would be
+    // tens of pixels, which is the jump this is here to catch.
+    expect(
+      Math.abs(loadedRail - skeletonRail),
+      `skeleton rail at ${skeletonRail}, loaded rail at ${loadedRail}`,
+    ).toBeLessThan(8);
+  });
+
   test(`a selection looks right — ${theme}`, async ({ page }) => {
     // Selection is a colour state, and colour drift is exactly what a pixel
     // baseline catches that an assertion does not — the too-subtle dark tint

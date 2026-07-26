@@ -20,7 +20,9 @@
 import type {
   ApplicationView,
   ChannelHealthView,
+  CompanyView,
   JobView,
+  ReviewState,
   SavedView,
   Triage,
 } from "./view-models";
@@ -110,6 +112,61 @@ export type DeleteViewResult =
   | { ok: false; kind: "auth" }
   | { ok: false; kind: "error"; message: string };
 
+/**
+ * One review decision applied to many companies, atomically — the /companies
+ * grid's two verbs. Parallel arrays, exactly as BulkTriageInput: index i's
+ * expected version guards company i, and a null element skips that row's check.
+ * A conflict on ANY row applies NONE of the batch.
+ */
+export type BulkReviewInput = {
+  companyIds: number[];
+  reviewState: ReviewState;
+  idempotencyKey: string;
+  expectedUpdatedAt: (string | null)[];
+};
+
+export type BulkReviewResult =
+  | { ok: true; companies: CompanyView[] }
+  | { ok: false; kind: "conflict" }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+/** The per-row sweep toggles an approved company shows. */
+export type CompanyFlagsInput = {
+  companyId: number;
+  enabled: boolean;
+  priority: boolean;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+export type CompanyFlagsResult =
+  | { ok: true; company: CompanyView }
+  | { ok: false; kind: "conflict"; current: CompanyView }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+/**
+ * A pasted list of company names → proposed rows.
+ *
+ * Deliberately names only. Nothing in the web app can resolve a board — the
+ * waterfall is `monitor/discover.py`, runs in Python, and is not reachable from
+ * here — so this input carries no ats/slug/tier for a caller to assert. The
+ * store writes tier 3 / `manual`, which is the truthful description of a name
+ * nobody has probed.
+ */
+export type ProposeCompaniesInput = {
+  names: string[];
+  /** Provenance tag for the coverage meter's source breakdown. */
+  source: string;
+  idempotencyKey: string;
+};
+
+export type ProposeCompaniesResult =
+  | { ok: true; companies: CompanyView[]; added: number }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
 export interface DataSource {
   /** Qualified, untriaged, freshest first. */
   queue(opts?: QueueOptions): Promise<JobView[]>;
@@ -120,6 +177,18 @@ export interface DataSource {
   setTriage(input: TriageInput): Promise<WriteResult>;
   /** One triage applied to N postings in one transaction — all or nothing. */
   setTriageBulk(input: BulkTriageInput): Promise<BulkWriteResult>;
+
+  /**
+   * The user's slice of the shared company universe — proposals included.
+   * Filtering by review state happens client-side over this, like `jobs()`.
+   */
+  companies(): Promise<CompanyView[]>;
+  /** One review decision applied to N companies in one transaction. */
+  setCompanyReviewBulk(input: BulkReviewInput): Promise<BulkReviewResult>;
+  /** The sweep toggles on one approved company. */
+  setCompanyFlags(input: CompanyFlagsInput): Promise<CompanyFlagsResult>;
+  /** A pasted list of names → tier-3 proposals awaiting review. */
+  proposeCompanies(input: ProposeCompaniesInput): Promise<ProposeCompaniesResult>;
 
   /** A user's saved grid states for a surface. Built-in presets live in code. */
   savedViews(surface: string): Promise<SavedView[]>;
