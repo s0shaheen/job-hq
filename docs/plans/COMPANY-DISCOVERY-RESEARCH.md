@@ -7,6 +7,10 @@ doc records what is now **measured**, what remains **estimated**, what the repo'
 research corrects**, and the single keyed test that unblocks the rest — then a revised,
 honest build sequence.
 
+**Update — the keyed tests have both run** (2026-07-24 P3, 2026-07-26 probe #2). See
+[Keyed probe #2](#keyed-probe-2-2026-07-26--the-decisive-follow-up-done) and the refreshed
+Confidence ledger; where the two disagree, the probes win over the paragraphs written without a key.
+
 **Read the epistemic status first.** The pass is strong exactly where it touched real
 artifacts (the live `monitor.discover` resolver, `curl` against public ATS APIs, repo file
 inventory) and weak exactly where it mattered most (every denominator and the "free recall"
@@ -136,8 +140,9 @@ headline economics are **contradicted by the repo's own code**:
 - **RESOLVED EMPIRICALLY (2026-07-24, P3) — the free recall-diff WORKS; the pessimism here was
   wrong.** Live against the real API: excluding companies with `company_name_not` /
   `company_domain_not` under blur **dropped the count** (D 1405 → 1395 excluding 14 big employers,
-  → 1402 by domain), so exclusion IS applied under blur, for free. `wide.py:241` strips the
-  **inclusion** fence (`company_name_case_insensitive_or`, used to fence TO companies) — the
+  → 1402 by domain), so exclusion IS applied under blur, for free. `wide.py`'s preview shape strips
+  the **inclusion** fences (`company_name_case_insensitive_or` / `company_domain_or`, used to fence
+  TO companies) — the
   **exclusion** filters are a different family and survive blur. So `recall = 1 − gap_D/D` is free
   (a 644-name exclusion list ran fine). Built + live-verified as `monitor/oracle.py`.
 - **Also corrected — the endpoint:** the denominator is **`/v1/jobs/search`**, not
@@ -145,7 +150,9 @@ headline economics are **contradicted by the repo's own code**:
   directly (the distinct-company count); companies/search filters *firmographics* and rejects
   `job_title_or` (422), so it cannot size a job facet.
 - **Estimated denominators (LOW confidence, no key):** Chicago finance ≈ 600–1,800 companies
-  (pt ~1,100); US startup SWE/PM ≈ 8,000–20,000 (pt ~12,000). Query-sized, not measured.
+  (pt ~1,100); US startup SWE/PM ≈ 8,000–20,000 (pt ~12,000). Query-sized, not measured. **Neither
+  is superseded:** probe #2 measured the 7-day **US** financial-analyst facet (1,684 jobs / 1,282
+  companies) — a national facet that *bounds* Chicago from above rather than measuring it.
 
 **Salvage:** recall may still be computable, just not free — either pay credits for the exclusion
 query, or diff client-side (pull the blurred facet company set, subtract the HQ universe locally).
@@ -170,9 +177,14 @@ records/mo; real capacity starts at Pro **$800/mo**).
   ($25/mo) or TheirStack ($59/mo) — but those are job feeds, orthogonal to the firmographics gap.
 - **Honest limit for every firmographics vendor:** none is a day-of job feed. They give the
   company *universe + metadata*; postings stay Tier-1 adapters + Tier-2 aggregators.
-- **Real gap:** no source has been **live-priced for the specific need** (facet company-name search
-  + private-company firmographics under $50). PDL's standalone Company API tier was JS-gated and
-  never isolated — it's the most likely sub-$50 firmographics option and remains unpriced.
+- ~~**Real gap:** no source has been **live-priced for the specific need** (facet company-name
+  search + private-company firmographics under $50). PDL's standalone Company API tier was JS-gated
+  and never isolated — it's the most likely sub-$50 firmographics option and remains unpriced.~~
+  **KILLED by the 2026-07-26 probe:** there is no gap to fill. Every TheirStack job row already
+  carries `company_object` (domain, industry, employee_count, annual_revenue_usd, founded_year,
+  linkedin_id, num_jobs, num_jobs_last_30_days, yc_batch), so the firmographics arrive with the
+  postings we already pull. Do not price PDL, Coresignal, or any $50 firmographics tier — buy
+  nothing here.
 
 ---
 
@@ -227,23 +239,88 @@ Supersedes the design doc's sketch where they differ:
 
 ---
 
-## The decisive follow-up (unblocks the whole quantitative half)
+## Keyed probe #2 (2026-07-26) — the decisive follow-up, DONE
 
-Everything uncertain traces to two untested TheirStack interactions and one unmeasured coverage
-premise. **One keyed session settles all three.** With `THEIRSTACK_API_KEY` set, run against
-`POST /v1/companies/search`:
+The three open questions ("does blur size a facet for free", "is exclusion accepted under blur",
+"does Tier-2 actually carry Dad's IL corporates") are answered. Probe #1 (2026-07-24, P3) settled
+the free recall-diff and built `monitor/oracle.py`; this pass settled the rest, live-keyed.
 
-1. Does `include_total_results:true` return `metadata.total_companies` at **0 credits** under
-   `blur_company_data:true`? (The free-denominator premise.)
-2. Is a company-identifier **exclusion** (`company_list_id_not` / `company_domain_not`) even
-   **accepted** under blur, or stripped like `wide.py:241` says? (The free-recall-diff premise —
-   likely fails; if so, price the paid diff or the client-side diff.)
-3. Query 5–8 real IL corporates (CME, ADM, Kraft Heinz, Northern Trust) → confirm Tier-2 actually
-   covers **their specific** iCIMS/Taleo/SuccessFactors postings, not just the marketing ATS list.
-   (The recall premise the whole "adapters only buy latency" story rests on.)
+1. **Free denominators — CONFIRMED.** `blur_company_data:true` + `include_total_results:true` +
+   `posted_at_max_age_days` + `limit>=1` returns both `metadata.total_results` and
+   `metadata.total_companies`, rows blurred (`has_blurred_data:true`, company `Xxxxxxxxx
+   Xxxxxxxxxx X`), no credits. `limit:0` is **not** a free-er variant — it 422s
+   (`'limit': Input should be greater than or equal to 1`), so `limit:1` is the floor.
+2. **E-024 is the trap.** A blurred, `discovered_at_gte`-only body 422s with
+   `E-024 Missing mandatory filter`, verbatim: *"At least one of the following filters must be
+   provided: `['posted_at_max_age_days', 'posted_at_gte', 'posted_at_lte', 'job_id_or',
+   'job_export_key_or', 'company_name_or', 'company_name_case_insensitive_or',
+   'company_name_partial_match_or', 'company_id_or', 'company_domain_or',
+   'company_linkedin_url_or']`."* **`discovered_at_gte` is not on that list.** `monitor/oracle.py`
+   already sends `posted_at_max_age_days`; `monitor/wide.py`'s geo-first and preview shapes carried
+   only the discovered_at cursor. **"Would have 422'd" is a strong inference, not a measurement:**
+   the 422 came from a blurred discovered_at-only body; wide.py's own unblurred geo shape was never
+   sent. The inference is that its filter set contains nothing from the verbatim list above, and the
+   check is the endpoint's, not the blur path's. Fixed by adding a **fixed 30-day
+   `posted_at_max_age_days` rolling window** to unfenced bodies, deliberately **not** derived from
+   the cursor — a cursor-derived posted floor ANDs a *discovered_at* high-water mark onto a *posted*
+   bound and permanently drops late-discovered jobs (~14% of rows lag ≥1 day,
+   `aggregator-apis.md:32`). `discovered_at_gte` stays as the incremental/dedup filter. The
+   company-fenced production shape is exempt (its fence satisfies the rule) and is unchanged.
+   **Bare-date `posted_at_gte` also round-trips fine** — a post-build call (2026-07-26) sent
+   `posted_at_gte: "2026-07-19"` blurred and got **status 200, `total_results` 1453,
+   `total_companies` 1094, `has_blurred_data: true`, no credits**. So the date-format question is
+   closed (a plain `YYYY-MM-DD` is accepted); `posted_at_max_age_days` is the shipped mechanism only
+   because a rolling window must not track the cursor.
+3. **Tier-2 covers Dad's firms — grounded per-employer for 2 of 6, presence-only for the other 4.**
+   Company-fenced queries returned live rows for CME Group (3,547 results; a
+   `cmegroup.wd1.myworkdayjobs.com` URL), Abbott (52,237; a `abbott.wd5.myworkdayjobs.com` URL),
+   Northern Trust (5,736), Kraft Heinz (16,762 — LinkedIn source), Allstate (6,789 — LinkedIn), and
+   ADM (16,663 under the short name; the full "Archer Daniels Midland" fence returned only 52 and a
+   stale Brazilian row).
+   **Read those two groups differently.** CME and Abbott are *per-employer grounded*: the rows
+   carried that employer's own Workday apply URL, so Workday tenants demonstrably come back as
+   **direct ATS apply URLs**, not just aggregator mirrors. Kraft Heinz / Allstate / Northern Trust /
+   ADM establish only that **something matching the name is indexed** — the very same probe (finding
+   4) measured those fences over-matching at 3 / 6 / 5 / 3 companies per name, so their result counts
+   are a name-fence total, not that employer's coverage. Confirming those four per-employer needs a
+   `company_domain_or` re-run.
+4. **Name fences are unreliable.** Every fence over-matched: "Kraft Heinz" → 3 companies,
+   "Allstate" → 6, "Abbott" → 5, "Northern Trust" → 3, "ADM" → 3; and "Archer Daniels Midland" vs
+   "ADM" are different result sets entirely. `company_domain_or`, `company_id_or` and
+   `company_linkedin_url_or` are accepted fences and exact — prefer domains wherever the universe
+   has one. (`wide.py` now takes optional `company_domains` and fences with `company_domain_or`.)
+5. **Firmographics ride along free.** Every job row carries `company_object` with
+   `id / domain / industry / country / employee_count / employee_count_range / annual_revenue_usd /
+   founded_year / linkedin_id / linkedin_url / apollo_id / logo / num_jobs /
+   num_jobs_last_30_days / yc_batch / is_recruiting_agency` — e.g. Northern Trust: Financial
+   Services, 35,000 employees, $6.7B revenue, founded 1889, `num_jobs` 5,674 with 477 in the last
+   30 days. That is the firmographics set the "~$50 fill-in" was going to buy.
+6. **Rate limits (response headers):** 4/s, 10/min, 50/h, 400/day per key.
 
-Then replace the estimated denominators with the four measured blur-mode counts (2 facets ×
-{D, gap_D}).
+Measured facet denominator: the **7-day US financial-analyst facet = 1,684 jobs / 1,282
+companies**. It replaces *neither* of the two estimates — it is a **national** facet, so it is not
+the Chicago-finance denominator; what it does is **bound Chicago from above** (Chicago ⊂ US ⇒ ≤1,282
+companies in a 7-day window), which makes the retained ~1,100 Chicago point estimate look too high
+rather than confirmed. Both the Chicago and the US-startup SWE/PM facets remain unmeasured; each is
+one blurred `job_location_or` call away.
+
+### Geo-lane activation gaps (known, pre-existing)
+
+The E-024 fix makes `monitor/wide.py`'s geo-first shape *legal*; it does not make it *ready*. Two
+gaps predate this branch and both must close before `wide_location_ids` is set on a live user:
+
+1. **A metro-wide query re-bills the same window every night.** Billing is 1 credit per job
+   RETURNED, and a metro facet routinely matches far more than one budget's worth, so the page comes
+   back full, `ts_truncated` holds the cursor (correctly — advancing past a truncated page would skip
+   the remainder forever), and the next run pays for the same window again. The fix is the vendor's
+   periodic-fetch pattern — `discovered_at_gte` **plus `job_id_not`** of the ids already ingested
+   (`docs/research/aggregator-apis.md:33`) — not a bigger budget.
+2. **`preview=True` cannot size a query yet.** The preview body sets `blur_company_data` but never
+   `include_total_results`, `_theirstack_fetch` returns only `data` and discards `metadata`, and
+   `map_theirstack_job` has no `has_blurred_data` guard — so a preview currently yields blurred rows
+   that could be mapped into the Feed as if real, and no count. The free-sizing capability that
+   probe #2 verified at the API level is **not wired into wide.py**; `monitor/oracle.py` is where
+   free sizing actually works today.
 
 ---
 
@@ -257,11 +334,21 @@ Then replace the estimated denominators with the four measured blur-mode counts 
 | `monitor.discover` DRW miss + ADM false-positive | **Grounded** (curl-verified) |
 | Grid already ships the provenance/selection/persona primitives | **Grounded** (repo files confirmed) |
 | Free sources (dorking, Common Crawl, EDGAR, Form ADV) yield as claimed | **Grounded** (each exercised once) |
-| Tier-2 covers iCIMS/Taleo/SuccessFactors | **Repo-documented** (marketing list + hiring.cafe probe), **not** verified for Dad's firms |
+| Tier-2 covers iCIMS/Taleo/SuccessFactors | **Repo-documented** (marketing list + hiring.cafe probe) |
+| Tier-2 covers **Dad's specific IL corporates** | **Split.** *Per-employer grounded, n=2:* CME + Abbott — the returned rows are direct `*.myworkdayjobs.com` apply URLs, so those employers' own postings are demonstrably in the index. *Name-fenced PRESENCE only, n=4:* Kraft Heinz / Allstate / Northern Trust / ADM — the same probe measured those fences **over-matching** (3 / 6 / 5 / 3 companies per name), so the counts prove *something matching the name* is indexed, not that employer's coverage |
 | Aggregator lag ≈ same-day/≤48h (not 1–3 days) | **Repo-corrected** (`aggregator-apis.md:32`) |
-| Free zero-credit recall-diff under blur | **CONFIRMED WORKING** (P3, live 2026-07-24) — exclusion filters apply under blur; `wide.py:241` only strips the *inclusion* fence |
-| Coresignal $49 as the paid pick | **Contradicted** by `aggregator-apis.md:79` ("Out"); provisional, needs trial |
-| All facet denominators (Chicago finance, US startups) | **Estimate-only** (no key) — 4 calls from measured |
+| Free zero-credit recall-diff under blur | **CONFIRMED WORKING** (P3, live 2026-07-24) — exclusion filters apply under blur; `wide.py`'s preview shape only strips the *inclusion* fences |
+| Free blurred denominators (`total_results` + `total_companies`) | **MEASURED** (probe #2) — needs `blur` + `include_total_results` + a date filter + `limit>=1` (`limit:0` 422s) |
+| `discovered_at_gte` satisfies TheirStack's mandatory filter | **FALSE — MEASURED** (probe #2, E-024 on a blurred discovered_at-only body): only `posted_at_*` / job ids / company identifiers do |
+| `wide.py`'s geo-first + preview shapes were latent 422s | **Strong inference, not measured** — those exact bodies were never sent; they carry nothing from the verbatim E-024 list. Fixed either way, with a fixed 30d `posted_at_max_age_days` window (NOT cursor-derived) |
+| Bare-date `posted_at_gte` is an accepted filter value | **MEASURED** (post-build call, 2026-07-26): `posted_at_gte: "2026-07-19"` blurred → 200, 1453 results / 1094 companies, `has_blurred_data:true`, free |
+| The geo lane is ready to activate | **NO** — two pre-existing gaps: truncated metro pages re-bill the same window nightly (needs `job_id_not`), and `preview=True` cannot size a query yet (no `include_total_results`, metadata discarded, no `has_blurred_data` guard). See *Geo-lane activation gaps* |
+| Company **name** fences are precise enough to fence a query | **FALSE** (probe #2) — "Kraft Heinz" matched 3 companies, "Allstate" 6, "Abbott" 5; use `company_domain_or` / `company_id_or` / `company_linkedin_url_or` |
+| Coresignal $49 as the paid pick | **Contradicted** by `aggregator-apis.md:79` ("Out"); moot — see next row |
+| A ~$50 firmographics fill-in is needed at all | **KILLED** (probe #2) — `company_object` rides free on every job row (domain, industry, employee_count, annual_revenue_usd, founded_year, num_jobs_last_30_days) |
+| 7-day **US** financial-analyst facet denominator | **MEASURED** (probe #2): **1,684 jobs / 1,282 companies** — a *national* facet, NOT Chicago |
+| Chicago-finance facet denominator | **Still estimate-only** (~600–1,800, pt ~1,100). The US measurement above **bounds it from above**: Chicago ⊂ US, so ≤1,282 companies in a 7-day window — which makes the retained ~1,100 point estimate look *too high*, not confirmed. One blurred `job_location_or` call from measured |
+| US-startup SWE/PM facet denominator | **Estimate-only** (~8,000–20,000 companies) — one blurred call from measured |
 
 ---
 

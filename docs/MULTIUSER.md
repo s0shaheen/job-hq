@@ -135,9 +135,19 @@ TheirStack bills **1 credit per job returned**, and re-returning the same job
 costs again — which is why the `discovered_at` cursor is mandatory and the
 budget is enforced as the request limit rather than checked afterwards. The
 free tier is 200 credits/month with a 125-job ceiling per query: fine for the
-company-fenced sweep, too small for a metro-wide one. Size a real query for
-free first with a blurred preview (`theirstack_body(..., preview=True)`),
-then decide whether the $59 tier (1,500 jobs/month) is warranted.
+company-fenced sweep, too small for a metro-wide one.
+
+**Two gaps to close before setting `wide_location_ids` on a live user**
+(details: `docs/plans/COMPANY-DISCOVERY-RESEARCH.md` → *Geo-lane activation
+gaps*): (1) a metro-wide query fills the budget every run, so `ts_truncated`
+holds the cursor and the next run **re-buys the same window** — the fix is the
+vendor's periodic-fetch pattern (`discovered_at_gte` + `job_id_not`), not a
+bigger budget; (2) `theirstack_body(..., preview=True)` **cannot size a query
+yet** — it blurs, but nothing sets `include_total_results`, the response
+`metadata` is discarded, and there is no `has_blurred_data` guard on the mapper.
+Free sizing works today only in `monitor/oracle.py`. Until preview is wired,
+size with the oracle (or a manual blurred call) before deciding whether the $59
+tier (1,500 jobs/month) is warranted.
 
 Leaving `wide_location_ids` blank keeps the original company-fenced behavior,
 so nothing changes for a national search.

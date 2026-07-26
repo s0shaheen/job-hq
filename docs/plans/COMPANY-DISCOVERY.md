@@ -174,8 +174,9 @@ with grounded evidence:
   The "3–5 new adapters" collapse to **3** (SuccessFactors, iCIMS, Taleo), and they buy **day-of
   latency, not recall** — those ATSs are already Tier-2-covered, and the lag is ≤48h, not 1–3 days.
   So sequencing inverts: **Tier-2 first for coverage, adapters second for latency.**
-- **The "free zero-credit coverage-oracle recall diff" is contradicted by `monitor/wide.py:241`**
-  (blur is incompatible with company-identifier filters). Recall is computable but likely not free.
+- **The "free zero-credit coverage-oracle recall diff" is contradicted by `monitor/wide.py`'s
+  preview shape** (blur is incompatible with company-identifier filters, so it strips the inclusion
+  fences). Recall is computable but likely not free.
 - **Coresignal $49 was already rejected** in `docs/research/aggregator-apis.md` ("Out"); the paid
   fill-in remains genuinely unpriced for the firmographics need.
 - Two grounded resolver bugs (`monitor/discover.py`) must be fixed before scaling the universe.

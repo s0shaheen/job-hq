@@ -36,7 +36,9 @@ OpenAPI spec 2026-07-13: POST /v1/jobs/search, Bearer auth, filters
 company_name_case_insensitive_or/job_title_or/discovered_at_gte, response
 {"data": [...]} with job_title/final_url/discovered_at/salary_string/remote/
 seniority (no numeric YoE field — min_yoe stays "" for review to fill).
-TheirStack failure logs and continues; it is never fatal.
+Every request must satisfy TheirStack's mandatory-filter rule (E-024) with a
+date or company identifier — see theirstack_body. TheirStack failure logs and
+continues; it is never fatal.
 """
 from __future__ import annotations
 
@@ -65,6 +67,9 @@ TS_CURSOR = "wide_theirstack_cursor"
 TS_URL = "https://api.theirstack.com/v1/jobs/search"
 TS_LIMIT = 25
 TS_TIMEOUT = 30      # per-request seconds; TheirStack is optional and must never hang the sweep
+# Rolling posted-date window for bodies with no company fence — see
+# theirstack_body for WHY it is a fixed window and NOT derived from the cursor.
+TS_UNFENCED_MAX_AGE_DAYS = 30
 # Apify's .call() BLOCKS until the actor run finishes. On the free tier a run
 # can sit QUEUED indefinitely waiting for memory or credit — which is exactly
 # how this sweep went from 2-4 minutes to hitting the 15-minute workflow
@@ -213,6 +218,7 @@ def _default_cursor(today: str) -> str:
 
 def theirstack_body(cursor: str, terms: list[str], *,
                     companies: list[str] | None = None,
+                    company_domains: list[str] | None = None,
                     location_ids: list[int] | None = None,
                     limit: int = TS_LIMIT, preview: bool = False) -> dict:
     """Request body for either search shape.
@@ -222,33 +228,74 @@ def theirstack_body(cursor: str, terms: list[str], *,
     this metro, ANY employer" — `job_location_or` takes structured catalog IDs
     (the older location *pattern* params are deprecated).
 
-    TheirStack REQUIRES a date filter on any query not fenced by a company
-    identifier, so the discovered_at cursor is mandatory here — which is also
-    what stops us re-buying yesterday's rows: billing is 1 credit per job
-    RETURNED, and a repeat pull is charged again.
+    MANDATORY FILTER (E-024, keyed probe 2026-07-26): every jobs/search request
+    must carry at least one of
+      ['posted_at_max_age_days', 'posted_at_gte', 'posted_at_lte', 'job_id_or',
+       'job_export_key_or', 'company_name_or', 'company_name_case_insensitive_or',
+       'company_name_partial_match_or', 'company_id_or', 'company_domain_or',
+       'company_linkedin_url_or']
+    and `discovered_at_gte` is NOT on that list — a discovered_at-only query
+    422s. So any body without a company fence also carries a posted-date bound:
+    a FIXED rolling window (`posted_at_max_age_days = TS_UNFENCED_MAX_AGE_DAYS`),
+    deliberately DECOUPLED from the discovered_at cursor.
+
+    WHY decoupled: deriving the posted floor FROM the cursor ANDs an unrelated
+    bound onto every query — the cursor is a *discovered_at* high-water mark, so
+    a job posted before the last run but discovered after it fails the posted
+    floor and is dropped PERMANENTLY (the cursor only moves forward). ~14% of
+    this repo's rows carry >=1 day of discovery lag
+    (docs/research/aggregator-apis.md:32), so that is a real, silent, recurring
+    loss. Every posted_at bound loses *something* (E-024 forces one on unfenced
+    queries); a wide rolling window loses only jobs posted >30d before they were
+    discovered — rare and stale — instead of everything since the last run.
+    discovered_at_gte stays alongside it as the incremental/dedup filter: a
+    valid *narrowing* filter, just not a mandatory-satisfying one. Prior art:
+    monitor/oracle.py:51 (build_body already sends posted_at_max_age_days for
+    exactly this reason); probe-verified free under blur (2026-07-26).
+    The company-fenced production shape is exempt (its fence satisfies the
+    rule) and stays byte-identical — the nightly wide_theirstack job runs it.
+
+    The cursor is also what stops us re-buying yesterday's rows: billing is
+    1 credit per job RETURNED, and a repeat pull is charged again.
+
+    Fencing prefers domains: the 2026-07-26 probe showed name fences are
+    unreliable ("Kraft Heinz" matched 3 companies, "Allstate" 6), while
+    company_domain_or is exact. Names stay the fallback for universes that
+    have no domain yet.
 
     preview=True asks for blurred company data, which the API serves WITHOUT
-    consuming credits — the way to size a query before paying for it.
+    consuming credits. NOT yet a sizing call: nothing here sets
+    include_total_results, _theirstack_fetch discards `metadata`, and
+    map_theirstack_job has no has_blurred_data guard — so a preview today yields
+    blurred rows and no count. Free sizing works in monitor/oracle.py; see
+    docs/plans/COMPANY-DISCOVERY-RESEARCH.md → "Geo-lane activation gaps".
     """
     body: dict = {"limit": limit, "offset": 0,
                   "discovered_at_gte": cursor,
                   "job_title_or": list(terms)}
-    if companies:
+    if company_domains:
+        body["company_domain_or"] = list(company_domains)
+    elif companies:
         body["company_name_case_insensitive_or"] = list(companies)
     if location_ids:
         body["job_location_or"] = [{"id": int(i)} for i in location_ids]
     if preview:
         # blur is incompatible with company-identifier filters (vendor docs)
         body.pop("company_name_case_insensitive_or", None)
+        body.pop("company_domain_or", None)
         body["blur_company_data"] = True
+    if not (body.get("company_domain_or") or body.get("company_name_case_insensitive_or")):
+        body["posted_at_max_age_days"] = TS_UNFENCED_MAX_AGE_DAYS   # E-024 — see above
     return body
 
 
 def _theirstack_fetch(session: requests.Session, api_key: str, cursor: str,
                       companies: list[str], terms: list[str],
                       location_ids: list[int] | None = None,
-                      limit: int = TS_LIMIT, preview: bool = False) -> list[dict]:
+                      limit: int = TS_LIMIT, preview: bool = False,
+                      company_domains: list[str] | None = None) -> list[dict]:
     body = theirstack_body(cursor, terms, companies=companies,
+                           company_domains=company_domains,
                            location_ids=location_ids, limit=limit, preview=preview)
     r = session.post(TS_URL, json=body,
                      headers={"Authorization": f"Bearer {api_key}",

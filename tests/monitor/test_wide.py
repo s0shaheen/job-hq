@@ -367,10 +367,16 @@ def test_geo_first_body_drops_the_company_fence_and_sends_location_ids():
 
 
 def test_company_fenced_body_unchanged_when_no_location_ids():
+    # the nightly wide_theirstack job sends exactly this — byte-identical to the
+    # pre-E-024 shape (its company fence already satisfies the mandatory rule,
+    # so no posted_at_gte is added and nothing about production changes)
     from monitor.wide import theirstack_body
     b = theirstack_body("cur", ["pm"], companies=["Acme"])
-    assert "job_location_or" not in b
-    assert b["company_name_case_insensitive_or"] == ["Acme"]
+    assert b == {"limit": wide.TS_LIMIT, "offset": 0, "discovered_at_gte": "cur",
+                 "job_title_or": ["pm"], "company_name_case_insensitive_or": ["Acme"]}
+    assert list(b) == ["limit", "offset", "discovered_at_gte",
+                       "job_title_or", "company_name_case_insensitive_or"]
+    assert "posted_at_gte" not in b and "job_location_or" not in b
 
 
 def test_preview_mode_blurs_and_drops_company_filter():
@@ -381,6 +387,9 @@ def test_preview_mode_blurs_and_drops_company_filter():
                         location_ids=[1], preview=True)
     assert b["blur_company_data"] is True
     assert "company_name_case_insensitive_or" not in b
+    assert "company_domain_or" not in b
+    b2 = theirstack_body("cur", ["fp&a"], company_domains=["acme.com"], preview=True)
+    assert b2["blur_company_data"] is True and "company_domain_or" not in b2
 
 
 def test_date_cursor_is_always_present():
@@ -388,6 +397,64 @@ def test_date_cursor_is_always_present():
     # the cursor is also what stops us re-buying yesterday's rows
     from monitor.wide import theirstack_body
     assert theirstack_body("cur", ["x"], location_ids=[1])["discovered_at_gte"] == "cur"
+
+
+# ---- E-024: discovered_at_gte does not satisfy the mandatory-filter rule
+# (keyed probe 2026-07-26; oracle.py is the prior art)
+
+# Verbatim from the 422 body; job_id_or/job_export_key_or are on the API's list
+# too but this module never sends per-job ids, so they are not options here.
+E024_FILTERS = ("posted_at_max_age_days", "posted_at_gte", "posted_at_lte",
+                "company_name_or", "company_name_case_insensitive_or",
+                "company_name_partial_match_or", "company_id_or",
+                "company_domain_or", "company_linkedin_url_or")
+
+
+def _assert_satisfies_e024(body, label):
+    """The invariant TheirStack enforces: at least ONE of the mandatory filters.
+    Pinning *which* one would pin a mechanism we are free to change; the API
+    only cares that the set is non-empty (and `discovered_at_gte` is not in it)."""
+    assert [k for k in E024_FILTERS if k in body], \
+        f"{label} body carries no E-024 mandatory filter: {sorted(body)}"
+
+
+def _posted_filters(body):
+    return {k: v for k, v in body.items() if k.startswith("posted_at")}
+
+
+def test_every_unfenced_body_satisfies_the_mandatory_filter_rule():
+    from monitor.wide import theirstack_body
+    _assert_satisfies_e024(
+        theirstack_body(CURSOR, ["fp&a"], location_ids=[4887398]), "geo")
+    _assert_satisfies_e024(
+        theirstack_body(CURSOR, ["fp&a"], companies=["Acme"], preview=True), "preview")
+    _assert_satisfies_e024(theirstack_body(CURSOR, ["fp&a"]), "bare")
+    # the cursor rides along on all of them — it narrows, it just cannot satisfy E-024
+    assert theirstack_body(CURSOR, ["fp&a"], location_ids=[1])["discovered_at_gte"] == CURSOR
+
+
+def test_the_mandatory_filter_is_not_derived_from_the_cursor():
+    """A cursor-derived posted floor would AND a *discovered_at* high-water mark
+    onto a *posted* bound, permanently dropping every late-discovered job (~14%
+    of rows lag >=1 day). Moving the cursor must not move the posted window."""
+    from monitor.wide import theirstack_body
+    old = theirstack_body("2026-01-01T00:00:00Z", ["fp&a"], location_ids=[1])
+    new = theirstack_body("2026-07-20T12:34:56Z", ["fp&a"], location_ids=[1])
+    assert _posted_filters(old) == _posted_filters(new)
+    assert _posted_filters(new) == {"posted_at_max_age_days": wide.TS_UNFENCED_MAX_AGE_DAYS}
+    assert old["discovered_at_gte"] != new["discovered_at_gte"]   # only the cursor moved
+
+
+def test_domain_fence_replaces_the_name_fence_when_domains_are_given():
+    # probe 2026-07-26: name fences are fuzzy ("Kraft Heinz" -> 3 companies,
+    # "Allstate" -> 6); company_domain_or is exact. Names stay the fallback.
+    from monitor.wide import theirstack_body
+    b = theirstack_body("cur", ["pm"], companies=["Acme"],
+                        company_domains=["acme.com", "acme.io"])
+    assert b["company_domain_or"] == ["acme.com", "acme.io"]
+    assert "company_name_case_insensitive_or" not in b
+    _assert_satisfies_e024(b, "domain-fenced")
+    assert _posted_filters(b) == {}        # a domain fence satisfies E-024 by itself
 
 
 # ---- the Apify call must never block the sweep indefinitely

@@ -10,9 +10,10 @@ Mechanic (empirically validated 2026-07-24, all FREE — blurred queries consume
 
 The jobs/search endpoint (not companies/search, which filters firmographics and can't take a
 job facet) returns metadata.total_companies = the distinct-company count for the query. And
-EXCLUSION filters apply under blur even though the INCLUSION fence does not: wide.py:241 strips
-company_name_case_insensitive_or (fencing TO companies), but company_name_not / company_domain_not
-(excluding companies) both dropped the count in testing. So the recall-diff is free.
+EXCLUSION filters apply under blur even though the INCLUSION fence does not: wide.py's preview
+shape strips the inclusion fences (company_name_case_insensitive_or / company_domain_or — fencing
+TO companies), but company_name_not / company_domain_not (excluding companies) both dropped the
+count in testing. So the recall-diff is free.
 
 Caveats: name exclusion is fuzzy (variants like "J.P. Morgan" vs "JPMorgan Chase" can miss), so
 recall is approximate — a domain-based universe (once we store domains) is tighter. Very large

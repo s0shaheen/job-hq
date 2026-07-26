@@ -21,9 +21,12 @@ resolutions here override the individual plans where they conflict.
 > list (agentic generate→ground→verify→expand, shared universe, reliability
 > tiers). Forks resolved; the read-only research pass **ran** (2026-07-23) —
 > grounded findings + the revised build sequence live in
-> [COMPANY-DISCOVERY-RESEARCH.md](COMPANY-DISCOVERY-RESEARCH.md). Next: a keyed
-> TheirStack session to convert the estimated denominators to measured, then
-> build (resolver hardening → Tier-2 recall → adapters for latency).
+> [COMPANY-DISCOVERY-RESEARCH.md](COMPANY-DISCOVERY-RESEARCH.md). Both keyed
+> TheirStack probes have now **run** (2026-07-24 P3 oracle, 2026-07-26 probe #2:
+> denominators measured, E-024 mandatory-filter rule, Tier-2 coverage of dad's
+> firms grounded n=6, paid firmographics fill-in killed). Discovery infra P1–P6
+> is built. **Next: P7 `/companies` review grid** — see the HQ-V2-BUILD
+> Checkpoint Log.
 
 > **Future design threads (researched + designed, NOT scheduled — they do not
 > preempt anything above):** [AUTO-APPLY.md](AUTO-APPLY.md) (select rows →
