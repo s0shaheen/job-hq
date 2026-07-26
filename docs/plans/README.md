@@ -25,6 +25,16 @@ resolutions here override the individual plans where they conflict.
 > TheirStack session to convert the estimated denominators to measured, then
 > build (resolver hardening → Tier-2 recall → adapters for latency).
 
+> **Future design threads (researched + designed, NOT scheduled — they do not
+> preempt anything above):** [AUTO-APPLY.md](AUTO-APPLY.md) (select rows →
+> Apply: prepare/review/submit/receipt pipeline, 4-layer answer engine,
+> Greenhouse→Ashby→Lever ≈ 80% coverage) and
+> [REFERRAL-FINDER.md](REFERRAL-FINDER.md) (warm-path surfacing per job:
+> zero-scrape LinkedIn deep links + connections export, vendor enrichment for
+> priority rows, outreach funnel instrumentation). Grounding research:
+> `docs/research/auto-apply-landscape.md`, `ats-apply-mechanics.md`,
+> `referral-finder-landscape.md` (all 2026-07-25).
+
 ## Build order
 
 | # | Plan | One line: what it unlocks |
