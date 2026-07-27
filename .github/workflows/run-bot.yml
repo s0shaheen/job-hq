@@ -33,6 +33,7 @@ on:
           - digest
           - selfheal
           - snapshot
+          - seed_universe
           - simplify
           - wide_cafe
           - wide_theirstack

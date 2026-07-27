@@ -46,6 +46,9 @@ JOBS: dict[str, list[tuple[str, list[str]]]] = {
     # simplify: scrape Simplify, then import the CSV it drops. Needs SIMPLIFY_* cookies;
     # its tracker/data/*.csv round-trip is repo-relative so not yet Lambda-FS-safe (follow-on).
     "simplify":        [("tracker.simplify", []), ("tracker.migrate", ["--simplify-csv"])],
+    # One-time (idempotent) sheet->pg universe seed; dispatchable, never scheduled
+    # (SHEET-SUNSET Phase A/B bridge — needs SUPABASE_* + HQ_PG_USER_ID).
+    "seed_universe":   [("monitor.seed_universe", [])],
     "wide_cafe":       [("monitor.wide", ["--source", "cafe"])],
     "wide_theirstack": [("monitor.wide", ["--source", "theirstack"])],
 }
