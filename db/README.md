@@ -11,8 +11,10 @@ sheet stays the system of record until stage 3 flips triage writes to the app.
 1. **Supabase project** — supabase.com → New project (free tier is fine: the
    whole workload is well under 500 MB; daily engine writes keep the free
    project from pausing). Region: us-central.
-2. **Run every file in `db/migrations/`, in filename order** — SQL editor →
-   paste one, run, next. The rule is the directory listing, not the list
+2. **Run every file in `db/migrations/`, in filename order** — from a laptop:
+   `DATABASE_URL='postgresql://…' db/apply.sh` (applies the whole directory in
+   order, fails loud, prints the app_* function count as a sanity check). The
+   browser-only fallback is the SQL editor → paste one, run, next. The rule is the directory listing, not the list
    below: this step used to name 0001 and 0002 and stayed that way after 0003
    shipped, so an operator who followed it provisioned a database with no
    `app_set_triage` — the exact state where every human triage fails at the

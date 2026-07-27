@@ -98,12 +98,17 @@ jobs:
       - run: npx playwright test --shard=${{ matrix.shard }}/2
         env:
           HQ_DEMO: "1"
+      # test-results/ is where the on-first-retry TRACES land (playwright.config
+      # trace setting); the github reporter never writes playwright-report/, so
+      # the old path uploaded nothing — seven CI failures of one chronic flake
+      # left zero artifacts to diagnose from. The trace zip is the diagnosis.
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report-shard-${{ matrix.shard }}
-          path: webapp/playwright-report/
+          name: playwright-traces-shard-${{ matrix.shard }}
+          path: webapp/test-results/
           retention-days: 7
+          if-no-files-found: warn
 
   # Visual regression, in the ONE environment its baselines were recorded in.
   #
