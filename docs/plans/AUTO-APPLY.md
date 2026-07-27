@@ -191,6 +191,19 @@ answers (must be zero, ever); % applications receipt-confirmed by Gmail.
 
 ## Owner decisions (2026-07-27)
 
+1a. **Research answer (2026-07-27, `docs/research/browser-exec-landscape.md`): the spike is
+   done and it inverts the cloud assumption.** Live probes found no bot-walls on the three
+   target families — the gate is invisible score-based reputation (reCAPTCHA Enterprise /
+   hCaptcha), and Greenhouse/Ashby now surface **datacenter egress to recruiters as a
+   fraud indicator**: cloud submission *succeeds pre-tagged as probable fraud* — the silent-
+   corruption class the durability contract forbids. Rented residential pools are detectable
+   as a named proxy category (IPQS feed). RECOMMENDED (pending owner ratification): submit
+   via a **per-user local runner** (MV3 extension in the user's own Chrome — $5 one-time,
+   $0/mo, honest residential by construction, ships with the product = anyone-anywhere in
+   the truest sense; Simplify's proven model). Fallback #2 for unattended/phone-only runs:
+   cloud headed Chrome egressing through the user's own free Tailscale exit node (~$2–5/mo).
+   Explicitly rejected: captcha-solving subscriptions, datacenter egress, rented residential.
+
 1. **Execution host: anyone-anywhere, NOT the operator's Mac.** Verbatim intent: "this may be
    a tool that anyone uses, there should be a better way." This upgrades the product ambition
    and reopens a technical question the Mac answer had closed: residential headed browsers pass
