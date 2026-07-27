@@ -219,3 +219,60 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page).toHaveScreenshot(`jobs-selected-${theme}.png`, { fullPage: true });
   });
 }
+
+/**
+ * The FP&A preset as a wizard draft — `users/dad/profile.yaml`'s title lists.
+ *
+ * Three of the 138 fixture postings carry an FP&A title (2.1%, under the 5%
+ * floor), so this is the `engine-behind` coverage banner in its real form:
+ * titles ARE set and the universe has almost none of them, which is Dad's
+ * actual situation and the one worth a picture.
+ */
+const FPA_DRAFT =
+  "eyJyb2xlX2ZhbWlseSI6ImZpbmFuY2lhbCBwbGFubmluZyAmIGFuYWx5c2lzIiwidGFnX2RvbWFpbiI6ImZpbmFuY2UiLCJib2FyZF9zZWFyY2hfdGVybSI6ImZpbmFuY2lhbCIsInRpdGxlc19pbmNsdWRlIjpbImZpbmFuY2lhbCBwbGFubmluZyIsImZwJmEiLCJmaW5hbmNpYWwgYW5hbHlzdCIsInNlbmlvciBmaW5hbmNpYWwgYW5hbHlzdCIsImZpbmFuY2UgbWFuYWdlciIsImZpbmFuY2lhbCByZXBvcnRpbmciLCJyZXBvcnRpbmcgbWFuYWdlciIsInRyZWFzdXJ5IiwidHJlYXN1cnkgYW5hbHlzdCIsInRyZWFzdXJ5IG1hbmFnZXIiLCJjb250cm9sbGVyIiwiYXNzaXN0YW50IGNvbnRyb2xsZXIiLCJhY2NvdW50aW5nIG1hbmFnZXIiLCJidWRnZXQgYW5hbHlzdCIsImNvcnBvcmF0ZSBmaW5hbmNlIiwiZmluYW5jZSBkaXJlY3RvciJdLCJ0aXRsZXNfZXhjbHVkZSI6WyJmaW5hbmNpYWwgYWR2aXNvciIsImZpbmFuY2lhbCByZXByZXNlbnRhdGl2ZSIsImluc3VyYW5jZSBhZ2VudCIsInNhbGVzIiwiaW50ZXJuIiwiaW50ZXJuc2hpcCIsIndlYWx0aCBtYW5hZ2VtZW50IiwicGVyc29uYWwgYmFua2VyIiwidGVsbGVyIl0sImNvdW50cmllcyI6WyJVbml0ZWQgU3RhdGVzIl0sIm1ldHJvcyI6W10sImdlb191bmtub3duIjoiZmlsdGVyIiwieW9lX21heCI6NCwieW9lX3Vua25vd24iOiJzZW5pb3JpdHktcHJveHkiLCJzZW5pb3JpdHlfZXhjbHVkZSI6W10sImNvbXBfbWluIjowLCJjb21wX3Vua25vd24iOiJrZWVwIiwid29ya19tb2RlbF9leGNsdWRlIjpbXX0";
+
+for (const theme of ["light", "dark"] as const) {
+  test(`the profile preview looks right — ${theme}`, async ({ page, context }) => {
+    // Earned for the /companies pair's reason: this panel's content is a set of
+    // COLOUR claims no assertion checks. The warn-bordered title-coverage banner
+    // says "the engine is not sweeping for this yet", and the selected radio card
+    // says "this is your answer" — and that selected card already failed AA once
+    // at 4.28:1 before axe first swept this page (matrix row 82's shape, on a new
+    // surface). A token that drifts in one theme changes what the page CLAIMS,
+    // and only a picture notices.
+    //
+    // Driven through the FP&A titles so the coverage banner is in the shot: the
+    // fixture corpus carries three matching titles out of 138, under the 5%
+    // floor, which is Dad's real situation.
+    await context.addCookies([
+      { name: "hq_demo_seed", value: "onboarding", url: "http://127.0.0.1:3210" },
+    ]);
+    await page.emulateMedia({ colorScheme: theme });
+    // Navigated WITH the draft rather than by picking the preset and then
+    // goto-ing step 6. The first version did the latter and the recorded shot
+    // was of BASE_CRITERIA — a bare `goto` carries no `?d=`, so the wizard
+    // opened on the committed baseline and the banner read "Only 0 of those 136
+    // match your job titles", which is a different (and, as it turned out,
+    // wrongly-worded) state. The picture was of a page the test did not mean to
+    // take, which is the exact thing looking at a baseline is for.
+    await page.goto(`/onboarding/6?d=${FPA_DRAFT}`);
+    await expect(page.getByTestId("wizard")).toHaveAttribute("data-hydrated", "true");
+    // The panel computes on arrival; a shot taken before it lands is a picture
+    // of the running state, which is a different thing entirely.
+    await expect(page.getByTestId("preview-panel")).toBeVisible({ timeout: 30_000 });
+    await page.waitForLoadState("load");
+    await expect(page).toHaveScreenshot(`onboarding-preview-${theme}.png`, { fullPage: true });
+  });
+
+  test(`the search profile looks right — ${theme}`, async ({ page }) => {
+    // The settings form at rest: seven sections of chips, three radio groups and
+    // two number fields, every one of which carries the selected/unselected
+    // colour pair above. Also the one page whose section anchors other surfaces
+    // link INTO, so a layout that silently loses a section is worth a picture.
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto("/settings");
+    await expect(page.getByTestId("profile-form")).toHaveAttribute("data-hydrated", "true");
+    await page.waitForLoadState("load");
+    await expect(page).toHaveScreenshot(`settings-${theme}.png`, { fullPage: true });
+  });
+}

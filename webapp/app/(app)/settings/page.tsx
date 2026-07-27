@@ -1,93 +1,60 @@
-import { Settings } from "lucide-react";
+import { getDataSource } from "@/lib/data/get-source";
+import { draftFromPreset } from "@/lib/profile/presets";
 import { DisplayPrefs } from "./display-prefs";
+import ProfileForm from "./profile-form";
 
 export const metadata = { title: "Search profile — Job Search HQ" };
+export const dynamic = "force-dynamic";
 
 /**
- * Placeholder with real anchor targets. The editable profile — wizard,
- * preview-before-commit — is the profile phase (docs/plans/PHASE-PROFILE.md)
- * and is deliberately NOT built here.
+ * /settings — the Search Profile, editable, with a dry run in front of the save.
  *
- * What must exist NOW are the anchors: the filtered-empty queue's one primary
- * action links to `/settings#<setting>`, and before this page existed the
- * app's own escape hatch dead-ended on a bare 404. The ids below are the
- * exact outputs of `reasonSetting()` in lib/data/view-models.ts — fixed
- * there, per conflict C11 in docs/plans/README.md ("do not invent a second
- * id set"), and routing.spec.ts derives them from that function so a new
- * reason kind fails the suite until its anchor lands here.
+ * This page used to be a set of read-only cards whose only job was to give the
+ * queue's "why was this filtered" popover somewhere to link to. The anchors are
+ * unchanged and they are still the contract: every `id` on a section is a
+ * `reasonSetting()` output (plans/README C11, "do not invent a second id set"),
+ * and `routing.spec.ts` derives the list from that function so a new reason kind
+ * fails the suite until its section lands here.
+ *
+ * `data-profile-version` is the SERVER's copy of `profiles.updated_at`. Tests
+ * wait on it changing rather than on a client counter, because a counter lives
+ * in a component that can unmount and a monotonic value that resets is worse
+ * than none (matrix rows 117 and 164). It doubles as the conflict token the
+ * form sends back.
  */
-const SETTINGS: { id: string; label: string; body: string }[] = [
-  {
-    id: "countries",
-    label: "Countries",
-    body: "Which countries a posting may be located in. Roles anywhere else are filtered out of the queue.",
-  },
-  {
-    id: "metros",
-    label: "Metros",
-    body: "The US metros you follow. Postings placed in another metro — or in none — are filtered.",
-  },
-  {
-    id: "yoeMax",
-    label: "Years-of-experience limit",
-    body: "The most years of experience a posting may ask for and still reach your queue.",
-  },
-  {
-    id: "seniorityExclude",
-    label: "Seniority exclusions",
-    body: "Seniority levels above your range. Postings at an excluded level are filtered.",
-  },
-  {
-    id: "compMin",
-    label: "Compensation floor",
-    body: "The minimum stated pay. Postings that state a range below it are filtered.",
-  },
-  {
-    id: "workModelExclude",
-    label: "Work-model exclusions",
-    body: "Work models you have ruled out — for example onsite-only roles.",
-  },
-];
+export default async function SettingsPage() {
+  const src = await getDataSource();
+  const profile = await src.profile();
 
-export default function SettingsPage() {
   return (
-    <div className="min-w-0">
+    <div
+      className="min-w-0"
+      data-profile-version={profile.updatedAt ?? ""}
+      data-onboarded={profile.criteria ? "yes" : "no"}
+    >
       <header className="border-b border-border px-4 py-3 sm:px-6">
         <h1 className="text-lg font-semibold">Search profile</h1>
         <p className="text-xs text-muted">
           The settings that decide what reaches your queue and what gets filtered.
+          Nothing here takes effect until you save, and you can see what a change
+          would do first.
         </p>
       </header>
 
-      <div className="mx-auto max-w-2xl space-y-3 px-4 py-5 sm:px-6">
-        <p className="flex items-start gap-2 text-sm text-muted">
-          <Settings aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          <span>
-            Editing these here isn’t built yet — it arrives later in the build
-            order, with a preview of what each change would let through. For
-            now, the values live in the Config tab of the HQ sheet, and that is
-            where a change takes effect.
-          </span>
-        </p>
-
-        {/* The one thing on this page that IS editable here. It sets a cookie and
-            needs no store, which is why it does not wait for PHASE-PROFILE. */}
+      <div className="mx-auto max-w-2xl px-4 pt-5 sm:px-6">
         <DisplayPrefs />
-
-        {SETTINGS.map((s) => (
-          <section
-            key={s.id}
-            id={s.id}
-            aria-labelledby={`${s.id}-heading`}
-            className="rounded-lg border border-border bg-surface p-4"
-          >
-            <h2 id={`${s.id}-heading`} className="text-sm font-semibold">
-              {s.label}
-            </h2>
-            <p className="mt-1 text-sm text-muted">{s.body}</p>
-          </section>
-        ))}
       </div>
+
+      <ProfileForm
+        // A profile that does not exist yet opens on the first PRESET rather
+        // than on `BASE_CRITERIA`, for the wizard's reason: the baseline names a
+        // role family and no titles, which is a state the form would then refuse
+        // to save. Mostly unreachable — the onboarding guard sends an
+        // un-onboarded user to the wizard — but a fallback that cannot be saved
+        // is not a fallback.
+        initial={profile.criteria ?? draftFromPreset("product-manager")}
+        version={profile.updatedAt}
+      />
     </div>
   );
 }

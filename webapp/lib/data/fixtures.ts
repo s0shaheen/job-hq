@@ -35,6 +35,7 @@ function job(seed: Seed): JobView {
     location: null,
     metro: null,
     market: "US",
+    country: "United States",
     remote: false,
     workModel: null,
     compRange: null,
@@ -47,6 +48,10 @@ function job(seed: Seed): JobView {
     skills: [],
     posted: daysAgo(3),
     firstSeen: daysAgo(2),
+    // Tagged by default: the set is mostly rows the engine has already
+    // analysed, and an untagged default would make every fixture re-gate to
+    // needs-info. The one deliberately-untagged row sets it back to null.
+    taggedAt: stampAgo(30),
     status: "Seen",
     disposition: "qualified",
     dispositionReason: "",
@@ -163,13 +168,14 @@ export const FIXTURE_JOBS: JobView[] = [
   job({
     key: "workday-R_1472470", company: "Wise", title: "Product Manager, Transfers",
     location: "London, United Kingdom", market: "United Kingdom",
+    country: "United Kingdom",
     compRange: "£85,000 - £110,000", minYoe: 3,
     disposition: "filtered", dispositionReason: "geo:United Kingdom",
     posted: daysAgo(4), firstSeen: daysAgo(3),
   }),
   job({
     key: "eightfold-88201", company: "Microsoft", title: "Senior Product Manager, Azure",
-    location: "Hyderabad, Telangana, IND", market: "India",
+    location: "Hyderabad, Telangana, IND", market: "India", country: "India",
     minYoe: 6, disposition: "filtered", dispositionReason: "geo:India",
     posted: daysAgo(5), firstSeen: daysAgo(4),
   }),
@@ -196,7 +202,7 @@ export const FIXTURE_JOBS: JobView[] = [
   }),
   job({
     key: "oraclehcm-99120", company: "Global Logistics Co", title: "Product Manager",
-    location: "2 Locations", market: null,
+    location: "2 Locations", market: null, country: null,
     disposition: "filtered", dispositionReason: "geo-unknown",
     posted: daysAgo(7), firstSeen: daysAgo(6),
   }),
@@ -220,7 +226,7 @@ export const FIXTURE_JOBS: JobView[] = [
   job({
     key: "radancy-40012", company: "Fifth Third Bank", title: "Product Owner, Digital",
     location: "Chicago, IL", metro: "Chicago",
-    disposition: "needs-info", dispositionReason: "awaiting-tags",
+    disposition: "needs-info", dispositionReason: "awaiting-tags", taggedAt: null,
     posted: daysAgo(1), firstSeen: stampAgo(6).slice(0, 10),
   }),
 ];

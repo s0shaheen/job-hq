@@ -20,6 +20,7 @@ against here:
 """
 from __future__ import annotations
 
+import json
 import os
 import uuid
 
@@ -246,6 +247,74 @@ def test_a_user_cannot_read_another_users_saved_views(conn, two_users):
     as_authenticated(conn, u["a"])
     assert count(conn, "select count(*) from public.saved_views where user_id = %s", u["a"]) == 1
     assert count(conn, "select count(*) from public.saved_views where user_id = %s", u["b"]) == 0
+
+
+# ------------------------------------------------------------- profiles (0012)
+
+def test_a_user_cannot_read_another_users_profile(conn, two_users):
+    """A Search Profile is what someone is looking for, what they will not take,
+    and what they will not be paid less than. `profiles_self_read` has existed
+    since 0001 and nothing ever exercised it — the row it protects only started
+    being written in 0012, so the policy was correct and unproven.
+
+    Both directions in one breath, as everywhere in this file: A reads its own,
+    A reads none of B's. Without the positive control a green result could come
+    from A reading nothing at all.
+    """
+    u = two_users
+    for who, family in ((u["a"], "product manager"), (u["b"], "financial planning & analysis")):
+        conn.execute("reset role")
+        conn.execute("select set_config('hq.test_user', %s, false)", (who,))
+        conn.execute(
+            "select public.app_commit_profile(%s::jsonb, null, '[]'::jsonb, %s, null)",
+            (json.dumps({"role_family": family, "yoe_max": 4}), str(uuid.uuid4())),
+        )
+
+    as_authenticated(conn, u["a"])
+    assert count(conn, "select count(*) from public.profiles where user_id = %s", u["a"]) == 1
+    assert count(conn, "select count(*) from public.profiles where user_id = %s", u["b"]) == 0
+    mine = conn.execute(
+        "select criteria->>'role_family' from public.profiles where user_id = %s", (u["a"],)
+    ).fetchone()
+    assert mine and mine[0] == "product manager"
+
+
+def test_an_authenticated_user_has_no_direct_write_to_profiles(conn, two_users):
+    """Writes go through `app_commit_profile` only. A direct UPDATE from a
+    browser session would skip the re-gate, the audit event and the version
+    check in one stroke — and would let somebody widen their own gate without
+    anything on screen saying their queue had changed."""
+    u = two_users
+    as_authenticated(conn, u["a"])
+    with pytest.raises(psycopg.errors.Error) as exc:
+        conn.execute(
+            "insert into public.profiles (user_id, criteria) values (%s, '{\"yoe_max\": 99}'::jsonb)",
+            (u["a"],),
+        )
+    assert "policy" in str(exc.value).lower() or "permission denied" in str(exc.value).lower()
+
+
+def test_the_preview_corpus_does_not_leak_another_users_triage(conn, two_users):
+    """`app_preview_corpus` is `security definer` and deliberately widens a read
+    RLS narrowed. The widening has a stated boundary: the SHARED posting
+    universe, which every user watches by design (0001_init.sql:6-9) — and
+    nothing per-user. This asserts the boundary rather than trusting the
+    projection to stay narrow: no column it returns is per-user, so B's triage
+    and B's disposition are unreachable through it."""
+    u = two_users
+    as_authenticated(conn, u["a"])
+    cols = {
+        r[0]
+        for r in conn.execute(
+            """select p.attname from pg_proc f
+                 join lateral unnest(f.proargnames, f.proargmodes) as p(attname, mode) on true
+                where f.proname = 'app_preview_corpus' and p.mode = 't'"""
+        ).fetchall()
+    }
+    assert cols, "the projection parser found nothing — the assertion below is vacuous"
+    assert not (cols & {"triage", "disposition", "disposition_reason", "user_id", "url"}), cols
+    # …and it does answer, so the emptiness above is not why this passes.
+    assert count(conn, "select count(*) from public.app_preview_corpus(90)") > 0
 
 
 def test_an_authenticated_user_has_no_direct_write_to_saved_views(conn, two_users):

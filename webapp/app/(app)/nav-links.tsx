@@ -47,7 +47,9 @@ const PRIMARY: readonly NavItem[] = [
 
 const SECONDARY: readonly NavItem[] = [
   { href: "/health", label: "Health", icon: Activity },
-  { href: "/settings", label: "Search profile", icon: Settings, soon: true },
+  // Live since P10: the profile is editable here, with a dry run in front of
+  // the save. It was flagged `soon` while the page was read-only anchors.
+  { href: "/settings", label: "Search profile", icon: Settings },
 ];
 
 export type NavCounts = Partial<Record<string, number>>;

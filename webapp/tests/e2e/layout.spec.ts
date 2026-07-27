@@ -1,5 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { collectPaintedOverflow, describeOffenders } from "./painted-overflow";
+
+const ORIGIN = "http://127.0.0.1:3210";
 
 /**
  * The owner's stated fear, made mechanical:
@@ -24,6 +26,11 @@ const PAGES = [
   "/jobs",
   "/companies",
   "/companies/add",
+  // The profile is the widest FORM in the app: chip lists whose contents are
+  // free text, seeded from the longest real title anybody has tuned. A chip that
+  // cannot wrap pushes the page sideways, which is the owner's stated fear
+  // arriving through a text field (matrix row 88).
+  "/settings",
   // The LANDING page, and only that. This list is static and every screen of the
   // wizard lives at `/import/<batchId>`, minted at upload time — so a path here
   // cannot reach the mapping list, the preview or the report. A comment that used
@@ -43,15 +50,54 @@ const PAGES = [
   "/pipeline?open=",
   "/pipeline?open=Applied,Interview",
 ];
+
+/**
+ * `/onboarding/*` needs a demo store with NO profile, or every visit redirects
+ * to /settings and the sweep measures that page six more times.
+ *
+ * This is matrix row 170's lesson taken seriously: a static path list that
+ * cannot reach the screen it names is a sweep credited with work it never did.
+ * The wizard writes nothing until Save, which no test in this file clicks, so
+ * sharing one seeded store across the sweep is safe.
+ *
+ * The long-draft entry is row 88's case, and it is a REAL one rather than a
+ * lorem string: a 92-character FP&A title of the kind a bank actually posts,
+ * six metros, and the chip lists that come with them. A chip that cannot wrap
+ * pushes the page sideways — the owner's stated fear, arriving through a text
+ * field.
+ */
+const LONG_DRAFT =
+  "eyJyb2xlX2ZhbWlseSI6ImZpbmFuY2lhbCBwbGFubmluZyAmIGFuYWx5c2lzIiwidGFnX2RvbWFpbiI6ImZpbmFuY2UiLCJib2FyZF9zZWFyY2hfdGVybSI6ImZpbmFuY2lhbCIsInRpdGxlc19pbmNsdWRlIjpbInNlbmlvciBtYW5hZ2VyLCBmaW5hbmNpYWwgcGxhbm5pbmcgYW5kIGFuYWx5c2lzIOKAlCBjb3Jwb3JhdGUgZmluYW5jZSBhbmQgdHJlYXN1cnkgb3BlcmF0aW9ucyIsImZwJmEiLCJjb250cm9sbGVyIl0sInRpdGxlc19leGNsdWRlIjpbImZpbmFuY2lhbCBhZHZpc29yIl0sImNvdW50cmllcyI6WyJVbml0ZWQgU3RhdGVzIl0sIm1ldHJvcyI6WyJDaGljYWdvIiwiTmV3IFlvcmsiLCJTYW4gRnJhbmNpc2NvIEJheSBBcmVhIiwiV2FzaGluZ3RvbiBEQyIsIk1pbm5lYXBvbGlzIiwiUGhpbGFkZWxwaGlhIl0sImdlb191bmtub3duIjoiZmlsdGVyIiwieW9lX21heCI6MzAsInlvZV91bmtub3duIjoia2VlcCIsInNlbmlvcml0eV9leGNsdWRlIjpbXSwiY29tcF9taW4iOjAsImNvbXBfdW5rbm93biI6ImtlZXAiLCJ3b3JrX21vZGVsX2V4Y2x1ZGUiOlsib25zaXRlIl19";
+
+const ONBOARDING_PAGES = [
+  "/onboarding/1",
+  "/onboarding/2",
+  `/onboarding/2?d=${LONG_DRAFT}`,
+  "/onboarding/6",
+];
+
+async function seedOnboarding(page: Page) {
+  await page
+    .context()
+    .addCookies([{ name: "hq_demo_seed", value: "onboarding", url: ORIGIN }]);
+}
+
 const WIDTHS = [375, 414, 768, 1024, 1280, 1920];
 
 test.describe("nothing paints past the page edge", () => {
-  for (const path of PAGES) {
+  for (const path of [...PAGES, ...ONBOARDING_PAGES]) {
     for (const width of WIDTHS) {
       test(`${path} @ ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
+        if (path.startsWith("/onboarding")) await seedOnboarding(page);
         await page.goto(path);
         await page.waitForLoadState("load");
+        // The wizard writes the draft into its own history entry on hydration,
+        // which re-renders it. Measuring before that lands would measure a page
+        // that is about to change.
+        if (path.startsWith("/onboarding")) {
+          await expect(page.getByTestId("wizard")).toHaveAttribute("data-hydrated", "true");
+        }
 
         const offenders = await page.evaluate(collectPaintedOverflow);
         expect(offenders, describeOffenders(offenders)).toEqual([]);

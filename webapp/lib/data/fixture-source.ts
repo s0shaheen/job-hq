@@ -49,6 +49,11 @@ import type {
   SuggestionInput,
   TriageInput,
   WriteResult,
+  ProfileView,
+  PreviewProfileInput,
+  PreviewProfileResult,
+  CommitProfileInput,
+  CommitProfileResult,
 } from "./source";
 import { IMPORT_LIST_LIMIT } from "./source";
 import {
@@ -57,6 +62,10 @@ import {
   FIXTURE_JOBS,
   FIXTURE_NOW,
 } from "./fixtures";
+import { FIXTURE_PROFILE, PREVIEW_CORPUS, PREVIEW_MAX_ROWS } from "./preview-fixtures";
+import { clampWindowDays, computePreview } from "@/lib/profile/preview";
+import { isOnboarded, parseCriteria } from "@/lib/profile/criteria";
+import type { Disposition } from "./view-models";
 import { FIXTURE_COMPANIES } from "./company-fixtures";
 import { isTerminalStatus } from "@/lib/status";
 import {
@@ -174,7 +183,22 @@ export class FixtureDataSource implements DataSource {
     apps: ApplicationView[] = FIXTURE_APPLICATIONS,
     channels: ChannelHealthView[] = FIXTURE_HEALTH,
     companies: CompanyView[] = FIXTURE_COMPANIES,
+    // The profile is a collection this fake owns, so it comes from the
+    // constructor for the same reason health does: the never-onboarded state
+    // (`criteria = '{}'`) has to be reachable through the only source the tests
+    // can drive, or the middleware redirect and the whole wizard ship
+    // unexercised.
+    profile: ProfileView = FIXTURE_PROFILE,
   ) {
+    // Stored as the DATABASE stores it — a jsonb object, `{}` for a profile
+    // nobody has completed — rather than as the view model. `profile()` then maps
+    // it the way `SupabaseDataSource` does, which is what makes `isOnboarded`
+    // reachable at all through the fake: holding the ProfileView verbatim
+    // modelled the RESULT and never the MAPPING, and a `return true` inside
+    // `isOnboarded` survived the entire suite.
+    this.profileCriteria = profile.criteria ? { ...profile.criteria } : {};
+    this.profileNotify = { ...profile.notify };
+    this.profileUpdatedAt = profile.updatedAt;
     for (const j of seed) this.jobsByKey.set(j.key, { ...j });
     this.apps = apps.map((a) => ({ ...a }));
     this.channels = channels.map((c) => ({ ...c }));
@@ -930,6 +954,108 @@ export class FixtureDataSource implements DataSource {
   }
 
   // ---- saved views ------------------------------------------------------
+
+  // ---- the search profile (P10) -------------------------------------------
+
+  /** The `criteria` jsonb, verbatim. `{}` is the never-onboarded sentinel. */
+  private profileCriteria: Record<string, unknown>;
+  private profileNotify: Record<string, unknown>;
+  private profileUpdatedAt: string | null;
+  private seenProfileKeys = new Map<string, CommitProfileResult>();
+  private profileSeq = 0;
+
+  async profile(): Promise<ProfileView> {
+    // The same two calls, in the same order, as `SupabaseDataSource.profile()`.
+    // A fake that skipped them would let the mapping drift while every test that
+    // drives the fake stayed green.
+    return {
+      criteria: isOnboarded(this.profileCriteria) ? parseCriteria(this.profileCriteria) : null,
+      notify: { ...this.profileNotify },
+      updatedAt: this.profileUpdatedAt,
+    };
+  }
+
+  async previewProfile(input: PreviewProfileInput): Promise<PreviewProfileResult> {
+    // Bounded exactly as the SQL bounds it: `least(greatest(p_days, 1), 90)`
+    // and a 5,000-row cap. A fake that previews an unbounded corpus is a demo
+    // whose numbers production cannot reproduce (matrix row 172's shape) — and
+    // the clamp is the SHARED function, so the fake cannot be stricter than
+    // production either, which is how the reverse of that bug got in.
+    const windowDays = clampWindowDays(input.windowDays);
+    const cutoff = new Date(new Date(FIXTURE_NOW).getTime() - windowDays * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const corpus = PREVIEW_CORPUS.filter((p) => (p.lastSeen ?? "") >= cutoff).slice(
+      0,
+      PREVIEW_MAX_ROWS,
+    );
+    return {
+      ok: true,
+      preview: computePreview(corpus, parseCriteria(input.criteria), {
+        windowDays,
+        // The wall clock, not the fixture clock: "computed at" is a distance a
+        // person reads against now, and pinning it would make every preview say
+        // it was computed last July.
+        now: new Date().toISOString(),
+      }),
+    };
+  }
+
+  async commitProfile(input: CommitProfileInput): Promise<CommitProfileResult> {
+    const replay = this.seenProfileKeys.get(input.idempotencyKey);
+    if (replay) return replay;
+    if (!input.idempotencyKey || input.idempotencyKey.length > 200) {
+      return { ok: false, kind: "error", message: "idempotency key required" };
+    }
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+    if (input.expectedUpdatedAt !== null && input.expectedUpdatedAt !== this.profileUpdatedAt) {
+      return { ok: false, kind: "conflict", current: await this.profile() };
+    }
+
+    const criteria = parseCriteria(input.criteria);
+
+    // The preview's promises are RE-VERIFIED here rather than trusted. The plan
+    // was built against a read that is already in the past, so every entry is
+    // checked against the row as it is now: still untriaged, and the tuple
+    // really different. A client that sent a plan touching a decided row
+    // changes nothing, which is G8 enforced twice on purpose.
+    let restamped = 0;
+    const newlyQualified: string[] = [];
+    for (const entry of input.regate) {
+      const row = this.jobsByKey.get(entry.key);
+      if (!row) continue;
+      if (row.triage !== "") continue;
+      if (row.disposition === entry.disposition && row.dispositionReason === entry.reason) continue;
+      // 0002_invariants.sql's `filtered_rows_state_a_reason`. A CHECK violation
+      // aborts the whole save, so refuse the entry rather than the transaction.
+      if (entry.disposition === "filtered" && !entry.reason) continue;
+      const was = row.disposition;
+      row.disposition = entry.disposition as Disposition;
+      row.dispositionReason = entry.reason;
+      row.updatedAt = new Date(new Date(FIXTURE_NOW).getTime() + ++this.profileSeq).toISOString();
+      restamped += 1;
+      if (entry.disposition === "qualified" && was !== "qualified") newlyQualified.push(entry.key);
+    }
+
+    this.profileCriteria = { ...criteria };
+    if (input.notify) this.profileNotify = { ...input.notify };
+    this.profileUpdatedAt = new Date(
+      new Date(FIXTURE_NOW).getTime() + ++this.profileSeq,
+    ).toISOString();
+
+    const result: CommitProfileResult = {
+      ok: true,
+      profile: await this.profile(),
+      restamped,
+      newlyQualifiedKeys: newlyQualified,
+    };
+    this.seenProfileKeys.set(input.idempotencyKey, result);
+    return result;
+  }
 
   private views: SavedView[] = [];
   private seenViewKeys = new Map<string, SaveViewResult | DeleteViewResult>();

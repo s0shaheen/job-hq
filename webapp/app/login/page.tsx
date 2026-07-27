@@ -19,7 +19,17 @@ export default function LoginPage() {
   // so the page prerenders with no Suspense plumbing.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("error")) {
+    const code = params.get("error");
+    if (code === "not_allowed") {
+      // The one failure where "try again" is actively wrong advice: the address
+      // is not on the allowlist and no amount of retrying will change that. The
+      // database refuses at the door (0001's signup trigger) and this is that
+      // refusal in plain English, with the only action that can actually help.
+      setError(
+        "That Google account isn't on the invite list for this app. " +
+          "Ask whoever set it up to add your address, then sign in again.",
+      );
+    } else if (code) {
       setError("Sign-in didn't complete. Try again.");
     }
   }, []);

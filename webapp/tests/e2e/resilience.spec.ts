@@ -1,8 +1,27 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { collectPaintedOverflow, describeOffenders } from "./painted-overflow";
 
-const PAGES = ["/queue", "/pipeline", "/health", "/jobs", "/companies", "/companies/add", "/import"];
+const ORIGIN = "http://127.0.0.1:3210";
+
+const PAGES = ["/queue", "/pipeline", "/health", "/jobs", "/companies", "/companies/add", "/import", "/settings"];
+
+/**
+ * The wizard's screens, which a static list of app routes cannot reach: they
+ * redirect to /settings unless the demo profile is unset. Matrix row 170 — a
+ * sweep credited with a screen it never loaded.
+ *
+ * Steps 1 and 6 rather than all six: 1 is the radio-group shape, 6 is the
+ * preview panel with its own colours and its own live region, and 2-5 are the
+ * same field controls this file already sweeps on /settings.
+ */
+const ONBOARDING_PAGES = ["/onboarding/1", "/onboarding/6"];
+
+async function seedOnboarding(page: Page) {
+  await page
+    .context()
+    .addCookies([{ name: "hq_demo_seed", value: "onboarding", url: ORIGIN }]);
+}
 
 /**
  * The known ways a frontend breaks, each turned into a check.
@@ -14,8 +33,9 @@ const PAGES = ["/queue", "/pipeline", "/health", "/jobs", "/companies", "/compan
  */
 
 test.describe("no console errors (catches hydration mismatches)", () => {
-  for (const path of PAGES) {
+  for (const path of [...PAGES, ...ONBOARDING_PAGES]) {
     test(path, async ({ page }) => {
+      if (path.startsWith("/onboarding")) await seedOnboarding(page);
       const errors: string[] = [];
       page.on("console", (m) => {
         if (m.type() === "error") errors.push(m.text());
@@ -31,10 +51,11 @@ test.describe("no console errors (catches hydration mismatches)", () => {
 });
 
 test.describe("accessibility", () => {
-  for (const path of PAGES) {
+  for (const path of [...PAGES, ...ONBOARDING_PAGES]) {
     for (const scheme of ["light", "dark"] as const) {
       test(`${path} — ${scheme}`, async ({ page }) => {
         await page.emulateMedia({ colorScheme: scheme });
+        if (path.startsWith("/onboarding")) await seedOnboarding(page);
         await page.goto(path);
         // Scan the HYDRATED page, not whatever has painted so far.
         //

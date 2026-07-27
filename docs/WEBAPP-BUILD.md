@@ -268,6 +268,59 @@ not the requirement. This is the actual list, with what enforces each.
 | 176 | **Adding tests here broke tests over there** | The wizard sweeps upload and parse a workbook per test — the most expensive thing the suite does — and under `fullyParallel` seven landed at once. These passed; `pipeline.spec.ts` started failing intermittently instead, at its 15s-per-write gate, in roughly three full runs out of four. Contention, not a product bug, and the honest fix is to stop causing it: `test.describe.configure({ mode: "default" })` puts this one file on a single worker. `default`, not `serial` — serial skips the rest of the file after a failure and hides how many more there were. Three consecutive clean full runs afterwards, at the same wall-clock total. Rows 101 and 138's rule arriving from the other direction: a budget that only holds when nobody else is working is a statement about the machine | ✅ |
 | 167 | **A round trip is not value-preserving for a status a person invented** | Found by writing 166's loop test. `waiting on referral` exports verbatim; the status vocabulary is closed on purpose (row 43 — a spreadsheet cell may not mint a stage) so the map sends it to Inbox; and because the file carries the row's own fresh token, the round-trip exception writes it back as a human gesture. Export the pipeline, import it back untouched, and that row moves to the start of the ladder in silence. **Open** — the fix is a policy call (leave an unrecognised status alone on a row that already has one, in SQL and in the fake) rather than a patch. Pinned by an assertion so it cannot get quietly worse, and stated in the export dialog rather than discovered on the way back in | ⬜ |
 
+| 177 | **The preview and the engine disagree about gating** | `tests/fixtures/gate-corpus.json` — 67 cases executed by BOTH `tests/monitor/test_gate_corpus.py` and `webapp/tests/unit/gate-corpus.test.ts`, seeded from `test_gates.py` assertion by assertion plus AC 1-8 and G17. The app tells somebody "your profile would have qualified 61 of these 4,182"; if the TypeScript gate differs from `monitor/gates.py` by one branch that number is a lie they cannot check, and it stays a lie for weeks. Same shape as row 140, same answer. The fixture lives at the REPO root, not under `webapp/`, so neither side owns it | ✅ |
+| 178 | **Three Python builtins the port could not borrow** | `str.strip()` trims U+001C-1F and U+0085 that `trim()` leaves AND leaves the U+FEFF `trim()` removes; `casefold()` folds ß to "ss" where `toLowerCase()` does not; `f"{x:g}"` renders 120.0 as "120" and 122.5 as "122.5", which neither `String()` nor `toFixed()` manages. `lib/gating/py.ts` writes all three out with the codepoint sets enumerated from CPython rather than remembered, and the corpus carries a case per divergence **in both directions** — a port drifts on whichever side nobody wrote a case for. Mutants red: `trim()` for `pyStrip` (2 cases), `toLowerCase()` for `casefold` (1) | ✅ |
+| 179 | **A default that drifts is invisible to every case that names the knob** | The corpus's `defaults` block is asserted to BE `GateConfig()` field by field, and in the OTHER direction too: a new dataclass field with no entry there fails pytest. A `yoeMax` default of 5 in the TypeScript would otherwise pass all 67 cases that set `yoe_max` and be wrong for every case that does not. Mutant red at 4 assertions | ✅ |
+| 180 | **A gate branch added on one side only** | Closed-set coverage in both suites: every §A2 reason kind appears in at least one case, and nothing outside the set is produced. A new rule with no corpus row fails rather than going untested in both languages | ✅ |
+| 181 | **A raw machine token in front of a human** ("metro:Chicago") | `gate-closed-set.test.ts` runs the corpus through `dispose`, takes the reason strings it REALLY produces, and asserts none of them reaches `explainReason`'s `default:` branch — plus that every kind naming a user-changeable setting resolves through `reasonSetting()`, so the G9 link cannot be a dead sentence. The default branch is still correct behaviour and has its own case | ✅ |
+| 182 | **`JobView` could not answer the question the gate asks** | Two fields added, each because the re-gate is wrong without it. `taggedAt`: a row filtered on geo while STILL untagged reads as `filtered`/`geo:India`, so its disposition carries no trace of whether it has been analysed — widening the country list has to answer `needs-info`, not `qualified`, and deriving tagged-ness from the reason gets that row wrong in the direction of promising a queue the engine will not deliver. `country`: `monitor/geo.py:159` writes `market = "Remote"` for ANY remote posting whatever country it resolved, so reading `market` re-gates a Canada-anchored remote role as qualified — G17 arriving through a lossy view model rather than a wrong branch | ✅ |
+| 183 | **The binding constraint is wrong because gates short-circuit** | Computed by RELAXATION, not by counting reasons: nine fields each relaxed alone over the whole corpus, the winner being the one that recovers the most. The unit case is built to make a histogram fail — 30 foreign rows filtered on geo and 6 US rows on comp, so counting says countries 30 to 6 while relaxing countries recovers ZERO, because those rows then fail the same floor. Tie ORDER is deliberate and commented (`comp_unknown` before `comp_min`, `seniority_exclude` before `yoe_unknown`): several refusals are recovered by two fields at once, and the more specific advice wins | ✅ |
+| 184 | **The preview promises jobs the engine never fetches** | `title_matches` runs at INGEST, so a posting the title filter rejected never entered `postings` at all — a user whose role family is new to the system previews near-zero and the number is not their profile's fault. Reported as a SEPARATE number, with the banner firing under 5% coverage and saying in as many words that it is "not a verdict on your settings". `PREVIEW_CORPUS` carries three FP&A titles out of 138 on purpose, so the banner is exercised rather than assumed — Dad's real situation, and a fake that matched both presets equally would ship it unlooked-at | ✅ |
+| 185 | **A "dry run" that writes** | `app_preview_corpus` is `stable`, so Postgres REFUSES a data-modifying statement from inside it — the claim is enforced by the planner rather than by review, and the db test proves the mechanism by watching a stable writer raise 0A000. Capped at 5,000 rows / 90 days at the SQL boundary, with `url` excluded from the projection. E2E asserts the server's own version token is untouched across a preview | ✅ |
+| 186 | **A security-definer read widened further than it was meant to** | `app_preview_corpus` deliberately bypasses `0002`'s per-user `postings` policy, because a user onboarding has ZERO `user_postings` rows and would preview against an empty universe — the exact silent starvation the screen exists to remove. The widening is bounded and asserted: `auth.uid() is not null` in the WHERE (not just the grant), `Closed` excluded, and an RLS test that pins the PROJECTION — no `triage`, `disposition`, `user_id` or `url` column exists to leak — beside a positive control proving the function answers at all | ✅ |
+| 187 | **A profile change re-triages a decided row** (G8 / AC 18) | One clause, `triage = ''`, in `app_commit_profile` AND in `buildRegatePlan` AND in the fake. Server-side because a client bug must not route around it. Mutants red: the SQL clause removed (2 db tests), the client clause removed (2 vitest) | ✅ |
+| 188 | **A dismissed row reanimates when the profile widens** (G3 / AC 19) | The same clause, with its own case and its own positive control — the two negatives are meaningless beside a plan that never restamps anything, so a third test asserts an untriaged row DOES newly qualify | ✅ |
+| 189 | **The plan is trusted instead of re-verified** | The preview's promises are re-checked at commit time INSIDE the transaction, under the row lock: still untriaged, tuple really different, `filtered` entries carrying a reason (0002's CHECK would otherwise abort a 4,000-row save over one malformed entry). P9's lesson verbatim. The mutant removing the tuple check SURVIVED the first pass, because a plan built by `buildRegatePlan` never contains such an entry — the plan the server gets is not always freshly built, and the test was the thing that was wrong | ✅ |
+| 190 | **A report that counts what the plan hoped for** | `restamped` and `newly_qualified_keys` come from what the UPDATE actually did, read through a `before` CTE in the same statement so it sees the pre-update snapshot. Row 169's shape: nobody can re-derive this afterwards, and a banner promising rows that were not written is worse than no banner | ✅ |
+| 191 | **Two tabs saving a profile deadlock** | Every `user_postings` row the plan touches is locked in ASCENDING KEY ORDER in one statement before any of them is written. Row 95, on a new surface: two tabs hand the function the same keys in whatever order their own reads produced, and each holding the row the other wants next is a 40P01 surfaced as a generic failure for a valid gesture | ✅ |
+| 192 | **A metro spelled differently in two languages** | `test_metro_names.py` parses `webapp/lib/profile/metros.ts` and asserts the list IS `monitor/metros.METROS`'s keys — same members, same order. `dispose` compares metros with `==`, so "Washington D.C." here and "Washington DC" there is an empty queue and no error anywhere. Mutant red. Metro RESOLUTION stays in Python; only the 15 names are duplicated | ✅ |
+| 193 | **A preset that rots away from the profile it was copied from** | `test_profile_presets.py` parses `presets.ts` against `users/*/profile.yaml`. Those two title lists are the only ones anybody has tuned against a live feed — Salman's excludes `pmm` and `product analyst`, Dad's excludes `financial advisor` and `personal banker`, each for a reason somebody learned the hard way — and a copy with nothing pinning it means the next person to onboard learns them again. Mutant red on one deleted chip | ✅ |
+| 194 | **A duplicate DOM id from two things that share a name** | `<section id="countries">` (the `reasonSetting()` anchor) and `<input id="countries">` (the chip editor) on one page: the label association breaks and `/settings#countries` is ambiguous. Found by a strict-mode locator resolving to two elements, which is the browser saying the HTML is wrong. Chip inputs are `${field}-input` now | ✅ |
+| 195 | **Muted text on a selection tint fails AA** | 4.28:1 on the SELECTED radio card, caught by axe the first time `/settings` entered `resilience.spec.ts`. Row 82 exactly, on a new surface: a tint strong enough to read as "this is your answer" is too dark for `#707067`. The selected card's body is promoted to `text-2`; the unselected ones keep the muted tone, which is what makes the chosen one legible AS chosen | ✅ |
+| 196 | **A zero-result profile renders a bare number** | The preview names the binding constraint, the name is a LINK, and the link lands on the section with focus moved to its heading — through the existing anchor ids, not a second set (plans/README C11). The primary button reads "Save anyway" rather than being disabled, because zero may be exactly what somebody meant and refusing it is the app arguing with its user | ✅ |
+| 197 | **Preview numbers go stale after an edit** | Any criteria change marks them stale in words and puts the primary button back on Check. A number computed against settings that have since changed is worse than no number, because it looks current | ✅ |
+| 198 | **A profile saved with nobody having seen the consequences** | Save is refused until the settings have been checked at least once, on both surfaces. This is the whole phase in one interaction: every other mistake in this app announces itself, and this one is silent for weeks | ✅ |
+| 199 | **The wizard loses answers on refresh or Back, twice over** | The draft lives in `?d=` (base64url JSON). Writing it only on Next leaves a value typed ON a step absent from that step's own entry; a debounced `router.replace` then broke it AGAIN, because the debounce's cleanup fires when the step changes — pressing Next within 250ms of typing cancelled the write to the entry being left behind, which is exactly the sequence a person performs. `history.replaceState` now: Next intercepts it, it is synchronous, and it cannot be cancelled by the navigation it races. Mutant red at the Back assertion | ✅ |
+| 200 | **The wizard gates on a client counter** | It gates on `data-step`, derived from the ROUTE SEGMENT, so it cannot advance before the navigation happened and cannot be reset by a remount. Row 164's lesson taken as a rule rather than re-learned | ✅ |
+| 201 | **Focus lost between wizard steps** | Focus moves to the new step's heading. Without it the URL moved, the DOM swapped, and focus stayed on a Next button that no longer exists — a screen-reader user hears nothing at all. Mutant red | ✅ |
+| 202 | **A wizard inside the group that redirects to it** | `/onboarding` lives OUTSIDE `(app)`, whose layout carries the guard, so the loop is structurally impossible rather than avoided by a path check somebody gets wrong on a rename. The guard is in the layout rather than in middleware — one read per page render beside reads the page was making anyway, versus one per request including the RSC payloads a single navigation fans out into — it fails OPEN, and it re-throws through `unstable_rethrow`, because `redirect()` works by throwing and a bare catch turns the guard into a no-op that renders the shell anyway | ✅ |
+| 203 | **A new user lands on an empty queue with no explanation** | The layout redirects to `/onboarding/1` while `criteria = '{}'`, asserted across five surfaces rather than one — a guard on the queue alone is a guard a bookmark routes around. Reachable at all only because the `onboarding` demo seed exists: the fixture profile is complete by construction, so without it both the redirect and the whole six-step wizard would ship unexercised (row 15's lesson on the one surface where "unreachable through the app" is the point) | ✅ |
+| 204 | **A non-allowlisted account is told to try again, forever** | 0001's signup trigger raises and Supabase surfaces it as a token-exchange failure, so the one person the allowlist is FOR read "Sign-in didn't complete. Try again." — and did, because that is what the message said. `/auth/callback` maps the trigger's own wording to `/login?error=not_allowed`, which says the address is not on the invite list and names the only action that can help. A miss degrades to the generic message rather than to something wrong | ✅ |
+| 205 | **Long chip lists blow out the wizard** | `/onboarding/1`, `/2`, `/2?d=<long draft>` and `/6` join `layout.spec.ts` at six widths, WITH the seed cookie — a static path list that redirects to `/settings` is row 170's sweep credited with a screen it never loaded. The long draft is a real 92-character FP&A title plus six metros, not a lorem string, and the chip text wraps (`break-all` on the text, not the chip) | ✅ |
+| 206 | **A click into a server-rendered, unhydrated form** | Both new surfaces publish `data-hydrated` from an EFFECT, and every e2e entry gates on it rather than on `toBeVisible`. The pipeline paid for this lesson with two blur-commits that left zero POSTs in the trace on a loaded CI runner; row 21 is the same thing from the keyboard side. Sampled counts and attributes go through `expect.poll` for the matching reason — `clearChips` was the worst of them, because `count()` is an instant read and a loop starting at zero exits immediately and reports success on a list it never touched | ✅ |
+| 207 | **An e2e that cannot fail, found by watching two mutants survive** | The zero-result case first used a nonsense country and never reached zero, because a blank-country remote posting bypasses the geo gate BY DESIGN (G17's converse) — the test was wrong about the product. The double-submit case asserted the idempotency key and a mutant rotating the key per attempt survived twice: with a non-null `expectedUpdatedAt` the version token catches the second gesture FIRST, so from a browser the two mechanisms cannot be separated. That claim moved to where it can fail (`test_profile.py` replays one key and counts exactly one `profile.changed` event), and the e2e says in the file what it does not claim. Row 128's rule | ✅ |
+| 208 | **The queue's own empty state still names its constraint by histogram** | `bindingConstraint()` groups a user's own filtered rows by setting and names the biggest — which is right about the LINK and can be wrong about the ADVICE for exactly row 183's reason: gates short-circuit, so the setting with the most first-hit reasons is frequently not the one starving the queue. The preview does it by relaxation; the queue does not yet. **Open**, and deferred rather than missed: the relaxation pass needs the profile beside the rows in that render path. The sentence and its link are asserted today (row 15, `routing.spec.ts`), so this can only get better, not quietly worse | ⬜ |
+
+| 209 | **"Something else" was silently rewritten to product management** | `parseCriteria`'s `text()` fell back to `BASE_CRITERIA` on an EMPTY STRING, and the preset sets all three free-text fields to `""` on purpose — so choosing it and typing nothing stored `role_family: "product manager"`, `tag_domain: "product-manager"` and `board_search_term: "product"` under the name of somebody who had explicitly said it was not that, with the tagger and the board sweep both acting on it. A deliberate empty string survives now; a non-string still falls back, because that is a malformed request rather than an answer. Browser-verified by the reviewer | ✅ |
+| 210 | **Removing a lie leaves an unanswerable profile, so the wizard has to ask** | Step 1 gates Next on `role_family` AND `board_search_term` (the corpus-wide boards have no company list to walk and are searched by keyword, so a blank one silently drops a whole source); step 2 gates on one title, because an empty `titles_include` matches NOTHING and produces an empty queue by construction. Both say why beside the disabled control rather than after it is pressed. `tag_domain` falls back to the role family at save time — which is what its PLACEHOLDER displays, so the stored value is the one the screen promised. `/settings` gets the same gate in words | ✅ |
+| 211 | **A default that describes a search it cannot run** | Found by the existing tests going red on row 210: `BASE_CRITERIA.role_family` is "product manager" (faithful to `Profile`'s dataclass) while its `titles_include` is empty, so a fresh wizard read as "Product management selected" over a title list step 2 then refused to advance. Both page fallbacks are `draftFromPreset("product-manager")` — internally consistent, every value visible and editable | ✅ |
+| 212 | **A fake that models the RESULT and never the MAPPING** | `isOnboarded`'s `return true` mutant survived 383 tests, because `FixtureDataSource.profile()` answered the `ProfileView` it was handed. It stores `criteria` as the database does now — a jsonb object, `{}` for nobody-completed-this — and runs the same two calls in the same order as `SupabaseDataSource.profile()`. The distinction is load-bearing in both directions: somebody who chose every default must not be sent back through onboarding forever, and somebody who never arrived must not be dropped into an empty queue | ✅ |
+| 213 | **A restamp that changed only its reason was reported as newly qualifying** | The `b.was <> 'qualified'` half of the filter had no test and dropping it survived. A row moving `qualified`/`""` → `qualified`/`yoe-unknown` IS a restamp and is NOT news — the banner would say "N previously-filtered postings now qualify" and link somebody at rows that were never filtered. Two cases: the reason-only restamp excluded, and a `needs-info` row becoming qualified INCLUDED, because the filter tests `was <> 'qualified'` and not `was = 'filtered'` | ✅ |
+| 214 | **The only thing bounding a page render's work had no test** | `limit 500000` survived. 5,100 postings in the window, 5,000 returned | ✅ |
+| 215 | **A belt pinned by a text search for its own phrase** | `auth.uid() is not null` was asserted by grepping the migration, so a tautology (`or true`) passed. EXECUTED now: clear `hq.test_user` and the corpus answers zero rows, beside a positive control proving it answers at all | ✅ |
+| 216 | **`revoke all … from public` closes nothing** | Supabase's bootstrap grants execute on new functions to `anon` and `authenticated` BY NAME, and revoking from `public` does not touch a named grant — so a mutant granting `app_preview_corpus` to `anon` passed the generic check, on the one function in the schema that deliberately bypasses RLS. The guard names all three roles per callable definer. `KNOWN_UNNAMED_REVOKES` carries the 21 PRE-EXISTING functions in the same shape (each rejects an anonymous session in its own body, which is why it is debt and not an open door), asserted EXACT in both directions so a new function cannot join silently and fixing one means deleting its line. Closing those 21 is one clause each in the migrations that define them | ✅ |
+| 217 | **A jsonb column a browser can make arbitrarily large** | `p_criteria` was stored verbatim and unbounded from a function granted to `authenticated`. 64 kB and 200 keys, both dimensions because either alone is trivially avoided (100k one-byte keys, or one 10 MB string); `p_notify` gets the same door precisely because this phase never edits it and would be the one to forget | ✅ |
+| 218 | **A blank idempotency key replays forever** | `command_idempotency`'s primary key is (user_id, idem_key) and `''` is a legal text value, so one caller sending an empty key would have every LATER empty key replay the first gesture's result. Guarded with `hq_blank_trim`, not `length() = 0` — a key of one space is blank to a person and length 1 to Postgres, which is 0010's newline bug in a new place (rows 110, 129). The probe had to fix the TEST HELPER first, whose `idem or uuid4()` was answering the empty string on the function's behalf | ✅ |
+| 219 | **A `::timestamptz` cast credited with work the parameter type does** | The migration prose said the casts were what made the conflict check compare instants. They are decoration: both operands are already typed by then and the reviewer's `::text` mutant correctly survives. What protects it is the PARAMETER TYPE, now pinned by `test_the_version_token_is_compared_as_an_instant` — which accepts either a `timestamptz` declaration or a `text[]` parameter cast before use, because 0006 and 0008 legitimately do the latter | ✅ |
+| 220 | **A stated tradeoff that did not state its consequence** | The widening's header argued the projection and the caps and never named the part that is easy to skip: `company` on those rows is the UNION of every user's watched companies, which is exactly what 0002's `companies_visible_to_watchers` exists to hide. Fair at allowlist scale — a family of three, a ceiling of ten, every member known to the others — and the trigger to replace it with a per-user corpus is now written where the tradeoff lives | ✅ |
+| 221 | **An example that illustrated a different fact than the sentence above it** | `bindingSample` matched on the collapsed SETTING, and several kinds share one anchor (`geo` and `geo-unknown` both map to `countries`), so a `geo_unknown` sentence — "how unplaceable locations are handled" — could be illustrated by a posting in India. Matched on the reason KIND now, and no example at all rather than a wrong one when the binding field produced no reason of its own. Browser-verified | ✅ |
+| 222 | **Tie order carried the advice and nothing pinned it** | Two ties are genuine and go opposite ways for stated reasons: an all-`comp-unknown` corpus is recovered equally by the policy and by deleting the floor, and the policy wins because telling somebody to remove their compensation floor when half the feed states no pay is advice about the wrong thing; a `metro-unknown` corpus is recovered equally by clearing the metro list and by the unplaceable policy, and the metro list wins because that is what a local search is thinking about. HEAD was correct both times and nothing checked either | ✅ |
+| 223 | **`formatG` unpinned off two floors a bare `String()` reproduces** | 120 and 122.5 both render identically under `String()`, so the corpus could not tell the port from the shortcut. A 12.3456789 floor renders `comp:<12.3457k` under Python's six-significant-digit `:g` | ✅ |
+| 224 | **A docstring that claimed 313 codepoints did not exist** | The casefold table's comment said an unmapped character folds identically in both languages. False for 313 of them. `ς` is mapped — a single-character fold, which the sharp-s EXPANSION did not cover — and the docstring now names both shapes and what is deliberately left out. The corpus case took two attempts: a token written with final sigma on BOTH sides passes either way, so the discriminator is a NON-final sigma in the configured token against a word-final capital in the posting, which JS `toLowerCase()` renders as ς and Python casefolds to σ | ✅ |
+| 225 | **A number the screen states and the query does not use** | `windowDays` was clamped for `p_days` and the PANEL was handed the raw value, so asking for 3,650 days rendered "collected in the last 3650 days" over a 90-day corpus. And the FAKE clamped correctly — the reverse of the house rule, and what would have hidden it. One `clampWindowDays` at the source boundary, called by both | ✅ |
+| 226 | **An over-cap wizard draft was dropped silently AND unrecoverably** | `encodeDraft` returned `""`, indistinguishable from "nothing to encode", so the caller wrote a bare `?d=`, the sync effect then rewrote the URL from the baseline, and Back could not reach the answers because the entry holding them had already been overwritten. Browser-verified at ~2.9 kB of chips. It answers `null` now, the wizard says so in words, keeps the last URL that DID fit, and refuses to navigate — which is what keeps the answers on screen to be shortened. Still drop-not-truncate: a truncated base64url decodes to something | ✅ |
+| 227 | **Dead code carrying a promise** | `unknownMetros`/`isKnownMetro` were exported, documented and CALLED BY NOTHING, while the doc comment promised the warning: a metro the engine cannot produce matches nothing at all, because `dispose` compares `geo.metro` with `==`. The warning exists, with an e2e that also proves a real metro does not trip it (a warning that is always on is the same defect one level down). `regatePlanFor` deleted, no callers. The no-op ternary in `pyStr` gone, with a note on what it was attempting. `reasonCounts` stays and its docstring now says why it is computed and deliberately not rendered — a first-hit histogram beside the relaxation answer would offer two answers and let somebody pick the wrong one | ✅ |
+
 Three container failures survive on this branch and none of them is P8's: two are
 `empty.spec.ts:72` (passes cleanly in isolation in the same image — a parallel-load
 artefact under qemu, present on `main`) and `grid-perf.spec.ts`'s 4x-CPU budget,
@@ -545,8 +598,114 @@ Worth keeping, because each was stated confidently and was wrong:
       because nothing exercised the mechanisms behind them. That was true when the
       plan was written and is not now: rows 76, 99 and 113–115 drive `failNextWrite`
       and the conflict path end to end.
-- [ ] **Next up — the rest of Track 2** (`docs/plans/HQ-V2-BUILD.md`): P9 profile
-      wizard, P10 import, P11 digest.
+- [x] **P10 — the Search Profile** (`docs/plans/PHASE-PROFILE.md`; migration **0012**).
+      Discharges AC **1–8**, **18**, **19** and G8/G9. Matrix rows **177–208**.
+
+      Five commits in the plan's own increment order, because increments 1–3 are the
+      whole risk and 4–7 are surface over settled logic.
+
+      **The gate is reimplemented in TypeScript and `tests/fixtures/gate-corpus.json`
+      is the contract.** The app has to answer "what would this profile let through?"
+      inside a page render; the engine is Python on a Lambda schedule with no route
+      into a Vercel request, and adding one would put an unbounded external call in
+      the request path. 67 cases run by BOTH pytest and Vitest, seeded from
+      `test_gates.py` assertion by assertion. Three Python builtins had to be written
+      out (`str.strip`, `casefold`, `f"{x:g}"`) with a corpus case per divergence in
+      BOTH directions — a port drifts on whichever side nobody wrote a case for.
+
+      **The binding constraint is computed by relaxation, not by counting reasons.**
+      Gates short-circuit, so the histogram's top entry is frequently not the thing
+      starving the queue. The unit case is built so a histogram gets it wrong: 30
+      foreign rows filtered on geo and 6 US rows on comp, where relaxing geo recovers
+      nothing because those rows then fail the same floor.
+
+      **G8 is one clause — `triage = ''` — and it is in the SQL as well as the
+      client.** That single WHERE gives AC 18 and the dismissed half of AC 19, on the
+      server, where a client bug cannot route around it.
+
+      Four things that were true and are worth carrying forward:
+
+      1. **A view model can be lossy in a way only a second consumer reveals.**
+         `JobView` had no `taggedAt` and no `country`, and both absences re-gate rows
+         WRONG: a posting filtered on geo while still untagged carries no trace of
+         whether it has been analysed, and `monitor/geo.py:159` collapses country into
+         `market` (a remote posting's market is the literal "Remote"), so reading
+         `market` qualifies a Canada-anchored remote role the engine filters. Neither
+         mattered until something other than a table read those fields.
+      2. **A mutant that survives means the test is in the wrong place, twice.** The
+         double-submit e2e asserted the idempotency key and a key-rotating mutant
+         passed: with a non-null `expectedUpdatedAt` the version token catches the
+         second gesture FIRST, so from a browser the two mechanisms are inseparable.
+         The claim moved to the db test. Separately the fake's unchanged-tuple check
+         survived removal, because a plan BUILT by `buildRegatePlan` never contains
+         such an entry — and the plan the server gets is not always freshly built.
+      3. **Looking at a recorded baseline found a copy bug no assertion could.** The
+         panel told somebody who had not filled in the titles field that "the engine
+         has not been sweeping for this kind of role yet". Two states with opposite
+         remedies — one fixed by typing, one by waiting — collapsed into one boolean.
+         `titleCoverage()` is three-way now, asserted in both suites.
+      4. **The draft-in-the-URL took two attempts and the second was worse.** Writing
+         it only on Next leaves a value typed ON a step out of that step's entry; a
+         debounced `router.replace` then broke it again, because the debounce's
+         cleanup fires when the step changes, so pressing Next within 250ms of typing
+         CANCELLED the write to the entry being left behind. `history.replaceState`
+         is synchronous and cannot be cancelled by the navigation it races.
+
+      **Deferred, stated rather than implied:**
+
+      (a) The G8 review banner links to `/jobs?set=queue`, not `/jobs?keys=…` as the
+      plan asks. The grid has no key filter, and adding one changes the URL grammar
+      `url-state.test.ts` round-trips over. The plan sanctions the interim ("until
+      then the banner links to a filtered queue"); what is NOT done is pre-selecting
+      the rows, and the code says so where the link is.
+
+      (b) The queue's own empty state still names its binding constraint by
+      HISTOGRAM (`bindingConstraint()`), which is right about the link and can be
+      wrong about the advice for row 183's reason. Matrix row 208, open.
+
+      (c) `notify` is carried opaquely and never edited here. The digest phase owns
+      that column; `app_commit_profile` preserves it when a commit does not send one,
+      asserted in the db suite, so a profile save cannot silently reset somebody's
+      notification channel.
+
+      (d) The onboarding guard is a layout redirect, not middleware. Middleware has
+      the pathname and runs on every request including the RSC payloads one
+      navigation fans out into; the layout runs once per page render beside reads the
+      page was making anyway. The cost of giving up the pathname is that
+      `/onboarding` has to live OUTSIDE the group — which is also what makes the
+      redirect loop structurally impossible rather than avoided by a path check.
+
+      **P10 fix pass** (matrix rows **209–227**). An adversarial review ran 73
+      mutants against the branch and 13 findings survived refutation. The signed-off
+      half is worth recording too: the `app_preview_corpus` widening itself, the
+      gate port's 12 semantic mutants, `pyStrip` over the whole codespace, and the
+      wizard's loop-impossibility all held.
+
+      Three shapes came out of it that are not specific to this phase:
+
+      1. **Removing a lie can leave an unanswerable state, and that is progress
+         only if something then asks.** `parseCriteria` filling an empty
+         `role_family` in from the committed baseline was the bug; deleting the
+         fallback made the empty profile reachable, so the wizard gates on it and
+         says why. The fix is two changes, not one, and shipping only the first
+         would have traded a silent wrong answer for a silent broken one.
+      2. **A fake can model the RESULT instead of the MAPPING.** `isOnboarded`'s
+         `return true` survived 383 tests because `FixtureDataSource` answered the
+         view model it was handed. Every collection a fake owns comes from its
+         constructor (row 15) — and every TRANSFORM a real source performs has to
+         be performed by the fake too, or the transform is untested by
+         construction.
+      3. **A guard that greps for its own phrase is not a guard.** The
+         `auth.uid()` belt was pinned by a text search, so a tautology passed.
+         Same family as rows 92/130/163/165, arriving in SQL.
+
+      **Deploy note:** nothing in the sheet changes, so unlike P8 there is no
+      self-heal dispatch to remember. What DOES change is that a user whose
+      `profiles.criteria` is `'{}'` is redirected to `/onboarding/1` — which is every
+      user, because no row is created at signup and nothing has written one before
+      now. That is the intended first-run behaviour, and the wizard's Save is what
+      creates the row.
+- [ ] **Next up — the rest of Track 2** (`docs/plans/HQ-V2-BUILD.md`): P11 digest.
       Track-1 discovery infra is complete **except the last hop**: 0009 landed the
       reconciler and `monitor/universe.py`, which READS the verdict —
       `review_state='approved' AND monitor` (there is no `enabled` column; `monitor` is

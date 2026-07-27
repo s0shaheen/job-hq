@@ -27,6 +27,9 @@ import type {
   SavedView,
   Triage,
 } from "./view-models";
+import type { ProfileCriteria } from "@/lib/profile/criteria";
+import type { PreviewResult } from "@/lib/profile/preview";
+import type { RegateEntry } from "@/lib/profile/regate";
 import type {
   ImportBatchView,
   ImportColumnReportView,
@@ -388,6 +391,69 @@ export type ImportUndoResult =
   | { ok: false; kind: "auth" }
   | { ok: false; kind: "error"; message: string };
 
+// ---- the search profile (P10) ----------------------------------------------
+
+/**
+ * One user's Search Profile.
+ *
+ * `criteria` is NULL when the row holds `'{}'` — never onboarded — and that is
+ * distinct from a profile whose every setting happens to be a default. The
+ * middleware redirect turns on exactly that difference, so collapsing them
+ * would either trap a finished user in the wizard forever or drop a new one
+ * into an empty queue with no explanation.
+ *
+ * `notify` is carried opaquely: the digest phase owns its shape, and this
+ * phase's commit must not blank a column it does not edit.
+ */
+export type ProfileView = {
+  criteria: ProfileCriteria | null;
+  notify: Record<string, unknown>;
+  /** Optimistic-concurrency token: sent back with the commit. */
+  updatedAt: string | null;
+};
+
+export type PreviewProfileInput = {
+  criteria: ProfileCriteria;
+  /** Clamped to 1..90 server-side whatever is sent. */
+  windowDays?: number;
+};
+
+export type PreviewProfileResult =
+  | { ok: true; preview: PreviewResult }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+/**
+ * Saving a profile, with what it does to the rows the user already has.
+ *
+ * `regate` is computed in TypeScript by the caller and travels as data, for
+ * matrix row 141's reason: the gate is already implemented twice and pinned to
+ * one corpus, and a third copy in PL/pgSQL would need its own guard while
+ * failing silently. SQL only APPLIES the plan — and re-checks every promise in
+ * it under the row lock, because a plan built against a read is not evidence
+ * about the state at write time.
+ */
+export type CommitProfileInput = {
+  criteria: ProfileCriteria;
+  notify?: Record<string, unknown> | null;
+  regate: RegateEntry[];
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+export type CommitProfileResult =
+  | {
+      ok: true;
+      profile: ProfileView;
+      /** Rows the SERVER actually restamped, not the number the plan hoped for. */
+      restamped: number;
+      /** …of those, the ones that newly qualify. What the review banner links to. */
+      newlyQualifiedKeys: string[];
+    }
+  | { ok: false; kind: "conflict"; current: ProfileView }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
 export interface DataSource {
   /** Qualified, untriaged, freshest first. */
   queue(opts?: QueueOptions): Promise<JobView[]>;
@@ -449,6 +515,19 @@ export interface DataSource {
   undoImport(input: UndoImportInput): Promise<ImportUndoResult>;
   /** Bin an import that never wrote anything. Refuses one that did. */
   discardImport(input: DiscardImportInput): Promise<DiscardImportResult>;
+
+  // ---- the search profile (P10) -------------------------------------------
+
+  /** This user's Search Profile. `criteria: null` means the wizard never ran. */
+  profile(): Promise<ProfileView>;
+  /**
+   * What a profile WOULD let through. Writes nothing — `app_preview_corpus` is
+   * `stable`, so Postgres refuses a write from inside it rather than trusting
+   * this contract to be honoured.
+   */
+  previewProfile(input: PreviewProfileInput): Promise<PreviewProfileResult>;
+  /** Save the profile and restamp the untriaged rows it moves, in one transaction. */
+  commitProfile(input: CommitProfileInput): Promise<CommitProfileResult>;
 
   /** A user's saved grid states for a surface. Built-in presets live in code. */
   savedViews(surface: string): Promise<SavedView[]>;

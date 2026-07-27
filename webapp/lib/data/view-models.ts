@@ -34,6 +34,17 @@ export type JobView = {
   metro: string | null;
   /** "US" | "Remote" | a country name | null. */
   market: string | null;
+  /**
+   * `geo.country` — the country the engine RESOLVED, verbatim.
+   *
+   * Distinct from `market`, which collapses it: `monitor/geo.py:159` writes
+   * `"Remote" if remote else ("US" if country == "United States" else country)`,
+   * so a remote posting's market says nothing about where it is anchored. The
+   * gate reads the country, and reading `market` in its place would qualify a
+   * Canada-anchored remote role that the engine filters — edge case G17,
+   * arriving as a lossy view model rather than as a wrong branch.
+   */
+  country: string | null;
   remote: boolean;
   /** "Remote (US)" / "Hybrid — NYC" / "Onsite", verbatim from tagging. */
   workModel: string | null;
@@ -54,6 +65,22 @@ export type JobView = {
   /** ISO date the board published it, when it said so. */
   posted: string | null;
   firstSeen: string | null;
+
+  /**
+   * `tags.tagged_at` — when the LLM tag pass last looked at this posting, or
+   * null while it never has. The two sentinels `no-jd:<date>` and
+   * `failed:<date>` mean it gave up, and they count as TAGGED downstream.
+   *
+   * Carried because the gate turns on it and nothing else can stand in.
+   * `awaiting-tags` is stamped iff this was empty at the time, so a row's
+   * CURRENT disposition looks like it should be enough — and it is not: a row
+   * filtered on geo while still untagged reads as `filtered`/`geo:India`, and
+   * re-gating it under a widened country list has to know whether the answer is
+   * `qualified` or `needs-info`. Deriving tagged-ness from the reason gets that
+   * row wrong, silently, in the direction of promising a queue the engine will
+   * not deliver.
+   */
+  taggedAt: string | null;
 
   /**
    * Board lifecycle: `New` | `Seen` | `Closed`, and whatever a human typed —

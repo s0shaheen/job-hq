@@ -938,10 +938,10 @@ describe("the per-column report (G13)", () => {
       [
         {
           key: "greenhouse-9000", company: "Ramp", title: "Product Manager",
-          url: "https://real/job", location: null, metro: null, market: null, remote: false,
+          url: "https://real/job", location: null, metro: null, market: null, country: null, remote: false,
           workModel: null, compRange: null, compMinK: null, compMaxK: null, minYoe: null,
           seniority: null, industry: null, roleFocus: null, skills: [], posted: null,
-          firstSeen: null, status: "New", disposition: "qualified", dispositionReason: "",
+          firstSeen: null, taggedAt: null, status: "New", disposition: "qualified", dispositionReason: "",
           triage: "", snoozeUntil: null, updatedAt: null,
         },
       ],

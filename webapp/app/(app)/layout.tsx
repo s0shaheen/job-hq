@@ -1,3 +1,4 @@
+import { redirect, unstable_rethrow } from "next/navigation";
 import { getSupabaseEnv } from "@/lib/env";
 import { getDataSource } from "@/lib/data/get-source";
 import { createClient } from "@/lib/supabase/server";
@@ -20,10 +21,38 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     email = typeof data?.claims?.email === "string" ? data.claims.email : null;
   }
 
+  /**
+   * The onboarding guard (matrix row 93).
+   *
+   * A user who signed in and never finished the wizard has `criteria = '{}'`,
+   * and every surface in this group renders correctly and EMPTY for them —
+   * which is the one failure this phase exists to remove, arriving on day one
+   * with no explanation at all.
+   *
+   * In the layout rather than in `middleware.ts`, and that is a cost decision
+   * stated rather than buried. Middleware runs on every request including the
+   * RSC payloads a single navigation fans out into; the layout runs once per
+   * page render, beside reads the page was making anyway. What the layout gives
+   * up is the pathname — which is why `/onboarding` lives OUTSIDE this group,
+   * so there is no path to except and no loop to avoid.
+   *
+   * It fails OPEN. A profile read that throws must not lock somebody out of
+   * their own queue over a transient error; the wizard is reachable from the
+   * empty state either way.
+   */
   let queueCount = 0;
   try {
-    queueCount = (await (await getDataSource()).queue({ limit: 999 })).length;
-  } catch {
+    const src = await getDataSource();
+    const profile = await src.profile();
+    if (!profile.criteria) redirect("/onboarding/1");
+    queueCount = (await src.queue({ limit: 999 })).length;
+  } catch (err) {
+    // `redirect()` works by THROWING. Swallowing it here would turn the guard
+    // into a no-op that renders the shell anyway — the single most likely way
+    // to write this wrong. `unstable_rethrow` is Next's own answer to exactly
+    // this footgun and it re-throws every framework control-flow error, not
+    // just this one.
+    unstable_rethrow(err);
     queueCount = 0; // a count is decoration; it must never break the shell
   }
 

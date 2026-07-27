@@ -79,6 +79,71 @@ resolutions here override the individual plans where they conflict.
 > entries across 14 ATS families (not 14 patterns), and `TextDecoder`'s
 > windows-1252 is ISO-8859-1 wearing the label — see matrix row 157.
 
+> **Profile (build order #4) is BUILT** — migration **0012**, the TypeScript gate
+> port (`webapp/lib/gating/`) and its two-language corpus
+> (`tests/fixtures/gate-corpus.json`, 67 cases run by pytest AND Vitest), the
+> preview computation shared by both data sources, `/settings` as a real editable
+> page, and the six-step wizard at `/onboarding/[step]`. Discharges AC **1–8**,
+> **18**, **19** and G8/G9. Matrix rows 177–208 in `docs/WEBAPP-BUILD.md`.
+>
+> **Conflicts closed by this phase:** C7 (one comp parser — `supabase-source.ts`
+> had a second one written out longhand and now wraps `lib/gating/comp.ts`,
+> keeping only its documented non-dollar departure) and C11 (`/settings`'s stub
+> replaced, anchor ids unchanged).
+>
+> Places this build **deviated from PHASE-PROFILE.md on purpose**, recorded here
+> because the plan reads the other way:
+>
+> 1. **The migration is 0012, not 0003/0008.** C2's renumbering was overtaken
+>    twice over (P7 took 0008, the reconciler 0009, P8 0010, P9 0011).
+> 2. **`app_set_triage` needed no retrofit.** The plan predates
+>    `0003_write_path.sql`, which established the family it asks for —
+>    `command_idempotency` storing the RESULT, the post-lock replay re-check,
+>    `expected_updated_at`, row and event in one body. 0012 joins it.
+> 3. **`app_preview_corpus` checks `auth.uid() is not null` in its WHERE**, not
+>    only via the grant. `tests/core/test_migrations.py` requires every callable
+>    security-definer function to read `auth.uid()`, and the requirement is right:
+>    a definer that bypasses RLS should not lean on a grant alone.
+> 4. **Preview samples are not `JobView`s.** The plan's `PreviewResult` has
+>    `samples: { qualified: JobView[] }`; a JobView carries a `url`, the corpus
+>    projection deliberately excludes one, and a sample rendered as a job card
+>    would offer a dead link. `PreviewSample` cannot hold one.
+> 5. **The binding constraint reports a FIELD and a SETTING.** Nine gate fields
+>    are relaxed (the plan says seven); each maps to one of the six
+>    `reasonSetting()` anchors, so the link lands without a second id set.
+> 6. **The re-gate plan is built in the server action, not in the browser.**
+>    Shipping the whole set to a phone to compute a plan is wasteful, and a plan
+>    the client composed is one the client can compose wrongly — the SQL re-checks
+>    every entry regardless.
+> 7. **The G8 banner links to `/jobs?set=queue`.** No `keys=` filter exists in the
+>    grid's URL grammar; the plan sanctions the interim.
+> 8. **The onboarding guard is a layout redirect, not middleware**, and
+>    `/onboarding` therefore lives outside the `(app)` group.
+>
+> **The P10 fix pass** closed 13 findings from an adversarial review (73 mutants;
+> matrix rows 209-227). The worst was a user-facing lie rather than a crash:
+> `parseCriteria` fell back to the committed baseline on an EMPTY STRING, so the
+> "Something else" preset — which sets its three free-text fields to `""` on
+> purpose — stored a product-management search under the name of somebody who had
+> said it was not that. Two more worth carrying: a fake can model the RESULT and
+> never the MAPPING (`isOnboarded`'s `return true` survived 383 tests), and a
+> guard that greps for its own phrase is not a guard (the `auth.uid()` belt).
+>
+> One piece of PRE-EXISTING debt was found and deliberately not fixed here:
+> **21 of the 23 callable security-definer functions revoke only `from public`**,
+> and Supabase grants execute to `anon` BY NAME, so revoking from `public` leaves
+> those grants in place. Each function rejects an anonymous session in its own body,
+> which is why it is debt rather than an open door. `KNOWN_UNNAMED_REVOKES` in
+> `tests/core/test_migrations.py` lists them and is asserted EXACT in both
+> directions, so a new function cannot join the list silently. Closing them is one
+> clause each, in the migrations that define them — P8's and P9's, not a profile
+> branch's.
+>
+> Also settled by building it: `JobView` was missing `taggedAt` AND `country`, and
+> the gate is wrong without either — the second because `monitor/geo.py:159`
+> collapses country into `market` for every remote posting, which is edge case G17
+> arriving through a lossy view model rather than a wrong branch.
+
 > **Active design thread: [COMPANY-DISCOVERY.md](COMPANY-DISCOVERY.md)** — how
 > non-operator users populate their company universe by NL / filters / pasted
 > list (agentic generate→ground→verify→expand, shared universe, reliability
@@ -111,7 +176,7 @@ resolutions here override the individual plans where they conflict.
 | 1 | [PHASE-GRID.md](PHASE-GRID.md) | the "looks like Airtable" surface: /jobs, filters, saved views, bulk triage, export scope (H16 assert, H22) |
 | 2 | [PHASE-PIPELINE.md](PHASE-PIPELINE.md) | the sheet can be closed: status editing where humans win (H11–15, H26), notes entity, delisted |
 | 3 | [PHASE-IMPORT.md](PHASE-IMPORT.md) | everyone arrives mid-search: xlsx/csv import, batch undo, Excel round trip (H20/21/23) |
-| 4 | [PHASE-PROFILE.md](PHASE-PROFILE.md) | self-serve onboarding: TS gate port + shared corpus, preview-before-commit (H1–8, H18/19) |
+| 4 | [PHASE-PROFILE.md](PHASE-PROFILE.md) — **BUILT** (migration 0012) | self-serve onboarding: TS gate port + shared corpus, preview-before-commit (H1–8, H18/19) |
 | 5 | [PHASE-DIGEST.md](PHASE-DIGEST.md) increments 3–6 | Dad's real surface: signed one-click links, the email is the app (B4) |
 | — | [SCALING-RESEARCH.md](SCALING-RESEARCH.md) | decision input, not a build: stay at allowlist ≤10; triggers to revisit listed in its §6 |
 
@@ -129,14 +194,21 @@ resolutions here override the individual plans where they conflict.
 4. **G15 — scout do-not-apply advisory flag.** The scout has no identity (`scout_link`, B5);
    every plan explicitly excludes scout work. Fine to defer — but it is deferred, not covered.
 5. **G3, reopen variant (partial).** PROFILE covers "widened profile does not reanimate
-   dismissed" (its row 83). The literal G3 — posting goes `Closed → New` while dismissed —
-   has no named test in any plan. One corpus/e2e case closes it.
-6. **G5, exact behavior (partial).** "Row disappears + 'already handled'" on a 409 in the
+   dismissed" — BUILT, `tests/db/test_profile.py`. The literal G3 — posting goes
+   `Closed → New` while dismissed — still has no named test in any plan. One corpus/e2e
+   case closes it.
+6. **G9 in the QUEUE's empty state is still a histogram** (new, from the P10 build). The
+   preview computes its binding constraint by RELAXATION because gates short-circuit;
+   `bindingConstraint()` on the queue counts first-hit reasons, which is right about which
+   setting to LINK to and can be wrong about which one is actually starving the queue.
+   Matrix row 208. Needs the profile beside the rows in that render path — small, and
+   owned by nobody today.
+7. **G5, exact behavior (partial).** "Row disappears + 'already handled'" on a 409 in the
    queue: PIPELINE fixes the conflict copy and refresh, but no test asserts the
    already-triaged row *disappears* from a second tab's queue.
-7. **Spec-level, no AC number:** `content_hash` (A1), `applied-elsewhere`/`expired` triage
+8. **Spec-level, no AC number:** `content_hash` (A1), `applied-elsewhere`/`expired` triage
    states (A2), `export_preset` + `contact` entities (A4), the Google-Sheet export path (§E).
-8. **Export dialog + XLSX file** — owed by the *in-flight foundation phase*
+9. **Export dialog + XLSX file** — owed by the *in-flight foundation phase*
    (WEBAPP-BUILD "Current state", unchecked), not by any of the six plans. GRID assumes it
    lands ("when the Export dialog lands"). Also: `write-excel-file` has **no autofilter
    option** (IMPORT §1 verified) — spec E promises frozen header *and autofilter*; amend

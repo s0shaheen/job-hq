@@ -379,3 +379,116 @@ def test_row_is_locked_before_the_conflict_check():
     check = body.lower().find("p_expected_updated_at is not null")
     assert lock != -1, "app_set_triage does not lock the row"
     assert lock < check, "the conflict check runs before the row is locked"
+#: Callable security-definer functions whose `revoke all … from public` does NOT
+#: name `anon`/`authenticated`.
+#:
+#: Supabase's bootstrap grants execute on new functions to those roles BY NAME
+#: (`alter default privileges … grant execute on functions to anon, authenticated`),
+#: and revoking from `public` does not touch a grant made to a named role — so
+#: every function here is reachable by an ANONYMOUS caller today. Each of them
+#: rejects an anonymous session on its own (`auth.uid()` is null → raise), which is
+#: why this is debt rather than an open door, and it is still the wrong shape: the
+#: revoke is supposed to be what closes the door, not the function body.
+#:
+#: The list is asserted to be EXACTLY this set, in both directions. A new function
+#: cannot join it silently, and fixing one means deleting its line. Closing the
+#: remaining 21 is one clause each in the migration that defines them; it belongs
+#: to those phases, not to a profile branch.
+KNOWN_UNNAMED_REVOKES = frozenset({
+    "app_add_note",
+    "app_delete_view",
+    "app_import_commit_chunk",
+    "app_import_create",
+    "app_import_discard",
+    "app_import_preview",
+    "app_import_report",
+    "app_import_resolve",
+    "app_import_set_included",
+    "app_import_set_mapping",
+    "app_import_stage",
+    "app_import_undo",
+    "app_propose_companies",
+    "app_resolve_suggestion",
+    "app_save_view",
+    "app_set_company_flags",
+    "app_set_company_review_bulk",
+    "app_set_next_action",
+    "app_set_status",
+    "app_set_triage",
+    "app_set_triage_bulk",
+})
+
+
+def _revoked_roles(name: str) -> str:
+    revokes = re.findall(
+        rf"revoke\s+all\s+on\s+function\s+public\.{name}\s*\([^)]*\)\s*\n?\s*"
+        rf"from\s+([^;]+);",
+        ALL_SQL,
+        re.I | re.S,
+    )
+    assert revokes, f"{name}() is never revoked"
+    return " ".join(revokes).lower()
+
+
+@pytest.mark.parametrize("name", [n for n in CALLABLE if n not in KNOWN_UNNAMED_REVOKES])
+def test_definer_revokes_name_the_roles_supabase_grants_to(name):
+    """`revoke all … from public` alone closes nothing.
+
+    The generic "revoked from public" check above passes on a function that
+    `anon` can still call, because Supabase granted to `anon` by name. A mutant
+    adding `grant execute … to anon` on `app_preview_corpus` survived that check
+    — on the one function in the schema that deliberately bypasses RLS.
+
+    `authenticated` is expected to be re-granted immediately afterwards; what
+    matters is that the revoke NAMES both roles, so the grant that follows is the
+    single explicit statement of who may call.
+    """
+    named = _revoked_roles(name)
+    for role in ("public", "anon", "authenticated"):
+        assert role in named, (
+            f"{name}() is revoked from `{named.strip()}` — `{role}` is not named, and "
+            "Supabase grants execute to it by name, so the door is still open"
+        )
+
+
+def test_the_unnamed_revoke_debt_list_is_exact():
+    """A debt list that drifts is a debt list that hides a new offender.
+
+    Both directions: nothing in `KNOWN_UNNAMED_REVOKES` may have been fixed
+    without being removed from it, and nothing outside it may be missing its
+    named roles.
+    """
+    actually_unnamed = {
+        n for n in CALLABLE
+        if not all(r in _revoked_roles(n) for r in ("public", "anon", "authenticated"))
+    }
+    assert actually_unnamed == set(KNOWN_UNNAMED_REVOKES), {
+        "fixed but still listed": sorted(set(KNOWN_UNNAMED_REVOKES) - actually_unnamed),
+        "unlisted and open": sorted(actually_unnamed - set(KNOWN_UNNAMED_REVOKES)),
+    }
+
+
+@pytest.mark.parametrize("name", CALLABLE)
+def test_the_version_token_is_compared_as_an_instant(name):
+    """A version token is an INSTANT, never two renderings of one compared as text.
+
+    Matrix rows 146 and 168 are both that bug: PostgREST renders `+00:00`,
+    `toISOString()` renders `Z`, and `to_jsonb` renders whatever the session's
+    TimeZone says. One moment, three strings.
+
+    Satisfied two ways, and both are in the schema: declare the parameter
+    `timestamptz` (0003/0005/0010/0012), or take `text[]` for a parallel-array
+    gesture and cast it — `p_expected_updated_at::timestamptz[]` — before any
+    comparison (0006/0008). What is refused is a text token that reaches a
+    comparison uncast, which nothing was checking for.
+    """
+    body = DEFINERS[name]
+    params = re.search(r"\((.*?)\)\s*returns", body, re.S)
+    assert params, f"could not parse {name}()'s parameters"
+    for token, declared in re.findall(r"(p_expected\w*)\s+([\w\[\]]+)", params.group(1), re.I):
+        if declared.lower().startswith("timestamptz"):
+            continue
+        assert re.search(rf"{token}\s*(\[i\])?\s*::\s*timestamptz", body, re.I), (
+            f"{name}() declares {token} as {declared} and never casts it to timestamptz — "
+            "two renderings of one instant will be compared as strings"
+        )

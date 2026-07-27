@@ -156,6 +156,7 @@ export function makePerfJobs(n: number): JobView[] {
       location,
       metro,
       market: remote ? "Remote" : "US",
+      country: "United States",
       remote,
       workModel,
       compRange: compMissing
@@ -170,6 +171,7 @@ export function makePerfJobs(n: number): JobView[] {
       skills: SKILLS[i % SKILLS.length],
       posted,
       firstSeen: daysAgo(Math.max(0, (i % 150) - 1)),
+      taggedAt: needsInfo ? null : stampAgo((i % 200) + 2),
       status: "Seen",
       disposition: filtered ? "filtered" : needsInfo ? "needs-info" : "qualified",
       dispositionReason: filtered

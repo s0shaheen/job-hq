@@ -1,0 +1,620 @@
+{
+  "version": 1,
+  "_readme": [
+    "The gate contract, executed by BOTH languages.",
+    "",
+    "monitor/gates.py decides what reaches a queue; webapp/lib/gating/dispose.ts",
+    "decides what the profile preview PROMISES will reach it. Two implementations",
+    "of one rule, and the failure they produce when they drift is silent: the app",
+    "tells somebody their new profile qualifies 61 postings and the engine gates a",
+    "different 61. This file is what makes that a CI failure instead.",
+    "",
+    "tests/monitor/test_gate_corpus.py runs every case through Python.",
+    "webapp/tests/unit/gate-corpus.test.ts runs the same cases through TypeScript.",
+    "Neither implementation may add a branch without a case here, and the case is",
+    "written first. Seeded from tests/monitor/test_gates.py (one case per",
+    "assertion) plus acceptance criteria 1-8 and edge case G17.",
+    "",
+    "`config` and `row` are PARTIAL. Missing config keys take `defaults` below;",
+    "a missing row key is the empty string, which is what `row.get(k, '')` gives",
+    "the Python gate. `expect` is [disposition, reason]."
+  ],
+
+  "_defaults_readme": [
+    "GateConfig's dataclass defaults, spelled out so both languages assert",
+    "against one copy. Duplicating them silently is how a port drifts on the",
+    "branch nobody writes a case for: `yoe_max` defaulting to 5 in TypeScript",
+    "would pass every case that names it and be wrong for every case that does",
+    "not."
+  ],
+  "defaults": {
+    "countries": ["United States"],
+    "metros": [],
+    "geo_unknown": "filter",
+    "comp_min": 0,
+    "comp_unknown": "keep",
+    "work_model_exclude": [],
+    "yoe_max": 4,
+    "yoe_unknown": "seniority-proxy",
+    "seniority_exclude": []
+  },
+
+  "_kinds_readme": [
+    "The closed set of disposition_reason KINDS (docs/PRODUCT-SPEC.md A2). Both",
+    "suites assert every kind appears in at least one case AND that no case",
+    "produces a kind outside it, so a gate rule added on one side with no corpus",
+    "row fails rather than going untested in both."
+  ],
+  "kinds": [
+    "",
+    "yoe-unknown",
+    "awaiting-tags",
+    "geo",
+    "geo-unknown",
+    "metro",
+    "metro-unknown",
+    "yoe",
+    "seniority",
+    "comp",
+    "comp-unknown",
+    "work-model"
+  ],
+
+  "cases": [
+    {
+      "id": "qualified-clean",
+      "why": "the baseline: a US posting inside the YoE bar carries an EMPTY reason, not a cheerful one",
+      "config": {},
+      "row": { "country": "United States", "min_yoe": "2", "tagged_at": "2026-07-19" },
+      "expect": ["qualified", ""]
+    },
+    {
+      "id": "geo-foreign-country",
+      "why": "acceptance criterion 1 — the reason names the country, so the UI can say which one",
+      "config": {},
+      "row": { "country": "India", "min_yoe": "2" },
+      "expect": ["filtered", "geo:India"]
+    },
+    {
+      "id": "geo-blank-non-remote-filtered",
+      "why": "a posting nobody could place is not a US posting; the default policy says so",
+      "config": {},
+      "row": { "country": "" },
+      "expect": ["filtered", "geo-unknown"]
+    },
+    {
+      "id": "geo-blank-keep-policy-falls-through",
+      "why": "geo_unknown=keep must fall THROUGH to the later gates, not short-circuit to qualified",
+      "config": { "geo_unknown": "keep" },
+      "row": { "country": "", "min_yoe": "1", "tagged_at": "x" },
+      "expect": ["qualified", ""]
+    },
+    {
+      "id": "geo-remote-blank-country-passes",
+      "why": "acceptance criterion 2 — a remote role with no stated origin is worth a look",
+      "config": {},
+      "row": { "country": "", "remote": "TRUE", "min_yoe": "0", "tagged_at": "x" },
+      "expect": ["qualified", ""]
+    },
+    {
+      "id": "geo-foreign-remote-still-filtered",
+      "why": "edge case G17: remote does NOT launder a foreign anchor. Dropping the country check for remote rows would pass every other geo case",
+      "config": {},
+      "row": { "country": "Canada", "remote": "TRUE", "min_yoe": "0" },
+      "expect": ["filtered", "geo:Canada"]
+    },
+    {
+      "id": "geo-country-alias-config-side",
+      "why": "a human types US in a Config cell; geo.enrich writes United States. Both sides canonicalise or the profile filters everything",
+      "config": { "countries": ["US"] },
+      "row": { "country": "United States", "min_yoe": "1", "tagged_at": "x" },
+      "expect": ["qualified", ""]
+    },
+    {
+      "id": "geo-country-alias-row-side",
+      "why": "the alias table is applied to the ROW too, case-folded",
+      "config": { "countries": ["United States"] },
+      "row": { "country": "usa", "min_yoe": "1", "tagged_at": "x" },
+      "expect": ["qualified", ""]
+    },
+    {
+      "id": "geo-country-alias-uk",
+      "why": "the alias table has a second entry; a port that hardcoded only the US aliases passes every case above",
+      "config": { "countries": ["United Kingdom"] },
+      "row": { "country": "UK", "min_yoe": "1", "tagged_at": "x" },
+      "expect": ["qualified", ""]
+    },
+    {
+      "id": "geo-remote-token-yes",
+      "why": "remote is a three-token truthy set, upper-cased. YES is one of them",
+      "config": {},
+      "row": { "country": "", "remote": "yes", "min_yoe": "1", "tagged_at": "x" },
+      "expect": ["qualified", ""]
+    },
+    {
+      "id": "geo-remote-token-one",
+      "why": "and so is the string 1 — the sheet writes it that way",
+      "config": {},
+      "row": { "country": "", "remote": "1", "min_yoe": "1", "tagged_at": "x" },
+      "expect": ["qualified", ""]
+    },
+    {
+      "id": "geo-remote-token-false-is-not-remote",
+      "why": "the set is CLOSED. Treating any non-empty string as truthy would make `false` mean remote",
+      "config": {},
+      "row": { "country": "", "remote": "false", "min_yoe": "1", "tagged_at": "x" },
+      "expect": ["filtered", "geo-unknown"]
+    },
+    {
+      "id": "geo-country-strips-python-only-whitespace",
+      "why": "U+001F is whitespace to Python's str.strip() and NOT to JavaScript's trim(). A port using trim() reports geo:India\\u001f and the UI prints a control character",
+      "config": {},
+      "row": { "country": " India\u001f", "min_yoe": "2" },
+      "expect": ["filtered", "geo:India"]
+    },
+    {
+      "id": "geo-country-keeps-a-bom-python-does-not-strip",
+      "why": "the same divergence the other way: U+FEFF IS stripped by trim() and is NOT whitespace to Python. Both directions have to be pinned or the port drifts on whichever one nobody wrote",
+      "config": {},
+      "row": { "country": "\uFEFFIndia", "min_yoe": "2" },
+      "expect": ["filtered", "geo:\uFEFFIndia"]
+    },
+
+    {
+      "id": "metro-in-metro-qualifies",
+      "why": "dad's Chicagoland search: the metro he follows reaches him",
+      "config": { "metros": ["Chicago"], "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "metro": "Chicago", "tagged_at": "x" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "metro-other-filtered",
+      "why": "the reason names the metro, so the preview can say which one is doing the filtering",
+      "config": { "metros": ["Chicago"], "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "metro": "Denver", "tagged_at": "x" },
+      "expect": ["filtered", "metro:Denver"]
+    },
+    {
+      "id": "metro-unknown-follows-the-geo-unknown-policy",
+      "why": "in-country but unplaceable reuses the geo policy rather than inventing a second knob",
+      "config": { "metros": ["Chicago"], "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "metro": "", "tagged_at": "x" },
+      "expect": ["filtered", "metro-unknown"]
+    },
+    {
+      "id": "metro-unknown-kept-under-the-keep-policy",
+      "why": "the same knob in its other position; a port hardcoding `filter` passes the case above",
+      "config": {
+        "metros": ["Chicago"],
+        "geo_unknown": "keep",
+        "yoe_max": 30,
+        "yoe_unknown": "keep"
+      },
+      "row": { "country": "United States", "metro": "", "tagged_at": "x" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "metro-remote-bypasses-the-gate",
+      "why": "acceptance criterion 3 — a remote role is location-independent and a local search still wants it",
+      "config": { "metros": ["Chicago"], "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "", "remote": "TRUE", "metro": "", "tagged_at": "x" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "metro-empty-list-means-anywhere-in-country",
+      "why": "the national search: no metros configured must not filter on metro at all",
+      "config": {},
+      "row": {
+        "country": "United States",
+        "metro": "Denver",
+        "min_yoe": "2",
+        "tagged_at": "x"
+      },
+      "expect": ["qualified", ""]
+    },
+    {
+      "id": "metro-geo-runs-first",
+      "why": "ordering: a foreign row is geo-filtered before the metro gate is reached, which is why the binding constraint is computed by relaxation and not by counting reasons",
+      "config": { "metros": ["Chicago"], "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "India", "metro": "" },
+      "expect": ["filtered", "geo:India"]
+    },
+    {
+      "id": "metro-row-value-is-stripped",
+      "why": "the sheet pads cells; a padded metro must still match the list",
+      "config": { "metros": ["Chicago"], "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "metro": "  Chicago  ", "tagged_at": "x" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "metro-config-value-is-stripped",
+      "why": "and so is the configured one — a trailing space typed into a wizard chip must not silently filter the metro out",
+      "config": { "metros": [" Chicago "], "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "metro": "Chicago", "tagged_at": "x" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+
+    {
+      "id": "yoe-over-the-bar",
+      "why": "acceptance criterion 4 — the reason carries both numbers so the copy can name the limit",
+      "config": {},
+      "row": { "country": "United States", "min_yoe": "6", "tagged_at": "x" },
+      "expect": ["filtered", "yoe:6>4"]
+    },
+    {
+      "id": "yoe-at-the-bar-qualifies",
+      "why": "the comparison is strictly greater. An off-by-one here filters every posting that asks for exactly the user's ceiling",
+      "config": {},
+      "row": { "country": "United States", "min_yoe": "4", "tagged_at": "x" },
+      "expect": ["qualified", ""]
+    },
+    {
+      "id": "yoe-untagged-parks-as-needs-info",
+      "why": "acceptance criterion 5 — an untagged row is not judged, it waits",
+      "config": {},
+      "row": { "country": "United States" },
+      "expect": ["needs-info", "awaiting-tags"]
+    },
+    {
+      "id": "yoe-unknown-seniority-proxy-filters",
+      "why": "the proxy fires only on the yoe-unknown path, and the reason carries the row's own spelling",
+      "config": { "seniority_exclude": ["Senior", "Staff", "GPM", "Director", "VP"] },
+      "row": { "country": "United States", "tagged_at": "x", "seniority": "Senior" },
+      "expect": ["filtered", "seniority:Senior"]
+    },
+    {
+      "id": "yoe-unknown-proxy-passes-an-unexcluded-level",
+      "why": "the proxy is an exact match against the list, not a substring sweep over every seniority word",
+      "config": { "seniority_exclude": ["Senior", "Staff", "GPM", "Director", "VP"] },
+      "row": { "country": "United States", "tagged_at": "x", "seniority": "PM" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "yoe-unknown-keep-ignores-seniority-entirely",
+      "why": "dad's profile sets keep precisely because the PM seniority proxy is wrong for a finance ladder — a Director of FP&A is a target, not a filter",
+      "config": { "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "seniority": "Director" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "yoe-untaggable-sentinel-counts-as-tagged",
+      "why": "no-jd:/failed: mean the tagger gave up; parking those as needs-info forever hides real postings behind a fetch failure",
+      "config": {},
+      "row": { "country": "United States", "tagged_at": "no-jd:2026-07-19" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "yoe-failed-sentinel-counts-as-tagged",
+      "why": "the second sentinel. A port special-casing only `no-jd:` passes the case above",
+      "config": {},
+      "row": { "country": "United States", "tagged_at": "failed:2026-07-19" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "yoe-junk-value-falls-to-the-unknown-path",
+      "why": "an unparseable cell is unknown, never zero and never a crash",
+      "config": {},
+      "row": { "country": "United States", "min_yoe": "3-5", "tagged_at": "x" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "yoe-decimal-truncates-toward-zero",
+      "why": "int(float('4.9')) is 4, not 5. Rounding instead of truncating filters a posting that asks for four-and-a-bit years from a four-year ceiling",
+      "config": {},
+      "row": { "country": "United States", "min_yoe": "4.9", "tagged_at": "x" },
+      "expect": ["qualified", ""]
+    },
+    {
+      "id": "yoe-reason-carries-the-raw-cell-not-the-parsed-number",
+      "why": "05 parses as 5 and the reason still says 05. Formatting the parsed value would change a string the digest and the UI both read",
+      "config": {},
+      "row": { "country": "United States", "min_yoe": "05", "tagged_at": "x" },
+      "expect": ["filtered", "yoe:05>4"]
+    },
+    {
+      "id": "seniority-match-is-case-insensitive-reason-is-not",
+      "why": "the comparison folds case; the reason quotes the posting verbatim so a human recognises it",
+      "config": { "seniority_exclude": ["senior"] },
+      "row": { "country": "United States", "tagged_at": "x", "seniority": "SENIOR" },
+      "expect": ["filtered", "seniority:SENIOR"]
+    },
+    {
+      "id": "seniority-match-uses-full-case-folding",
+      "why": "Python casefold()s both sides: 'Straße' folds to 'strasse'. JavaScript toLowerCase() does not, so a bare toLowerCase() port silently stops matching",
+      "config": { "seniority_exclude": ["strasse"] },
+      "row": { "country": "United States", "tagged_at": "x", "seniority": "Straße" },
+      "expect": ["filtered", "seniority:Straße"]
+    },
+    {
+      "id": "defaults-yoe-max-is-four",
+      "why": "pins the DEFAULT rather than a value the case names — a port defaulting to 5 passes every case that sets yoe_max",
+      "config": {},
+      "row": { "country": "United States", "min_yoe": "5", "tagged_at": "x" },
+      "expect": ["filtered", "yoe:5>4"]
+    },
+    {
+      "id": "defaults-seniority-exclude-is-empty",
+      "why": "the default profile excludes NO seniority. A port seeding Salman's list would filter Dad's Director roles on day one",
+      "config": {},
+      "row": { "country": "United States", "tagged_at": "x", "seniority": "Director" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "config-blank-list-entries-are-dropped",
+      "why": "an empty chip left behind in the wizard must not become a country nothing matches",
+      "config": { "countries": ["United States", "   "] },
+      "row": { "country": "United States", "min_yoe": "1", "tagged_at": "x" },
+      "expect": ["qualified", ""]
+    },
+
+    {
+      "id": "comp-below-the-floor",
+      "why": "acceptance criterion 6",
+      "config": { "comp_min": 120, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "$75,000 - $85,000" },
+      "expect": ["filtered", "comp:<120k"]
+    },
+    {
+      "id": "comp-top-of-the-band-clears-the-floor",
+      "why": "acceptance criterion 7 — judged on the TOP, because judging on the bottom filters out most real negotiating ranges",
+      "config": { "comp_min": 120, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": {
+        "country": "United States",
+        "tagged_at": "x",
+        "comp_range": "$110,000 - $160,000"
+      },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "comp-unstated-is-kept-by-default",
+      "why": "acceptance criterion 8 — ~48% of live postings state nothing, so defaulting to filter deletes half the feed",
+      "config": { "comp_min": 120, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "comp-unparseable-is-unknown-not-zero",
+      "why": "'Competitive' must not read as $0 and vanish under any floor",
+      "config": { "comp_min": 120, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "Competitive" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "comp-unknown-can-be-filtered-by-policy",
+      "why": "the explicit opt-in half of criterion 8",
+      "config": {
+        "comp_min": 120,
+        "comp_unknown": "filter",
+        "yoe_max": 30,
+        "yoe_unknown": "keep"
+      },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "" },
+      "expect": ["filtered", "comp-unknown"]
+    },
+    {
+      "id": "comp-unknown-policy-never-judges-an-untagged-row",
+      "why": "criterion 8's last clause: a row has not been given its comp yet, so filtering it for not stating one is judging the engine's backlog",
+      "config": {
+        "comp_min": 120,
+        "comp_unknown": "filter",
+        "yoe_max": 30,
+        "yoe_unknown": "keep"
+      },
+      "row": { "country": "United States", "tagged_at": "", "comp_range": "" },
+      "expect": ["needs-info", "awaiting-tags"]
+    },
+    {
+      "id": "comp-hourly-rate-is-never-read-as-a-salary",
+      "why": "$45/hour must be unknown, not $45k. Reading it as a salary filters every contract posting under any floor",
+      "config": { "comp_min": 120, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "$45/hour" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "comp-gate-is-off-when-the-floor-is-zero",
+      "why": "comp_min 0 means the gate does not run at all — not that everything clears a $0 floor (which would be the same answer here and a different one for comp_unknown=filter)",
+      "config": { "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": {
+        "country": "United States",
+        "tagged_at": "x",
+        "comp_range": "$40,000 - $50,000"
+      },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "comp-k-suffix-band-clears",
+      "why": "the k-suffixed shape, which _to_k must NOT divide by 1000",
+      "config": { "comp_min": 120, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "$160k-$190k" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "comp-k-suffix-band-below-the-floor",
+      "why": "the same shape on the filtering side, so a port that treated every k value as unknown could not pass both",
+      "config": { "comp_min": 120, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "$90k-$110k" },
+      "expect": ["filtered", "comp:<120k"]
+    },
+    {
+      "id": "comp-floor-only-uses-the-stated-figure-as-the-ceiling",
+      "why": "'$150k+' has no top; the gate judges on the floor rather than treating the range as unknown",
+      "config": { "comp_min": 120, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "$150k+" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "comp-ceiling-only-is-judged-on-the-ceiling",
+      "why": "'up to $100k' is a real refusal, not an unknown",
+      "config": { "comp_min": 120, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "up to $100k" },
+      "expect": ["filtered", "comp:<120k"]
+    },
+    {
+      "id": "comp-em-dash-band",
+      "why": "the second most common real shape in the feed. A hyphen-only split reads it as one number",
+      "config": { "comp_min": 120, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": {
+        "country": "United States",
+        "tagged_at": "x",
+        "comp_range": "$182,000 — $250,208"
+      },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "comp-currency-noise-does-not-break-the-parse",
+      "why": "'USD' between the numbers is common and must not become a third value",
+      "config": { "comp_min": 120, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": {
+        "country": "United States",
+        "tagged_at": "x",
+        "comp_range": "$120,000 USD - $150,000"
+      },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "comp-implausible-values-are-discarded",
+      "why": "MIN_PLAUSIBLE_K drops '$5 - $9' to unknown rather than filtering the row as a $9k job",
+      "config": { "comp_min": 120, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "$5 - $9" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "comp-bare-hundreds-read-as-thousands",
+      "why": "_to_k treats a bare 150 as $150k and 150000 as $150k; both have to land on the same number",
+      "config": { "comp_min": 120, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "100 - 115" },
+      "expect": ["filtered", "comp:<120k"]
+    },
+    {
+      "id": "comp-fractional-floor-formats-without-a-trailing-zero",
+      "why": "Python's :g renders 122.5 as 122.5 and 120.0 as 120. A port using toFixed(1) writes 'comp:<120.0k' and every reason string in the UI and the digest changes",
+      "config": { "comp_min": 122.5, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": {
+        "country": "United States",
+        "tagged_at": "x",
+        "comp_range": "$90,000 - $100,000"
+      },
+      "expect": ["filtered", "comp:<122.5k"]
+    },
+    {
+      "id": "comp-fractional-floor-uses-six-significant-digits",
+      "why": "Python's :g is 6 SIGNIFICANT digits, so 12.3456789 renders as 12.3457. The two existing floors (120 and 122.5) are both reproduced by a bare String(), so a port using it passed them both — this is the case that separates formatG from String()",
+      "config": { "comp_min": 12.3456789, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "$11,000" },
+      "expect": ["filtered", "comp:<12.3457k"]
+    },
+    {
+      "id": "seniority-match-folds-a-final-sigma",
+      "why": "The configured token ends in a NON-final sigma; the posting ends in a capital one. Python casefolds both to the same sigma, and JavaScript toLowerCase() renders a word-final capital sigma as FINAL sigma — so a port without the fold compares two different strings and stops matching. The asymmetry is the whole point: a token written with final sigma on both sides passes either way, which is how the first version of this case failed to discriminate. 313 codepoints fold like this and the port's docstring used to claim none did",
+      "config": { "seniority_exclude": ["\u03c3\u03c4\u03b5\u03bb\u03b5\u03c7\u03bf\u03c3"] },
+      "row": {
+        "country": "United States",
+        "tagged_at": "x",
+        "seniority": "\u03a3\u03a4\u0395\u039b\u0395\u03a7\u039f\u03a3"
+      },
+      "expect": ["filtered", "seniority:\u03a3\u03a4\u0395\u039b\u0395\u03a7\u039f\u03a3"]
+    },
+    {
+      "id": "comp-min-junk-falls-back-to-off",
+      "why": "GateConfig swallows a non-numeric floor rather than raising. A bad Config cell must not take the gate down",
+      "config": { "comp_min": "abc", "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "$40,000" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "comp-min-null-falls-back-to-off",
+      "why": "and so does a null, which is what an unset jsonb key deserialises to",
+      "config": { "comp_min": null, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "comp_range": "$40,000" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "comp-min-numeric-string-is-honoured",
+      "why": "the other side of the same coercion: a floor that arrives as a string still binds",
+      "config": { "comp_min": "120", "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": {
+        "country": "United States",
+        "tagged_at": "x",
+        "comp_range": "$70,000 - $80,000"
+      },
+      "expect": ["filtered", "comp:<120k"]
+    },
+
+    {
+      "id": "work-model-exclusion-fires-on-a-substring",
+      "why": "the token is matched inside the work model string, which is free text from the tagger",
+      "config": { "work_model_exclude": ["onsite"], "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": {
+        "country": "United States",
+        "tagged_at": "x",
+        "work_model": "Onsite — Austin, TX"
+      },
+      "expect": ["filtered", "work-model:onsite"]
+    },
+    {
+      "id": "work-model-reason-carries-the-configured-token-folded",
+      "why": "the reason is the CONFIG token after __post_init__ case-folds it, not the posting's wording. A port echoing the row's text writes 'work-model:Onsite — Austin, TX'",
+      "config": { "work_model_exclude": ["OnSite"], "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "work_model": "ONSITE" },
+      "expect": ["filtered", "work-model:onsite"]
+    },
+    {
+      "id": "work-model-remote-is-not-excluded",
+      "why": "the negative control: the gate must not fire on every work model once any token is configured",
+      "config": { "work_model_exclude": ["onsite"], "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "work_model": "Remote (US)" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "work-model-hybrid-is-not-excluded",
+      "why": "'Hybrid — Chicago' contains neither token and must survive",
+      "config": { "work_model_exclude": ["onsite"], "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "work_model": "Hybrid — Chicago" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+    {
+      "id": "work-model-blank-is-never-excluded",
+      "why": "an untagged work model is not an onsite one; matching '' against a token list would filter every row before it is tagged",
+      "config": { "work_model_exclude": ["onsite"], "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "United States", "tagged_at": "x", "work_model": "" },
+      "expect": ["qualified", "yoe-unknown"]
+    },
+
+    {
+      "id": "order-work-model-runs-before-comp",
+      "why": "both gates would fire; the reason proves which one short-circuits. This is the whole reason the binding constraint is computed by relaxation",
+      "config": {
+        "work_model_exclude": ["onsite"],
+        "comp_min": 200,
+        "yoe_max": 30,
+        "yoe_unknown": "keep"
+      },
+      "row": {
+        "country": "United States",
+        "tagged_at": "x",
+        "work_model": "Onsite",
+        "comp_range": "$80,000 - $90,000"
+      },
+      "expect": ["filtered", "work-model:onsite"]
+    },
+    {
+      "id": "order-geo-runs-before-comp",
+      "why": "a reason histogram would credit geo and never see the comp floor behind it",
+      "config": { "comp_min": 200, "yoe_max": 30, "yoe_unknown": "keep" },
+      "row": { "country": "India", "tagged_at": "x", "comp_range": "$80,000" },
+      "expect": ["filtered", "geo:India"]
+    },
+    {
+      "id": "order-comp-runs-before-yoe",
+      "why": "the last short-circuit pair: a row failing both reports comp",
+      "config": { "comp_min": 200, "yoe_max": 4 },
+      "row": {
+        "country": "United States",
+        "tagged_at": "x",
+        "min_yoe": "9",
+        "comp_range": "$80,000 - $90,000"
+      },
+      "expect": ["filtered", "comp:<200k"]
+    }
+  ]
+}

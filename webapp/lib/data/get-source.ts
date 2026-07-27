@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { getSupabaseEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { FIXTURE_JOBS } from "./fixtures";
+import { FIXTURE_PROFILE_NEW } from "./preview-fixtures";
 import { FixtureDataSource } from "./fixture-source";
 import { SupabaseDataSource } from "./supabase-source";
 import { isDemoMode, type DataSource } from "./source";
@@ -28,9 +29,11 @@ const DEMO_COOKIE = "hq_demo_id";
  * produce either state — it produces "you finished", which is a third thing.
  * So the seed is chosen explicitly rather than inferred.
  *
- *   full     — everything (the default, and what the demo shows)
- *   empty    — no postings and no applications at all
- *   filtered — postings exist, every one of them gated out by the profile
+ *   full       — everything (the default, and what the demo shows)
+ *   empty      — no postings and no applications at all
+ *   filtered   — postings exist, every one of them gated out by the profile
+ *   onboarding — a real posting universe and NO profile (`criteria = '{}'`):
+ *                somebody who signed in and never finished the wizard
  *
  * Honoured ONLY under HQ_DEMO=1, deliberately narrower than the fixture branch
  * below it: a deployment with its Supabase env missing also falls back to
@@ -38,7 +41,7 @@ const DEMO_COOKIE = "hq_demo_id";
  * cookie.
  */
 const SEED_COOKIE = "hq_demo_seed";
-type SeedName = "full" | "empty" | "filtered";
+type SeedName = "full" | "empty" | "filtered" | "onboarding";
 
 /**
  * Arms `FixtureDataSource.failNextWrite()` for the NEXT write in this demo store.
@@ -61,7 +64,7 @@ const FAIL_COOKIE = "hq_demo_fail";
 function parseSeed(value: string | undefined): SeedName {
   // An unrecognised value falls back to the full set rather than to nothing:
   // a typo should not present as an app with no data in it.
-  return value === "empty" || value === "filtered" ? value : "full";
+  return value === "empty" || value === "filtered" || value === "onboarding" ? value : "full";
 }
 
 function buildStore(seed: SeedName): DataSource {
@@ -82,6 +85,15 @@ function buildStore(seed: SeedName): DataSource {
       FIXTURE_JOBS.filter((j) => j.disposition === "filtered"),
       [],
     );
+  }
+  if (seed === "onboarding") {
+    // Everything the app normally has, minus the one row that decides whether
+    // the wizard is reachable. Without this the never-onboarded state cannot be
+    // produced through the only source the tests can drive — the fixture
+    // profile is complete by construction — and both the redirect and the whole
+    // six-step wizard would ship unexercised. Matrix row 15's lesson, on the
+    // one surface where "unreachable through the app" is the POINT.
+    return new FixtureDataSource(undefined, undefined, undefined, undefined, FIXTURE_PROFILE_NEW);
   }
   return new FixtureDataSource();
 }

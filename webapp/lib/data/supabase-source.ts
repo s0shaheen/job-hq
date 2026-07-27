@@ -36,8 +36,16 @@ import type {
   SuggestionInput,
   TriageInput,
   WriteResult,
+  ProfileView,
+  PreviewProfileInput,
+  PreviewProfileResult,
+  CommitProfileInput,
+  CommitProfileResult,
 } from "./source";
 import { IMPORT_LIST_LIMIT } from "./source";
+import { parseComp } from "@/lib/gating/comp";
+import { clampWindowDays, computePreview, type PreviewPosting } from "@/lib/profile/preview";
+import { isOnboarded, parseCriteria } from "@/lib/profile/criteria";
 import type {
   ApplicationView,
   ChannelHealthView,
@@ -197,55 +205,26 @@ function bool(v: unknown): boolean {
 }
 
 /**
- * comp_range -> [min_k, max_k] in thousands of dollars.
+ * comp_range -> [min_k, max_k] in thousands of dollars, for the grid's two
+ * numeric columns.
  *
- * A port of monitor/comp.py `parse_comp` — the engine's parser is the
- * authority on the feed's formats and this must track it. It exists because
- * nothing in the database carries a parsed band: tags hold only the
- * `comp_range` string, and hardcoding these to null left the two numeric comp
- * columns in every export permanently blank in production while demo showed
- * numbers. Same conservatism as the original: anything that does not parse
- * cleanly is (null, null), never a guess.
+ * The parse itself is `lib/gating/comp.ts` — the port of `monitor/comp.py`,
+ * and per plans/README C7 the ONE comp parser in this app. It used to be
+ * written out a second time here, which is the shape that produces a filter
+ * and a preview quietly disagreeing about which postings clear a floor.
  *
- * One deliberate departure: a band in a non-dollar currency stays null. The
- * export column header says "$k", and £85k written under it as if it were
- * dollars is a lie — monitor/comp.py can afford to be looser because it only
- * judges a floor. The fixture's Wise row (£85,000–£110,000 → null) pins this.
+ * What stays here is one deliberate DEPARTURE from the engine: a band in a
+ * non-dollar currency is null. The export column header says "$k", and £85k
+ * written under it as if it were dollars is a lie — `monitor/comp.py` can
+ * afford to be looser because it only ever judges a floor, and the gate must
+ * keep matching it exactly (the corpus asserts that). The fixture's Wise row
+ * (£85,000–£110,000 → null) pins this half.
  */
-const MONEY = /\$?\s*(\d[\d,]*\.?\d*)\s*([kK])?/g;
-const NON_ANNUAL = /\b(hour|hourly|\/hr|per hour|day|daily|week|weekly|month|monthly)\b/i;
 const NON_DOLLAR = /[£€¥₹]|\b(GBP|EUR|CAD|AUD|CHF|JPY|INR|SGD)\b/;
-const MIN_PLAUSIBLE_K = 10; // below this it isn't an annual salary in $k
-const MAX_PLAUSIBLE_K = 2000; // above this it's a typo or equity, not base
-
-function toK(raw: string, kSuffix: boolean): number | null {
-  const v = Number(raw.replace(/,/g, ""));
-  if (!Number.isFinite(v)) return null;
-  if (kSuffix) return v; // "150k" -> 150
-  if (v >= 1000) return v / 1000; // "150000" -> 150
-  return v; // bare "150" already reads as $150k
-}
 
 function parseCompRange(text: string | null): [number | null, number | null] {
-  const s = (text ?? "").trim();
-  if (!s || NON_ANNUAL.test(s) || NON_DOLLAR.test(s)) return [null, null];
-
-  const vals: number[] = [];
-  for (const m of s.matchAll(MONEY)) {
-    const v = toK(m[1], Boolean(m[2]));
-    if (v !== null && v >= MIN_PLAUSIBLE_K && v <= MAX_PLAUSIBLE_K) vals.push(v);
-  }
-  if (!vals.length) return [null, null];
-
-  const low = s.toLowerCase();
-  if (vals.length === 1) {
-    const v = vals[0];
-    if (low.includes("up to") || /^(max|under|below)/.test(low)) return [null, v]; // ceiling only
-    if (s.includes("+") || low.includes("at least") || low.includes("starting") || low.includes("from"))
-      return [v, null]; // floor only
-    return [v, v]; // a single stated figure
-  }
-  return [Math.min(...vals), Math.max(...vals)];
+  if (text && NON_DOLLAR.test(text)) return [null, null];
+  return parseComp(text);
 }
 
 export function toJobView(up: Record<string, unknown>): JobView | null {
@@ -266,6 +245,7 @@ export function toJobView(up: Record<string, unknown>): JobView | null {
     location: str(p.location),
     metro: str(geo.metro),
     market: str(geo.market),
+    country: str(geo.country),
     remote: bool(geo.remote),
     workModel: str(tags.work_model),
     compRange: str(tags.comp_range),
@@ -278,6 +258,7 @@ export function toJobView(up: Record<string, unknown>): JobView | null {
     skills: skills ? skills.split(";").map((s) => s.trim()).filter(Boolean) : [],
     posted: str(p.posted),
     firstSeen: str(p.first_seen),
+    taggedAt: str(tags.tagged_at),
     status: str(p.status),
     disposition: (String(up.disposition ?? "needs-info") as Disposition),
     dispositionReason: String(up.disposition_reason ?? ""),
@@ -810,6 +791,96 @@ export class SupabaseDataSource implements DataSource {
   }
 
   // ---- saved views ------------------------------------------------------
+
+  // ---- the search profile (P10) -------------------------------------------
+
+  /**
+   * This user's profile row, or the never-onboarded shape when there is none.
+   *
+   * No row exists until the first save — `handle_new_auth_user` writes `users`
+   * only — so "missing" and "criteria = {}" have to mean the same thing here.
+   * They do: both are `criteria: null`, which is what the onboarding redirect
+   * reads. A missing row silently answering BASE_CRITERIA would drop a brand
+   * new user into an empty queue with nothing on screen explaining it.
+   */
+  async profile(): Promise<ProfileView> {
+    const { data, error } = await this.supabase
+      .from("profiles")
+      .select("criteria, notify, updated_at")
+      .eq("user_id", this.userId)
+      .maybeSingle();
+    if (error || !data) return { criteria: null, notify: {}, updatedAt: null };
+    const raw = (data as Record<string, unknown>).criteria;
+    return {
+      criteria: isOnboarded(raw) ? parseCriteria(raw) : null,
+      notify: ((data as Record<string, unknown>).notify ?? {}) as Record<string, unknown>,
+      updatedAt: str((data as Record<string, unknown>).updated_at),
+    };
+  }
+
+  async previewProfile(input: PreviewProfileInput): Promise<PreviewProfileResult> {
+    // Clamped ONCE, and the same number is both sent and reported. The SQL
+    // clamps `p_days` itself, so sending 3,650 was harmless — but the panel was
+    // handed the RAW value and rendered "collected in the last 3650 days" over a
+    // 90-day corpus. A false number, on the one screen whose entire job is a
+    // number somebody can trust.
+    const windowDays = clampWindowDays(input.windowDays);
+    const { data, error } = await this.supabase.rpc("app_preview_corpus", {
+      p_days: windowDays,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    const rows = (data ?? []) as Record<string, unknown>[];
+    const corpus: PreviewPosting[] = rows.map((r) => ({
+      key: String(r.key ?? ""),
+      company: String(r.company ?? ""),
+      title: String(r.title ?? ""),
+      tags: (r.tags ?? {}) as Record<string, unknown>,
+      geo: (r.geo ?? {}) as Record<string, unknown>,
+      lastSeen: str(r.last_seen),
+      status: str(r.status),
+    }));
+    // The SAME function the fixture source calls. Two implementations of the
+    // arithmetic would let the demo state a number production cannot reproduce,
+    // on the one screen whose whole job is stating a trustworthy number.
+    return {
+      ok: true,
+      preview: computePreview(corpus, parseCriteria(input.criteria), {
+        windowDays,
+        now: new Date().toISOString(),
+      }),
+    };
+  }
+
+  async commitProfile(input: CommitProfileInput): Promise<CommitProfileResult> {
+    const { data, error } = await this.supabase.rpc("app_commit_profile", {
+      p_criteria: input.criteria,
+      p_notify: input.notify ?? null,
+      p_regate: input.regate,
+      p_idem: input.idempotencyKey,
+      p_expected_updated_at: input.expectedUpdatedAt,
+    });
+    if (error) {
+      if (/conflict|stale/i.test(error.message)) {
+        return { ok: false, kind: "conflict", current: await this.profile() };
+      }
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const row = (data ?? {}) as Record<string, unknown>;
+    const pr = (row.profile ?? {}) as Record<string, unknown>;
+    const criteria = pr.criteria;
+    return {
+      ok: true,
+      profile: {
+        criteria: isOnboarded(criteria) ? parseCriteria(criteria) : null,
+        notify: (pr.notify ?? {}) as Record<string, unknown>,
+        updatedAt: str(pr.updated_at),
+      },
+      restamped: Number(row.restamped ?? 0),
+      newlyQualifiedKeys: Array.isArray(row.newly_qualified_keys)
+        ? (row.newly_qualified_keys as unknown[]).map(String)
+        : [],
+    };
+  }
 
   async savedViews(surface: string): Promise<SavedView[]> {
     const { data, error } = await this.supabase
