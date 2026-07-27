@@ -91,6 +91,23 @@ jobs:
           echo "::error title=PG snapshot push failed::3 attempts rejected"
           exit 1
 
+      # LAST, and only on the success path: the beat means "the store has a backup as of
+      # now", so it must not be reachable by a run whose dump failed the size gate or whose
+      # push was rejected. Under HQ_PG_WRITES=first_class the digest watches this lane
+      # (tracker.digest.PG_CADENCE_HOURS) and pages when it goes quiet — which is what makes
+      # "pg is load-bearing and its backup died" a thing somebody finds out about before
+      # restore day. A no-op in Phase A.
+      - name: Heartbeat the pg backup lane
+        env:
+          HQ_PG_WRITES: ${{ vars.HQ_PG_WRITES }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          HQ_PG_USER_ID: ${{ secrets.HQ_PG_USER_ID }}
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+          python -m tracker.beat pgdump
+
       - name: Ops alert on failure
         if: failure() || cancelled()
         run: |

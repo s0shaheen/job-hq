@@ -1,4 +1,6 @@
 """Feed -> Postgres mirror transforms (pure; the HTTP layer is core/pg.py)."""
+import pytest
+
 from monitor.pgmirror import mirror_feed, posting_row, user_posting_row
 
 UID = "00000000-0000-0000-0000-000000000001"
@@ -108,3 +110,33 @@ def test_human_edited_status_mirrors_verbatim():
     # whatever it holds (no CHECK constraint on postings.status)
     p = posting_row(_feed_row(status="Promoted"))
     assert p["status"] == "Promoted"
+
+
+# ---- Phase C: the tail step stands down once the sweep owns the write.
+# MUTATION: delete the first_class guard in main() -> this test sees a second
+# full-Feed upsert per sweep, which is the double-write it exists to prevent.
+
+def test_the_tail_step_stands_down_under_first_class(monkeypatch, capsys):
+    import monitor.pgmirror as m
+    from core import pgwrites
+    monkeypatch.setenv(pgwrites.FLAG_ENV, pgwrites.FIRST_CLASS)
+    monkeypatch.setattr(m.pg, "enabled",
+                        lambda: pytest.fail("the tail step still talked to pg"))
+    monkeypatch.setattr(m, "mirror",
+                        lambda *a, **k: pytest.fail("the Feed was mirrored twice"))
+    assert m.main() == 0
+    assert "the sweep mirrors the Feed itself" in capsys.readouterr().err
+
+
+def test_the_tail_step_still_echoes_in_phase_a(monkeypatch):
+    """The control: same entry point, flag unset, mirror still runs."""
+    import monitor.pgmirror as m
+    from core import pgwrites
+    monkeypatch.delenv(pgwrites.FLAG_ENV, raising=False)
+    monkeypatch.setenv(pgwrites.USER_ENV, "u-1")
+    monkeypatch.setattr(m.pg, "enabled", lambda: True)
+    seen = []
+    monkeypatch.setattr(m, "mirror",
+                        lambda hq, uid, session=None: seen.append(uid) or (1, 1, []))
+    monkeypatch.setattr("core.sheets.HQ.open", classmethod(lambda cls: object()))
+    assert m.main() == 0 and seen == ["u-1"]

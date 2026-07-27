@@ -354,3 +354,90 @@ def test_main_unconfigured_gives_actionable_message(monkeypatch, capsys):
     monkeypatch.setattr("core.config.sheet_id", lambda: "")   # nothing pinned anywhere
     assert run_mod.main() == 1
     assert "bootstrap" in capsys.readouterr().err
+
+
+# ---- SHEET-SUNSET Phase C: the mirror becomes the write.
+#
+# MUTATION TARGETS:
+#   * drop the `first_class()` guard in mirror_pg -> the Phase-A test mirrors
+#     when nobody asked, i.e. the flag changes nothing and everything;
+#   * move the mirror_pg call after hq.heartbeat("monitor") -> the failure test
+#     finds a fresh beat for a sweep that did not finish, and the digest's
+#     watchdog is then blind to exactly the outage this flag exists to surface;
+#   * swallow the PgError -> the failure test gets exit 0 and no ops push.
+
+def _main_env(monkeypatch, tmp_path):
+    """The `main()` harness the two Phase-C tests share (see the config-problems
+    test above for the same wiring)."""
+    from core.fakes import fake_hq
+    from core.sheets import HQ
+    import core.notify
+    import monitor.run as run_mod
+
+    hq = fake_hq()
+    monkeypatch.setattr(HQ, "open", classmethod(lambda cls: hq))
+    monkeypatch.setenv("HQ_SHEET_ID", "test-sheet")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(run_mod, "snapshot_path", lambda user="": str(tmp_path / "hq.json"))
+    ops = []
+    monkeypatch.setattr(core.notify, "ops_alert",
+                        lambda title, body, session=None: ops.append((title, body)))
+    monkeypatch.setattr(core.notify, "push", lambda *a, **k: True)
+    return hq, ops
+
+
+def _beat(hq, name="heartbeat_monitor"):
+    return [r for r in hq.tab("config").records() if r["key"] == name]
+
+
+def test_phase_a_sweep_never_writes_the_store(monkeypatch, tmp_path):
+    from core import pgwrites
+    import monitor.pgmirror as pgmirror
+    import monitor.run as run_mod
+
+    hq, _ops = _main_env(monkeypatch, tmp_path)
+    monkeypatch.delenv(pgwrites.FLAG_ENV, raising=False)
+    monkeypatch.setattr(pgmirror, "mirror",
+                        lambda *a, **k: pytest.fail("the sweep mirrored in Phase A"))
+    assert run_mod.main() == 0
+    assert _beat(hq)                       # and the sweep still heartbeats
+
+
+def test_first_class_sweep_mirrors_the_feed_before_it_heartbeats(monkeypatch, tmp_path):
+    from core import pgwrites
+    import monitor.pgmirror as pgmirror
+    import monitor.run as run_mod
+
+    hq, _ops = _main_env(monkeypatch, tmp_path)
+    monkeypatch.setenv(pgwrites.FLAG_ENV, pgwrites.FIRST_CLASS)
+    monkeypatch.setenv(pgwrites.USER_ENV, "11111111-1111-1111-1111-111111111111")
+    monkeypatch.setattr("core.pg.enabled", lambda: True)
+    seen = []
+    monkeypatch.setattr(pgmirror, "mirror", lambda h, uid, session=None:
+                        seen.append((uid, bool(_beat(h)))) or (7, 7, []))
+    assert run_mod.main() == 0
+    # the beat was NOT yet written when the store was mirrored — ordering, asserted
+    # from inside the call rather than inferred from the source
+    assert seen == [("11111111-1111-1111-1111-111111111111", False)]
+    assert _beat(hq)
+
+
+def test_a_store_failure_fails_the_sweep_and_withholds_the_heartbeat(monkeypatch, tmp_path):
+    from core import pg, pgwrites
+    import monitor.pgmirror as pgmirror
+    import monitor.run as run_mod
+
+    hq, ops = _main_env(monkeypatch, tmp_path)
+    monkeypatch.setenv(pgwrites.FLAG_ENV, pgwrites.FIRST_CLASS)
+    monkeypatch.setenv(pgwrites.USER_ENV, "11111111-1111-1111-1111-111111111111")
+    monkeypatch.setattr("core.pg.enabled", lambda: True)
+
+    def boom(*a, **k):
+        raise pg.PgError("upsert postings -> HTTP 503: store down")
+    monkeypatch.setattr(pgmirror, "mirror", boom)
+
+    assert run_mod.main() == 1
+    assert ops and "Monitor run FAILED" in ops[0][0]
+    # The sheet lane is untouched by the abort — it finished before pg was called.
+    assert (tmp_path / "hq.json").exists()
+    assert not _beat(hq), "a sweep that could not write the store must not claim it ran"

@@ -7,8 +7,12 @@ on postings.key / user_postings pk) and safe to run any time. Once the app
 carries daily triage, truth flips and the sheet becomes the export — this
 module is the bridge, not the destination.
 
-Not wired into any cron yet: run manually or via workflow_dispatch once the
-Supabase project exists (db/README.md). Absent SUPABASE_* env -> loud skip.
+Runs as the tail step of the `monitor` job (infra/app/handler.py) during the
+Phase-A soak. Under `HQ_PG_WRITES=first_class` (core/pgwrites.py) the same pass
+is performed by the sweep itself — `monitor.run` calls `mirror()` before its
+heartbeat, so a store failure fails the sweep — and this entry point stands
+down rather than upserting the same Feed a second time. Absent SUPABASE_* env
+-> loud skip.
 """
 from __future__ import annotations
 
@@ -17,7 +21,7 @@ import sys
 import datetime as _dt
 import re
 
-from core import pg, schema
+from core import pg, pgwrites, schema
 
 TAG_FIELDS = ["yoe", "seniority", "company_industry", "role_focus",
               "skills", "comp_range", "work_model", "min_yoe", "tagged_at"]
@@ -130,26 +134,46 @@ def mirror_feed(rows: list[dict], user_id: str, *,
     return n1, n2, dropped
 
 
-def main() -> int:
-    if not pg.enabled():
-        print("::warning title=pgmirror skipped::SUPABASE_URL/SUPABASE_SERVICE_KEY "
-              "unset — v2 store not provisioned yet (db/README.md)")
-        return 0
-    user_id = __import__("os").environ.get("HQ_PG_USER_ID", "")
-    if not user_id:
-        print("[pgmirror] HQ_PG_USER_ID unset — need the owner's users.id "
-              "(select id from users where email=...)", file=sys.stderr)
-        return 1
-    from core.sheets import HQ
-    hq = HQ.open()
+def mirror(hq, user_id: str, *, session=None) -> tuple[int, int, list[str]]:
+    """Read the whole Feed tab and upsert it into postings + user_postings.
+
+    The ONE mirror pass, shared by this module's `main()` (Phase A's tail step)
+    and by `monitor.run` (Phase C's first-class write). Two copies of these six
+    lines would be two lanes that can mirror differently — and the difference
+    would only ever show up as a store that disagrees with the sheet.
+    """
     rows = hq.tab("feed").records()
-    n1, n2, dropped = mirror_feed(rows, user_id)
+    n1, n2, dropped = mirror_feed(rows, user_id, session=session)
     print(f"[pgmirror] postings={n1} user_postings={n2} dropped={len(dropped)} "
           f"from {len(rows)} feed rows", file=sys.stderr)
     if dropped:
         print(f"::warning title=pgmirror dropped rows::{len(dropped)} feed row(s) "
               f"had an unparseable first_seen and are absent from the store: "
               f"{', '.join(dropped[:10])}{'…' if len(dropped) > 10 else ''}")
+    return n1, n2, dropped
+
+
+def main() -> int:
+    # Phase C: the sweep owns this write and has already done it (monitor/run.py,
+    # before its heartbeat). Re-running here would be a second full-Feed upsert
+    # per sweep — harmless, being idempotent, and pure waste. Standing down is
+    # also what keeps the failure attributable: under first_class the sweep is
+    # the thing that must go red, not a tail step that ran afterwards.
+    if pgwrites.mode() == pgwrites.FIRST_CLASS:
+        print(f"[pgmirror] {pgwrites.FLAG_ENV}={pgwrites.FIRST_CLASS} — the sweep "
+              f"mirrors the Feed itself; nothing to echo", file=sys.stderr)
+        return 0
+    if not pg.enabled():
+        print("::warning title=pgmirror skipped::SUPABASE_URL/SUPABASE_SERVICE_KEY "
+              "unset — v2 store not provisioned yet (db/README.md)")
+        return 0
+    user_id = pgwrites.user_id()
+    if not user_id:
+        print(f"[pgmirror] {pgwrites.USER_ENV} unset — need the owner's users.id "
+              "(select id from users where email=...)", file=sys.stderr)
+        return 1
+    from core.sheets import HQ
+    mirror(HQ.open(), user_id)
     return 0
 
 

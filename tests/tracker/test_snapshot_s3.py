@@ -136,3 +136,60 @@ def test_both_lanes_are_watched_by_the_digest():
     for beat in (snapshot.HEARTBEAT_GIT, snapshot.HEARTBEAT_S3):
         assert beat in digest.CADENCE_HOURS, f"{beat} is unwatched by the digest"
         assert beat in digest.BACKUP_BEATS, f"{beat} would print but never page"
+
+
+# ------------------------------------------------- Phase C1: the same beat, in pg
+#
+# MUTATION TARGETS:
+#   * drop the first_class guard in `_beat` -> the Phase-A test writes to a store
+#     nobody enabled;
+#   * write a single hard-coded lane name to pg -> the per-lane test finds the S3
+#     run beating for the git lane, which is the shared-beat bug rebuilt in the
+#     new store;
+#   * make the pg beat best-effort -> the failure test reports a backup that only
+#     looks like it happened, which is the whole reason this file exists.
+
+def _first_class(monkeypatch):
+    from core import pgwrites
+    monkeypatch.setenv(pgwrites.FLAG_ENV, pgwrites.FIRST_CLASS)
+    monkeypatch.setenv(pgwrites.USER_ENV, "00000000-0000-0000-0000-000000000001")
+    monkeypatch.setattr("core.pg.enabled", lambda: True)
+
+
+def test_phase_a_writes_no_pg_beat(monkeypatch, tmp_path):
+    from core import pgwrites
+    monkeypatch.delenv(pgwrites.FLAG_ENV, raising=False)
+    monkeypatch.delenv(snapshot.S3_BUCKET_ENV, raising=False)
+    monkeypatch.setattr("core.pg.insert",
+                        lambda *a, **k: pytest.fail("a pg beat with the flag unset"))
+    snapshot.run(fake_hq(), tmp_path / "snaps")
+
+
+def test_each_lane_beats_for_itself_in_pg_too(monkeypatch, tmp_path, s3):
+    """The shared-beat bug does not get to come back in the new store."""
+    _first_class(monkeypatch)
+    lanes = []
+    monkeypatch.setattr("core.pg.insert",
+                        lambda table, rows, session=None:
+                        lanes.append((table, rows[0]["channel"])))
+
+    monkeypatch.delenv(snapshot.S3_BUCKET_ENV, raising=False)
+    snapshot.run(fake_hq(), tmp_path / "snaps")                # git lane
+    monkeypatch.setenv(snapshot.S3_BUCKET_ENV, "job-hq-backups-123")
+    snapshot.run(fake_hq(), tmp_path / "snaps")                # S3 lane
+    assert lanes == [("channel_runs", snapshot.HEARTBEAT_GIT),
+                     ("channel_runs", snapshot.HEARTBEAT_S3)]
+
+
+def test_a_pg_beat_failure_fails_the_snapshot(monkeypatch, tmp_path):
+    """Same posture as a failed S3 upload: a backup that silently did not record
+    itself is worse than no backup, because it looks like one."""
+    from core import pg
+    _first_class(monkeypatch)
+    monkeypatch.delenv(snapshot.S3_BUCKET_ENV, raising=False)
+
+    def boom(*a, **k):
+        raise pg.PgError("insert channel_runs -> HTTP 503")
+    monkeypatch.setattr("core.pg.insert", boom)
+    with pytest.raises(pg.PgError):
+        snapshot.run(fake_hq(), tmp_path / "snaps")

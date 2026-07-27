@@ -336,22 +336,77 @@ workflow is the one that *commits* (schema re-assert + tab CSVs + re-pinned gids
 **Run a bot** with `job = selfheal`, which re-asserts the schema but only commits `hq.config.yaml`
 if a gid actually moved.
 
-## PG snapshot (deleted, resurrectable)
+## PG snapshot (present, gated off)
 
-`pgdump.yml` no longer exists. It was gated off behind the `PGDUMP_ENABLED` repo variable with no
-live Supabase behind it — a workflow that dumped nothing every night — so it came out on
-2026-07-25 with the rest of the migration scaffolding. Nothing alerts on it, and no heartbeat
-watches it.
+`pgdump.yml` was deleted on 2026-07-25 with the rest of the migration scaffolding and
+**resurrected in #72** (Phase A). This section said "deleted" until 2026-07-27; it was wrong, and
+the file has been in the tree the whole time.
 
-**If you get an old "PG snapshot failed" push:** it is history; there is no workflow to re-run.
+It runs nightly at `53 9 * * *` (~04:53 CT) **only when the `PGDUMP_ENABLED` repo variable is
+`true`**, dumps `--schema=public` to `snapshots/pg/hq.sql.gz`, gates on a plausibility size check
+plus `gzip -t`, commits, and — since Phase C1 — stamps the `pgdump` pg heartbeat as its last step
+(`python -m tracker.beat pgdump`, after the commit, so a failed dump cannot vouch for itself).
 
-**When a live database exists:** `git log --diff-filter=D -- .github/workflows/pgdump.yml` finds
-the deleting commit and `git show <sha>^:.github/workflows/pgdump.yml` prints the file. It was the
-best-written of the deleted workflows (pinned `postgresql-client-17`, `set -euo pipefail`, a
-size-plausibility gate, `gzip -t`, and a push loop that fails loud instead of swallowing a
-rejection) — restore it as-is, keep the `PGDUMP_ENABLED` gate, and re-add a `pgdump_cron()` parser
-to `scripts/sysmap.py` so the backup-lanes table states its cadence again. Context:
-`db/README.md` § Backups.
+**It needs `PGDUMP_ENABLED=true` before `HQ_PG_WRITES=first_class` goes to SSM.** Under
+first_class the store is what the system depends on, and the digest pages **HQ backups stale**
+naming `pgdump (pg)` for as long as the lane has never beaten. That page is the point: pg
+load-bearing with no backup is the sheet's 2026-07-24 outage waiting to happen in the substrate
+that replaced it.
+
+**Secrets it needs:** `SUPABASE_DB_URL` (the dump), plus `SUPABASE_URL` /
+`SUPABASE_SERVICE_KEY` / `HQ_PG_USER_ID` and the `HQ_PG_WRITES` variable (the heartbeat step —
+without them the beat step is a silent no-op and the lane reads dead).
+
+## The store lane (`HQ_PG_WRITES`)
+
+The engine's Postgres writes are one operator-owned switch, in SSM as `/job-hq/HQ_PG_WRITES` and
+as the `HQ_PG_WRITES` repo **variable** for the two Actions lanes (`selfheal.yml`'s snapshot step,
+`pgdump.yml`'s beat step). It is not a Config-tab knob: the blast radius is "which store is
+authoritative", not a per-user preference.
+
+| Value | What the engine does |
+|---|---|
+| unset (default) | Phase A. The sheet is the system of record; `monitor.pgmirror` echoes the Feed as the monitor job's tail step; `join` writes the sheet only; heartbeats live in Config alone. A pg failure fails that tail step and nothing else. |
+| `first_class` | Phase C. The sweep writes `postings`/`user_postings` itself and **fails** if it can't; `join` applies every email-event match to `applications` through the 0010 status lock; snapshot/digest beat in both stores and the digest watches both. The sheet is still written — dual-write runs until Phase D. |
+
+Any other value **raises** on every bot. That is deliberate: `HQ_PG_WRITES=firstclass` quietly
+running Phase A while everyone believes Phase C is live is the exact silent divergence the phase
+exists to end.
+
+### Before you set it to `first_class`
+
+1. A real Supabase project exists and `db/apply.sh` has applied 0001–00NN (`db/README.md`).
+2. `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `HQ_PG_USER_ID` are in SSM **and** in the repo secrets
+   (the two Actions lanes above need them too).
+3. **`PGDUMP_ENABLED=true`** — see the section above. pg must have a watched backup first.
+4. Run the universe seed and the pipeline seed, in that order, and read their summaries:
+   `aws lambda invoke --function-name job-hq-bots --payload '{"job":"seed_universe"}' /dev/stdout`
+   then the same with `{"job":"seed_pipeline"}` (or **Run a bot** → `seed_pipeline`).
+   `seed_pipeline` NAMES the Pipeline rows it could not seed — rows whose key matches no mirrored
+   posting. Those have no pg twin and will stay that way; that is expected for pre-Feed rows and
+   for the weak `norm-` keys the fuzzy matcher mints.
+5. Only then set the flag. Rollback is setting it back to `mirror` (or deleting it) — nothing
+   written under first_class has to be undone, because the sheet was written too.
+
+### "HQ store lane skipped N event(s)"
+
+A `::warning` from `tracker.join`: the sheet applied those emails and pg had no row to apply them
+to. Each one is recorded pg-side, so the residue is queryable:
+
+```sql
+select payload->>'reason', payload->>'posting_key', payload->>'event_id', occurred_at
+  from public.events
+ where kind = 'email.unapplied' and user_id = '<HQ_PG_USER_ID>'
+ order by occurred_at desc;
+```
+
+`no_application` means the seed has not been run (or has not been re-run since these applications
+appeared) — run `seed_pipeline`. `no_posting` means the jobkey names nothing in `postings`: either
+the sweep has not mirrored it yet (it will resolve itself) or the key is a weak `norm-` one that
+never can (nothing to do; the sheet remains its only record).
+
+The number not shrinking between runs is the signal. Nobody is paged for it — the sheet applied
+the event, so nothing is lost — but a number that only grows means the two stores are drifting.
 
 ## Resume pipeline failed
 

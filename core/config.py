@@ -235,3 +235,22 @@ def sheet_id(user: str | None = None) -> str:
     if not (_registry_doc().get("users") or {}):
         return os.environ.get("HQ_SHEET_ID") or registry().get("sheet_id", "")
     return registry(user).get("sheet_id", "")
+
+
+def pg_user_id(user: str | None = None) -> str:
+    """Whose `users.id` the engine writes in Postgres — `sheet_id`'s rule, verbatim.
+
+    `HQ_PG_USER_ID` is one flat SSM parameter, and SSM has no per-user layer that
+    `infra/app/handler.py` can remap (its loader flattens `/job-hq/**` by basename,
+    so a nested per-user copy would collide on the same name and resolve
+    arbitrarily). So the moment a `users:` map exists the env var is exactly the
+    hazard `sheet_id`'s comment describes, one store over: every matrix leg
+    mirroring into ONE person's `user_postings`, advancing ONE person's
+    `applications`, beating into ONE person's `channel_runs`. Registry wins there,
+    and `core.pgwrites.first_class` refuses rather than falling through to whatever
+    uuid the environment happened to inherit.
+    """
+    if not (_registry_doc().get("users") or {}):
+        return os.environ.get("HQ_PG_USER_ID", "").strip() or str(
+            registry().get("pg_user_id", "") or "").strip()
+    return str(registry(user).get("pg_user_id", "") or "").strip()

@@ -34,6 +34,7 @@ on:
           - selfheal
           - snapshot
           - seed_universe
+          - seed_pipeline
           - simplify
           - wide_cafe
           - wide_theirstack

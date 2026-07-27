@@ -49,6 +49,11 @@ JOBS: dict[str, list[tuple[str, list[str]]]] = {
     # One-time (idempotent) sheet->pg universe seed; dispatchable, never scheduled
     # (SHEET-SUNSET Phase A/B bridge — needs SUPABASE_* + HQ_PG_USER_ID).
     "seed_universe":   [("monitor.seed_universe", [])],
+    # Its Phase-C twin: the sheet's Pipeline -> pg `applications`. Also dispatchable
+    # and also idempotent, and it is the DRAIN for events the store had no row to
+    # apply to (`email.unapplied`). Run it once before HQ_PG_WRITES=first_class goes
+    # to SSM, and again any time that residue stops shrinking.
+    "seed_pipeline":   [("tracker.pgseed", [])],
     "wide_cafe":       [("monitor.wide", ["--source", "cafe"])],
     "wide_theirstack": [("monitor.wide", ["--source", "theirstack"])],
 }
@@ -82,9 +87,19 @@ def _select_user(user: str) -> None:
     sheet id to user B: the HQ_USER env var, and core.config's lru_cached registry lookups
     (_registry_doc + the per-user registry() slots). Both are reset every time, including the
     unset for a user-less event, so a stale user can never leak forward.
+
+    HQ_PG_USER_ID is dropped for a NAMED user, which is the same rule one store over. It is a
+    single flat SSM parameter (the loader above flattens /job-hq/** by basename, so a nested
+    per-user copy would collide on that name and resolve arbitrarily), and pg's equivalent of
+    "user A's sheet id" is a uuid deciding whose `user_postings`, `applications` and
+    `channel_runs` get written. Popped rather than remapped because there is nothing here to
+    remap it FROM: `core.config.pg_user_id` reads the per-user registry block, and
+    `core.pgwrites.first_class` refuses when that block has no id. Leaving it in place is what
+    would let dad's sweep mirror into salman's store — silently, looking exactly like success.
     """
     if user:
         os.environ["HQ_USER"] = user
+        os.environ.pop("HQ_PG_USER_ID", None)
     else:
         os.environ.pop("HQ_USER", None)
     try:

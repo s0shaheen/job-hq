@@ -10,6 +10,12 @@ lands in suggested_status, which is bot-owned and safe to overwrite.
 
 Runs LAST in the tracker workflow (promote -> quickadd -> scout -> stale ->
 join), so its heartbeat("tracker") vouches for the whole chain.
+
+SHEET-SUNSET Phase C1: under `HQ_PG_WRITES=first_class` every match is ALSO
+applied to `applications` in Postgres, through 0015's `hq_apply_email_event` —
+one locked step that owns the same two rules this module obeys in the sheet
+(forward-only, humans win). The sheet writes are unchanged; the store is a
+second lane, not a replacement, until Phase D.
 """
 from __future__ import annotations
 
@@ -18,11 +24,17 @@ import difflib
 import re
 import sys
 
-from core import jobkeys, schema
+from core import jobkeys, pgwrites, schema
 from core.sheets import HQ, RowNotFound, today
 
 NEEDS_REVIEW = "NEEDS_REVIEW"
 TITLE_RATIO = 0.6
+
+#: 0015. Named here rather than inlined so `tests/core/test_migrations.py` can
+#: prove the function exists with these parameters — a typo in an RPC name is a
+#: 404 at 02:31 and nothing else (the same guard `monitor.discover_universe`
+#: earned the hard way).
+PG_APPLY_FN = "hq_apply_email_event"
 
 
 def _norm_company(s: str) -> str:
@@ -122,12 +134,14 @@ def _apply_rules(hq: HQ, pipeline, key: str, ev: dict) -> str:
     return f"suggested:{status}"
 
 
-def _create_row(hq: HQ, pipeline, key: str, ev: dict) -> None:
-    """A confirmed application we never tracked: strong key + 'received'.
-    Below the confidence gate the status stays a suggestion even at birth."""
-    status, _hard = schema.EVENT_STATUS_RULES["received"]
-    rec = {
-        "key": key,
+def _birth_fields(ev: dict) -> dict:
+    """The columns a Gmail-born application is created with — in BOTH stores.
+
+    Extracted so `_create_row` (the sheet) and `_pg_apply`'s create payload (the
+    store) cannot describe the same application differently. Two hand-kept copies
+    of this dict is how the two lanes end up disagreeing about who applied and
+    when, which is the divergence dual-write exists to make impossible."""
+    return {
         "company": ev.get("company", ""),
         "title": ev.get("title", ""),
         "url": ev.get("job_url", ""),
@@ -135,6 +149,35 @@ def _create_row(hq: HQ, pipeline, key: str, ev: dict) -> None:
         "applied_date": _date_part(ev.get("received_at", "")),
         "applied_via": "scout" if (ev.get("account") or "").strip() == "alt" else "self",
         "applied_email": ev.get("account", ""),
+    }
+
+
+def _birth_from(sheet_row: dict | None, ev: dict) -> dict:
+    """The store's copy of an application's birth certificate.
+
+    The SHEET's row wins every field it has a value for, and the event fills the
+    blanks. It is the same "bots fill blanks; humans win" rule the sheet lane obeys,
+    pointed at the other store — and it matters most for `applied_date`, which on
+    the event is the date THIS email arrived. Born from a rejection notice, an
+    event-only row would claim the application was submitted the day it was
+    rejected.
+    """
+    out = _birth_fields(ev)
+    for col in ("company", "title", "url", "source",
+                "applied_date", "applied_via", "applied_email"):
+        v = str((sheet_row or {}).get(col) or "").strip()
+        if v:
+            out[col] = v
+    return out
+
+
+def _create_row(hq: HQ, pipeline, key: str, ev: dict) -> None:
+    """A confirmed application we never tracked: strong key + 'received'.
+    Below the confidence gate the status stays a suggestion even at birth."""
+    status, _hard = schema.EVENT_STATUS_RULES["received"]
+    rec = {
+        "key": key,
+        **_birth_fields(ev),
         "evidence": ev.get("thread_link", ""),
         "last_activity": today(),
     }
@@ -165,14 +208,130 @@ def _match_event(hq: HQ, pipeline, ev: dict) -> tuple[str, str]:
     return NEEDS_REVIEW, NEEDS_REVIEW
 
 
+#: Outcomes that mean "the store had nothing to apply this to". Not failures — a
+#: posting the sweep has not mirrored, or an application pg does not have yet — but
+#: not successes either, and the difference is the only signal that the two stores
+#: are drifting. Drained by `tracker.pgseed`; recorded on the pg side as an
+#: `email.unapplied` event (0015) because the sheet retires the event either way.
+PG_NOTHING_TO_APPLY = ("no_posting", "no_application")
+
+#: Outcomes that mean the store applied the event.
+PG_APPLIED = ("advanced", "kept", "locked", "suggested", "matched")
+
+#: Every outcome 0015 can return. Pinned against the SQL by
+#: `tests/core/test_migrations.py`, and an outcome outside it RAISES rather than
+#: being counted: a future migration adding one would otherwise have it silently
+#: tallied as an applied event, which is the one number telling the operator
+#: whether the lanes agree.
+PG_OUTCOMES = PG_NOTHING_TO_APPLY + PG_APPLIED
+
+
+def _pg_apply(ev: dict, matched_key: str, sheet_row: dict, *, session=None) -> dict:
+    """Apply one matched event to `applications` through 0015's locked step.
+
+    The engine classifies (which status, and does the confidence clear the gate —
+    `core/schema.py` owns both, and the sheet lane above reads the same table);
+    the SQL function decides and writes (forward-only, humans win, idempotent on
+    the event id). Nothing about the lock is re-implemented here, because a copy
+    of it here would be a copy that disagrees with the trigger the day one of
+    them is edited.
+
+    Keyed on `matched_key`, not on the event's URL: the fuzzy branch of the
+    ladder resolves to a Pipeline row's own jobkey, which is the same
+    `{ats}-{native_id}` the sweep mirrored into `postings`. A weak `norm-` key
+    names no posting and comes back `no_posting`, which is the honest answer.
+
+    `sheet_row` is the Pipeline row the sheet lane just decided against, and its
+    `status`/`status_actor` go over as `p_current_*`. Without them the store
+    decides against a twin that nothing keeps current: pg's `status_actor` is
+    written only by the web app's `app_set_status`, so during dual-write — when
+    the human's editing surface IS the spreadsheet — a person who types Offer into
+    the Pipeline tab claims the sheet row and claims nothing in pg. The measured
+    result was `join` recording a suggestion in the sheet while the SAME event
+    advanced pg to Rejected: 0010's defect, rebuilt in the store that replaces it.
+    """
+    from core import pg
+    etype = (ev.get("event_type") or "").strip()
+    status, hard = schema.EVENT_STATUS_RULES.get(etype, (None, False))
+    # ANY event kind, not just 'received'. Reaching here at all means the sheet
+    # lane matched or created a Pipeline row for this key, and THAT is the evidence
+    # the application exists — an OA invite for something the sheet has been
+    # tracking for a month is exactly as good a witness as the confirmation email
+    # that arrived before the flag was ever set. Gating on 'received' meant a store
+    # row could only ever be born from the one email each application receives
+    # once, which for every pre-existing application was consumed years ago; the
+    # docstring claiming this "fills the gap without a backfill script" was simply
+    # false, and the gap stayed open. (The real drain is still `tracker.pgseed`;
+    # this is what keeps the hole from reopening between seed runs.)
+    #
+    # `is_strong` remains the gate, because a weak `norm-` key names no posting and
+    # `applications.posting_key` is a foreign key — there is nothing to create
+    # against, and a guessed row is worse than none.
+    create = _birth_from(sheet_row, ev) if jobkeys.is_strong(matched_key) else None
+    return pg.rpc(PG_APPLY_FN, {
+        "p_user_id": pgwrites.user_id(),
+        "p_posting_key": matched_key,
+        "p_event_id": ev.get("event_id", ""),
+        "p_event_type": etype,
+        "p_status": status or "",
+        "p_hard": bool(hard and _confidence(ev.get("confidence"))
+                       >= schema.HARD_WRITE_MIN_CONFIDENCE),
+        "p_evidence": ev.get("thread_link", ""),
+        "p_activity_on": today(),
+        "p_create": create,
+        # The sheet's own answer to "what is this row, and does a human own it".
+        # A row the sheet has never seen sends nulls, which the function reads as
+        # "no second store" — the honest statement, and the only one available.
+        "p_current_status": (sheet_row or {}).get("status") if sheet_row else None,
+        "p_current_actor": (sheet_row or {}).get("status_actor") if sheet_row else None,
+    }, session=session)
+
+
 def run(hq: HQ) -> dict:
     events = hq.tab("email_events")
     pipeline = hq.tab("pipeline")
-    counts = {"matched": 0, "created": 0, "needs_review": 0}
+    counts = {"matched": 0, "created": 0, "needs_review": 0, "pg": 0, "pg_skipped": 0}
+    to_pg = pgwrites.first_class()
+    # ONE snapshot of the Pipeline, taken before any event is applied, used only by
+    # the store lane. It is the sheet's status/actor as the sheet lane will decide
+    # against them, which is the whole point.
+    #
+    # Staleness WITHIN a run is safe, and is why this is a snapshot rather than a
+    # re-read per event: a second event touching the same key sees a sheet status
+    # one event out of date, while the store's own row has already moved — and
+    # `greatest(pg, sheet)` inside the function still answers with the furthest
+    # either store has got. A re-read per event would also cost a full-tab Sheets
+    # call per event, on a loop that already has to watch its quota.
+    sheet_rows = {r["key"]: r for r in pipeline.records()
+                  if (r.get("key") or "").strip()} if to_pg else {}
     pending = [r for r in events.records()
                if (r.get("event_id") or "").strip() and not (r.get("matched_key") or "").strip()]
     for ev in pending:
         matched_key, applied = _match_event(hq, pipeline, ev)
+        # ORDER: sheet row, then store, then the `matched_key` stamp — and the
+        # stamp LAST is the load-bearing part. That cell is what makes an event
+        # non-pending, so stamping before the store write would let one PgError
+        # retire the event from the sheet's queue and drop it from pg forever.
+        # Stamping last means a store failure replays the whole event next run:
+        # the sheet write is re-entrant (a second 'Applied' is rank-kept, and a
+        # created row is found by the index rather than duplicated) and the pg
+        # write is idempotent on the event id.
+        if to_pg and matched_key != NEEDS_REVIEW:
+            res = _pg_apply(ev, matched_key, sheet_rows.get(matched_key)) or {}
+            outcome = str(res.get("outcome", ""))
+            if outcome not in PG_OUTCOMES:
+                raise RuntimeError(
+                    f"{PG_APPLY_FN} returned an outcome this version does not "
+                    f"understand: {outcome!r} (known: {sorted(PG_OUTCOMES)}). Refusing "
+                    f"to count it — an unrecognised answer is not a successful write")
+            if outcome in PG_NOTHING_TO_APPLY:
+                counts["pg_skipped"] += 1
+                hq.log("join", f"pg_{outcome}", matched_key, ev.get("event_id", ""))
+                print(f"[join] pg {outcome} for {matched_key} "
+                      f"(event {ev.get('event_id', '')}) — sheet applied, store skipped",
+                      file=sys.stderr)
+            else:
+                counts["pg"] += 1
         events.set_by_key(ev["event_id"],
                           {"matched_key": matched_key, "applied_status": applied},
                           key_header="event_id")
@@ -183,6 +342,15 @@ def run(hq: HQ) -> dict:
             counts["created"] += 1
         else:
             counts["matched"] += 1
+    if counts["pg_skipped"]:
+        # The residue, said out loud. Each one is recorded pg-side as an
+        # `email.unapplied` event (0015) and the sheet has retired the email, so
+        # without this line the only trace is a counter nobody reads. A number that
+        # does not shrink between runs means the seed has not been run — or that
+        # these keys name postings the sweep will never mirror.
+        print(f"::warning title=HQ store lane skipped {counts['pg_skipped']} event(s)::"
+              f"the sheet applied them and pg had no row to apply them to. Drain with "
+              f"`python -m tracker.pgseed` (docs/RUNBOOK.md § The store lane)")
     return counts
 
 
@@ -241,13 +409,34 @@ def main() -> int:
     from core import notify
     try:
         hq = HQ.open()
-        counts = run(hq)
-        capture = check_capture_liveness(hq)
-        hq.heartbeat("tracker")   # join runs last: this vouches for the whole chain
     except Exception as e:
         print(f"[join] FAILED:\n{traceback.format_exc()}", file=sys.stderr)
         notify.ops_alert("tracker/join failed", str(e)[:300])
         return 1
+
+    counts, failure = {}, None
+    try:
+        counts = run(hq)
+    except Exception as e:                       # includes a store outage
+        failure = e
+        print(f"[join] FAILED:\n{traceback.format_exc()}", file=sys.stderr)
+
+    # The Gmail tripwire runs WHATEVER run() did. It is one of the two copies of
+    # the "capture has gone silent" watchdog (the other is the daily digest's), it
+    # is about the SHEET, and it was working — but a PgError inside run() used to
+    # skip it entirely, so one store outage blinded both copies at once. Nothing
+    # here depends on the store.
+    try:
+        capture = check_capture_liveness(hq)
+    except Exception as e:                       # a broken tripwire must not hide the real failure
+        capture = f"unchecked ({type(e).__name__})"
+        print(f"[join] capture liveness check failed: {e!r}", file=sys.stderr)
+
+    if failure is not None:
+        notify.ops_alert("tracker/join failed", str(failure)[:300])
+        return 1
+    # The chain's heartbeat means the chain finished. Only on the success path.
+    hq.heartbeat("tracker")   # join runs last: this vouches for the whole chain
     print(f"[join] {counts} capture={capture}")
     return 0
 

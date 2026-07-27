@@ -20,7 +20,7 @@ from datetime import date
 
 import requests
 
-from core import notify, outbox as core_outbox
+from core import notify, outbox as core_outbox, pgwrites
 from core.profile import Profile
 from monitor import companysource, gates, geo, jobcontent, snapshot, tagging, tagworker
 from monitor.config import RuntimeConfig, get_runtime_config, unconfigured_reason
@@ -350,6 +350,36 @@ def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
     return summary
 
 
+def mirror_pg(hq, *, session=None) -> str:
+    """Phase C's promotion: the store is written BY the sweep, not after it.
+
+    Returns a one-word status for the run log ('skipped' in Phase A). Raises on
+    any store failure, which is the entire point of the flag — see
+    `core/pgwrites.py`.
+
+    WRITE ORDER, and why it is sheet-lane-first-then-pg rather than interleaved:
+
+    the sheet lane has no transaction and flushes every FETCH_CHUNK boards, so a
+    pg write placed inside that loop turns a store outage into a Feed that is
+    mirrored for the first N chunks and not the rest, with nothing recording
+    where the boundary fell. Run last, over the FINISHED Feed, the failure is
+    atomic in the only sense available here: the sheet is complete and correct,
+    the store is untouched-or-stale, and the NEXT sweep replays the whole Feed
+    through the same idempotent upsert and converges. The sheet lane is also the
+    one a human is reading this morning; it must never be the lane a pg outage
+    leaves half written.
+
+    Placed before `hq.heartbeat("monitor")` for the same reason: under
+    first_class a sweep that could not write the store did not finish, and the
+    beat is what the digest's watchdog reads to say so.
+    """
+    if not pgwrites.first_class():
+        return "skipped"
+    from monitor import pgmirror
+    n1, n2, _dropped = pgmirror.mirror(hq, pgwrites.user_id(), session=session)
+    return f"postings={n1} user_postings={n2}"
+
+
 def main() -> int:
     import traceback
 
@@ -386,6 +416,10 @@ def main() -> int:
                   f"rest resumes next run")
         snapshot.write_snapshot(snapshot_path(hq.user), hq.user or "hq",
                                 store.read_history())
+        # SHEET-SUNSET Phase C. Sheet lane complete (flushed, snapshotted) before
+        # the store is touched, and the store before the heartbeat: see mirror_pg.
+        pg_status = mirror_pg(hq, session=session)
+        print(f"[monitor] pg={pg_status}", file=sys.stderr)
         hq.heartbeat("monitor")
         return 0
     except Exception as e:   # whole-run failure: real cause to the log, ping ops

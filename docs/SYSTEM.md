@@ -168,7 +168,7 @@ be overwritten on the next run, and CI would flag the mismatch first.
 <!-- sysmap:begin big-picture -->
 ```mermaid
 flowchart LR
-    EB["EventBridge Scheduler<br/>7 schedules"] --> LAM["Lambda job-hq-bots<br/>one image · 10 jobs"]
+    EB["EventBridge Scheduler<br/>7 schedules"] --> LAM["Lambda job-hq-bots<br/>one image · 11 jobs"]
     SSM["SSM /job-hq/* SecureStrings"] --> LAM
     LAM --> SHEET["Google Sheet<br/>Job Search HQ"]
     LAM --> S3["S3 backups bucket<br/>$HQ_BACKUP_S3_BUCKET"]
@@ -199,6 +199,7 @@ One Lambda function (`job-hq-bots`, one container image) runs every job; EventBr
 | `snapshot` | `cron(53 8 * * ? *)` | 03:53 | `tracker.snapshot` | daily 08:53 UTC  (tracker.snapshot -> S3) |
 | `wide_cafe` | `cron(30 13 * * ? *)` | 08:30 | `monitor.wide --source cafe` | daily 13:30 UTC  (wide --source cafe) |
 | `wide_theirstack` | `cron(50 13 * * ? *)` | 08:50 | `monitor.wide --source theirstack` | daily 13:50 UTC  (wide --source theirstack) |
+| `seed_pipeline` | — | *unscheduled — dispatch by hand* | `tracker.pgseed` | — |
 | `seed_universe` | — | *unscheduled — dispatch by hand* | `monitor.seed_universe` | — |
 | `selfheal` | — | *unscheduled — dispatch by hand* | `tracker.selfheal` | — |
 | `simplify` | — | *unscheduled — dispatch by hand* | `tracker.simplify` → `tracker.migrate --simplify-csv` | — |
@@ -236,9 +237,9 @@ aws lambda invoke --function-name job-hq-bots \
 | CSV → S3 (Lambda) | the same tab CSVs | `s3://$HQ_BACKUP_S3_BUCKET/snapshots/<user>/<tab>.csv` (versioned bucket) | `cron(53 8 * * ? *)` (~03:53 CT) | `heartbeat_snapshot_s3` | a failed upload **raises**, so `handler.py` names the job in an ops push; staleness pages from the digest |
 | Schema + gid re-pin (Actions) | re-asserted headers/dropdowns/protections and the re-pinned `hq.config.yaml` | a git commit on `main` | `23 8 * * *` (~03:23 CT) | `heartbeat_selfheal` | same as the git CSV lane |
 | Feed JSON (best effort) | `monitor.run`'s feed history | `monitor/snapshots/*.json` in git on a **Run a bot** dispatch; `feeds/<label>.json` in S3 when the FS is read-only | with each sweep | none | prints a warning and never fails a completed sweep — the CSV lanes are the Feed tab's real backup |
-| PG dump | `pg_dump` of the Supabase mirror | `snapshots/pg/` + commit | **none — deleted** | none | nothing runs and nothing watches it: `pgdump.yml` was gated OFF with no database behind it, so it went with the migration scaffolding. Resurrectable from git history when a live Supabase exists |
+| PG dump | `pg_dump --schema=public` of the Supabase store | `snapshots/pg/hq.sql.gz` + commit | `pgdump.yml`, nightly — but the job is gated on the `PGDUMP_ENABLED` repo variable, so it runs only once that is `true` | pg lane `pgdump` in `channel_runs` (written by `python -m tracker.beat pgdump` as the job's last step) | the digest pages **HQ backups stale** naming `pgdump (pg)` — including while the lane has never run, which is what makes “pg is load-bearing and has no backup” visible the morning after `HQ_PG_WRITES=first_class` is set |
 
-The git and S3 CSV lanes are deliberately independent copies on independent schedulers, each with its **own** heartbeat: one shared beat would let the nightly Actions run keep it fresh while the S3 copy had been dead for a week. Restore procedure (both lanes plus Sheets' own version history): `docs/RUNBOOK.md` § Restoring the sheet.
+The git and S3 CSV lanes are deliberately independent copies on independent schedulers, each with its **own** heartbeat: one shared beat would let the nightly Actions run keep it fresh while the S3 copy had been dead for a week. The PG dump lane is the same doctrine for the store the sheet is being replaced by. Restore procedure (the CSV lanes plus Sheets' own version history): `docs/RUNBOOK.md` § Restoring the sheet.
 <!-- sysmap:end backup-lanes -->
 
 ## The heartbeat watchdog
@@ -258,7 +259,16 @@ The git and S3 CSV lanes are deliberately independent copies on independent sche
 | `heartbeat_snapshot_s3` | 24 h | 48 h | **pages** — “HQ backups stale”, naming the lane |
 | `heartbeat_capture` | 1.5 h | 3 h | **pages** — Gmail capture silent for 3 h |
 
-Backup beats watched as a set: `selfheal`, `snapshot`, `snapshot_s3`. A beat that was never written reads “no heartbeat yet” and pages the same way — a lane that has never run is not a lane that is fine.
+Backup beats watched as a set: `selfheal`, `snapshot`, `snapshot_s3`, `pgdump`. A beat that was never written reads “no heartbeat yet” and pages the same way — a lane that has never run is not a lane that is fine.
+
+**The store's own beats** (`HQ_PG_WRITES=first_class` only). The same lanes stamp a row in `channel_runs`, and the digest holds each store to the cadence SEPARATELY — neither may vouch for the other, so a lane alive in the sheet and dead in pg pages, and the reverse pages too. With the flag unset this table is not read at all.
+
+| pg lane | Expected every | Written by | Pages? |
+|---|---|---|---|
+| `snapshot` | 24 h | `tracker.snapshot` (git mode, `selfheal.yml`) | **pages** — “HQ backups stale”, naming the lane and the store |
+| `snapshot_s3` | 24 h | `tracker.snapshot` (S3 mode, the `snapshot` Lambda job) | **pages** — “HQ backups stale”, naming the lane and the store |
+| `digest` | 24 h | `tracker.digest`, after the briefing is composed and sent | briefing line only |
+| `pgdump` | 24 h | `python -m tracker.beat pgdump`, last step of `pgdump.yml` | **pages** — “HQ backups stale”, naming the lane and the store |
 <!-- sysmap:end watchdogs -->
 
 ## Alerting topology

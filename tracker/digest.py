@@ -14,12 +14,17 @@ The backup heartbeats page the same way — one beat per lane (`snapshot` = the
 git/Actions CSV copy, `snapshot_s3` = the S3/Lambda copy, `selfheal` = the schema
 re-assert + commit), because a dead backup is the one failure you discover on the
 day you need it, and printing it in a briefing nobody re-reads is not enough.
+
+SHEET-SUNSET Phase C1: under `HQ_PG_WRITES=first_class` the beats live in TWO
+stores (Config rows and `channel_runs`, per core/beats.py) and the watchdog holds
+each store to the cadence separately. Neither may vouch for the other — see
+`_sec_health`.
 """
 from __future__ import annotations
 
 import datetime as _dt
 
-from core import config, notify, outbox
+from core import beats, config, notify, outbox, pgwrites
 from core.profile import Profile
 from core.sheets import HQ, RowNotFound
 
@@ -40,6 +45,28 @@ CADENCE_HOURS = {
     "selfheal": 24, "snapshot": 24, "snapshot_s3": 24, "capture": 1.5,
 }
 CAPTURE_ALERT_HOURS = 3
+
+#: The pg store's own cadence table — deliberately NOT a slice of CADENCE_HOURS.
+#:
+#: The two stores hold different lanes. `pgdump` has no sheet beat at all (its product is a
+#: pg dump, and nothing writes a Config row for it), while `monitor`, `tracker` and `capture`
+#: have no pg beat: their writers are jobs that would have to be taught one, and a watchdog
+#: that demanded a beat nobody writes pages every morning about a job that is running fine.
+#: That is not hypothetical — it is exactly what this branch shipped for `snapshot`, whose
+#: Actions lane had no pg credentials (fixed in selfheal.yml alongside this table).
+#:
+#: Pinned equal to `core.beats.LANES` by tests/tracker/test_digest.py: a lane may not write a
+#: beat nobody watches, and the watchdog may not expect a beat nobody writes. Both directions,
+#: because each one alone has already been shipped broken.
+PG_CADENCE_HOURS = {
+    "snapshot": 24, "snapshot_s3": 24, "digest": 24,
+    # The store's backup. `pgdump.yml` is gated on the PGDUMP_ENABLED repo variable, so
+    # until that is turned on this lane reads "no heartbeat yet" — under `first_class`,
+    # and only under it. That page is CORRECT: it says pg is the store whose success counts
+    # and it has no backup, which is the precondition SHEET-SUNSET puts in Phase A. It is
+    # silent for every Phase-A run, because pg beats are not read at all with the flag unset.
+    "pgdump": 24,
+}
 # The three heartbeats that mean "the sheet is backed up somewhere": selfheal re-asserts
 # the schema and commits from Actions, `snapshot` is the git/Actions CSV copy, and
 # `snapshot_s3` is the S3/Lambda CSV copy (tracker.snapshot picks its beat by mode —
@@ -47,7 +74,10 @@ CAPTURE_ALERT_HOURS = 3
 # module writing one beat from both schedulers would let the Actions run refresh it
 # nightly while the Lambda copy has been dead for a week, which is the silent-death
 # failure the S3 lane was built to remove. Unlike the rest of the health section, these page.
-BACKUP_BEATS = ("selfheal", "snapshot", "snapshot_s3")
+#: `pgdump` joins them for Phase C: once HQ_PG_WRITES=first_class the store is what the
+#: system depends on, and a store with no watched backup is the sheet's 2026-07-24 outage
+#: waiting to happen in the substrate that replaced it.
+BACKUP_BEATS = ("selfheal", "snapshot", "snapshot_s3", "pgdump")
 _HB_FMT = "%Y-%m-%d %H:%M:%SZ"      # core.sheets._now()
 
 NEW_ROLES_CAP = 15
@@ -162,33 +192,53 @@ def _sec_scout(hq: HQ, yesterday_s: str) -> list[str]:
     return []
 
 
-def _sec_health(hq: HQ, now: _dt.datetime) -> tuple[list[str], bool, list[str]]:
+def _sec_health(hq: HQ, now: _dt.datetime,
+                pg_beats: dict | None = None) -> tuple[list[str], bool, list[str]]:
     """⚠ any heartbeat older than 2x cadence (or never written — a job that
     never ran is exactly what this section exists to surface). Returns
     (lines, capture_silent_beyond_3h, backup_stale_lines).
 
     The third value is the subset of the warn lines that belong to BACKUP_BEATS
     — truthy exactly when a backup is stale-or-missing, and carrying the lines
-    themselves so the ops push says which lane died instead of re-deriving it."""
-    beats = {r["key"][len("heartbeat_"):]: r.get("value", "")
-             for r in hq.tab("config").records()
-             if r.get("key", "").startswith("heartbeat_")}
+    themselves so the ops push says which lane died instead of re-deriving it.
+
+    TWO STORES, JUDGED SEPARATELY (Phase C1). `pg_beats` is the same lanes read
+    out of `channel_runs` (core/beats.py), and each store gets its own warn line
+    rather than a merged "is it alive anywhere" verdict. That is the same
+    doctrine `tracker.snapshot` applies to the git and S3 backup copies one level
+    down, for the same reason: a lane whose sheet beat is fresh and whose pg beat
+    died a week ago must not read as healthy on the strength of the store that
+    is about to be decommissioned — nor the reverse, which is how a still-live
+    sheet lane would go dark unnoticed after the cutover.
+    """
+    stamps = {r["key"][len("heartbeat_"):]: r.get("value", "")
+              for r in hq.tab("config").records()
+              if r.get("key", "").startswith("heartbeat_")}
     warn, capture_silent, backup_stale = [], False, []
-    for name, cadence in CADENCE_HOURS.items():
-        ts = _parse_ts(beats.get(name, ""))
+
+    def _check(name: str, cadence: float, ts: _dt.datetime | None, seen: str,
+               store: str = "") -> None:
+        nonlocal capture_silent
+        label = f"{name} ({store})" if store else name
         if ts is None:
-            warn.append(f"⚠ {name}: no heartbeat yet")
-            if name in BACKUP_BEATS:
-                backup_stale.append(warn[-1])
-            continue
-        age_h = (now - ts).total_seconds() / 3600
-        if age_h > cadence * 2:
-            warn.append(f"⚠ {name}: last ran {beats[name]} (~{age_h:.0f}h ago, "
+            warn.append(f"⚠ {label}: no heartbeat yet")
+        else:
+            age_h = (now - ts).total_seconds() / 3600
+            if name == "capture" and age_h > CAPTURE_ALERT_HOURS:
+                capture_silent = True
+            if age_h <= cadence * 2:
+                return
+            warn.append(f"⚠ {label}: last ran {seen} (~{age_h:.0f}h ago, "
                         f"expected every ~{cadence:g}h)")
-            if name in BACKUP_BEATS:
-                backup_stale.append(warn[-1])
-        if name == "capture" and age_h > CAPTURE_ALERT_HOURS:
-            capture_silent = True
+        if name in BACKUP_BEATS:
+            backup_stale.append(warn[-1])
+
+    for name, cadence in CADENCE_HOURS.items():
+        _check(name, cadence, _parse_ts(stamps.get(name, "")), stamps.get(name, ""))
+    if pg_beats is not None:
+        for name, cadence in PG_CADENCE_HOURS.items():
+            ts = pg_beats.get(name)
+            _check(name, cadence, ts, ts.strftime(_HB_FMT) if ts else "", store="pg")
     return (warn or ["✅ all systems ran on schedule"]), capture_silent, backup_stale
 
 
@@ -203,7 +253,32 @@ def run(hq: HQ, *, now: _dt.datetime | None = None) -> dict:
     review_lines, n_review = _sec_needs_review(hq)
     follow_lines = _sec_followups(hq)
     scout_lines = _sec_scout(hq, yesterday_s)
-    health_lines, capture_silent, backup_stale = _sec_health(hq, now)
+    # Phase C1: read the store's beats too, and judge each store on its own.
+    #
+    # An unreachable store is REPORTED, not raised. Raising here took down the
+    # whole briefing — the digest row, the phone push, the Gmail-capture-silent
+    # alert and the backups-stale alert, all of which are about the SHEET and were
+    # working — so one pg outage blinded every watchdog this job owns. Measured:
+    # a genuinely dead capture beat (8 h) and a genuinely dead git snapshot (4
+    # days) produced zero alerts and zero digest rows with pg down.
+    #
+    # It is still not "best effort": the failure becomes its own warn line, and one
+    # that PAGES, because the lanes behind it are backup lanes. Silence would be
+    # the real bug — "all systems ran on schedule" printed at the exact moment the
+    # watchdog can no longer see half of what it watches.
+    pg_beats, pg_error = None, ""
+    if pgwrites.first_class():
+        try:
+            pg_beats = beats.last_seen(pgwrites.user_id())
+        except Exception as e:
+            pg_error = f"{type(e).__name__}: {e}"[:200]
+    health_lines, capture_silent, backup_stale = _sec_health(hq, now, pg_beats)
+    if pg_error:
+        line = (f"⚠ pg heartbeats unreadable ({pg_error}) — the store's lanes "
+                f"({', '.join(beats.LANES)}) are unwatched this run")
+        health_lines = [line] + [ln for ln in health_lines
+                                 if ln != "✅ all systems ran on schedule"]
+        backup_stale.append(line)
 
     parts = [f"# Job Search HQ — {today_s}"]
     for title, lines in [("New roles (last 24h)", new_lines),
@@ -253,7 +328,14 @@ def run(hq: HQ, *, now: _dt.datetime | None = None) -> dict:
                          "git/Actions CSV copy, snapshot_s3 = the S3/Lambda CSV copy. "
                          "Restore paths: docs/RUNBOOK.md.")
 
+    # Both stores, last: the beat means "the briefing was composed and sent", and
+    # this job's own beat is the one proving the watchdog itself still runs. The
+    # sheet beat is written even when pg is unreachable — the sheet half of the
+    # briefing really did run — and the pg beat is simply not attempted, so the
+    # store's own `digest` lane goes stale and says so tomorrow.
     hq.heartbeat("digest")
+    if not pg_error and pgwrites.first_class():
+        beats.write("digest", pgwrites.user_id())
     return {"new": n_new, "changes": len(change_lines), "needs_review": n_review,
             "followups": len(follow_lines), "capture_silent": capture_silent,
             "backups_stale": bool(backup_stale), "body": body}

@@ -21,7 +21,7 @@ than it found it, and the sheet stays a read-only mirror until the day nothing r
 | Pipeline (Pipeline) | join/promote write; humans edit | `applications` + notes + status lock (0010) | built by P8; engine doesn't write it yet |
 | Company universe (Companies) | sweep reads; humans edit | `companies`/`user_companies` + review states (0008/0009) | built; `swept_companies` written, uncalled — **the decided bridge cutover** |
 | Config knobs (Config) | phone-editable behavior | per-user settings (P10 Profile groundwork + a `settings` read for the engine) | partial — the engine half needs a read path |
-| Heartbeats/watchdogs (Config rows) | digest flags stale beats | pg `heartbeats` table (or CloudWatch custom metrics) | not built |
+| Heartbeats/watchdogs (Config rows) | digest flags stale beats | `channel_runs` — the health ledger 0001 already shaped for it, one appended row per lane per run (`core/beats.py`) | built (C1): snapshot/digest/pgdump beat there under the flag, and the digest holds each store to its cadence **separately** — neither may vouch for the other |
 | Email events (Email Events) | Gmail Apps Script appends rows | an authenticated `/api/capture` endpoint writing pg | not built — the ONE component that must change outside this repo |
 | Quick Add (Quick Add) | pasted URLs | webapp add/paste (P7) + import (P9) | built |
 | Scout tabs (Raza-*) | scout's workflow | webapp grid + import + his own user lane | built in pieces; his onboarding = a user onboarding |
@@ -57,7 +57,15 @@ knobs the ENGINE needs get a pg `settings` read with the same validate-or-defaul
 as `core/config.py`. *Exit test: a company approved in the grid appears in the next sweep; a
 dismissed one never returns.*
 
-**C — Writes cutover (the real migration).** Engine writes pg first-class: discovery upserts
+**C — Writes cutover (the real migration).** *C1 is built (`HQ_PG_WRITES`, unset = Phase A
+unchanged; flip procedure and preconditions in `docs/RUNBOOK.md` § The store lane): the sweep's
+mirror became the sweep's own write, `join` applies matches through 0015's
+`hq_apply_email_event` under the 0010 lock — deciding against BOTH stores' status and claim, since
+during dual-write the human edits the sheet and pg's `status_actor` is written only by the web
+app — snapshot/digest beat into `channel_runs` with the digest holding each store to its cadence
+separately, and `tracker.pgseed` seeds the sheet's Pipeline into `applications` (the drain for
+applications older than the flag; events it cannot apply are recorded as `email.unapplied`).*
+Engine writes pg first-class: discovery upserts
 postings (mirror becomes the write, not the echo); `join` matches email events to
 `applications` under the 0010 status lock; outbox/heartbeats/log move to their tables. The
 Gmail Apps Script stops appending to a tab and POSTs to `/api/capture` (bearer token; the

@@ -21,7 +21,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from core import config, schema
+from core import beats, config, pgwrites, schema
 from core.sheets import HQ
 
 
@@ -60,6 +60,10 @@ S3_BUCKET_ENV = "HQ_BACKUP_S3_BUCKET"
 #: digest reads "backed up" while the S3 lane has been dead for a week (and vice versa)
 #: — rebuilding, one layer up, the exact silent-death failure this whole branch exists
 #: to kill. Watched by tracker.digest's BACKUP_BEATS; both must be in CADENCE_HOURS.
+#:
+#: Under `HQ_PG_WRITES=first_class` each of these lands in BOTH stores under the same
+#: lane name (`_beat` below), and the digest holds each store to the cadence on its
+#: own — the same doctrine one level up (core/beats.py, tracker/digest.py).
 HEARTBEAT_GIT = "snapshot"
 HEARTBEAT_S3 = "snapshot_s3"
 
@@ -102,11 +106,24 @@ def _upload(bucket: str, prefix: str, files: list[tuple[str, Path]]) -> None:
             raise RuntimeError(f"backup upload failed: s3://{bucket}/{key}: {e}") from e
 
 
+def _beat(hq: HQ, lane: str) -> None:
+    """Stamp this lane in BOTH stores — Config, and (first_class) `channel_runs`.
+
+    Same lane name in both, so the digest's watchdog compares like with like. The
+    pg write is not best-effort: under first_class a beat that silently failed to
+    land is a backup lane that reads dead on the day the sheet goes away, which is
+    the failure this whole two-lane arrangement exists to remove.
+    """
+    hq.heartbeat(lane)
+    if pgwrites.first_class():
+        beats.write(lane, pgwrites.user_id())
+
+
 def run(hq: HQ, out_dir: Path) -> dict[str, int]:
     bucket = os.environ.get(S3_BUCKET_ENV, "").strip()
     if not bucket:
         counts, _ = _write_csvs(hq, out_dir)
-        hq.heartbeat(HEARTBEAT_GIT)
+        _beat(hq, HEARTBEAT_GIT)
         return counts
     # S3 mode: stage under the tempdir (Lambda sets TMPDIR=/tmp, its only writable
     # path) and let it evaporate — the bucket, not the FS, is where this lands.
@@ -117,7 +134,7 @@ def run(hq: HQ, out_dir: Path) -> dict[str, int]:
     # Only after every tab landed: the heartbeat means "backed up". And it is the S3
     # lane's OWN beat — see HEARTBEAT_S3 above; writing the git lane's beat here would
     # let either scheduler cover for the other's death.
-    hq.heartbeat(HEARTBEAT_S3)
+    _beat(hq, HEARTBEAT_S3)
     return counts
 
 

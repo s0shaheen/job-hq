@@ -73,10 +73,20 @@ def test_other_parsers_cannot_render_hollow_sections():
         assert alarm["period"] in secs["alerting"]
         assert alarm["missing"] in secs["alerting"]
 
-    for beat, _hours in sysmap.digest_facts()["cadence"]:
+    facts = sysmap.digest_facts()
+    for beat, _hours in facts["cadence"]:
         assert f"`heartbeat_{beat}`" in secs["watchdogs"]
-    for beat in sysmap.digest_facts()["backup_beats"]:
-        assert f"`heartbeat_{beat}`" in secs["backup-lanes"], f"no lane owns heartbeat_{beat}"
+    # The store's beats are NOT `heartbeat_*` Config rows — they are `channel_runs` lanes,
+    # and one of them (`pgdump`) has no sheet beat at all. Rendering them as heartbeat rows
+    # would be a doc that reads plausibly and describes a mechanism that does not exist.
+    pg_lanes = [n for n, _h in facts["pg_cadence"]]
+    assert pg_lanes, "PG_CADENCE_HOURS parsed to nothing"
+    for lane in pg_lanes:
+        assert f"| `{lane}` |" in secs["watchdogs"], f"pg lane {lane} is watched by nobody"
+    for beat in facts["backup_beats"]:
+        owned = (f"`heartbeat_{beat}`" in secs["backup-lanes"]     # a sheet-beat lane
+                 or f"`{beat}`" in secs["backup-lanes"])           # a pg-only lane
+        assert owned, f"no backup lane in the table owns the beat {beat!r}"
 
     for _name, filename, _trigger in sysmap.workflows():
         assert filename in secs["actions-workflows"]

@@ -255,10 +255,16 @@ def digest_facts() -> dict:
     t = _read("tracker/digest.py")
     body = re.search(r"CADENCE_HOURS\s*=\s*\{(.*?)\}", t, re.S)
     cadence = [(k, v) for k, v in re.findall(r'"(\w+)"\s*:\s*([0-9.]+)', body.group(1) if body else "")]
+    pg_body = re.search(r"PG_CADENCE_HOURS\s*=\s*\{(.*?)\n\}", t, re.S)
+    pg_cadence = [(k, v) for k, v in
+                  re.findall(r'"(\w+)"\s*:\s*([0-9.]+)', pg_body.group(1) if pg_body else "")]
     beats = re.search(r"BACKUP_BEATS\s*=\s*\((.*?)\)", t, re.S)
     capture = re.search(r"CAPTURE_ALERT_HOURS\s*=\s*([0-9.]+)", t)
     return {
         "cadence": _need(cadence, "digest CADENCE_HOURS"),
+        # The STORE's cadence table, deliberately not a slice of the sheet's: the two
+        # stores hold different lanes (`pgdump` has no Config row; `capture` has no pg one).
+        "pg_cadence": _need(pg_cadence, "digest PG_CADENCE_HOURS"),
         "backup_beats": _need(re.findall(r'"(\w+)"', beats.group(1) if beats else ""),
                               "digest BACKUP_BEATS"),
         "capture_alert_h": _need(capture and capture.group(1), "digest CAPTURE_ALERT_HOURS"),
@@ -403,14 +409,18 @@ def sec_backup_lanes() -> str:
         f"git on a **Run a bot** dispatch; `{s['feed_key']}` in S3 when the FS is read-only | with "
         "each sweep | none | prints a warning and never fails a completed sweep — the CSV lanes are "
         "the Feed tab's real backup |",
-        "| PG dump | `pg_dump` of the Supabase mirror | `snapshots/pg/` + commit | **none — "
-        "deleted** | none | nothing runs and nothing watches it: `pgdump.yml` was gated OFF with no "
-        "database behind it, so it went with the migration scaffolding. Resurrectable from git "
-        "history when a live Supabase exists |",
+        "| PG dump | `pg_dump --schema=public` of the Supabase store | `snapshots/pg/hq.sql.gz` + "
+        "commit | `pgdump.yml`, nightly — but the job is gated on the `PGDUMP_ENABLED` repo "
+        "variable, so it runs only once that is `true` | pg lane `pgdump` in `channel_runs` "
+        "(written by `python -m tracker.beat pgdump` as the job's last step) | the digest pages "
+        "**HQ backups stale** naming `pgdump (pg)` — including while the lane has never run, which "
+        "is what makes “pg is load-bearing and has no backup” visible the morning after "
+        "`HQ_PG_WRITES=first_class` is set |",
         "",
         "The git and S3 CSV lanes are deliberately independent copies on independent schedulers, "
         "each with its **own** heartbeat: one shared beat would let the nightly Actions run keep it "
-        "fresh while the S3 copy had been dead for a week. Restore procedure (both lanes plus "
+        "fresh while the S3 copy had been dead for a week. The PG dump lane is the same doctrine "
+        "for the store the sheet is being replaced by. Restore procedure (the CSV lanes plus "
         "Sheets' own version history): `docs/RUNBOOK.md` § Restoring the sheet.",
     ]
     return "\n".join(lines)
@@ -443,7 +453,26 @@ def sec_watchdogs() -> str:
         f"Backup beats watched as a set: {', '.join('`' + b + '`' for b in d['backup_beats'])}. "
         "A beat that was never written reads “no heartbeat yet” and pages the same way — a lane "
         "that has never run is not a lane that is fine.",
+        "",
+        "**The store's own beats** (`HQ_PG_WRITES=first_class` only). The same lanes stamp a row "
+        "in `channel_runs`, and the digest holds each store to the cadence SEPARATELY — neither "
+        "may vouch for the other, so a lane alive in the sheet and dead in pg pages, and the "
+        "reverse pages too. With the flag unset this table is not read at all.",
+        "",
+        "| pg lane | Expected every | Written by | Pages? |",
+        "|---|---|---|---|",
     ]
+    writers = {
+        "snapshot": "`tracker.snapshot` (git mode, `selfheal.yml`)",
+        "snapshot_s3": "`tracker.snapshot` (S3 mode, the `snapshot` Lambda job)",
+        "digest": "`tracker.digest`, after the briefing is composed and sent",
+        "pgdump": "`python -m tracker.beat pgdump`, last step of `pgdump.yml`",
+    }
+    for name, hours in d["pg_cadence"]:
+        h = float(hours)
+        pages = ("**pages** — “HQ backups stale”, naming the lane and the store"
+                 if name in beats else "briefing line only")
+        lines.append(f"| `{name}` | {h:g} h | {writers.get(name, '—')} | {pages} |")
     return "\n".join(lines)
 
 

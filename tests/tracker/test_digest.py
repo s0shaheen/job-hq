@@ -357,3 +357,174 @@ def test_other_stale_heartbeats_do_not_page_backups(spies):
     assert "⚠ review" in s["body"]
     assert s["backups_stale"] is False
     assert alerts == []
+
+
+# ---- Phase C1: two stores, judged separately
+#
+# MUTATION TARGETS:
+#   * merge the two verdicts ("alive in either store") -> both directional tests
+#     go green with a lane that has been dead in one store for days;
+#   * skip the pg check when the sheet beat is fresh -> the dead-pg-lane test
+#     stops paging, which is the sheet vouching for a store it is about to be
+#     replaced by;
+#   * make `beats.last_seen` best-effort in digest.run -> the unreachable-store
+#     test reports "all systems ran on schedule" while holding no beats at all.
+
+UID = "00000000-0000-0000-0000-000000000001"
+FRESH = dt.datetime(2026, 7, 13, 11, 45, tzinfo=dt.timezone.utc)
+DEAD = dt.datetime(2026, 7, 10, 8, 53, tzinfo=dt.timezone.utc)
+
+
+def _pg_on(monkeypatch, lanes):
+    """first_class, with `channel_runs` answering exactly `lanes`."""
+    from core import beats, pgwrites
+    monkeypatch.setenv(pgwrites.FLAG_ENV, pgwrites.FIRST_CLASS)
+    monkeypatch.setenv(pgwrites.USER_ENV, UID)
+    monkeypatch.setattr("core.pg.enabled", lambda: True)
+    monkeypatch.setattr(beats, "last_seen", lambda uid, *a, **k: dict(lanes))
+    written = []
+    monkeypatch.setattr(beats, "write", lambda lane, uid, **k: written.append(lane))
+    return written
+
+
+def test_a_dead_pg_beat_pages_even_when_the_sheet_beat_is_fresh(spies, monkeypatch):
+    """The direction that matters after the cutover: the sheet lane is about to be
+    decommissioned, so it must never vouch for the store that replaces it."""
+    _pushes, alerts = spies
+    from core import beats as beats_mod
+    _pg_on(monkeypatch, {n: (DEAD if n == "snapshot_s3" else FRESH)
+                         for n in beats_mod.LANES})
+    hq = _all_fresh_hq()                       # every SHEET beat is fresh
+    s = digest.run(hq, now=NOW)
+
+    assert s["backups_stale"] is True
+    body = next(b for t, b in alerts if t == "HQ backups stale")
+    assert "⚠ snapshot_s3 (pg):" in body
+    assert "⚠ snapshot_s3:" not in body        # the sheet lane really is alive
+
+
+def test_a_dead_sheet_beat_still_pages_when_the_pg_beat_is_fresh(spies, monkeypatch):
+    """And the reverse, which is the live risk during dual-write."""
+    _pushes, alerts = spies
+    from core import beats as beats_mod
+    _pg_on(monkeypatch, {n: FRESH for n in beats_mod.LANES})
+    hq = _all_fresh_hq()
+    hq.tab("config").set_by_key(
+        "heartbeat_snapshot", {"value": "2026-07-10 08:53:00Z"}, key_header="key")
+    s = digest.run(hq, now=NOW)
+
+    assert s["backups_stale"] is True
+    body = next(b for t, b in alerts if t == "HQ backups stale")
+    assert "⚠ snapshot:" in body
+    assert "⚠ snapshot (pg):" not in body
+
+
+def test_a_lane_that_never_beat_in_pg_is_a_warning_not_a_silence(spies, monkeypatch):
+    _pushes, alerts = spies
+    from core import beats as beats_mod
+    _pg_on(monkeypatch, {n: (None if n == "snapshot" else FRESH) for n in beats_mod.LANES})
+    s = digest.run(_all_fresh_hq(), now=NOW)
+    assert s["backups_stale"] is True
+    assert "⚠ snapshot (pg): no heartbeat yet" in s["body"]
+
+
+def test_the_stores_own_backup_lane_is_watched_only_in_the_store(spies, monkeypatch):
+    """`pgdump` has no Config row and never will — its product is a pg dump. Watched
+    in the sheet table it would page every morning of Phase A about a lane that has
+    no sheet beat to give; watched nowhere, pg becomes load-bearing with an
+    unmonitored backup, which is the sheet's own 2026-07-24 outage in the substrate
+    that replaced it."""
+    _pushes, alerts = spies
+    from core import beats as beats_mod
+    _pg_on(monkeypatch, {n: (None if n == "pgdump" else FRESH) for n in beats_mod.LANES})
+    s = digest.run(_all_fresh_hq(), now=NOW)
+    assert s["backups_stale"] is True
+    body = next(b for t, b in alerts if t == "HQ backups stale")
+    assert "⚠ pgdump (pg): no heartbeat yet" in body
+    assert "⚠ pgdump:" not in body            # never expected from the sheet
+
+
+def test_phase_a_never_mentions_the_store_only_lane(spies, monkeypatch):
+    """The control for the line above: with the flag unset the pg table is not read
+    at all, so `pgdump` cannot produce a warning on any of today's live runs."""
+    from core import pgwrites
+    monkeypatch.delenv(pgwrites.FLAG_ENV, raising=False)
+    s = digest.run(_all_fresh_hq(), now=NOW)
+    assert "pgdump" not in s["body"] and s["backups_stale"] is False
+
+
+def test_both_stores_healthy_says_so(spies, monkeypatch):
+    """The control. Without it, every assertion above is equally true of a
+    watchdog that warns about everything."""
+    _pushes, alerts = spies
+    from core import beats as beats_mod
+    _pg_on(monkeypatch, {n: FRESH for n in beats_mod.LANES})
+    s = digest.run(_all_fresh_hq(), now=NOW)
+    assert s["backups_stale"] is False and alerts == []
+    assert "✅ all systems ran on schedule" in s["body"]
+
+
+def test_the_digest_beats_in_both_stores(spies, monkeypatch):
+    from core import beats as beats_mod
+    written = _pg_on(monkeypatch, {n: FRESH for n in beats_mod.LANES})
+    hq = _all_fresh_hq()
+    digest.run(hq, now=NOW)
+    assert written == ["digest"]
+    assert any(r["key"] == "heartbeat_digest" for r in hq.tab("config").records())
+
+
+def test_phase_a_reads_and_writes_no_pg_beats(spies, monkeypatch):
+    from core import pgwrites
+    monkeypatch.delenv(pgwrites.FLAG_ENV, raising=False)
+    monkeypatch.setattr("core.beats.last_seen",
+                        lambda *a, **k: pytest.fail("pg read with the flag unset"))
+    monkeypatch.setattr("core.beats.write",
+                        lambda *a, **k: pytest.fail("pg beat with the flag unset"))
+    s = digest.run(_all_fresh_hq(), now=NOW)
+    assert s["backups_stale"] is False
+
+
+def _pg_down(monkeypatch):
+    from core import pg, pgwrites
+    monkeypatch.setenv(pgwrites.FLAG_ENV, pgwrites.FIRST_CLASS)
+    monkeypatch.setenv(pgwrites.USER_ENV, UID)
+    monkeypatch.setattr("core.pg.enabled", lambda: True)
+
+    def boom(*a, **k):
+        raise pg.PgError("select channel_runs -> HTTP 503")
+    monkeypatch.setattr("core.beats.last_seen", boom)
+    monkeypatch.setattr("core.beats.write", boom)
+
+
+def test_an_unreachable_store_is_reported_and_pages(spies, monkeypatch):
+    """A watchdog that shrugs it off prints "all systems ran on schedule" at exactly
+    the moment it can no longer see half of what it watches."""
+    _pushes, alerts = spies
+    _pg_down(monkeypatch)
+    s = digest.run(_all_fresh_hq(), now=NOW)
+    assert s["backups_stale"] is True
+    body = next(b for t, b in alerts if t == "HQ backups stale")
+    assert "pg heartbeats unreadable" in body and "HTTP 503" in body
+    assert "✅ all systems ran on schedule" not in s["body"]
+
+
+def test_a_store_outage_does_not_blind_the_sheets_own_watchdogs(spies, monkeypatch):
+    """The measured regression: raising before the sections were composed took down
+    the digest row, the phone push, the capture-silent alert and the backups-stale
+    alert — every one of which is about the SHEET and was working."""
+    pushes, alerts = spies
+    _pg_down(monkeypatch)
+    hq = _all_fresh_hq()
+    hq.tab("config").set_by_key(                    # genuinely dead capture (8 h)
+        "heartbeat_capture", {"value": "2026-07-13 04:00:00Z"}, key_header="key")
+    hq.tab("config").set_by_key(                    # genuinely dead git snapshot
+        "heartbeat_snapshot", {"value": "2026-07-09 08:53:00Z"}, key_header="key")
+    s = digest.run(hq, now=NOW)
+
+    assert s["capture_silent"] is True
+    assert "Gmail capture silent" in [t for t, _b in alerts]
+    body = next(b for t, b in alerts if t == "HQ backups stale")
+    assert "⚠ snapshot:" in body                    # the SHEET lane's own death
+    assert pushes, "the daily phone ping died with the store"
+    assert any(r["date"] == TODAY for r in hq.tab("digest").records())
+    assert any(r["key"] == "heartbeat_digest" for r in hq.tab("config").records())

@@ -43,6 +43,16 @@ jobs:
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           HQ_USER: ${{ matrix.user }}
+          # SHEET-SUNSET Phase C: this is the ONLY writer of the `snapshot` beat (the
+          # git/Actions CSV lane), and under HQ_PG_WRITES=first_class the digest watches
+          # that lane in BOTH stores. Without these four the lane runs, commits nightly,
+          # and pages the operator every morning with "⚠ snapshot (pg): no heartbeat yet"
+          # — a healthy backup reported dead, which is the cry-wolf traffic tests/conftest.py
+          # calls a reliability bug. Unset in Phase A: the step behaves exactly as before.
+          HQ_PG_WRITES: ${{ vars.HQ_PG_WRITES }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          HQ_PG_USER_ID: ${{ secrets.HQ_PG_USER_ID }}
         run: python -m tracker.snapshot
       - name: Commit snapshots + registry re-pins
         run: |

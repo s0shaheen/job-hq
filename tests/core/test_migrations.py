@@ -221,19 +221,122 @@ def test_the_reconcile_rpc_is_called_with_the_parameters_it_declares():
     )
 
 
+def test_the_seed_rpc_the_engine_calls_exists_and_takes_what_it_is_passed():
+    """`tracker.pgseed`'s half of the same contract the join RPC gets."""
+    import inspect
+
+    from tracker import pgseed
+
+    declared = set(_sql_function_params(ALL_SQL, pgseed.PG_SEED_FN) or [])
+    assert declared, f"tracker.pgseed calls {pgseed.PG_SEED_FN}() but no migration defines it"
+    passed = set(re.findall(r'"(p_\w+)":', inspect.getsource(pgseed.seed)))
+    assert passed == declared, {
+        "passed but not declared": sorted(passed - declared),
+        "declared but not passed": sorted(declared - passed),
+    }
+
+
 def test_the_engine_only_rpcs_are_not_reachable_from_a_browser():
     """0009's two functions stamp a reliability tier and write audit events, and neither is a
-    human gesture. Supabase's default privileges grant execute on new functions to `anon` and
-    `authenticated`, so `revoke from public` alone leaves both doors open — the revoke has to
-    name the roles. Pinned here because the db suite can only prove it for a role it can
-    `set role` to, and this is cheap and total."""
-    for fn in ("reconcile_grounded_company", "note_grounding_blocked"):
+    human gesture. 0015's takes the acting user as an ARGUMENT, so reachable from a browser it
+    would let any session advance anyone else's pipeline. Supabase's default privileges grant
+    execute on new functions to `anon` and `authenticated`, so `revoke from public` alone leaves
+    both doors open — the revoke has to name the roles. Pinned here because the db suite can only
+    prove it for a role it can `set role` to, and this is cheap and total."""
+    for fn in ("reconcile_grounded_company", "note_grounding_blocked",
+               "hq_apply_email_event", "hq_upsert_sheet_application",
+               "hq_note_unapplied_event"):
         revokes = re.findall(rf"revoke\s+all\s+on\s+function\s+public\.{fn}\s*\([^)]*\)\s*\n?\s*"
                              rf"from\s+([^;]+);", ALL_SQL, re.I)
         assert revokes, f"{fn}() is never revoked"
         named = revokes[0].lower()
         for role in ("public", "anon", "authenticated"):
             assert role in named, f"{fn}() is not revoked from {role} — a browser can call it"
+
+
+def test_the_join_rpc_the_engine_calls_exists_and_takes_what_it_is_passed():
+    """The same contract, for Phase C's second engine RPC (`tracker/join.py`).
+
+    `PG_APPLY_FN` is a string handed to `core.pg.rpc`, so a typo is a 404 in the middle of
+    the 2-hourly tracker chain and nothing else — and the unit suite cannot catch it, because
+    it monkeypatches the RPC, while the db suite calls the SQL function directly and never
+    through the constant. Two suites, one contract, and it lives between them.
+    """
+    import inspect
+
+    from tracker import join
+
+    declared = set(_sql_function_params(ALL_SQL, join.PG_APPLY_FN) or [])
+    assert declared, (
+        f"tracker.join calls {join.PG_APPLY_FN}() but no migration defines it — "
+        f"every matched email event would 404 and the store would never advance"
+    )
+    passed = set(re.findall(r'"(p_\w+)":', inspect.getsource(join._pg_apply)))
+    assert passed, "no p_* arguments found in _pg_apply() — parser out of date?"
+    # EQUALITY, not `passed <= declared`, and only for the engine's own RPCs (the
+    # engine owns both ends; a webapp call may legitimately lean on a default).
+    #
+    # Both directions are live failures. An argument the function does not declare
+    # fails to resolve it at all — PostgREST matches overloads by name — so the
+    # tracker chain 404s at 02:31. And an argument the function declares that the
+    # caller stops passing is worse, because it is SILENT: `p_current_status` /
+    # `p_current_actor` are how the store learns that a human claimed the sheet row,
+    # and a call that quietly omitted them would go back to advancing over somebody's
+    # Offer with every test still green.
+    assert passed == declared, {
+        "passed but not declared": sorted(passed - declared),
+        "declared but not passed": sorted(declared - passed),
+    }
+
+
+def _sql_function_body(sql: str, name: str) -> str:
+    """The `$$ … $$` body of one function, so an outcome vocabulary can be read per
+    function instead of per FILE — 0015 defines two engine RPCs with two different
+    vocabularies, and scanning the whole file mixes them."""
+    m = re.search(rf"create\s+or\s+replace\s+function\s+public\.{name}\s*\(.*?\$\$(.*?)\$\$",
+                  sql, re.S | re.I)
+    assert m, f"could not find {name}()'s body"
+    return m.group(1)
+
+
+def _outcomes(body: str) -> set[str]:
+    return (set(re.findall(r"'outcome',\s*'(\w+)'", body))
+            # the applied paths assign v_outcome rather than inlining it
+            | set(re.findall(r"v_outcome\s*:=\s*'(\w+)'", body)))
+
+
+@pytest.mark.parametrize("module,attr,fn", [
+    ("tracker.join", "PG_OUTCOMES", "hq_apply_email_event"),
+    ("tracker.pgseed", "PG_SEED_OUTCOMES", "hq_upsert_sheet_application"),
+], ids=lambda v: str(v))
+def test_the_outcome_vocabulary_is_the_same_on_both_sides_of_the_wire(module, attr, fn):
+    """The engine branches on the strings these functions return, and nothing
+    checked that the two agree.
+
+    Renaming an outcome in SQL is caught only by the db suite; ADDING one was caught
+    by nothing at all and would have been counted as a successful write — the number
+    that tells the operator whether the two stores agree. Parsed from the migration,
+    so the pin cannot go stale in the direction that matters.
+    """
+    import importlib
+
+    sql = _strip_sql_comments(
+        (ROOT / "db" / "migrations" / "0015_engine_writes.sql").read_text())
+    declared = _outcomes(_sql_function_body(sql, fn))
+    expected = set(getattr(importlib.import_module(module), attr))
+    assert declared, f"no outcome literals found in {fn}() — parser out of date?"
+    assert declared == expected, {
+        "sql returns but python does not classify": sorted(declared - expected),
+        "python expects but sql cannot return": sorted(expected - declared),
+    }
+
+
+def test_the_two_engine_vocabularies_really_are_different():
+    """Non-vacuity for the parse above: if `_sql_function_body` silently returned
+    the whole file, both cases would compare the same union and pass together."""
+    from tracker import join, pgseed
+    assert set(join.PG_OUTCOMES) != set(pgseed.PG_SEED_OUTCOMES)
+    assert set(join.PG_NOTHING_TO_APPLY) < set(join.PG_OUTCOMES)
 
 
 def test_conflict_path_keeps_the_word_the_client_matches_on():
