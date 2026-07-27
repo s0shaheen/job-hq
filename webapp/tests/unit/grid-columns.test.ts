@@ -187,4 +187,30 @@ describe("perf fixtures — deterministic and honestly shaped", () => {
     expect(clampPerfCount(undefined)).toBe(0);
     expect(clampPerfCount(["5000", "9"])).toBe(0);
   });
+
+  it("declares the Warm column with no cell of its own", () => {
+    // The one column in the table without a `cell`, and the absence is the
+    // assertion. `jobs-grid.tsx` renders every Warm cell itself — `WarmCell`
+    // reaches a server action, which reaches `getDataSource`, which reaches the
+    // `server-only` reader, and a `columns.tsx` that imported it could not be
+    // imported by THIS FILE at all.
+    //
+    // The first version put a dash here as "the no-context branch". It was
+    // unreachable: the grid hides the column outright when there is no warm
+    // context, which is the only case the dash existed for. Documented dead code
+    // is the shape matrix row 227 is about.
+    //
+    // MUTATION REASON: re-add `cell: () => <Text value={DASH} />` — this goes
+    // red, and so does the claim that the grid is the only renderer.
+    const warm = GRID_COLUMNS.find((c) => c.id === "warm");
+    expect(warm, "the Warm column is gone").toBeTruthy();
+    expect(warm!.header).toBe("Warm");
+    expect("cell" in warm!).toBe(false);
+    // …and every OTHER column does have one, so the assertion above is about
+    // this column rather than about the type.
+    for (const col of GRID_COLUMNS) {
+      if (col.id === "warm") continue;
+      expect("cell" in col, `${col.id} lost its cell`).toBe(true);
+    }
+  });
 });

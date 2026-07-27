@@ -1,4 +1,5 @@
 import { type Cell, cellText } from "./read";
+import { suggestFor, unmappedFor, type Suggestion } from "./suggest";
 
 /**
  * Guessing which spreadsheet column is which — deterministically, and with a
@@ -11,16 +12,14 @@ import { type Cell, cellText } from "./read";
  * offline and testable at the boundary, which rules out anything that answers
  * differently on Tuesday.
  *
- * Two rules carry the whole module:
- *
- *   1. **An exact alias hit is the only 1.0.** Everything else is a *suggestion
- *      the user sees and can change*, rendered next to three live values from
- *      the column (`sampleValues`), because mapping without seeing the data is
- *      exactly how "Contact Company" gets accepted.
- *   2. **Below 0.82 nothing is filled in at all.** Not a low-confidence guess,
- *      not a greyed-out default — Unmapped. A confident wrong guess is worse
- *      than no guess, because nobody audits the field that already looks right
- *      (matrix rows 25 and 26).
+ * **The ALGORITHM now lives in `./suggest.ts`** — pure, importable from a
+ * module that has no business pulling in a server-only reader — and this file
+ * owns the applications VOCABULARY: which fields exist, and their aliases. The
+ * split happened when the connections import (0013) needed the same two passes
+ * and the same 0.82 floor over a different field set; a second copy is a second
+ * floor, and the two would have drifted the first time somebody tuned one.
+ * `diceCoefficient`, `normalizeHeader`, `FUZZY_FLOOR` and `Suggestion` are
+ * re-exported so every existing importer and test keeps its import path.
  *
  * Every function here is pure. The module is nonetheless **server-only by
  * transitivity**, because it takes `Cell` values and shares one definition of
@@ -30,6 +29,12 @@ import { type Cell, cellText } from "./read";
  * client component that needs `TARGET_FIELDS` should take it as a prop or read
  * it from a server component, not import this file.
  */
+// Re-exported with `export … from`, NOT `import` then `export`. The latter
+// creates a local binding AND an export of the same name, which `tsc --noEmit`
+// accepts and Next's build refuses ("individual declarations in merged
+// declaration must be all exported or all local") — green typecheck, red build.
+export { diceCoefficient, FUZZY_FLOOR, normalizeHeader } from "./suggest";
+export type { Suggestion } from "./suggest";
 
 /** The nine human-owned fields an import can write. */
 export const TARGET_FIELDS = [
@@ -60,49 +65,7 @@ export type RoundTripField = (typeof ROUND_TRIP_FIELDS)[number];
 export type MappableField = TargetField | RoundTripField;
 export const MAPPABLE_FIELDS: readonly MappableField[] = [...TARGET_FIELDS, ...ROUND_TRIP_FIELDS];
 
-export type Suggestion = {
-  /** The source header, verbatim as it appears in the file. */
-  header: string;
-  /**
-   * Which column, 0-based.
-   *
-   * Carried alongside the name because a name is not an address: a sheet with
-   * two columns called "Notes" gives a commit step reading by name a coin flip,
-   * and the second one is the empty one about half the time.
-   */
-  index: number;
-  /** 1.0 for an alias hit; the Dice score for a fuzzy one. Never below the floor. */
-  confidence: number;
-  source: "alias" | "fuzzy";
-};
-
 export type Mapping = Record<MappableField, Suggestion | null>;
-
-/**
- * Below this, the field stays Unmapped.
- *
- * Calibrated on the case it exists for: normalized "contact company" against
- * "company" scores 0.63 on bigram Dice, and at any floor low enough to catch it
- * the mapper is guessing. Above it sit the endings people actually type —
- * "Locations" vs "location" is 0.93, "Statuses" vs "status" is 0.83. "URLs" vs
- * "url" is 0.80 and stays Unmapped, which is the honest outcome for a
- * three-letter word where one added character moves the score 20 points.
- */
-export const FUZZY_FLOOR = 0.82;
-
-/**
- * lowercase, non-alphanumerics to spaces, runs collapsed.
- *
- * Punctuation becomes a space rather than nothing so that `job_title` and
- * `job-title` land on `job title` alongside `Job Title`, instead of on
- * `jobtitle` — which would then have to be a separate alias for every field.
- */
-export function normalizeHeader(header: string): string {
-  return (header ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
 
 /**
  * The alias table — "their words" for each of our fields.
@@ -160,116 +123,18 @@ export const HEADER_ALIASES: Record<MappableField, readonly string[]> = {
 const EXACT_ONLY = new Set<MappableField>(ROUND_TRIP_FIELDS);
 
 /**
- * Sørensen–Dice on character bigrams of the normalized, de-spaced strings.
- *
- * Bigrams rather than edit distance because the failure mode here is *extra
- * words*, not typos: "Contact Company" contains "company" whole, and any
- * containment-flavoured measure scores it near 1.0 and maps it. Dice divides by
- * the length of both strings, so the four unmatched bigrams of "contact" drag
- * it to 0.63 — which is the entire reason this measure and not another.
- */
-export function diceCoefficient(a: string, b: string): number {
-  const gramsOf = (s: string): string[] => {
-    const flat = s.replace(/ /g, "");
-    if (flat.length < 2) return flat.length === 1 ? [flat] : [];
-    const out: string[] = [];
-    for (let i = 0; i < flat.length - 1; i += 1) out.push(flat.slice(i, i + 2));
-    return out;
-  };
-  const left = gramsOf(a);
-  const right = gramsOf(b);
-  if (left.length === 0 || right.length === 0) return a === b ? 1 : 0;
-
-  // Multiset intersection: a repeated bigram may only be matched once, or
-  // "aaaa" scores 1.0 against "aa".
-  const pool = new Map<string, number>();
-  for (const g of left) pool.set(g, (pool.get(g) ?? 0) + 1);
-  let hits = 0;
-  for (const g of right) {
-    const n = pool.get(g) ?? 0;
-    if (n > 0) {
-      pool.set(g, n - 1);
-      hits += 1;
-    }
-  }
-  return (2 * hits) / (left.length + right.length);
-}
-
-function emptyMapping(): Mapping {
-  const out = {} as Mapping;
-  for (const f of MAPPABLE_FIELDS) out[f] = null;
-  return out;
-}
-
-/**
  * A suggested column mapping for a header row — pure, and the same every time.
  *
- * Two passes, in this order and for this reason:
- *
- *   1. **Exact alias hits.** Leftmost header wins a target; a header that wins
- *      one target is spent and cannot serve another. A duplicated header name
- *      ("Notes" twice) therefore maps once instead of quietly rotating.
- *   2. **Fuzzy, globally.** Every remaining (target, header) pair is scored, the
- *      pairs at or above the floor are sorted best-first, and assignment walks
- *      that list. Sorting globally rather than looping targets in declaration
- *      order is what stops `company` from taking a 0.84 header that `location`
- *      would have matched at 0.97.
- *
- * Ties break on target order then header order, so the answer is stable and a
- * test that pins it stays pinned.
+ * The two passes and the tie-breaking live in `./suggest.ts`; what this function
+ * supplies is the applications vocabulary and its exact-only set. Ties break on
+ * `MAPPABLE_FIELDS` order then header order, so the answer is stable and a test
+ * that pins it stays pinned.
  */
 export function suggestMapping(headers: readonly string[]): Mapping {
-  const mapping = emptyMapping();
-  const normalized = headers.map(normalizeHeader);
-  const spent = new Set<number>();
-
-  const aliasOwner = new Map<string, MappableField>();
-  for (const field of MAPPABLE_FIELDS) {
-    for (const alias of HEADER_ALIASES[field]) {
-      if (!aliasOwner.has(alias)) aliasOwner.set(alias, field);
-    }
-  }
-
-  for (let i = 0; i < headers.length; i += 1) {
-    if (normalized[i] === "") continue;
-    const field = aliasOwner.get(normalized[i]);
-    if (field && mapping[field] === null) {
-      mapping[field] = { header: headers[i], index: i, confidence: 1, source: "alias" };
-      spent.add(i);
-    }
-  }
-
-  type Candidate = { field: MappableField; index: number; score: number; order: number };
-  const candidates: Candidate[] = [];
-  for (let f = 0; f < MAPPABLE_FIELDS.length; f += 1) {
-    const field = MAPPABLE_FIELDS[f];
-    if (EXACT_ONLY.has(field) || mapping[field] !== null) continue;
-    for (let i = 0; i < headers.length; i += 1) {
-      if (spent.has(i) || normalized[i] === "") continue;
-      // Scored against every alias AND the field's own name, so `nextActionDate`
-      // still matches "nextActionDate" out of a machine-written export.
-      let best = 0;
-      for (const alias of [...HEADER_ALIASES[field], normalizeHeader(field)]) {
-        const score = diceCoefficient(normalized[i], alias);
-        if (score > best) best = score;
-      }
-      if (best >= FUZZY_FLOOR) candidates.push({ field, index: i, score: best, order: f });
-    }
-  }
-  candidates.sort((a, b) => b.score - a.score || a.order - b.order || a.index - b.index);
-
-  for (const c of candidates) {
-    if (mapping[c.field] !== null || spent.has(c.index)) continue;
-    mapping[c.field] = {
-      header: headers[c.index],
-      index: c.index,
-      confidence: c.score,
-      source: "fuzzy",
-    };
-    spent.add(c.index);
-  }
-
-  return mapping;
+  return suggestFor(
+    { fields: MAPPABLE_FIELDS, aliases: HEADER_ALIASES, exactOnly: EXACT_ONLY },
+    headers,
+  );
 }
 
 /**
@@ -292,10 +157,7 @@ export function isRoundTrip(mapping: Mapping): boolean {
  * deserves to be told rather than to find the sheet unchanged.
  */
 export function unmappedHeaders(headers: readonly string[], mapping: Mapping): string[] {
-  const taken = new Set(
-    MAPPABLE_FIELDS.map((f) => mapping[f]?.index).filter((i): i is number => i !== undefined),
-  );
-  return headers.filter((_, i) => !taken.has(i));
+  return unmappedFor(MAPPABLE_FIELDS, headers, mapping);
 }
 
 /**

@@ -156,6 +156,13 @@ export type UserRow = {
  * null says that rather than picking a tier on its behalf. `source` and
  * `resolution_method` are NOT NULL with '' defaults, so an unresolved row arrives
  * as an empty string, never null — the mirror inserts name/ats/slug only.
+ *
+ * 0013 adds two more. `linkedin_company_id` is the `f_C=` number somebody pasted,
+ * '' until they do — free-vocab at the column (0008's `source` precedent: a
+ * table-wide CHECK lets one unrecognised value fail a 500-row mirror chunk), so
+ * every reader has to treat it as untrusted text. `updated_at` is the shared
+ * row's optimistic-concurrency token, distinct from `user_companies.updated_at`,
+ * and the two guard different writes.
  */
 export type Company = {
   // bigint identity: PostgREST serializes int8 as a JSON number
@@ -166,6 +173,8 @@ export type Company = {
   source: string;
   reliability_tier: number | null;
   resolution_method: string;
+  linkedin_company_id: string;
+  updated_at: string;
 };
 
 /**
@@ -182,6 +191,36 @@ export type UserCompany = {
   priority: boolean;
   seeded: boolean;
   review_state: string;
+  updated_at: string;
+};
+
+/**
+ * One row of the user's own LinkedIn `Connections.csv` export (0013).
+ *
+ * Read directly through PostgREST by every surface that shows a warm path, which
+ * is why it is in the drift contract: a shape change here is a blank popover
+ * rather than a type error.
+ *
+ * `company_key` is GENERATED in SQL (`company_name_key(company)`) and therefore
+ * read-only from here — the match this table exists for compares THAT, never the
+ * raw string, and a generated column is what stops the normalization from
+ * drifting away from the one the company universe uses.
+ */
+export type Connection = {
+  // bigint identity: PostgREST serializes int8 as a JSON number
+  id: number;
+  user_id: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  company: string;
+  company_key: string;
+  title: string;
+  profile_url: string;
+  /** Null when the export's date could not be PROVED — never guessed. */
+  connected_on: string | null;
+  source: string;
+  created_at: string;
   updated_at: string;
 };
 

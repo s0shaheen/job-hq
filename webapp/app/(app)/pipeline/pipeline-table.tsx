@@ -14,9 +14,11 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { WarmCell } from "@/components/warm-cell";
 import type { AppWriteResult } from "@/lib/data/source";
 import type { ApplicationView } from "@/lib/data/view-models";
 import { isDelisted } from "@/lib/data/view-models";
+import { connectionsAt, universeFor, type WarmContext } from "@/lib/referral/match";
 import { groupRank, isReopenable, statusGroup, statusRank } from "@/lib/status";
 import {
   addNoteAction,
@@ -84,6 +86,13 @@ type Props = {
   initial: ApplicationView[];
   /** Ambiguous-email review items, rendered above the groups. Empty is normal. */
   reviewItems?: ReviewItem[];
+  /**
+   * The warm-path indexes (0013), built server-side once per render.
+   *
+   * Optional so this component keeps working on a surface that has no universe
+   * to match against; the cell is then absent rather than guessing.
+   */
+  warm?: WarmContext;
 };
 
 export type ReviewItem = {
@@ -96,7 +105,7 @@ export type ReviewItem = {
   candidates: { id: number; label: string }[];
 };
 
-export default function PipelineTable({ initial, reviewItems = [] }: Props) {
+export default function PipelineTable({ initial, reviewItems = [], warm }: Props) {
   const [rows, setRows] = React.useState(initial);
   const [busyId, setBusyId] = React.useState<number | null>(null);
   const router = useRouter();
@@ -527,6 +536,7 @@ export default function PipelineTable({ initial, reviewItems = [] }: Props) {
                     app={app}
                     busy={busyId === app.id}
                     anyBusy={busyId !== null}
+                    warm={warm}
                     onStatus={(s) => void changeStatus(app, s)}
                     onReopen={(note) => void changeStatus(app, "Applied", note)}
                     onResolve={(d) => void resolve(app, d)}
@@ -560,6 +570,7 @@ function PipelineRow({
   app,
   busy,
   anyBusy,
+  warm,
   onStatus,
   onReopen,
   onResolve,
@@ -569,6 +580,8 @@ function PipelineRow({
   app: ApplicationView;
   busy: boolean;
   anyBusy: boolean;
+  /** The warm-path indexes (0013), or absent on a surface without them. */
+  warm?: WarmContext;
   onStatus: (status: string) => void;
   onReopen: (note: string) => void;
   onResolve: (decision: "confirm" | "reject") => void;
@@ -576,6 +589,7 @@ function PipelineRow({
   onNextAction: (text: string, date: string | null) => void;
 }) {
   const delisted = isDelisted(app);
+  const warmEntry = warm ? universeFor(warm.universe, app.company) : null;
 
   return (
     <li
@@ -635,6 +649,22 @@ function PipelineRow({
               </a>
             ) : null}
             <NotesDialog app={app} busy={anyBusy} onAdd={onAddNote} />
+            {/* The warm path, beside the evidence link rather than in a column
+                of its own: this table is a stack of cards on a phone, and a
+                seventh column at 375px is the overflow row 123 measures. The
+                pairing is the design brief's — on `Applied`, the moment to work
+                a referral is while the req is fresh. */}
+            {warm ? (
+              <WarmCell
+                company={app.company}
+                title={app.title}
+                companyId={warmEntry?.linkedinCompanyId ?? ""}
+                connections={connectionsAt(warm.connections, app.company)}
+                universeId={warmEntry?.id ?? null}
+                companyUpdatedAt={warmEntry?.companyUpdatedAt ?? null}
+                hasAnyConnections={warm.hasAnyConnections}
+              />
+            ) : null}
           </div>
         </div>
 

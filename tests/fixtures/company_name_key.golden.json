@@ -170,7 +170,7 @@
     "key": "z\u00fcrich insurance"
   },
   {
-    "why": "MEASURED DIVERGENCE: Postgres folds U+0130 to a bare i, Python/JS add U+0307",
+    "why": "MEASURED DIVERGENCE: Postgres folds U+0130 to a bare i, Python/JS add U+0307 — reachable since 0013, where lib/referral/match.ts compares a SQL-generated key against a TS-computed one (a silent non-match, pinned in referral-match.test.ts)",
     "name": "\u0130s Bank",
     "key": "i\u0307s bank",
     "sql_key": "is bank"

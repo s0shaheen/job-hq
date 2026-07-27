@@ -156,15 +156,43 @@ resolutions here override the individual plans where they conflict.
 > is built. **Next: P7 `/companies` review grid** — see the HQ-V2-BUILD
 > Checkpoint Log.
 
+> **[REFERRAL-FINDER.md](REFERRAL-FINDER.md) steps 1–2 are BUILT** — migration
+> **0013** (`companies.linkedin_company_id` + the shared row's own version token,
+> `public.connections` with a generated `company_key`), the pure URL builder
+> (`webapp/lib/referral/linkedin.ts`), the Warm cell on `/jobs` and `/pipeline`,
+> and the map → preview → commit connections import at `/connections`. Matrix
+> rows 228–236 in `docs/WEBAPP-BUILD.md`, which also carries the five stated
+> deferrals. **Steps 3–5 are not built** (contact entity + outreach tracking,
+> layer-2 vendor enrichment, digest/funnel reporting), and nothing on any surface
+> implies they are.
+>
+> **`0014` is reserved for auto-apply.** The two migration numbers were assigned
+> up front rather than raced for, because P8 and P7 collided on 0008 once and only
+> `test_migrations_are_contiguously_numbered` caught it.
+>
+> Two places this build **deviated from REFERRAL-FINDER.md on purpose**:
+>
+> 1. **The connections import does not stage.** The brief says "reuses the import
+>    machinery philosophy (map → preview → commit)" and this does — but not P9's
+>    TABLES. An `import_rows` row carries `job_key`, `key_strength`, `match_kind`,
+>    `matched_application_id`, `conflict`, `choices` and `revert`, every one of
+>    them about matching a spreadsheet row to an APPLICATION. What is reused is
+>    the half that carries the risk: `lib/import/read.ts` (dialect, encoding,
+>    dates, header sniffing, format refusal) and the 0.82 suggestion floor, now
+>    extracted to a pure `lib/import/suggest.ts` so both field sets share one.
+>    The cost — the import is not resumable — is on the mapping screen.
+> 2. **The school and past-company facets are unwired.** The design table lists
+>    "UIUC there" and "ex-Capital One there"; both need a numeric LinkedIn id per
+>    USER, and `profiles.criteria` is the gate contract while `profiles.notify`
+>    is the digest's. The builder supports them and the popover renders nothing
+>    about them, which is the honest version of a gap.
+>
 > **Future design threads (researched + designed, NOT scheduled — they do not
 > preempt anything above):** [AUTO-APPLY.md](AUTO-APPLY.md) (select rows →
 > Apply: prepare/review/submit/receipt pipeline, 4-layer answer engine,
-> Greenhouse→Ashby→Lever ≈ 80% coverage) and
-> [REFERRAL-FINDER.md](REFERRAL-FINDER.md) (warm-path surfacing per job:
-> zero-scrape LinkedIn deep links + connections export, vendor enrichment for
-> priority rows, outreach funnel instrumentation). Grounding research:
-> `docs/research/auto-apply-landscape.md`, `ats-apply-mechanics.md`,
-> `referral-finder-landscape.md` (all 2026-07-25).
+> Greenhouse→Ashby→Lever ≈ 80% coverage) and REFERRAL-FINDER's steps 3–5.
+> Grounding research: `docs/research/auto-apply-landscape.md`,
+> `ats-apply-mechanics.md`, `referral-finder-landscape.md` (all 2026-07-25).
 
 ## Build order
 

@@ -41,8 +41,13 @@ import type {
   PreviewProfileResult,
   CommitProfileInput,
   CommitProfileResult,
+  ClearConnectionsInput,
+  ClearConnectionsResult,
+  ImportConnectionsInput,
+  ImportConnectionsResult,
+  LinkedinCompanyIdInput,
 } from "./source";
-import { IMPORT_LIST_LIMIT } from "./source";
+import { CONNECTION_LIST_LIMIT, IMPORT_LIST_LIMIT } from "./source";
 import { parseComp } from "@/lib/gating/comp";
 import { clampWindowDays, computePreview, type PreviewPosting } from "@/lib/profile/preview";
 import { isOnboarded, parseCriteria } from "@/lib/profile/criteria";
@@ -50,6 +55,7 @@ import type {
   ApplicationView,
   ChannelHealthView,
   CompanyView,
+  ConnectionView,
   Disposition,
   JobView,
   NoteView,
@@ -103,7 +109,14 @@ const NOTE_EMBED = "application_notes(id, body, author, created_at)";
 const APPLICATION_COLS =
   "id, posting_key, company, title, url, status, status_actor, suggested_status, " +
   "evidence, applied_date, next_action, next_action_date, notes, updated_at";
-const COMPANY_COLS = "id, name, ats, slug, source, reliability_tier, resolution_method";
+const COMPANY_COLS =
+  "id, name, ats, slug, source, reliability_tier, resolution_method, linkedin_company_id, updated_at";
+
+/**
+ * One string literal, for COMPANY_COLS' reason: `postgrest-js` parses the select
+ * list out of the literal TYPE, and a concatenation widens it to `string`.
+ */
+const CONNECTION_COLS = "id, full_name, company, company_key, title, profile_url, connected_on";
 
 // ---- import row shapes (P9) -------------------------------------------------
 
@@ -313,7 +326,28 @@ export function toCompanyView(uc: Record<string, unknown>): CompanyView | null {
     enabled: bool(uc.monitor),
     priority: bool(uc.priority),
     seeded: bool(uc.seeded),
+    linkedinCompanyId: String(c.linkedin_company_id ?? ""),
     updatedAt: str(uc.updated_at),
+    // The SHARED row's token, out of the nested object. Two tokens, two writes;
+    // `app_company_row` puts this one inside `companies` precisely so a caller
+    // cannot pick it up by accident.
+    companyUpdatedAt: str(c.updated_at),
+  };
+}
+
+/**
+ * One connection row. `company_key` comes from the GENERATED column, never
+ * recomputed here — that is the whole reason it is generated.
+ */
+export function toConnectionView(r: Record<string, unknown>): ConnectionView {
+  return {
+    id: Number(r.id ?? 0),
+    fullName: String(r.full_name ?? ""),
+    company: String(r.company ?? ""),
+    companyKey: String(r.company_key ?? ""),
+    title: String(r.title ?? ""),
+    profileUrl: String(r.profile_url ?? ""),
+    connectedOn: str(r.connected_on),
   };
 }
 
@@ -788,6 +822,86 @@ export class SupabaseDataSource implements DataSource {
       .map((r) => toCompanyView(r as Record<string, unknown>))
       .filter((c): c is CompanyView => c !== null);
     return { ok: true, companies, added: Number(payload.added ?? 0) };
+  }
+
+  // ---- the referral finder (0013) ---------------------------------------
+
+  async setLinkedinCompanyId(input: LinkedinCompanyIdInput): Promise<CompanyFlagsResult> {
+    const { data, error } = await this.supabase.rpc("app_set_linkedin_company_id", {
+      p_company_id: input.companyId,
+      p_linkedin_id: input.linkedinId,
+      p_idem: input.idempotencyKey,
+      p_expected_updated_at: input.expectedUpdatedAt,
+    });
+    if (error) {
+      if (/conflict|stale/i.test(error.message)) {
+        // Re-read rather than echo what was sent: the conflict path's whole job
+        // is putting the SERVER's row on screen (matrix row 113).
+        const [fresh] = await this.userCompanies((q) =>
+          q.eq("company_id", input.companyId).limit(1),
+        );
+        if (fresh) return { ok: false, kind: "conflict", current: fresh };
+      }
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const company = toCompanyView((data ?? {}) as Record<string, unknown>);
+    if (!company) {
+      return {
+        ok: false,
+        kind: "error",
+        message: "Write succeeded but the row could not be re-read",
+      };
+    }
+    return { ok: true, company };
+  }
+
+  async connections(): Promise<ConnectionView[]> {
+    const { data, error } = await this.supabase
+      .from("connections")
+      .select(CONNECTION_COLS)
+      .eq("user_id", this.userId)
+      // Ordered for `companies()`'s reason: the cap decides WHICH rows survive
+      // it, so the ordering cannot be left to the query plan on a tie. By name,
+      // because that is also the order the popover lists them in.
+      .order("full_name", { ascending: true })
+      .order("id", { ascending: true })
+      .limit(CONNECTION_LIST_LIMIT);
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r) => toConnectionView(r as Record<string, unknown>));
+  }
+
+  async importConnections(input: ImportConnectionsInput): Promise<ImportConnectionsResult> {
+    const { data, error } = await this.supabase.rpc("app_import_connections", {
+      p_rows: input.rows.map((r) => ({
+        full_name: r.fullName,
+        first_name: r.firstName,
+        last_name: r.lastName,
+        company: r.company,
+        title: r.title,
+        profile_url: r.profileUrl,
+        connected_on: r.connectedOn,
+      })),
+      p_source: input.source,
+      p_idem: input.idempotencyKey,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    const row = (data ?? {}) as Record<string, unknown>;
+    return {
+      ok: true,
+      inserted: Number(row.inserted ?? 0),
+      updated: Number(row.updated ?? 0),
+      skipped: Number(row.skipped ?? 0),
+      deduped: Number(row.deduped ?? 0),
+    };
+  }
+
+  async clearConnections(input: ClearConnectionsInput): Promise<ClearConnectionsResult> {
+    const { data, error } = await this.supabase.rpc("app_clear_connections", {
+      p_idem: input.idempotencyKey,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    const row = (data ?? {}) as Record<string, unknown>;
+    return { ok: true, deleted: Number(row.deleted ?? 0) };
   }
 
   // ---- saved views ------------------------------------------------------

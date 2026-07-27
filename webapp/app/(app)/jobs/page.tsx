@@ -2,6 +2,7 @@ import { getDataSource } from "@/lib/data/get-source";
 import { clampPerfCount, makePerfJobs } from "@/lib/data/perf-fixtures";
 import { isDemoMode } from "@/lib/data/source";
 import type { JobView, SavedView } from "@/lib/data/view-models";
+import { buildWarmContext, type WarmContext } from "@/lib/referral/match";
 import JobsGrid from "./jobs-grid";
 
 export const metadata = { title: "Jobs — Job Search HQ" };
@@ -29,9 +30,12 @@ export default async function JobsPage({
   const perfN = isDemoMode() ? clampPerfCount(params.perf) : 0;
   let rows: JobView[];
   let views: SavedView[];
+  let warm: WarmContext | undefined;
   if (perfN > 0) {
     // The perf harness stays store-free (see above); saved views would only
     // add a store read to a page whose one job is measuring render budgets.
+    // The warm context is left undefined for the same reason, and the Warm
+    // column hides itself rather than painting 5,000 dashes.
     rows = makePerfJobs(perfN);
     views = [];
   } else {
@@ -39,7 +43,22 @@ export default async function JobsPage({
     // Loaded here, once, server-side: the grid resolves `?view=` and the
     // landing default from this list DURING the server render, so a shared
     // view link paints its exact state with no post-hydration pop.
-    [rows, views] = await Promise.all([src.jobs(), src.savedViews("jobs")]);
+    //
+    // The universe and the connections come from the SAME render, and are
+    // matched by normalized company name rather than by a join: `postings`
+    // carries a company string a board wrote, `companies` one a human curated,
+    // and there is no key between them but `company_name_key`. Building the
+    // indexes here means one pass over each list per page load instead of a
+    // lookup per row.
+    const [jobs, savedViews, companies, connections] = await Promise.all([
+      src.jobs(),
+      src.savedViews("jobs"),
+      src.companies(),
+      src.connections(),
+    ]);
+    rows = jobs;
+    views = savedViews;
+    warm = buildWarmContext(companies, connections);
   }
 
   // URL state (filters/sort/set/group/q) reaches the grid through
@@ -64,7 +83,7 @@ export default async function JobsPage({
           Every posting the sweeps have found, in one table.
         </p>
       </header>
-      <JobsGrid rows={rows} now={now} views={views} />
+      <JobsGrid rows={rows} now={now} views={views} warm={warm} />
     </div>
   );
 }

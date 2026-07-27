@@ -324,6 +324,26 @@ not the requirement. This is the actual list, with what enforces each.
 | 229 | **Six steps organised around the engine's fields** | Three of them asked about unknown-handling policies, which are the engine's questions and nobody else's, and the sixth was a preview with nothing to do but agree. Two now: what are you looking for, then where and how much, with the preview INLINE under the last question and the rest behind a `More filters` disclosure carrying the same defaults. `LAST_STEP` is the single source — `clampStep`, `data-last-step`, the step label, the visual spec and `draft.test.ts` all read it, after the six-step version was found hard-coded in a test that then failed for the shape of the change rather than for anything wrong | ✅ |
 | 230 | **Step one made two professions the frame** | Three radio cards, two of them job families the owner happens to be in, and everyone else had to select "Something else" before the app would talk to them. It is a text box now, and the two curated lists are template BUTTONS at the bottom — still worth offering, since `users/salman` and `users/dad` are the only title lists anybody has tuned against a live feed (`test_profile_presets.py` still pins both), but offering them first is what told a nurse this was not built for her. What made the demotion possible is `lib/profile/derive.ts`: `titles_include` and `board_search_term` fill in from the role AS IT IS TYPED, into fields that stay visible and editable, so one field is a whole profile and the two blocking gates from row 210 are gone. It is not row 209's lie returning — that wrote "product manager" OVER an answer; this writes what the person typed, where they can see it. A fresh wizard opens EMPTY rather than on the product-management preset, which row 211 chose for reasons the radios no longer create | ✅ |
 
+| 228 | **A regexp is a shape, not a date** | `hq_connection_rows` guarded its `::date` with `^\d{4}-\d{2}-\d{2}$`, which accepts `2026-13-45` and `2026-02-31` — and the cast then raises 22008 and takes the whole 1,000-row chunk down, which is the exact failure the guard's own comment claimed it prevented. `to_date(x,'YYYY-MM-DD')` is not the fix either: the docs call it lenient and on this Postgres both strings raise from inside it, so a `to_char(to_date(…))` round trip is still a throw. `hq_iso_date` does the cast inside a plpgsql exception block, which is the only construct in SQL that turns a raise into a value; `when others` is deliberate because the two shapes raise 22008 and 22007 and a narrower catch leaks whichever it did not name. Found by the db suite, not by review | ✅ |
+| 229 | **A merge closed in one direction is a permanent duplicate** | LinkedIn withholds a connection's profile URL while they have it restricted, so the row is stored under `profile_url = ''`. They un-restrict it; next month's export carries the URL; `connections_by_profile` is PARTIAL on `profile_url <> ''` and sees no conflict — the same human lands twice and can never merge again, with `deduped: 0` on both reports so nothing on screen says anything happened. The first draft guarded only the other direction and reasoned about precisely this scenario in the comment beside it. A promotion pass claims the stored row instead, keeping the `connected_on` the new line does not carry, with a `not exists` for the case where the URL is already held and a `distinct on` so the join partner cannot be arbitrary | ✅ |
+| 230 | **A new column that renders past the container's right edge** | The Warm column was appended last, and at 1280px the seven existing /jobs columns already fill the scroll container exactly — so the entire feature was off-screen on the default desktop view. Nothing in the suite could have said so: `layout.spec.ts` measures painted overflow of the PAGE, which is clean by construction because the grid scrolls inside itself, and every functional assertion locates the cell by testid whether it is visible or not. The first recorded baseline is what showed it. Third column now, with Posted as the cheapest thing to push off. Rows 22–24's rule, arriving through a screenshot again | ✅ |
+| 231 | **A green typecheck and a red build** | `import { FUZZY_FLOOR } from "./suggest"` followed by `export { FUZZY_FLOOR }` creates a local binding AND an export of one name. `tsc --noEmit` accepts it; `next build` refuses it ("individual declarations in merged declaration must be all exported or all local"). So `npm run typecheck` — the gate a person runs — was green while the thing that ships could not compile. `export … from` has no local binding and no such hazard. The lesson is the gate list: typecheck is not a build | ✅ |
+| 232 | **A cell that reaches a server action cannot live in a unit-testable module** | Putting `<WarmCell>` in `lib/grid/columns.tsx` pulled `lib/referral/actions.ts` → `getDataSource` → the `server-only` reader into the module graph, and `grid-columns.test.ts` and `view-state.test.ts` both failed to LOAD — zero tests, not zero assertions. The column declares itself and `jobs-grid.tsx` renders the real cell, which is the split the Why chip already used for a softer reason | ✅ |
+| 233 | **"Nobody works here" and "you imported nothing" are one boolean** | Two states with opposite remedies: one is a fact about the company, the other is a thing to go and do. `WarmContext.hasAnyConnections` keeps them apart and the popover renders a different sentence for each — row 15's lesson (`/queue` saying "Nothing to triage" whether the sweep found nothing or the profile gated everything out) on a new surface, and the `empty` demo seed now clears connections so the second state is reachable through the only source the tests can drive | ✅ |
+| 234 | **A facet present-and-empty reads as "nobody"** | `currentCompany=[]` is a real LinkedIn search that returns nothing, and a reader takes an empty result for an answer about the company rather than about the URL. `peopleSearchUrl` DROPS ids that are not digits — the column is free-vocab by 0008's precedent, so it must — and when a facet's ids are all dropped the facet is absent rather than empty. Asserted in both directions, because the drop alone would be the bug | ✅ |
+| 235 | **A space encoded as `+` searches for a plus sign** | `URLSearchParams.toString()` is form-urlencoded; `+` means a space only to a decoder that knows the format. LinkedIn's keyword box is the one place in this feature where that guess is visible, and `product+manager` returns nothing. Rewritten to `%20`, which is safe as a blanket replace precisely because the serializer ran first: a `+` somebody typed is already `%2B` by then | ✅ |
+| 236 | **An `sr-only` control has no name** | axe went red the first time /connections was scanned: `sr-only` hides the file input from SIGHT, not from the accessibility tree, and the visible control is the button beside it. A screen-reader user landed on an unnamed input. Same family as row 23 — a decorative-looking element that is still in the tree | ✅ |
+| 237 | **A version token that is really a mirror-activity timestamp** | `companies_touch` fired on every UPDATE, and `public.companies` is the only versioned table here a BULK MIRROR rewrites wholesale — `discover_universe.upsert_universe` posts the whole ~640-row universe with `resolution=merge-duplicates`, which is `on conflict … do update` and fires the trigger on rows where every value is byte-identical (measured: the token moved 3ms, nothing else did). So the sequence was: /jobs renders and captures the token, the sweep runs, the paste 409s, and the UI says "Somebody set this on another device. Reload to see their value." Nobody did, and the reload shows the same empty cell. `when (old.* is distinct from new.*)`, on this trigger and not the six beside it — the others are written only by RPCs that already decided the row changed. Two tests, because the naive fix ("never move it") passes the first: the no-op leaves the token alone AND a paste held across a no-op sweep still lands, with the existing stale-token test as the control | ✅ |
+| 238 | **The fake was not more forgiving, it was DIFFERENT** | The promotion pass existed in SQL and not in `FixtureDataSource`, so for the one scenario matrix row 229 was written for, Postgres answered `{inserted: 0, updated: 1}` with one row and the fake answered `{inserted: 1, updated: 0}` with two — the demo and every E2E run minting the permanent duplicate the pass exists to prevent, and the four-number report a person READS disagreeing with production's. The usual house rule is "a fake that is kinder hides the bug"; this is the sharper version, a fake that answers a different question. `parity.test.ts`'s 0013 section pinned MAX_CHUNK, the source tags, the id regexp and every refusal string and pinned NOTHING about promotion, which is how it shipped — it now pins the three SQL clauses by text AND the four numbers by behaviour, because a text pin alone passes on a fake that has the clauses and misuses them | ✅ |
+| 239 | **The test a file calls "THE assertion" racing the write it exists to prove** | `click()` resolves on dispatch, not on the handler's `await`, so `await page.reload()` on the next line cancels the in-flight server action. It passed only because the in-memory fake answers in microseconds; a 400ms delay injected into the fake turns it red. Gated on the toast, which is rendered from inside the `result.ok` branch and nothing else produces — a popover also closes on an outside click or Escape. Rows 21/206's data-gated-entry rule, applied on the way OUT | ✅ |
+| 240 | **A build-log claim that a state was reachable, when no seed produced it** | Row 233's actual fix — the branch keeping "nobody you know works here" apart from "you have not uploaded anything" — was reachable through no demo seed, and this table said `empty` covered it. It does not: `empty` clears the postings too, so there is no ROW to carry a chip. The e2e admitted that in a comment and then asserted /connections copy under a name promising a job-row claim, which is the shape of green test this file is a catalogue of. A fifth seed (`no-connections`: everything except the export) plus a positive control on the other branch, so neither sentence can be hardcoded and pass both | ✅ |
+| 241 | **A cap the app enforces and never mentions** | `connections()` reads the first 5,000 rows by name and the upload accepts 5,000 — so past the ceiling rows are STORED and never read, the count on /connections stops being "how many you have", and every warm popover under-counts for names after the cut. The upload's refusal actively walked people into it: "Split the file and upload it in two passes — both halves merge into one list." Both halves land; the second is invisible. The refusal names the real ceiling now, and the surface says so only when a user is AT it — a warning nobody can be affected by is the noise that teaches people to skip warnings | ✅ |
+| 242 | **Row 227 reintroduced in the branch that cites it three times** | `TableMeta.warm` carried a 12-line rationale and was read by nothing (the override renders from the component's own prop); the Warm column's dash cell was documented as "the NO-CONTEXT branch" and was unreachable, because the grid hides the column outright in exactly that case. Writing the rationale is not what makes code live. Both deleted; the column is now the one entry in `GRID_COLUMNS` with no `cell`, asserted — alongside every other column still having one, so the assertion is about this column and not about the type | ✅ |
+| 243 | **The first place a SQL-generated key meets a TS-computed one** | `company_name_key` has three implementations pinned to one corpus, and the corpus carries a measured divergence (Postgres folds U+0130 to a bare `i`; JS and Python to `i` + U+0307). It had never mattered because both sides of every previous comparison came from the same language — `reconcile_grounded_company` keys the raw name itself. `indexConnections` compares the generated column against `companyNameKey`, so a company named with that codepoint is a silent NON-match: stored, indexed, never found by its own row. Not fixed (the fix is changing one of three implementations of a key already in a generated column and a unique index), stated where it is reachable and pinned so it cannot get quietly worse. A non-match rather than a wrong match, which is the right way round | ✅ |
+| 244 | **A comment that framed the benign reading as the only one** | `companies_unresolved_name_key` is PARTIAL on `ats = '' and slug = ''`, so two DIFFERENT grounded companies sharing a normalized name (`Apex`/`APEX`, both real) are legal — and `indexUniverse` hands a posting from one the LinkedIn id of the other, which `linkedin.ts` itself describes as sending outreach to strangers at another company. The comment described only the multi-board case it collapses correctly. The test now asserts the WRONG answer on purpose, because pretending otherwise is how somebody re-derives it as a bug in six months, and pins what IS guaranteed: the collapse is deterministic across input order, so clearing the id makes it stay cleared | ✅ |
+| 245 | **The constraint the whole feature is shaped by, enforced by prose** | Nothing forbade a `fetch` appearing in `lib/referral/` — and one added two phases from now (an enrich button, a favicon, a preview card) is not a bug to fix later, it is the account the feature depends on being suspended. Eleven outbound shapes swept across five files, including the ones a reviewer would not think of: `<img>`, `new Image()`, `backgroundImage` and the resource hints are all automated requests to linkedin.com carrying the user's cookies, made per grid row, without anybody calling it scraping. Three things keep it from being theatre — comments stripped before matching (every guarded file explains what it does not do, several naming `fetch` while doing so), the directory ENUMERATED so a file added later must be guarded or exempted with a reason, and the patterns run against a sample containing all eleven so a regexp that matches nothing cannot pass vacuously. **Not claimed:** that it is a security boundary. Somebody adding a fetch can delete it in the same commit; it makes that a deliberate act with a diff beside it | ✅ |
+| 246 | **A perf budget that structurally excludes the newest component** | `?perf=5000` is store-free, so it builds no warm context, so `jobs-grid.tsx` hides the Warm column — and every budget in `grid-perf.spec.ts` is therefore measured over a grid without the `Popover.Root` each painted Warm cell mounts. Named in both places rather than closed, with the bound that makes it acceptable (react-virtual paints ~80 rows, so the cost does not grow with the data) and the trigger that ends it (any work that is not per-painted-row — a subscription, a timer, an observer — and the harness has to learn to build a context). Rows 101/138's family: a budget's silence about what it does not cover reads as coverage | ✅ |
+
 Three container failures survive on this branch and none of them is P8's: two are
 `empty.spec.ts:72` (passes cleanly in isolation in the same image — a parallel-load
 artefact under qemu, present on `main`) and `grid-perf.spec.ts`'s 4x-CPU budget,
@@ -708,6 +728,105 @@ Worth keeping, because each was stated confidently and was wrong:
       user, because no row is created at signup and nothing has written one before
       now. That is the intended first-run behaviour, and the wizard's Save is what
       creates the row.
+- [x] **Referral finder, steps 1–2** (`docs/plans/REFERRAL-FINDER.md` "Build shape";
+      migration **0013**, and **0014 is reserved for auto-apply** — the two numbers were
+      assigned up front so the branches cannot collide the way P8's did). Matrix rows
+      **228–236**. Seven commits, narrow.
+
+      **The architecture is the risk ladder, not a phase order.** Connection degree
+      exists only inside the owner's own logged-in LinkedIn view plus their officially
+      exportable CSV; no compliant API sells it; enforcement is suspension-first (hiQ
+      ended with the ToS held enforceable, Proxycurl chose shutdown over the fight,
+      HeyReach and its USERS' accounts were banned). The account these links open is the
+      delivery channel for the whole referral play, so layer ∞ — their `li_at` cookie, a
+      page-reading extension, messaging-as-them — stays permanently unbuilt. **Nothing
+      in this branch performs a network call to linkedin.com.** Every URL is an `<a
+      href>` a person clicks in their own session, and the popover says so on screen.
+
+      What shipped:
+
+      * `companies.linkedin_company_id` on the SHARED table with the shared row's own
+        `updated_at` token, backfilled lazily by a paste-once prompt on the row where
+        somebody notices the gap.
+      * `lib/referral/linkedin.ts` — the pure people-search builder: company, keywords,
+        connection degree, school and past-company facets.
+      * `public.connections` + the map → preview → commit import at `/connections`,
+        reusing `lib/import/read.ts` and a newly-extracted `lib/import/suggest.ts`.
+      * The Warm cell on `/jobs` (third column) and `/pipeline`, with the 1st-degree
+        match by `company_name_key` and a popover listing the names.
+
+      Two shapes worth carrying out of it:
+
+      1. **A regexp proves a shape and not a value.** The date guard read as thorough
+         and accepted `2026-13-45`; the cast behind it then aborted a 1,000-row chunk.
+         The check has to be the CONVERSION, in a place a failure can be caught.
+      2. **A screenshot found what no assertion could.** The Warm column rendered past
+         the scroll container's right edge — invisible on the default desktop view,
+         with every functional test green because a testid locator does not care
+         whether an element is on screen. Rows 22–24, a fourth time.
+
+      **Deferred, stated rather than implied:**
+
+      (a) **No outreach tracking.** No contact entity, no `identified → contacted →
+      replied → referred`, no drafts. That is step 3 of the build shape and it is not
+      built, so no string on any surface implies it (matrix row 227's rule applied to
+      copy).
+
+      (b) **The school and ex-employer facets are built, tested, and supplied by no
+      surface.** The brief's "UIUC there" and "ex-Capital One there" links each need a
+      numeric LinkedIn id PER USER, and there is nowhere to keep one: `profiles.criteria`
+      is the gate contract (pinned field-by-field to `monitor/gates.py`'s dataclass in
+      both directions) and `profiles.notify` belongs to the digest phase. Wiring is one
+      profile field and one settings input; until then no copy mentions alumni, so
+      nothing on screen promises what is not there.
+
+      (c) **The connections import is not resumable**, unlike P9's. The rows come back
+      to the browser instead of staging into Postgres, because a connections export has
+      no per-row decisions in it — closing the tab costs a five-second re-upload. Said
+      on the mapping screen, not only here.
+
+      (d) **Warm is not sortable**, which the brief asks for ("so 'which of today's
+      queue has a warm path' is a sort, not a hunt"). `lib/grid/sort.ts` sorts a
+      `JobView[]` before react-table sees it and warmth is not on a `JobView`; a header
+      that looked sortable and was not would be worse than a plain one.
+
+      (e) **A promotion collision is skipped rather than merged.** If a URL-less row and
+      a row already holding that exact URL both exist, the URL-less one is left alone —
+      a genuine duplicate the person clears with "Remove all" and re-imports. Stated on
+      the `not exists` that produces it.
+
+      (f) **Two name-keying limits, inherent and unfixed** (matrix rows 243, 244): a
+      company whose name carries U+0130 is a silent non-match, and two different
+      companies sharing one normalized key collapse to one entry. Both are stated at the
+      code that produces them and pinned by tests that assert the real behaviour rather
+      than the comfortable one.
+
+      **Adversarial review pass** (matrix rows **237–246**). The risk ladder came back
+      CLEAN — the reviewer grepped every added line for `fetch`/`axios`/`XMLHttpRequest`/
+      `<img`/`sendBeacon`/`WebSocket`/resource hints and found exactly one hit, the
+      same-origin upload, and probed `connectionUrl`'s href guard with
+      `javascript:alert(1)//linkedin.com/`, `https://www.linkedin.com.evil.com/`,
+      `https://user:pw@evil.com/linkedin.com/` and `https://www.linkedin.com@evil.com/`,
+      all of which fall back to a name search. Ten findings, all fixed, two of them HIGH.
+
+      Four shapes out of it that are not specific to this phase:
+
+      1. **A fake can be DIFFERENT rather than merely more forgiving.** The house rule
+         is "a fake that is kinder hides the bug it exists to catch". The sharper version:
+         the fake answered a different four-number report than production for the one
+         scenario the code under it was written for, and the report is what a person
+         reads. Behaviour parity has to be pinned by NUMBERS, not only by the presence of
+         the clauses that produce them.
+      2. **A version token is only a version token if it moves on content.** A trigger
+         that fires on every UPDATE turns it into an activity timestamp the moment
+         anything bulk-upserts the table, and the failure surfaces as the app accusing
+         the user of an edit nobody made.
+      3. **Writing the rationale is not what makes code live.** `TableMeta.warm` had
+         twelve lines explaining a mechanism nothing read — row 227 reintroduced by the
+         branch that cites it three times. A long comment is weak evidence of a caller.
+      4. **A gate's silence about what it does not cover reads as coverage.** The perf
+         budget excluded the newest per-row component by construction, and nothing said
+         so; the fix was a sentence and a stated trigger, not a new harness.
 - [ ] **Next up — the rest of Track 2** (`docs/plans/HQ-V2-BUILD.md`): P11 digest.
       Track-1 discovery infra is complete **except the last hop**: 0009 landed the
       reconciler and `monitor/universe.py`, which READS the verdict —

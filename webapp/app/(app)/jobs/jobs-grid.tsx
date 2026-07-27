@@ -41,6 +41,8 @@ import {
   type SortField,
 } from "@/lib/grid/sort";
 import { serializeGridState, type GridUrlState } from "@/lib/grid/url-state";
+import { WarmCell } from "@/components/warm-cell";
+import { connectionsAt, universeFor, type WarmContext } from "@/lib/referral/match";
 import {
   displayEquals,
   presetUrl,
@@ -114,10 +116,19 @@ export default function JobsGrid({
   rows,
   now,
   views,
+  warm,
 }: {
   rows: JobView[];
   now: number;
   views: SavedView[];
+  /**
+   * The warm-path indexes, built server-side once per render (0013).
+   *
+   * Optional because the perf harness (`?perf=5000`) is deliberately store-free
+   * — it measures render budgets and has no universe to match against — and the
+   * Warm cell renders a dash rather than guessing when it is absent.
+   */
+  warm?: WarmContext;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -311,7 +322,33 @@ export default function JobsGrid({
     getCoreRowModel: getCoreRowModel(),
     getRowId: (row) => row.key,
     state: {
-      columnVisibility: { why: whyVisible, decision: state.set === "all" },
+      columnVisibility: {
+        why: whyVisible,
+        decision: state.set === "all",
+        // Hidden with no context to render — which in practice means the perf
+        // harness, since `?perf=5000` is the one path that renders this grid
+        // without a warm context. A column of dashes on 5,000 rows is a rail
+        // that costs the reader width and says nothing.
+        //
+        // **STATED COST: `grid-perf.spec.ts` therefore never measures the Warm
+        // cell.** That spec is the branch's render budget — rendered rows ≤ 80,
+        // client TTI under 4× CPU throttle, no long task over 200ms across a
+        // 30-viewport scroll — and this line structurally excludes the newest
+        // per-row component from all of it, including the `Popover.Root` each
+        // painted Warm cell mounts.
+        //
+        // Not closed, and the reason is that closing it honestly means giving
+        // the harness a synthetic universe and 5,000 synthetic connections, at
+        // which point the budget measures the fixture generator as much as the
+        // grid. The bound that makes this acceptable is a real one rather than
+        // an argument: react-virtual paints ~80 rows, so at most ~80 popover
+        // roots exist at any scroll position no matter how many rows the store
+        // holds — the count does not grow with the data. If the Warm cell ever
+        // grows work that is not per-painted-row (a subscription, an effect with
+        // a timer, an observer), that bound stops holding and the harness has to
+        // learn to build a warm context.
+        warm: warm !== undefined,
+      },
     },
   });
 
@@ -1257,8 +1294,32 @@ export default function JobsGrid({
                                 : "sticky left-0 z-10 border-r border-border bg-surface group-hover:bg-raised"),
                           )}
                         >
-                          {cell.column.id === "why" &&
-                          row.original.disposition !== "qualified" ? (
+                          {cell.column.id === "warm" && warm ? (
+                            // The real cell, rendered HERE rather than in the
+                            // column def: `WarmCell` reaches a server action,
+                            // which reaches the server-only reader, and
+                            // `columns.tsx` has to stay importable from a
+                            // Vitest unit test. Same split the Why chip uses,
+                            // for a different reason.
+                            <WarmCell
+                              company={row.original.company}
+                              title={row.original.title}
+                              companyId={
+                                universeFor(warm.universe, row.original.company)
+                                  ?.linkedinCompanyId ?? ""
+                              }
+                              connections={connectionsAt(warm.connections, row.original.company)}
+                              universeId={
+                                universeFor(warm.universe, row.original.company)?.id ?? null
+                              }
+                              companyUpdatedAt={
+                                universeFor(warm.universe, row.original.company)
+                                  ?.companyUpdatedAt ?? null
+                              }
+                              hasAnyConnections={warm.hasAnyConnections}
+                            />
+                          ) : cell.column.id === "why" &&
+                            row.original.disposition !== "qualified" ? (
                             // The chip, not plain text: the sentence is the
                             // cell, the CLICK adds which setting caused it
                             // and where to change it (plan §6).

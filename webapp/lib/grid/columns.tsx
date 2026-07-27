@@ -135,6 +135,39 @@ export const GRID_COLUMNS: ColumnDef<JobView>[] = [
     ),
   },
   {
+    id: "warm",
+    header: "Warm",
+    size: 110,
+    // THIRD, not last, and the position was measured rather than chosen. The
+    // grid scrolls horizontally inside its own container, and at 1280px the
+    // seven original columns already fill it exactly — so a Warm column appended
+    // at the end sits past the right edge and is invisible on the default
+    // desktop view. The first recorded baseline is what showed it: a new feature
+    // that has to be scrolled to is a new feature nobody uses. Posted is what
+    // scrolls off in its place, which is the cheapest column to lose.
+    //
+    // No `sortField`: sorting by warmth is the design brief's eventual ask
+    // ("so 'which of today's queue has a warm path' is a sort, not a hunt"),
+    // and it cannot be done here — `lib/grid/sort.ts` sorts a `JobView[]`
+    // before react-table sees it, and warmth is not on a JobView. A header that
+    // looked sortable and was not would be worse than a plain one.
+    //
+    // NO CELL, deliberately, and this is the one column in the table without
+    // one. `jobs-grid.tsx` renders every Warm cell itself, because `WarmCell`
+    // reaches a server action, `lib/referral/actions.ts` reaches
+    // `getDataSource`, and that reaches the `server-only` reader — a
+    // `columns.tsx` that imported the component could no longer be imported by a
+    // Vitest unit test at all (`grid-columns.test.ts` and `view-state.test.ts`
+    // both failed to LOAD, proving it).
+    //
+    // The first version put a dash here as "the no-context branch". It was
+    // unreachable: the grid hides this column outright when there is no warm
+    // context, which is the only case that cell existed for. Documented dead
+    // code is the shape matrix row 227 is about, and this file is not exempt
+    // from it — so the column declares its identity, its width and its header,
+    // and nothing it cannot honour. `grid-columns.test.ts` asserts the absence.
+  },
+  {
     id: "comp",
     header: "Comp",
     size: 160,

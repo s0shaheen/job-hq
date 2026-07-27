@@ -456,6 +456,151 @@ def test_a_user_cannot_read_another_users_import(conn, two_users):
         ) == 0, f"{me} can read {them}'s column report"
 
 
+# ------------------------------------------------------------- referral (0013)
+
+
+def _import_connections(conn, user_id, rows):
+    """Seed connections the way the browser does — through the definer RPC."""
+    conn.execute("reset role")
+    conn.execute("select set_config('hq.test_user', %s, false)", (user_id,))
+    conn.execute(
+        "select public.app_import_connections(%s::jsonb, 'linkedin-export', %s)",
+        (json.dumps(rows), str(uuid.uuid4())),
+    )
+
+
+def test_a_user_cannot_read_another_users_connections(conn, two_users):
+    """A connections export is somebody's entire professional network — every
+    person they know, where those people work, and when they met. Spec §I mandates
+    a two-real-user test per per-user table, and this one is read DIRECTLY through
+    PostgREST by every surface that shows a warm path, so `connections_self_read`
+    is load-bearing rather than belt-and-braces.
+
+    Positive control FIRST, as everywhere in this file: A reads its own. "B sees
+    nothing" is equally true when nobody can read the table at all, and would keep
+    passing with the policy dropped.
+    """
+    u = two_users
+    _import_connections(conn, u["a"], [{"full_name": "A Contact", "company": "AlphaCorp"}])
+    _import_connections(conn, u["b"], [{"full_name": "B Contact", "company": "BetaCorp"}])
+
+    for me, them in (("a", "b"), ("b", "a")):
+        as_authenticated(conn, u[me])
+        assert count(
+            conn, "select count(*) from public.connections where user_id = %s", u[me]
+        ) == 1, f"{me} cannot read its own connections — every negative below is vacuous"
+        assert count(
+            conn, "select count(*) from public.connections where user_id = %s", u[them]
+        ) == 0, f"{me} can read {them}'s connections"
+        # …and not by any other route either: the whole table is one row to them.
+        assert count(conn, "select count(*) from public.connections") == 1
+
+
+def test_the_connections_read_policy_is_what_hides_them(conn, two_users):
+    """The meta-test, in this file's existing shape: drop the protection and the
+    assertion above must go RED. Without it, "A reads 0 of B's connections" could
+    be passing for any number of unrelated reasons."""
+    u = two_users
+    _import_connections(conn, u["b"], [{"full_name": "B Contact", "company": "BetaCorp"}])
+
+    conn.execute("reset role")
+    conn.execute("alter table public.connections disable row level security")
+    try:
+        as_authenticated(conn, u["a"])
+        leaked = count(
+            conn, "select count(*) from public.connections where user_id = %s", u["b"]
+        )
+        assert leaked > 0, (
+            "with RLS disabled A still could not see B's connections — the test is "
+            "measuring something other than the policy"
+        )
+    finally:
+        conn.execute("reset role")
+        conn.execute("alter table public.connections enable row level security")
+
+
+def test_an_authenticated_user_has_no_direct_write_to_connections(conn, two_users):
+    """The browser writes through `app_import_connections` / `app_clear_connections`
+    or not at all (0001's closing note). The grid READS this table directly, so it
+    is easy to assume it is writable directly too — and a direct write would skip
+    the normalization, the dedupe, the report and the audit event in one stroke.
+
+    The revoke names `public, anon, authenticated` rather than only `public`,
+    because Supabase's bootstrap grants BY NAME and revoking from `public` does not
+    touch a named grant (matrix row 216).
+    """
+    u = two_users
+    _import_connections(conn, u["a"], [{"full_name": "A Contact", "company": "AlphaCorp"}])
+    as_authenticated(conn, u["a"])
+    for stmt, args in (
+        ("insert into public.connections (user_id, full_name) values (%s, 'sneaky')", (u["a"],)),
+        ("update public.connections set company = 'Ramp'", ()),
+        ("delete from public.connections", ()),
+        ("truncate public.connections", ()),
+    ):
+        with pytest.raises(psycopg.errors.Error) as exc:
+            conn.execute(stmt, args)
+        assert "permission denied" in str(exc.value).lower() or "policy" in str(
+            exc.value
+        ).lower(), stmt
+
+    # Nothing above landed, and the row that was there still is.
+    conn.execute("reset role")
+    assert count(conn, "select count(*) from public.connections where user_id = %s", u["a"]) == 1
+
+
+def test_the_linkedin_column_does_not_widen_the_shared_companies_policy(conn, two_users):
+    """0013 puts a new column on the SHARED `companies` table, and the migration
+    states the cost it accepts: one watcher's paste is visible to every OTHER
+    watcher of that company. `companies_visible_to_watchers` (0002) is what bounds
+    that to watchers — so the new column must not turn the shared universe into a
+    thing anybody with a session can read.
+
+    Both directions: somebody who watches nothing sees nothing, and the same
+    person sees the id the moment they watch the company. Without the second half
+    this would pass for a policy that hid the table from everyone.
+    """
+    u = two_users
+    conn.execute("reset role")
+    cid = conn.execute(
+        """insert into public.companies (name, ats, slug, source, reliability_tier,
+                                         resolution_method)
+           values (%s, 'greenhouse', %s, 'test', 1, 'discover-greenhouse') returning id""",
+        (f"Ramp {uuid.uuid4().hex[:6]}", uuid.uuid4().hex[:8]),
+    ).fetchone()[0]
+    conn.execute(
+        """insert into public.user_companies (user_id, company_id, monitor, review_state)
+           values (%s, %s, true, 'approved')""",
+        (u["b"], cid),
+    )
+    conn.execute("select set_config('hq.test_user', %s, false)", (u["b"],))
+    conn.execute(
+        "select public.app_set_linkedin_company_id(%s, '1035', %s, null)",
+        (cid, str(uuid.uuid4())),
+    )
+
+    as_authenticated(conn, u["a"])
+    assert count(conn, "select count(*) from public.companies where id = %s", cid) == 0, (
+        "the new column widened companies_visible_to_watchers"
+    )
+    assert count(conn, "select count(*) from public.companies") == 0, (
+        "a user who watches no companies can read the shared universe"
+    )
+
+    # The control: watching it is what makes it visible — and the pasted id comes
+    # with it, which is the shared-column tradeoff 0013 states out loud.
+    conn.execute("reset role")
+    conn.execute(
+        """insert into public.user_companies (user_id, company_id, monitor, review_state)
+           values (%s, %s, true, 'approved')""",
+        (u["a"], cid),
+    )
+    as_authenticated(conn, u["a"])
+    assert conn.execute(
+        "select linkedin_company_id from public.companies where id = %s", (cid,)
+    ).fetchone() == ("1035",)
+
+
 def test_an_authenticated_user_has_no_direct_write_to_the_import_tables(conn, two_users):
     """The wizard writes through `app_import_*` or not at all (0001's closing
     note). Without the revoke, a browser could stage rows into somebody else's

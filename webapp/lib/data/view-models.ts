@@ -138,8 +138,48 @@ export type CompanyView = {
   priority: boolean;
   /** True when the row came from the seeded sheet rather than from discovery. */
   seeded: boolean;
-  /** Optimistic-concurrency token: sent back with any write. */
+  /**
+   * `companies.linkedin_company_id` (0013) — the `f_C=` number somebody pasted
+   * once, "" until they do.
+   *
+   * Untrusted text by construction: the column is free-vocab (0008's `source`
+   * precedent), so the digits-only rule lives in `app_set_linkedin_company_id`
+   * and in `lib/referral/linkedin.ts`, at both ends rather than at one.
+   */
+  linkedinCompanyId: string;
+  /** Optimistic-concurrency token for the per-user subscription row. */
   updatedAt: string | null;
+  /**
+   * Optimistic-concurrency token for the SHARED company row — a different token
+   * guarding a different write (0013).
+   *
+   * Named apart from `updatedAt` on purpose. Sending the wrong one produces a
+   * conflict on a row nobody touched, which reads as the feature being broken;
+   * two distinct names are what stop that at the type level.
+   */
+  companyUpdatedAt: string | null;
+};
+
+/**
+ * One row of the user's own LinkedIn connections export (0013).
+ *
+ * `companyKey` is the GENERATED `company_name_key(company)` from SQL, carried
+ * rather than recomputed: it is the join key for every match this feature makes,
+ * and a view model that dropped it would push the normalization back into every
+ * consumer — which is how 'Aon' and 'aon' became two companies the first time.
+ */
+export type ConnectionView = {
+  id: number;
+  fullName: string;
+  company: string;
+  /** Normalized company identity — the ONLY thing the match compares. */
+  companyKey: string;
+  /** Their job title, verbatim from the export's "Position" column. */
+  title: string;
+  /** Their public profile URL, "" when LinkedIn withheld it. */
+  profileUrl: string;
+  /** ISO date, or null when the export's date could not be PROVED. */
+  connectedOn: string | null;
 };
 
 /**

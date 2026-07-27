@@ -11,6 +11,23 @@ import { expect, test, type Page } from "@playwright/test";
  * the data source. It is a query parameter rather than a get-source.ts store
  * hook because the rows are read-only — no store is needed — and the gate then
  * lives entirely inside the page that consumes it.
+ *
+ * WHAT THIS SPEC DOES NOT MEASURE, said here rather than discovered later.
+ *
+ * The perf page is store-free, so it builds no warm context — and `jobs-grid.tsx`
+ * hides the **Warm** column when there is none. So every budget below is measured
+ * over a grid WITHOUT the newest per-row component, including the `Popover.Root`
+ * each painted Warm cell mounts. A budget that structurally excludes the thing
+ * most likely to have regressed is worth naming; the alternative reading — that
+ * these numbers cover the whole row — is the one that gets somebody hurt.
+ *
+ * The bound that makes it acceptable is structural rather than an argument:
+ * react-virtual paints ~80 rows (ROW_DOM_BOUND below), so at most ~80 popover
+ * roots exist at any scroll position however many rows the store holds. The cost
+ * does not grow with the data, which is the property these budgets exist to
+ * protect. If the Warm cell ever grows work that is not per-painted-row — a
+ * subscription, an effect with a timer, an IntersectionObserver — that bound
+ * stops holding and the harness has to learn to build a warm context.
  */
 
 const PERF_URL = "/jobs?perf=5000";

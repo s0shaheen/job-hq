@@ -5,6 +5,7 @@ import {
   LayoutGrid,
   ListChecks,
   Building2,
+  Users,
   Plus,
   Upload,
   Activity,
@@ -42,6 +43,10 @@ const PRIMARY: readonly NavItem[] = [
   // something you do once when you arrive and rarely again — the three above it
   // are the daily work, and /companies is the plumbing behind them.
   { href: "/import", label: "Import", icon: Upload },
+  // Live since the referral finder's first two steps. Beside /import because it
+  // is the same gesture — a file you already have, brought in once — and above
+  // /add so the two live import surfaces sit together.
+  { href: "/connections", label: "Connections", icon: Users },
   { href: "/add", label: "Add", icon: Plus, soon: true },
 ];
 

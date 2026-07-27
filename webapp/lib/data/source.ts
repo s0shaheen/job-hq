@@ -21,6 +21,7 @@ import type {
   ApplicationView,
   ChannelHealthView,
   CompanyView,
+  ConnectionView,
   JobView,
   NoteView,
   ReviewState,
@@ -176,6 +177,96 @@ export type ProposeCompaniesInput = {
 
 export type ProposeCompaniesResult =
   | { ok: true; companies: CompanyView[]; added: number }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+// ---- the referral finder (0013) --------------------------------------------
+
+/**
+ * Pasting a LinkedIn company id onto a company in the user's universe.
+ *
+ * `linkedinId` is digits or "" (which clears it) — refused by
+ * `app_set_linkedin_company_id` otherwise, and by `lib/referral/linkedin.ts`
+ * before it ever reaches a URL. Three layers agreeing on one closed set, because
+ * the COLUMN is deliberately free-vocab (0008's `source` precedent).
+ *
+ * `expectedUpdatedAt` is the SHARED company row's token, not the subscription's
+ * — `CompanyView.companyUpdatedAt`. They guard different writes and sending the
+ * wrong one conflicts on a row nobody touched.
+ */
+export type LinkedinCompanyIdInput = {
+  companyId: number;
+  linkedinId: string;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+/**
+ * One row of a Connections.csv import, after mapping.
+ *
+ * `connectedOn` is ISO or null — `lib/import/read.ts` is what turns LinkedIn's
+ * "21 Mar 2023" into a date and REFUSES an ambiguous "03/04/2026", so a null
+ * here means the file did not say something provable rather than that nobody
+ * looked.
+ */
+export type ConnectionImportRow = {
+  fullName: string;
+  firstName: string;
+  lastName: string;
+  company: string;
+  title: string;
+  profileUrl: string;
+  connectedOn: string | null;
+};
+
+/**
+ * How many connections one call may carry. Mirrors `MAX_CHUNK` in
+ * `app_import_connections`, and `parity.test.ts` pins the two together — a chunk
+ * larger than the function accepts is refused mid-import, after some rows have
+ * already landed.
+ */
+export const MAX_CONNECTION_CHUNK = 1000;
+
+/**
+ * How many connections a render reads. `companies()`'s cap, for its reason.
+ *
+ * It is also the same number as `MAX_ROWS` in `lib/import/read.ts`, and the two
+ * meeting is not a coincidence to leave unsaid: a file at the upload ceiling
+ * produces a list at the read ceiling. Past it, rows are STORED and not read —
+ * ordered by name, so the truncation falls on one end of the alphabet and every
+ * warm popover under-counts for those people.
+ *
+ * That is stated on `/connections` when a user is actually at the ceiling, and
+ * the upload route's refusal says splitting the file does not help. A cap this
+ * app enforces and does not mention is the one lie this feature could still
+ * tell.
+ */
+export const CONNECTION_LIST_LIMIT = 5000;
+
+export type ImportConnectionsInput = {
+  rows: ConnectionImportRow[];
+  /** Provenance tag; closed set at the SQL door. */
+  source: string;
+  idempotencyKey: string;
+};
+
+/**
+ * What a chunk did, in four numbers that ADD UP to the rows sent.
+ *
+ * `skipped` is lines with no name; `deduped` is the same person twice (in this
+ * chunk, or already held under a profile URL). A report that does not close is
+ * one nobody can re-derive afterwards, because only the commit knows which
+ * bucket a line went to (matrix row 169).
+ */
+export type ImportConnectionsResult =
+  | { ok: true; inserted: number; updated: number; skipped: number; deduped: number }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+export type ClearConnectionsInput = { idempotencyKey: string };
+
+export type ClearConnectionsResult =
+  | { ok: true; deleted: number }
   | { ok: false; kind: "auth" }
   | { ok: false; kind: "error"; message: string };
 
@@ -488,6 +579,17 @@ export interface DataSource {
   setCompanyFlags(input: CompanyFlagsInput): Promise<CompanyFlagsResult>;
   /** A pasted list of names → tier-3 proposals awaiting review. */
   proposeCompanies(input: ProposeCompaniesInput): Promise<ProposeCompaniesResult>;
+
+  // ---- the referral finder (0013) -----------------------------------------
+
+  /** Paste the `f_C=` number onto a company this user watches. "" clears it. */
+  setLinkedinCompanyId(input: LinkedinCompanyIdInput): Promise<CompanyFlagsResult>;
+  /** The user's own LinkedIn connections, for the 1st-degree match. */
+  connections(): Promise<ConnectionView[]>;
+  /** One chunk of a Connections.csv import. Merges; never duplicates. */
+  importConnections(input: ImportConnectionsInput): Promise<ImportConnectionsResult>;
+  /** Bin every connection, so a bad import is recoverable by re-uploading. */
+  clearConnections(input: ClearConnectionsInput): Promise<ClearConnectionsResult>;
 
   // ---- import (P9) --------------------------------------------------------
 

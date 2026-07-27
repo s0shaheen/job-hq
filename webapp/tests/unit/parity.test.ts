@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 import { FixtureDataSource } from "@/lib/data/fixture-source";
-import { IMPORT_LIST_LIMIT } from "@/lib/data/source";
+import { IMPORT_LIST_LIMIT, MAX_CONNECTION_CHUNK } from "@/lib/data/source";
+import { CONNECTION_SOURCE_TAGS } from "@/lib/referral/connections";
+import { isLinkedinId } from "@/lib/referral/linkedin";
 import { FIXTURE_JOBS } from "@/lib/data/fixtures";
 import { CADENCE, SupabaseDataSource, toCompanyView, toJobView } from "@/lib/data/supabase-source";
 import { blankTrim, companyNameKey, PROPOSE_SOURCE_TAGS } from "@/lib/data/view-models";
@@ -45,6 +47,10 @@ const PIPELINE_SQL = readFileSync(
 );
 const IMPORT_SQL = readFileSync(
   path.join(REPO, "db", "migrations", "0011_import.sql"),
+  "utf8",
+);
+const REFERRAL_SQL = readFileSync(
+  path.join(REPO, "db", "migrations", "0013_referral.sql"),
   "utf8",
 );
 
@@ -453,6 +459,8 @@ describe("company universe parity", () => {
       enabled: true,
       priority: false,
       seeded: false,
+      linkedinCompanyId: "",
+      companyUpdatedAt: null,
       updatedAt: STAMP,
       ...seed,
     };
@@ -1235,5 +1243,291 @@ describe("import parity with migration 0011", () => {
     expect(mapping, "MAPPING_CHUNK not found in the import actions").toBeTruthy();
 
     expect(new Set([...fromSql, Number(stage![1]), Number(mapping![1])]).size, "MAX_CHUNK drifted").toBe(1);
+  });
+});
+
+describe("connections import parity with migration 0013", () => {
+  /**
+   * The referral finder's write path, pinned to the SQL it mirrors.
+   *
+   * Same argument as the import section above and the same technique: the
+   * numbers, the closed sets and the refusal messages are hand-copied across two
+   * languages, and every one of them is a place the fake can be kinder than
+   * Postgres. The consequence here is a paste box or an upload that works in the
+   * demo and is refused in production, which is the failure mode matrix row 172
+   * is a list of.
+   *
+   * The function's own text is sliced out first rather than searched for across
+   * the whole migration — 0013 declares constants in more than one place, and a
+   * bare `indexOf` over the file would happily pin the wrong one.
+   */
+  const IMPORT_FN = REFERRAL_SQL.slice(
+    REFERRAL_SQL.indexOf("function public.app_import_connections"),
+    REFERRAL_SQL.indexOf("revoke all on function public.app_import_connections"),
+  );
+  const SET_ID_FN = REFERRAL_SQL.slice(
+    REFERRAL_SQL.indexOf("function public.app_set_linkedin_company_id"),
+    REFERRAL_SQL.indexOf("revoke all on function public.app_set_linkedin_company_id"),
+  );
+
+  it("sliced the two functions it is about to read", () => {
+    // The guard on the technique. A renamed function makes both slices empty, and
+    // every `toContain` below then passes against nothing — the shape of pin that
+    // this repo has already been bitten by twice.
+    expect(IMPORT_FN, "app_import_connections not found in 0013").toContain("MAX_CHUNK");
+    expect(SET_ID_FN, "app_set_linkedin_company_id not found in 0013").toContain("digits only");
+    expect(IMPORT_FN.length).toBeGreaterThan(500);
+    expect(SET_ID_FN.length).toBeGreaterThan(500);
+  });
+
+  it("chunks at the number the SQL refuses past", () => {
+    // A chunk larger than the function accepts is refused mid-import, after some
+    // of the rows have already landed — the same failure 0011's MAX_CHUNK pin
+    // exists for, on a second table.
+    const fromSql = /MAX_CHUNK\s+constant int(?:eger)? := (\d+);/.exec(IMPORT_FN);
+    expect(fromSql, "no MAX_CHUNK declaration in app_import_connections").toBeTruthy();
+    expect(MAX_CONNECTION_CHUNK).toBe(Number(fromSql![1]));
+  });
+
+  it("accepts exactly the provenance tags the SQL allows", () => {
+    // `source` is a reporting dimension and the function is granted to
+    // `authenticated`, so the set is closed at the door. A tag the UI offers and
+    // the SQL refuses is a button that fails only in production.
+    const array = /ALLOWED_SOURCES\s+constant text\[\] := array\[([^\]]*)\]/.exec(IMPORT_FN);
+    expect(array, "no ALLOWED_SOURCES declaration in app_import_connections").toBeTruthy();
+    const fromSql = [...array![1].matchAll(/'([^']*)'/g)].map((m) => m[1]);
+    expect(fromSql.length).toBeGreaterThan(0);
+    // Set equality in BOTH directions: a tag the SQL allows and the UI never
+    // offers is dead vocabulary, and the other way round is a broken gesture.
+    expect([...CONNECTION_SOURCE_TAGS].sort()).toEqual([...fromSql].sort());
+  });
+
+  it("enforces the SAME digits-only pattern the SQL enforces, anchors and all", () => {
+    // Three layers agree on one closed set — the paste form, the URL builder and
+    // the database — because the COLUMN is deliberately free-vocab (0008's
+    // `source` precedent). Drift here means the UI ships a paste Postgres refuses,
+    // or worse, accepts one it should not.
+    //
+    // The anchors are the point: an unanchored `~ '[0-9]{1,20}'` matches the
+    // digits INSIDE `javascript:1` and lets the whole string through.
+    const fromSql = /!~ '(\^\[0-9\]\{1,20\}\$)'/.exec(SET_ID_FN);
+    expect(fromSql, "no anchored digits-only pattern in app_set_linkedin_company_id").toBeTruthy();
+    expect(fromSql![1]).toBe("^[0-9]{1,20}$");
+
+    // The fake's literal and the builder's literal, read out of their own source
+    // rather than assumed — the same technique the note-ordering pin above uses.
+    for (const file of [
+      path.join(REPO, "webapp", "lib", "data", "fixture-source.ts"),
+      path.join(REPO, "webapp", "lib", "referral", "linkedin.ts"),
+    ]) {
+      expect(readFileSync(file, "utf8"), `${path.basename(file)} does not carry the SQL's pattern`)
+        .toContain(`/${fromSql![1]}/`);
+    }
+
+    // And the behaviour, compiled from the migration's own text: for every string
+    // either side could meet, the predicate the UI validates with and the regexp
+    // Postgres checks with must answer the same thing.
+    const sqlRe = new RegExp(fromSql![1]);
+    for (const value of [
+      "1035",
+      "0",
+      "1".repeat(20),
+      "1".repeat(21),
+      "javascript:1",
+      "1035; DROP",
+      "ramp",
+      "10 35",
+      "",
+      "-1",
+      "1e3",
+      "1035\n",
+    ]) {
+      expect(isLinkedinId(value), `disagreement on ${JSON.stringify(value)}`).toBe(
+        sqlRe.test(value.trim()),
+      );
+    }
+  });
+
+  it("returns the refusals in the SQL's own words", async () => {
+    // A user meets these strings, so the two implementations disagreeing means
+    // the demo teaches a behaviour production does not have. There is no way to
+    // compare a plpgsql RAISE to a TS return except by asserting the shared half
+    // is in both — the SQL's sentences carry `%` placeholders.
+    const src = new FixtureDataSource();
+    let n = 0;
+    const key = () => `referral-parity-${++n}`;
+
+    const badId = await src.setLinkedinCompanyId({
+      companyId: 101,
+      linkedinId: "javascript:1",
+      idempotencyKey: key(),
+      expectedUpdatedAt: null,
+    });
+    expect(badId).toMatchObject({ ok: false, kind: "error" });
+    if (badId.ok || badId.kind !== "error") throw new Error("unreachable");
+    expect(SET_ID_FN).toContain("a LinkedIn company id is digits only (got %)");
+    expect(badId.message).toContain("a LinkedIn company id is digits only (got ");
+
+    const notMine = await src.setLinkedinCompanyId({
+      companyId: 999_999,
+      linkedinId: "1035",
+      idempotencyKey: key(),
+      expectedUpdatedAt: null,
+    });
+    expect(notMine).toMatchObject({ ok: false, kind: "error" });
+    if (notMine.ok || notMine.kind !== "error") throw new Error("unreachable");
+    expect(SET_ID_FN).toContain("no such company for this user: %");
+    expect(notMine.message).toContain("no such company for this user: ");
+
+    const tooMany = await src.importConnections({
+      rows: Array.from({ length: MAX_CONNECTION_CHUNK + 1 }, (_, i) => ({
+        fullName: `P${i}`, firstName: "", lastName: "", company: "", title: "",
+        profileUrl: "", connectedOn: null,
+      })),
+      source: "linkedin-export",
+      idempotencyKey: key(),
+    });
+    expect(tooMany).toMatchObject({ ok: false, kind: "error" });
+    if (tooMany.ok || tooMany.kind !== "error") throw new Error("unreachable");
+    expect(IMPORT_FN).toContain("too many connections in one call (limit %)");
+    expect(tooMany.message).toContain("too many connections in one call (limit ");
+
+    const badTag = await src.importConnections({
+      rows: [],
+      source: "a-novel-about-provenance",
+      idempotencyKey: key(),
+    });
+    expect(badTag).toMatchObject({ ok: false, kind: "error" });
+    if (badTag.ok || badTag.kind !== "error") throw new Error("unreachable");
+    expect(IMPORT_FN).toContain("unknown source tag: %");
+    expect(badTag.message).toContain("unknown source tag: ");
+
+    // The bounds the UI must never discover from a Postgres error.
+    for (const bound of ["idempotency key required", "rows must be an array"]) {
+      expect(REFERRAL_SQL, `SQL is missing the bound ${bound}`).toContain(bound);
+    }
+  });
+
+  it("keeps the word the conflict path matches on", () => {
+    // `supabase-source.ts` decides between the conflict branch and a generic
+    // failure by matching /conflict|stale/i on the message. Rewording the
+    // exception turns a handled conflict into an unhandled error — and this one
+    // guards the SHARED company row, where a clobber is another user's paste.
+    expect(SET_ID_FN).toContain("raise exception 'conflict: this company changed");
+    // …and it checks the COMPANY row's token, not the subscription's. A fake
+    // reading the wrong one is the divergence `connections-fixture.test.ts`
+    // exercises from the other side.
+    expect(SET_ID_FN).toContain("v_row.updated_at is distinct from p_expected_updated_at");
+  });
+
+  it("implements the promotion pass on BOTH sides, not only in SQL", async () => {
+    // The pin that was missing, and its absence was measured rather than
+    // theorised: this section pinned MAX_CHUNK, the source tags, the id regexp
+    // and every refusal string, and pinned NOTHING about promotion — so the fake
+    // shipped without the pass entirely. Production answered `{inserted: 0,
+    // updated: 1}` with one row; the fake answered `{inserted: 1, updated: 0}`
+    // with two, minting the permanent duplicate matrix row 229 exists to prevent
+    // in the demo and in every E2E run.
+    //
+    // Pinned as BEHAVIOUR first (the numbers the two must agree on) and as text
+    // second (the three clauses that produce them), because a text pin alone
+    // would pass on a fake that had the clauses and used them wrongly.
+    const sql = REFERRAL_SQL.slice(
+      REFERRAL_SQL.indexOf("-- PROMOTION: a row this person already has"),
+      REFERRAL_SQL.indexOf("-- Rows the export gave a profile URL"),
+    );
+    expect(sql, "the promotion pass is gone from 0013").toContain(
+      "update public.connections c",
+    );
+    expect(sql).toContain("set profile_url = i.profile_url");
+    expect(sql, "the `not exists` collision guard is gone").toContain("not exists (");
+    expect(sql, "the deterministic join partner is gone").toContain("distinct on (");
+    expect(sql).toContain("order by lower(r.full_name), public.company_name_key(r.company), lower(r.profile_url)");
+
+    const fake = readFileSync(path.join(REPO, "webapp", "lib", "data", "fixture-source.ts"), "utf8");
+    expect(fake, "the fake has no promotion pass").toContain("THE PROMOTION PASS");
+
+    const src = new FixtureDataSource([], [], [], [], undefined, []);
+    await src.importConnections({
+      rows: [{ fullName: "Ada Okonkwo", firstName: "", lastName: "", company: "Ramp", title: "PM", profileUrl: "", connectedOn: null }],
+      source: "linkedin-export",
+      idempotencyKey: "promotion-1",
+    });
+    const promoted = await src.importConnections({
+      rows: [{ fullName: "Ada Okonkwo", firstName: "", lastName: "", company: "Ramp", title: "", profileUrl: "https://www.linkedin.com/in/ada", connectedOn: null }],
+      source: "linkedin-export",
+      idempotencyKey: "promotion-2",
+    });
+    // The exact four numbers real Postgres answers for this input (verified in
+    // `tests/db/test_referral.py`). A fake that reports a DIFFERENT report than
+    // production is worse than one that is merely more forgiving.
+    expect(promoted).toEqual({ ok: true, inserted: 0, updated: 1, skipped: 0, deduped: 0 });
+    expect(await src.connections()).toHaveLength(1);
+  });
+
+  it("reads the connections list in one order, bounded the same way, on both sides", () => {
+    // The cap decides WHICH rows survive it, so an undefined tie is a list whose
+    // contents change between reads — the same failure the queue ordering at the
+    // top of this file was pinned for.
+    const ts = readFileSync(path.join(REPO, "webapp", "lib", "data", "supabase-source.ts"), "utf8");
+    expect(ts).toContain('.order("full_name", { ascending: true })');
+    expect(ts).toContain('.order("id", { ascending: true })');
+    expect(ts).toContain(".limit(CONNECTION_LIST_LIMIT)");
+    const fake = readFileSync(path.join(REPO, "webapp", "lib", "data", "fixture-source.ts"), "utf8");
+    expect(fake).toContain("a.fullName.localeCompare(b.fullName) || a.id - b.id");
+    expect(fake).toContain("slice(0, CONNECTION_LIST_LIMIT)");
+  });
+
+  it("mirrors the SQL's identity for a connection, including its blank semantics", () => {
+    // `hq_connection_rows` is the single definition of what a connection row IS,
+    // and the fake reimplements it. Two halves are worth pinning by text because
+    // they are the ones a "simplification" would quietly change: the ident (a
+    // lower-cased URL, else name + company_name_key) and the LAST-occurrence rule.
+    expect(IMPORT_FN.length).toBeGreaterThan(0);
+    const rowsFn = REFERRAL_SQL.slice(
+      REFERRAL_SQL.indexOf("function public.hq_connection_rows"),
+      REFERRAL_SQL.indexOf("revoke all on function public.hq_connection_rows"),
+    );
+    expect(rowsFn, "hq_connection_rows not found in 0013").toContain("is_dupe");
+    expect(rowsFn).toContain("'u:' || lower(b.profile_url)");
+    expect(rowsFn).toContain("'n:' || lower(b.full_name) || '|' || public.company_name_key(b.company)");
+    // LAST occurrence wins, and the ORDER BY inside the window is spelled out —
+    // without it the winner is whatever the plan produced.
+    expect(rowsFn).toContain("row_number() over (partition by k.ident order by k.n desc) > 1");
+    // `hq_blank_trim`, never bare `btrim`: a cell holding one NBSP is blank to
+    // Postgres and would be CONTENT to a bare trim (matrix rows 110, 129, 151).
+    expect(rowsFn).toContain("public.hq_blank_trim(coalesce(e ->> 'full_name'");
+    expect(rowsFn).not.toMatch(/\bbtrim\(/);
+    // The fake goes through the same mirror rather than `.trim()`.
+    const fake = readFileSync(path.join(REPO, "webapp", "lib", "data", "fixture-source.ts"), "utf8");
+    const importFake = fake.slice(
+      fake.indexOf("async importConnections("),
+      fake.indexOf("async clearConnections("),
+    );
+    expect(importFake.length).toBeGreaterThan(500);
+    expect(importFake).toContain("blankTrim(r.fullName)");
+    expect(importFake).not.toMatch(/r\.\w+\.trim\(\)/);
+  });
+
+  it("derives deduped by SUBTRACTION on both sides, so the four numbers close", () => {
+    // Matrix row 169. `deduped` has to absorb BOTH ways a named line lands
+    // nowhere — the same person twice in a chunk, and a URL-less line shadowed by
+    // a record that already carries the URL. Counting the first and forgetting
+    // the second is exactly how a report starts adding up to less than the file.
+    //
+    // Sliced to the RESULT object rather than searched for across the function:
+    // the audit event above it builds the same four keys, so a `toContain` over
+    // the whole body stays green while the returned report is zeroed. Watched:
+    // that mutant survived the first version of this assertion.
+    const result = IMPORT_FN.slice(IMPORT_FN.indexOf("v_result := jsonb_build_object("));
+    const returned = result.slice(0, result.indexOf(";"));
+    expect(returned, "the result object was not found").toContain("'inserted', v_inserted");
+    expect(returned).toContain("'deduped',  v_named - v_inserted - v_updated");
+    const fake = readFileSync(path.join(REPO, "webapp", "lib", "data", "fixture-source.ts"), "utf8");
+    expect(fake).toContain("deduped: named.length - inserted - updated");
+    // And the guard that makes `skipped` the OTHER difference rather than a
+    // second name for the same thing.
+    expect(returned).toContain("'skipped',  v_total - v_named");
+    expect(fake).toContain("skipped: input.rows.length - named.length");
   });
 });

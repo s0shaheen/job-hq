@@ -34,6 +34,14 @@ const DEMO_COOKIE = "hq_demo_id";
  *   filtered   — postings exist, every one of them gated out by the profile
  *   onboarding — a real posting universe and NO profile (`criteria = '{}'`):
  *                somebody who signed in and never finished the wizard
+ *   no-connections — everything EXCEPT the LinkedIn export: real postings, a
+ *                real universe, zero connections. Somebody on their first day.
+ *
+ * `no-connections` exists because `empty` could not stand in for it and the
+ * build log briefly claimed it could. `empty` clears the postings too, so there
+ * is no ROW to carry a warm chip and the "Import your LinkedIn connections"
+ * branch of `warm-cell.tsx` was unreachable through every seed — matrix row 233
+ * claims that branch keeps two states apart, and nothing exercised it.
  *
  * Honoured ONLY under HQ_DEMO=1, deliberately narrower than the fixture branch
  * below it: a deployment with its Supabase env missing also falls back to
@@ -41,7 +49,7 @@ const DEMO_COOKIE = "hq_demo_id";
  * cookie.
  */
 const SEED_COOKIE = "hq_demo_seed";
-type SeedName = "full" | "empty" | "filtered" | "onboarding";
+type SeedName = "full" | "empty" | "filtered" | "onboarding" | "no-connections";
 
 /**
  * Arms `FixtureDataSource.failNextWrite()` for the NEXT write in this demo store.
@@ -64,7 +72,12 @@ const FAIL_COOKIE = "hq_demo_fail";
 function parseSeed(value: string | undefined): SeedName {
   // An unrecognised value falls back to the full set rather than to nothing:
   // a typo should not present as an app with no data in it.
-  return value === "empty" || value === "filtered" || value === "onboarding" ? value : "full";
+  return value === "empty" ||
+    value === "filtered" ||
+    value === "onboarding" ||
+    value === "no-connections"
+    ? value
+    : "full";
 }
 
 function buildStore(seed: SeedName): DataSource {
@@ -75,7 +88,13 @@ function buildStore(seed: SeedName): DataSource {
   // that still reported a dozen companies would leave /companies' empty state
   // unreachable through the only source the tests can drive — matrix row 15's
   // failure, exactly, on a new surface.
-  if (seed === "empty") return new FixtureDataSource([], [], [], []);
+  // "Nothing at all" now also includes the connections: a store with no data
+  // that still held five 1st-degree connections would leave /connections' empty
+  // state — and the "import your connections" branch of every warm cell —
+  // unreachable through the only source the tests can drive. Same failure, third
+  // surface. The profile slot is passed explicitly rather than skipped, because
+  // `connections` sits after it.
+  if (seed === "empty") return new FixtureDataSource([], [], [], [], undefined, []);
   if (seed === "filtered") {
     // The channels are alive and reporting; the postings they found were all
     // gated out. That is the state this seed exists to show. The universe is
@@ -85,6 +104,13 @@ function buildStore(seed: SeedName): DataSource {
       FIXTURE_JOBS.filter((j) => j.disposition === "filtered"),
       [],
     );
+  }
+  if (seed === "no-connections") {
+    // Every other collection untouched, so the grid has rows to render chips on
+    // — which is the whole difference from `empty`, and the reason that seed
+    // could not stand in for this one. A user on their first day has a swept
+    // universe and no export.
+    return new FixtureDataSource(undefined, undefined, undefined, undefined, undefined, []);
   }
   if (seed === "onboarding") {
     // Everything the app normally has, minus the one row that decides whether

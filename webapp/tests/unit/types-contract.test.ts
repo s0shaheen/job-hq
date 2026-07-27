@@ -63,6 +63,11 @@ const CONTRACT: Record<string, string> = {
   import_batches: "ImportBatch",
   import_rows: "ImportRow",
   import_column_reports: "ImportColumnReport",
+  // 0013. Read directly through PostgREST by every surface that shows a warm
+  // path, so a drift here is a blank popover rather than a type error.
+  // `companies` (above) picks up 0013's two new columns for free, which is the
+  // point of listing tables rather than columns.
+  connections: "Connection",
 };
 
 // ---------------------------------------------------------------- SQL side

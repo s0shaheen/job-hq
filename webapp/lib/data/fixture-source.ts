@@ -54,8 +54,17 @@ import type {
   PreviewProfileResult,
   CommitProfileInput,
   CommitProfileResult,
+  ClearConnectionsInput,
+  ClearConnectionsResult,
+  ImportConnectionsInput,
+  ImportConnectionsResult,
+  LinkedinCompanyIdInput,
 } from "./source";
-import { IMPORT_LIST_LIMIT } from "./source";
+import {
+  CONNECTION_LIST_LIMIT,
+  IMPORT_LIST_LIMIT,
+  MAX_CONNECTION_CHUNK,
+} from "./source";
 import {
   FIXTURE_APPLICATIONS,
   FIXTURE_HEALTH,
@@ -85,10 +94,13 @@ import type {
   ApplicationView,
   ChannelHealthView,
   CompanyView,
+  ConnectionView,
   JobView,
   NoteView,
   SavedView,
 } from "./view-models";
+import { FIXTURE_CONNECTIONS } from "./connection-fixtures";
+import { CONNECTION_SOURCE_TAGS } from "@/lib/referral/connections";
 
 /** 0008's ceiling on one user's review pile. */
 const MAX_PENDING_PROPOSALS = 2000;
@@ -189,6 +201,17 @@ export class FixtureDataSource implements DataSource {
     // can drive, or the middleware redirect and the whole wizard ship
     // unexercised.
     profile: ProfileView = FIXTURE_PROFILE,
+    // Injectable for health's reason, and the empty state here is not a corner:
+    // a user who has never uploaded an export is EVERY user on day one, and the
+    // /connections empty state plus the warm cell's "import your connections"
+    // branch are what they see. A fake that always had connections would ship
+    // both unlooked-at.
+    //
+    // Clearing this ALONE is what the second of those needs, which is why
+    // `get-source.ts` has a `no-connections` seed and not just `empty`: `empty`
+    // clears the postings too, so there is no row to carry a chip and the branch
+    // stays unreachable. The build log claimed `empty` covered it; it did not.
+    connections: ConnectionView[] = FIXTURE_CONNECTIONS,
   ) {
     // Stored as the DATABASE stores it — a jsonb object, `{}` for a profile
     // nobody has completed — rather than as the view model. `profile()` then maps
@@ -207,6 +230,7 @@ export class FixtureDataSource implements DataSource {
     // (matrix row 15's lesson, and the "every collection a fake owns comes from
     // its constructor" rule that followed it).
     for (const c of companies) this.companiesById.set(c.id, { ...c });
+    for (const c of connections) this.connectionsById.set(c.id, { ...c });
 
     // 0010's backfill, reproduced: one `import`-authored note per non-empty flat
     // `notes` column, and the column left in place. Without this the fake starts
@@ -939,7 +963,15 @@ export class FixtureDataSource implements DataSource {
         enabled: false,
         priority: false,
         seeded: false,
+        // A pasted name carries no LinkedIn id, exactly as `app_propose_companies`
+        // writes it: the API route refuses ats/slug/tier from its caller for the
+        // same reason, and an id nobody pasted would be a fabricated fact about a
+        // company nobody has looked up.
+        linkedinCompanyId: "",
         updatedAt: new Date(
+          new Date(FIXTURE_NOW).getTime() + this.companySeq * 1000,
+        ).toISOString(),
+        companyUpdatedAt: new Date(
           new Date(FIXTURE_NOW).getTime() + this.companySeq * 1000,
         ).toISOString(),
       };
@@ -950,6 +982,275 @@ export class FixtureDataSource implements DataSource {
 
     const result: ProposeCompaniesResult = { ok: true, companies, added };
     this.seenCompanyKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  // ---- the referral finder (0013) ---------------------------------------
+
+  private connectionsById = new Map<number, ConnectionView>();
+  private seenReferralKeys = new Map<
+    string,
+    CompanyFlagsResult | ImportConnectionsResult | ClearConnectionsResult
+  >();
+  private connectionSeq = 9000; // above the fixture ids, so an import is distinguishable
+
+  async setLinkedinCompanyId(input: LinkedinCompanyIdInput): Promise<CompanyFlagsResult> {
+    const replay = this.seenReferralKeys.get(input.idempotencyKey) as CompanyFlagsResult | undefined;
+    if (replay) return replay;
+
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    const current = this.companiesById.get(input.companyId);
+    if (!current) {
+      // `app_set_linkedin_company_id`'s door: a caller with no subscription is
+      // refused. The fixture store only holds companies this user watches, so
+      // "not in the map" IS "not mine" here.
+      return {
+        ok: false,
+        kind: "error",
+        message: `no such company for this user: ${input.companyId}`,
+      };
+    }
+
+    // The SHARED row's token, not the subscription's. A fake that checked
+    // `updatedAt` would accept the wrong token and let the UI ship a gesture
+    // production conflicts on.
+    if (
+      input.expectedUpdatedAt !== null &&
+      current.companyUpdatedAt !== null &&
+      !sameInstant(input.expectedUpdatedAt, current.companyUpdatedAt)
+    ) {
+      return { ok: false, kind: "conflict", current: { ...current } };
+    }
+
+    // The closed set, reproduced verbatim including its ANCHORS. An unanchored
+    // test matches the digits inside `javascript:1`, which is the mutant this
+    // exists to be red for — and a fake that accepted it would let the UI paste
+    // a value Postgres refuses.
+    const id = blankTrim(input.linkedinId);
+    if (id !== "" && !/^[0-9]{1,20}$/.test(id)) {
+      return {
+        ok: false,
+        kind: "error",
+        message: `a LinkedIn company id is digits only (got ${id.slice(0, 60)})`,
+      };
+    }
+
+    if (current.linkedinCompanyId === id) {
+      // No-op rows keep their token, exactly as the SQL does: bumping it would
+      // invalidate every other tab's token for a row nothing changed.
+      const noop: CompanyFlagsResult = { ok: true, company: { ...current } };
+      this.seenReferralKeys.set(input.idempotencyKey, noop);
+      return noop;
+    }
+
+    const updated: CompanyView = {
+      ...current,
+      linkedinCompanyId: id,
+      companyUpdatedAt: new Date(
+        new Date(current.companyUpdatedAt ?? FIXTURE_NOW).getTime() + 1000,
+      ).toISOString(),
+    };
+    this.companiesById.set(updated.id, updated);
+    const result: CompanyFlagsResult = { ok: true, company: { ...updated } };
+    this.seenReferralKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  async connections(): Promise<ConnectionView[]> {
+    // The one ordering contract, shared with `SupabaseDataSource.connections()`:
+    // by full name ascending, id ascending on a tie. A tie direction left
+    // undefined is the divergence parity.test.ts exists to pin.
+    return [...this.connectionsById.values()]
+      .sort((a, b) => a.fullName.localeCompare(b.fullName) || a.id - b.id)
+      .slice(0, CONNECTION_LIST_LIMIT)
+      .map((c) => ({ ...c }));
+  }
+
+  async importConnections(input: ImportConnectionsInput): Promise<ImportConnectionsResult> {
+    const replay = this.seenReferralKeys.get(input.idempotencyKey) as
+      | ImportConnectionsResult
+      | undefined;
+    if (replay) return replay;
+
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    // The migration's own guards, verbatim, so the UI cannot ship a gesture
+    // Postgres rejects (parity.test.ts pins these to the SQL).
+    if (input.rows.length > MAX_CONNECTION_CHUNK) {
+      return {
+        ok: false,
+        kind: "error",
+        message: `too many connections in one call (limit ${MAX_CONNECTION_CHUNK})`,
+      };
+    }
+    const source = blankTrim(input.source).toLowerCase() || "linkedin-export";
+    if (!(CONNECTION_SOURCE_TAGS as readonly string[]).includes(source)) {
+      return { ok: false, kind: "error", message: `unknown source tag: ${source.slice(0, 60)}` };
+    }
+
+    // `hq_connection_rows`, in TypeScript. Every trim goes through `blankTrim`
+    // — the mirror of `hq_blank_trim` — because a cell holding one NBSP is blank
+    // to Postgres and would be CONTENT to a bare `.trim()`: the exact divergence
+    // matrix row 151 records, in the one place it is most likely to recur.
+    const named = input.rows
+      .map((r) => ({
+        fullName: blankTrim(r.fullName).slice(0, 200),
+        firstName: blankTrim(r.firstName).slice(0, 100),
+        lastName: blankTrim(r.lastName).slice(0, 100),
+        company: blankTrim(r.company).slice(0, 200),
+        title: blankTrim(r.title).slice(0, 200),
+        profileUrl: blankTrim(r.profileUrl).slice(0, 500),
+        // ISO or nothing, exactly as the SQL's anchored test does. A reading the
+        // parser refused arrives here as null already; anything else is a
+        // malformed request and must not become a date.
+        connectedOn: /^\d{4}-\d{2}-\d{2}$/.test(blankTrim(r.connectedOn ?? ""))
+          ? blankTrim(r.connectedOn ?? "")
+          : null,
+      }))
+      .filter((r) => r.fullName !== "");
+
+    // LAST occurrence wins within a chunk, matching what a sequence of
+    // single-row writes would have left behind.
+    const byIdent = new Map<string, (typeof named)[number]>();
+    for (const r of named) {
+      const ident = r.profileUrl
+        ? `u:${r.profileUrl.toLowerCase()}`
+        : `n:${r.fullName.toLowerCase()}|${companyNameKey(r.company)}`;
+      byIdent.set(ident, r);
+    }
+
+    // THE PROMOTION PASS, before anything is matched or inserted.
+    //
+    // The SQL runs this as its own UPDATE between the lock and the two upserts,
+    // and the fake did not have it at all — so a URL-bearing line for somebody
+    // stored under no URL found nothing, inserted a second row, and reported
+    // `{inserted: 1}` where Postgres reports `{updated: 1}` and holds ONE row.
+    // The demo and the entire E2E suite therefore minted exactly the permanent
+    // duplicate matrix row 229 exists to prevent, in the one scenario the
+    // promotion was written for.
+    //
+    // A fake that is more forgiving than the real thing hides the bug it exists
+    // to catch — and this one was worse than forgiving, it was DIFFERENT: the
+    // four-number report a person reads did not match production's.
+    //
+    // Ordered by URL for the SQL's `distinct on` reason: one chunk can carry two
+    // lines with two different URLs whose (name, company) normalize the same, and
+    // the lowest URL has to win in both implementations or the same file promotes
+    // differently in the demo than in production.
+    const promotable = [...byIdent.values()]
+      .filter((r) => r.profileUrl !== "")
+      .sort((a, b) => a.profileUrl.toLowerCase().localeCompare(b.profileUrl.toLowerCase()));
+    for (const r of promotable) {
+      // The SQL's `not exists`: if that URL is already held, the URL-less row is
+      // left alone rather than promoted into a unique violation.
+      const urlTaken = [...this.connectionsById.values()].some(
+        (c) => c.profileUrl.toLowerCase() === r.profileUrl.toLowerCase(),
+      );
+      if (urlTaken) continue;
+      const shadow = [...this.connectionsById.values()].find(
+        (c) =>
+          c.profileUrl === "" &&
+          c.fullName.toLowerCase() === r.fullName.toLowerCase() &&
+          c.companyKey === companyNameKey(r.company),
+      );
+      if (shadow) {
+        // Promoted, not deleted-and-reinserted: the stored row may hold a
+        // `connectedOn` this line does not, and an import never destroys what
+        // the file did not say.
+        this.connectionsById.set(shadow.id, { ...shadow, profileUrl: r.profileUrl });
+      }
+    }
+
+    let inserted = 0;
+    let updated = 0;
+    for (const [ident, r] of byIdent) {
+      const existing = [...this.connectionsById.values()].find((c) =>
+        ident.startsWith("u:")
+          ? c.profileUrl.toLowerCase() === r.profileUrl.toLowerCase()
+          : c.profileUrl === "" &&
+            c.fullName.toLowerCase() === r.fullName.toLowerCase() &&
+            c.companyKey === companyNameKey(r.company),
+      );
+      if (existing) {
+        // A blank cell means "the file did not say", never "delete what you
+        // have" (matrix row 151), so only non-blank values are applied.
+        const merged: ConnectionView = {
+          ...existing,
+          fullName: r.fullName || existing.fullName,
+          company: r.company || existing.company,
+          companyKey: r.company ? companyNameKey(r.company) : existing.companyKey,
+          title: r.title || existing.title,
+          connectedOn: r.connectedOn ?? existing.connectedOn,
+        };
+        this.connectionsById.set(merged.id, merged);
+        updated++;
+        continue;
+      }
+      // The `not exists` guard: a URL-less line for somebody who already has a
+      // URL-bearing row is not a second person. Without this the two partial
+      // indexes leave a gap between them and a monthly re-export mints a
+      // permanent duplicate.
+      if (!r.profileUrl) {
+        const shadowed = [...this.connectionsById.values()].some(
+          (c) =>
+            c.profileUrl !== "" &&
+            c.fullName.toLowerCase() === r.fullName.toLowerCase() &&
+            c.companyKey === companyNameKey(r.company),
+        );
+        if (shadowed) continue;
+      }
+      const row: ConnectionView = {
+        id: ++this.connectionSeq,
+        fullName: r.fullName,
+        company: r.company,
+        companyKey: companyNameKey(r.company),
+        title: r.title,
+        profileUrl: r.profileUrl,
+        connectedOn: r.connectedOn,
+      };
+      this.connectionsById.set(row.id, row);
+      inserted++;
+    }
+
+    // The four numbers close on the rows sent, and `deduped` is derived by
+    // SUBTRACTION for the SQL's reason: it has to absorb both the same person
+    // twice and a line shadowed by an existing URL-bearing row.
+    const result: ImportConnectionsResult = {
+      ok: true,
+      inserted,
+      updated,
+      skipped: input.rows.length - named.length,
+      deduped: named.length - inserted - updated,
+    };
+    this.seenReferralKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  async clearConnections(input: ClearConnectionsInput): Promise<ClearConnectionsResult> {
+    const replay = this.seenReferralKeys.get(input.idempotencyKey) as
+      | ClearConnectionsResult
+      | undefined;
+    if (replay) return replay;
+
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    const deleted = this.connectionsById.size;
+    this.connectionsById.clear();
+    const result: ClearConnectionsResult = { ok: true, deleted };
+    this.seenReferralKeys.set(input.idempotencyKey, result);
     return result;
   }
 

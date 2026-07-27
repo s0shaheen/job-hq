@@ -276,4 +276,38 @@ for (const theme of ["light", "dark"] as const) {
     await page.waitForLoadState("load");
     await expect(page).toHaveScreenshot(`settings-${theme}.png`, { fullPage: true });
   });
+
+  test(`the connections list looks right — ${theme}`, async ({ page }) => {
+    // A new surface, and one whose whole first screen is prose: a headline
+    // number, four instruction lines, and a list of people with two lines each.
+    // Nothing here is asserted by geometry anywhere else, so this baseline is
+    // the only thing that would notice the instruction block wrapping into the
+    // upload button or the headline losing its emphasis.
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto("/connections");
+    await expect(page.getByTestId("connections")).toHaveAttribute("data-hydrated", "true");
+    await page.waitForLoadState("load");
+    await expect(page).toHaveScreenshot(`connections-${theme}.png`, { fullPage: true });
+  });
+
+  test(`the warm-paths popover looks right — ${theme}`, async ({ page }) => {
+    // The one surface in this feature that no other baseline can contain: a
+    // popover is absent from every at-rest shot by construction, and it carries
+    // a link list, a name list and a colour-carrying chip. Matrix row 82's
+    // lesson from the other direction — a state that is only reachable by
+    // clicking is a state nothing has ever looked at.
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto("/jobs?set=all");
+    await expect(page.locator('[data-testid="jobs-grid"][data-ready="true"]')).toBeAttached();
+    const company = page
+      .locator('[role="gridcell"][data-col="company"]')
+      .filter({ hasText: /^Ramp$/ });
+    await page.locator('[role="row"]', { has: company }).getByTestId("warm-chip").click();
+    await expect(page.getByTestId("warm-popover")).toBeVisible();
+    await page.waitForLoadState("load");
+    // The popover only, not the page: a full-page shot of a virtualized grid
+    // with an open portal is mostly the grid, and the grid already has its own
+    // baseline above.
+    await expect(page.getByTestId("warm-popover")).toHaveScreenshot(`warm-popover-${theme}.png`);
+  });
 }

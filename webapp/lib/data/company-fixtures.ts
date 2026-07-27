@@ -34,10 +34,30 @@ function at(offsetSeconds: number): string {
   return new Date(new Date(FIXTURE_COMPANY_NOW).getTime() + offsetSeconds * 1000).toISOString();
 }
 
-type Seed = Omit<CompanyView, "key"> & { key?: string };
+/**
+ * 0013's two fields are optional here and default to "no id pasted yet", because
+ * that is the state every row starts in and the one the paste prompt exists for.
+ * Three rows below set one explicitly — a fixture set where the "has an id"
+ * branch is unreachable ships the warm-links popover unlooked-at, which is
+ * matrix row 15 with a different surface.
+ */
+type Seed = Omit<CompanyView, "key" | "linkedinCompanyId" | "companyUpdatedAt"> & {
+  key?: string;
+  linkedinCompanyId?: string;
+  companyUpdatedAt?: string;
+};
 
 function company(seed: Seed): CompanyView {
-  return { ...seed, key: String(seed.id) };
+  return {
+    linkedinCompanyId: "",
+    // The SHARED row's token. Deliberately a DIFFERENT value from `updatedAt`:
+    // if the fixture made them equal, a caller sending the wrong one would work
+    // in the demo and conflict in production — the fake being kinder than the
+    // real thing, which is the bug class this repo keeps paying for.
+    companyUpdatedAt: at(100 + seed.id),
+    ...seed,
+    key: String(seed.id),
+  };
 }
 
 export const FIXTURE_COMPANIES: CompanyView[] = [
@@ -55,6 +75,9 @@ export const FIXTURE_COMPANIES: CompanyView[] = [
     priority: true,
     seeded: true,
     updatedAt: at(0),
+    // Somebody pasted this one, so the warm-links popover has a row to render
+    // its full link set on.
+    linkedinCompanyId: "12345678",
   }),
   company({
     id: 102,
@@ -69,6 +92,9 @@ export const FIXTURE_COMPANIES: CompanyView[] = [
     priority: false,
     seeded: true,
     updatedAt: at(1),
+    // An id with NO connections behind it, so "links but nobody you know" is a
+    // reachable state and not the same cell as "no id at all".
+    linkedinCompanyId: "3608",
   }),
   // Workday via the careers-page redirect, confirmed by a CXS jobs POST — the
   // grounded keystone of the Dad universe (research: 12/32 fingerprinted here).
@@ -107,6 +133,10 @@ export const FIXTURE_COMPANIES: CompanyView[] = [
     enabled: false,
     priority: false,
     seeded: true,
+    // Connections here and NO company id: the one combination that proves the
+    // two halves of the popover are independent — names to ask without the deep
+    // links, and the paste prompt still on screen.
+    linkedinCompanyId: "",
     updatedAt: at(3),
   }),
 
