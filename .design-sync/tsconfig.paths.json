@@ -1,0 +1,7 @@
+{
+  "_why": "cfg.tsconfig points here, NOT at webapp/tsconfig.json. lib/bundle.mjs strips JSONC comments before JSON.parse with a block-comment regex; webapp/tsconfig.json contains BOTH a '/*' (inside the path alias '@/*') and a later '*/' (inside the include glob '**/*.ts'), so the stripper eats everything between them, JSON.parse throws, and tsconfigPathsPlugin silently returns null. Every '@/...' import then fails to resolve. This file carries the same alias with no glob after it, so nothing looks like a comment.",
+  "compilerOptions": {
+    "baseUrl": "../webapp",
+    "paths": { "@/*": ["./*"] }
+  }
+}
