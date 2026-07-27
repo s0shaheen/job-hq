@@ -1,0 +1,93 @@
+{
+  "projectId": "5dab7624-ca55-433e-a6e1-c9d074c93668",
+  "shape": "package",
+  "pkg": "hq-webapp",
+  "globalName": "JobHQ",
+  "srcDir": "components/ui",
+  "tsconfig": "../../../.design-sync/tsconfig.paths.json",
+  "cssEntry": ".ds-styles.css",
+  "extraEntries": [
+    "../../../.design-sync/ds-entry.tsx"
+  ],
+  "runtimeFontPrefixes": [
+    "ui-sans-serif",
+    "system-ui",
+    "-apple-system",
+    "Segoe UI",
+    "Roboto",
+    "Helvetica Neue",
+    "Arial",
+    "SF Mono",
+    "ui-monospace",
+    "Menlo",
+    "Consolas"
+  ],
+  "overrides": {
+    "TriageCard": {
+      "cardMode": "column"
+    },
+    "Toaster": {
+      "cardMode": "single",
+      "primaryStory": "UndoAfterADecision",
+      "viewport": "900x700"
+    },
+    "StatusSelect": {
+      "cardMode": "single",
+      "primaryStory": "PipelineRows",
+      "viewport": "900x700"
+    },
+    "DialogContent": {
+      "cardMode": "single",
+      "primaryStory": "Confirm",
+      "viewport": "900x700"
+    },
+    "ProvenanceChip": {
+      "cardMode": "single",
+      "primaryStory": "Confidences",
+      "viewport": "900x700"
+    },
+    "SelectionBar": {
+      "cardMode": "single",
+      "primaryStory": "ManyRows",
+      "viewport": "900x700"
+    },
+    "ReviewBar": {
+      "cardMode": "single",
+      "primaryStory": "Selected",
+      "viewport": "900x700"
+    }
+  },
+  "componentSrcMap": {
+    "Badge": "components/ui/badge.tsx",
+    "Button": "components/ui/button.tsx",
+    "DialogContent": "components/ui/dialog.tsx",
+    "EmptyState": "components/ui/empty.tsx",
+    "Kbd": "components/ui/kbd.tsx",
+    "Toaster": "components/ui/toaster.tsx",
+    "TriageCard": "app/(app)/queue/triage-card.tsx",
+    "CoverageMeter": "app/(app)/companies/coverage-meter.tsx",
+    "ProvenanceChip": "app/(app)/companies/provenance-popover.tsx",
+    "ReviewBar": "app/(app)/companies/review-bar.tsx",
+    "SelectionBar": "app/(app)/jobs/selection-bar.tsx",
+    "StatusSelect": "app/(app)/pipeline/status-select.tsx",
+    "StepHeader": "app/(app)/import/step-shell.tsx",
+    "PreviewPanel": "app/(app)/settings/preview-panel.tsx"
+  },
+  "dtsPropsFor": {
+    "Badge": "/**\n * Colour is paired with text, always \u2014 a lone hue carries no meaning for a\n * colour-blind reader or anyone skimming a dense grid.\n */\ntone?: \"neutral\" | \"ok\" | \"warn\" | \"danger\" | \"info\" | \"accent\";\nchildren?: React.ReactNode;\nclassName?: string;\n/** Every other `<span>` attribute is spread onto the element. */",
+    "Button": "/** Four intents, enumerated here so a \"sort of primary\" cannot come into existence. */\nvariant?: \"primary\" | \"secondary\" | \"ghost\" | \"danger\";\nsize?: \"sm\" | \"md\" | \"lg\" | \"icon\";\nchildren?: React.ReactNode;\nclassName?: string;\ndisabled?: boolean;\ntype?: \"button\" | \"submit\" | \"reset\";\nonClick?: React.MouseEventHandler<HTMLButtonElement>;\n/** Every other `<button>` attribute is spread onto the element. */\n/** A navigation is an anchor, not a button \u2014 wear `buttonClass(...)` on an `<a>` instead. */",
+    "DialogContent": "/**\n * Renders inside `<Dialog>` (the Radix root, also exported) \u2014 on its own it\n * mounts nothing. `<DialogTrigger>` opens it, `<DialogClose>` closes it.\n */\n/** Required: an untitled dialog announces as nothing to a screen reader. */\ntitle: string;\ndescription?: React.ReactNode;\nchildren?: React.ReactNode;\n/** Right-aligned action row under the body. */\nfooter?: React.ReactNode;\nclassName?: string;",
+    "EmptyState": "/**\n * Three flavours, and the distinction matters: \"you finished\" is a reward,\n * \"nothing matches\" needs an escape hatch, \"nothing yet\" needs an explanation.\n */\nicon?: React.ReactNode;\ntitle: string;\nbody?: React.ReactNode;\n/** Buttons/links, centred under the body. */\naction?: React.ReactNode;\nclassName?: string;",
+    "Kbd": "/** The key hint itself, e.g. \"i\" or \"\u2318E\". */\nchildren?: React.ReactNode;\n/** Colour is inherited via currentColor \u2014 never set a fixed text token here. */\nclassName?: string;",
+    "Toaster": "/**\n * No props. Mount once per layout; fire toasts with `toast()` from `sonner`.\n * Undo lives in the toast rather than in a confirm dialog.\n */",
+    "TriageCard": "/** The posting. These are the `JobView` fields this card reads. */\njob: {\n  company: string;\n  title: string;\n  url: string;\n  /** Rendered as \"Posted {posted}\"; falls back to \"Open posting\" when null. */\n  posted: string | null;\n  industry: string | null;\n  /** Verbatim from the board, never synthesized. null renders \"Not listed\". */\n  compRange: string | null;\n  minYoe: number | null;\n  workModel: string | null;\n  location: string | null;\n  remote: boolean;\n  roleFocus: string | null;\n  skills: string[];\n};\n/** One line above Focus when the row conflicts with the search profile. */\nmismatch?: string | null;",
+    "CoverageMeter": "/**\n * The company universe. The meter describes the APPROVED subset only and\n * says so on screen \u2014 it filters `rows` itself.\n */\nrows: Array<{\n    key: string;\n    id: number;\n    /** \"\" for a slug-only row \u2014 Common Crawl mines boards, not names. */\n    name: string;\n    /** ATS family, or \"\" when unresolved: greenhouse | ashby | lever | \u2026 */\n    ats: string;\n    slug: string;\n    /** How it was discovered: dork | commoncrawl | edgar | formadv | manual */\n    source: string;\n    /** 1 = day-of adapter \u00b7 2 = aggregator, lagged \u00b7 3 = manual \u00b7 null = ungrounded */\n    tier: 1 | 2 | 3 | null;\n    /** Which waterfall step grounded it, e.g. \"discover-greenhouse\", \"fingerprint\". */\n    resolutionMethod: string;\n    reviewState: \"proposed\" | \"approved\" | \"dismissed\";\n    enabled: boolean;\n    priority: boolean;\n    seeded: boolean;\n    linkedinCompanyId: string;\n    updatedAt: string | null;\n    companyUpdatedAt: string | null;\n  }>;",
+    "ProvenanceChip": "/** One company row \u2014 the same shape `CoverageMeter` takes per row. */\ncompany: {\n    key: string;\n    id: number;\n    /** \"\" for a slug-only row \u2014 Common Crawl mines boards, not names. */\n    name: string;\n    /** ATS family, or \"\" when unresolved: greenhouse | ashby | lever | \u2026 */\n    ats: string;\n    slug: string;\n    /** How it was discovered: dork | commoncrawl | edgar | formadv | manual */\n    source: string;\n    /** 1 = day-of adapter \u00b7 2 = aggregator, lagged \u00b7 3 = manual \u00b7 null = ungrounded */\n    tier: 1 | 2 | 3 | null;\n    /** Which waterfall step grounded it, e.g. \"discover-greenhouse\", \"fingerprint\". */\n    resolutionMethod: string;\n    reviewState: \"proposed\" | \"approved\" | \"dismissed\";\n    enabled: boolean;\n    priority: boolean;\n    seeded: boolean;\n    linkedinCompanyId: string;\n    updatedAt: string | null;\n    companyUpdatedAt: string | null;\n  };\n/** Opens the popover. Pair with `ProvenancePopoverContent` inside a Radix `Popover.Root`. */\nonClick: () => void;",
+    "ReviewBar": "/** Fixed to the viewport, visible only while rows are selected. */\ncount: number;\nbusy: boolean;\n/** Present only while the last batch is still undoable. */\nonUndo?: () => void;\nonApprove: () => void;\nonDismiss: () => void;\nonClear: () => void;",
+    "SelectionBar": "/** Fixed to the viewport, visible only while rows are selected. */\ncount: number;\nbusy: boolean;\nonInterested: () => void;\nonSnooze: () => void;\nonDismiss: () => void;\nonCopy: () => void;\nonClear: () => void;\n/** The Export menu instance scoped to this bar. */\nexportMenu: React.ReactNode;",
+    "StatusSelect": "applicationId: number;\n/** The current status. Any string \u2014 a human-invented one ranks highest. */\nstatus: string;\ndisabled?: boolean;\n/** Called with the chosen status; a custom one arrives here once typed. */\nonSelect: (status: string) => void;",
+    "StepHeader": "title: string;\n/** The file this step belongs to, printed beside the step counter. */\nfilename: string;\n/** 1-based, out of four \u2014 stated so a person knows how much is left. */\nstep: number;\ndetail?: React.ReactNode;\n/** Controls aligned to the right of the title. */\nactions?: React.ReactNode;",
+    "PreviewPanel": "/**\n * What the search profile WOULD have let through. Never renders an\n * unresolved spinner: a preview that cannot be computed says so and offers\n * the save anyway.\n */\nstate:\n  | { kind: \"idle\" }\n  | { kind: \"running\" }\n  | { kind: \"failed\"; message: string }\n  | {\n      /** \"stale\" = the settings moved since this was computed. */\n      kind: \"ready\" | \"stale\";\n      preview: {\n        /** Postings in the window, before anything is judged. */\n        corpusTotal: number;\n        /** \u2026of those, how many match the profile's title lists. */\n        titleMatched: number;\n        /** How many include-terms the profile carries. 0 is a distinct state. */\n        titlesConfigured: number;\n        qualified: number;\n        filtered: number;\n        needsInfo: number;\n        /** reason KIND -> n, first-hit only. Not rendered. */\n        reasonCounts: Record<string, number>;\n        /** The single setting refusing the most postings, or null. */\n        binding: {\n          field: string;\n          /** The /settings anchor id this deep-links to. */\n          setting: string;\n          label: string;\n          /** Postings that qualify with this one field relaxed. */\n          recovers: number;\n          /** One posting this field is currently refusing, in English. */\n          sample: string;\n        } | null;\n        samples: {\n          qualified: Array<{\n            key: string;\n            company: string;\n            title: string;\n            metro: string | null;\n            compRange: string | null;\n            workModel: string | null;\n            /** Raw disposition reason; \"\" for a qualified sample. */\n            reason: string;\n            /** The same thing in English. */\n            explanation: string;\n          }>;\n          filtered: Array<{\n            key: string;\n            company: string;\n            title: string;\n            metro: string | null;\n            compRange: string | null;\n            workModel: string | null;\n            reason: string;\n            explanation: string;\n          }>;\n        };\n        /** Clamped to 1\u201390 by the SQL, and rendered \u2014 so it is the clamped value. */\n        windowDays: number;\n        computedAt: string;\n      };\n    };\n/** Focus + scroll the /settings section a binding constraint names. */\nonGoToSetting: (setting: string) => void;"
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}
