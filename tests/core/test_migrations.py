@@ -44,6 +44,10 @@ def test_there_are_migrations():
 RESERVED_MIGRATION_NUMBERS: dict[int, str] = {
     # 13 was reserved for the referral-finder branch; it merged (#81) and the
     # reservation came out the same hour — the mechanism working as designed.
+    16: (
+        "claimed up front by the parallel engine branch, so 0017 could be written "
+        "here without either session having to guess what the other took."
+    ),
 }
 
 
@@ -148,15 +152,27 @@ def test_the_rpc_parser_reads_nested_arguments_correctly():
 
 
 def _sql_function_params(sql: str, name: str) -> list[str] | None:
-    """Parameter names declared for a function, in order."""
-    m = re.search(
-        rf"create\s+or\s+replace\s+function\s+public\.{name}\s*\((.*?)\)\s*returns",
-        sql,
-        re.S | re.I,
+    """Parameter names declared for a function, in order — from its LAST definition.
+
+    Migrations are applied in order, so a later file redefining a function is
+    what the database ends up with; reading the first definition is reading
+    history. 0017 grows `app_upsert_answer` two parameters that 0014 does not
+    declare, and a first-match read would have compared the web app's call
+    against the signature the migration before it replaced — reporting the
+    correct code as broken, or (with the arguments the other way round) missing a
+    real drift. Same class as row 92: a drift guard that cannot see what it
+    guards.
+    """
+    matches = list(
+        re.finditer(
+            rf"create\s+or\s+replace\s+function\s+public\.{name}\s*\((.*?)\)\s*returns",
+            sql,
+            re.S | re.I,
+        )
     )
-    if not m:
+    if not matches:
         return None
-    return re.findall(r"(p_\w+)", m.group(1))
+    return re.findall(r"(p_\w+)", matches[-1].group(1))
 
 
 RPC_CALLS = _rpc_calls(SUPABASE_SOURCE.read_text())

@@ -3,6 +3,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { getSupabaseEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
+import { EMPTY_APPLY_LIBRARY } from "./apply-fixtures";
 import { FIXTURE_JOBS } from "./fixtures";
 import { FIXTURE_PROFILE_NEW } from "./preview-fixtures";
 import { FixtureDataSource } from "./fixture-source";
@@ -36,6 +37,12 @@ const DEMO_COOKIE = "hq_demo_id";
  *                somebody who signed in and never finished the wizard
  *   no-connections — everything EXCEPT the LinkedIn export: real postings, a
  *                real universe, zero connections. Somebody on their first day.
+ *   no-answers — everything EXCEPT the answer library: real applications to
+ *                prepare, and nothing stored to answer them with. The state
+ *                every user is in the first time they open Prepare, and the one
+ *                `empty` cannot stand in for — `empty` clears the applications
+ *                too, so there is no row to prepare and the whole surface is
+ *                unreachable (matrix row 240's lesson, taken as a rule).
  *
  * `no-connections` exists because `empty` could not stand in for it and the
  * build log briefly claimed it could. `empty` clears the postings too, so there
@@ -49,7 +56,13 @@ const DEMO_COOKIE = "hq_demo_id";
  * cookie.
  */
 const SEED_COOKIE = "hq_demo_seed";
-type SeedName = "full" | "empty" | "filtered" | "onboarding" | "no-connections";
+type SeedName =
+  | "full"
+  | "empty"
+  | "filtered"
+  | "onboarding"
+  | "no-connections"
+  | "no-answers";
 
 /**
  * Arms `FixtureDataSource.failNextWrite()` for the NEXT write in this demo store.
@@ -75,7 +88,8 @@ function parseSeed(value: string | undefined): SeedName {
   return value === "empty" ||
     value === "filtered" ||
     value === "onboarding" ||
-    value === "no-connections"
+    value === "no-connections" ||
+    value === "no-answers"
     ? value
     : "full";
 }
@@ -94,7 +108,27 @@ function buildStore(seed: SeedName): DataSource {
   // unreachable through the only source the tests can drive. Same failure, third
   // surface. The profile slot is passed explicitly rather than skipped, because
   // `connections` sits after it.
-  if (seed === "empty") return new FixtureDataSource([], [], [], [], undefined, []);
+  // "Nothing at all" now also includes the answer library, for the reason every
+  // other collection joined this call: a store with no data that still held ten
+  // answers and eleven rules would leave the settings surface's empty state
+  // unreachable through the only source the tests can drive.
+  if (seed === "empty") {
+    return new FixtureDataSource([], [], [], [], undefined, [], EMPTY_APPLY_LIBRARY);
+  }
+  if (seed === "no-answers") {
+    // Everything else untouched, so there are applications to prepare. What a
+    // person sees before they have told this app anything about themselves: every
+    // field a gap, and the knockout ones stated as questions rather than errors.
+    return new FixtureDataSource(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      EMPTY_APPLY_LIBRARY,
+    );
+  }
   if (seed === "filtered") {
     // The channels are alive and reporting; the postings they found were all
     // gated out. That is the state this seed exists to show. The universe is

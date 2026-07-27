@@ -166,9 +166,11 @@ resolutions here override the individual plans where they conflict.
 > layer-2 vendor enrichment, digest/funnel reporting), and nothing on any surface
 > implies they are.
 >
-> **`0014` is reserved for auto-apply.** The two migration numbers were assigned
-> up front rather than raced for, because P8 and P7 collided on 0008 once and only
-> `test_migrations_are_contiguously_numbered` caught it.
+> **`0014` was reserved for auto-apply, and has landed.** The two migration numbers
+> were assigned up front rather than raced for, because P8 and P7 collided on 0008
+> once and only `test_migrations_are_contiguously_numbered` caught it. The
+> reservation worked in both directions: the guard refused an undeclared gap while
+> 0013 was in flight, and went red on the reserved line the day it landed.
 >
 > Two places this build **deviated from REFERRAL-FINDER.md on purpose**:
 >
@@ -187,12 +189,27 @@ resolutions here override the individual plans where they conflict.
 >    is the digest's. The builder supports them and the popover renders nothing
 >    about them, which is the honest version of a gap.
 >
+> **[AUTO-APPLY.md](AUTO-APPLY.md) steps 1–2 are BUILT** — migration **0014** (the
+> answer library, its typed policy rules, and the four refusals Postgres enforces),
+> the pure prepare engine (`webapp/lib/apply/`), `/settings/answers`, and
+> Prepare/Review at `/apply/[applicationId]`. Matrix rows **247–262** in
+> `docs/WEBAPP-BUILD.md`, which also carries the six stated deferrals. The line
+> above this one used to call the whole thing "researched + designed, NOT
+> scheduled", which stopped being true when 0014 landed.
+>
+> **Steps 3–6 are not built** (submit + receipts, Ashby, Lever, Tier C, the
+> graduated-autonomy ratchet), and nothing on any surface implies they are — the
+> `ready` card says the approve-and-go step does not exist, and no real Greenhouse
+> posting reaches `ready` anyway, because every one asks for a résumé and Prepare
+> does not attach.
+>
 > **Future design threads (researched + designed, NOT scheduled — they do not
-> preempt anything above):** [AUTO-APPLY.md](AUTO-APPLY.md) (select rows →
-> Apply: prepare/review/submit/receipt pipeline, 4-layer answer engine,
-> Greenhouse→Ashby→Lever ≈ 80% coverage) and REFERRAL-FINDER's steps 3–5.
-> Grounding research: `docs/research/auto-apply-landscape.md`,
-> `ats-apply-mechanics.md`, `referral-finder-landscape.md` (all 2026-07-25).
+> preempt anything above):** REFERRAL-FINDER's steps 3–5, and AUTO-APPLY's step 3,
+> which is blocked on an owner decision rather than on a build (the execution-host
+> fork: a per-user local runner versus cloud egress that Greenhouse and Ashby
+> surface to recruiters as a fraud indicator). Grounding research:
+> `docs/research/auto-apply-landscape.md`, `ats-apply-mechanics.md`,
+> `browser-exec-landscape.md`, `referral-finder-landscape.md`.
 
 ## Build order
 

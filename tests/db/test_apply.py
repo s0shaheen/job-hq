@@ -108,11 +108,19 @@ AUTO = object()
 
 
 def save_answer(conn, question, answer="Yes", *, kind="freeform",
-                provenance="user-entered", idem=AUTO, expected=None):
+                provenance="user-entered", idem=AUTO, expected=None,
+                company="", declined=False):
     return conn.execute(
-        "select public.app_upsert_answer(%s, %s, %s, %s, %s, %s)",
+        "select public.app_upsert_answer(%s, %s, %s, %s, %s, %s, %s, %s)",
         (question, answer, kind, provenance,
-         uuid.uuid4().hex if idem is AUTO else idem, expected),
+         uuid.uuid4().hex if idem is AUTO else idem, expected, company, declined),
+    ).fetchone()[0]
+
+
+def delete_answer(conn, question, *, company="", idem=AUTO):
+    return conn.execute(
+        "select public.app_delete_answer(%s, %s, %s)",
+        (question, company, uuid.uuid4().hex if idem is AUTO else idem),
     ).fetchone()[0]
 
 
@@ -609,6 +617,154 @@ def test_the_same_question_in_two_spellings_is_one_library_row(conn, user):
         "select question, answer from public.answers where user_id=%s", (user,)
     ).fetchall()
     assert len(rows) == 1 and rows[0][0] == "ARE YOU AT LEAST 18 YEARS OF AGE", rows
+
+
+# ------------------------------------------------------ 0017: scope and decline
+
+
+def test_one_question_can_hold_a_global_answer_and_a_company_one(conn, user):
+    """The row 0014 could not store, and the reason M1 was reachable at all.
+
+    0001's primary key was `(user_id, question)` — the RAW text — so a second row
+    for the same question at a different scope could not exist, whatever the
+    unique index said. 0017 moves the key; this is the assertion that the move
+    did what it was for.
+    """
+    save_answer(conn, "Have you worked here before?", "No")
+    save_answer(conn, "Have you worked here before?", "Yes", company="Stripe")
+    assert conn.execute(
+        "select company_key, answer from public.answers where user_id=%s "
+        "and question_key='have you worked here before' order by company_key",
+        (user,),
+    ).fetchall() == [("", "No"), ("stripe", "Yes")]
+
+
+def test_the_scope_is_part_of_the_identity_and_the_key_still_is_too(conn, user):
+    """Both halves, or the change traded one bug for another: two spellings of one
+    question at ONE company are still one row."""
+    save_answer(conn, "Are you 18?", "Yes", company="Stripe")
+    save_answer(conn, "ARE YOU 18", "No", company="  stripe  ")
+    assert conn.execute(
+        "select count(*), max(answer) from public.answers where user_id=%s and company_key='stripe'",
+        (user,),
+    ).fetchone() == (1, "No")
+
+
+def test_a_company_scoped_answer_stores_a_key_not_a_name(conn, user):
+    """`company_name_key`, never `lower()` — 0008's NBSP lesson, with the CHECK
+    that makes it true for every writer rather than for this one."""
+    save_answer(conn, "Referred by an employee?", "Yes", company="  Modern Treasury  ")
+    assert conn.execute(
+        "select company_key from public.answers where user_id=%s", (user,)
+    ).fetchone()[0] == "modern treasury"
+    with pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute(
+            "insert into public.answers (user_id, question, company_key, answer, kind) "
+            "values (%s, 'Q', 'Modern Treasury ', 'x', 'freeform')",
+            (user,),
+        )
+
+
+def test_a_decline_is_recorded_as_a_choice_and_survives_the_round_trip(conn, user):
+    """A person picking "I don't wish to answer" is a legitimate answer, and 0014
+    had nowhere to put it: the review screen stored the option's LABEL, which no
+    engine layer may ever select, so the question gapped as `option-mismatch`
+    forever after. The flag is what the engine replays."""
+    row = save_answer(conn, "Gender", "I don't wish to answer", kind="eeo", declined=True)
+    assert row["answer"]["declined"] is True
+    assert row["answer"]["companyKey"] == ""
+    assert row["created"] is True
+    (payload, actor) = events(conn, user, "apply.answer_saved")[0]
+    assert payload["declined"] is True and actor == "user"
+
+
+def test_a_decline_cannot_be_written_by_a_service_lane(conn, user):
+    """The door's half of "the ENGINE never declines".
+
+    `authored_by` is the trigger's stamp from `auth.uid()`, so this refuses a
+    direct service-role INSERT rather than merely a caller that admits what it
+    is — `answers_self_id_is_human_authored`'s shape, one column over.
+    """
+    as_service(conn)
+    with pytest.raises(psycopg.errors.CheckViolation,
+                       match="declined_is_human_authored"):
+        conn.execute(
+            "insert into public.answers (user_id, question, answer, kind, declined) "
+            "values (%s, 'Gender', 'I do not wish to answer', 'freeform', true)",
+            (user,),
+        )
+
+
+def test_clearing_a_decline_is_an_ordinary_overwrite(conn, user):
+    """Somebody who declines and then changes their mind must not be stuck: the
+    flag is a column on the row, not a state the row cannot leave."""
+    first = save_answer(conn, "Gender", "I don't wish to answer", kind="eeo", declined=True)
+    again = save_answer(conn, "Gender", "Woman", kind="eeo",
+                        expected=first["answer"]["updatedAt"])
+    assert again["answer"]["declined"] is False and again["answer"]["answer"] == "Woman"
+
+
+def test_deleting_an_answer_removes_that_scope_and_leaves_the_other(conn, user):
+    """0014 had no delete for `answers` and the settings page said so on screen.
+    The scope makes it matter: removing a one-company answer must not remove the
+    one every other board uses."""
+    save_answer(conn, "Have you worked here before?", "No")
+    save_answer(conn, "Have you worked here before?", "Yes", company="Stripe")
+    assert delete_answer(conn, "Have you worked here before?", company="Stripe") == {"deleted": True}
+    assert conn.execute(
+        "select company_key from public.answers where user_id=%s", (user,)
+    ).fetchall() == [("",)]
+
+
+def test_a_replayed_answer_delete_keeps_saying_what_the_first_one_did(conn, user):
+    """Idempotent by RESULT, not by effect — `app_delete_policy_rule`'s rule, and
+    the reason a second tap on a flaky connection is not told it did nothing."""
+    save_answer(conn, "Website", "https://a.example")
+    key = uuid.uuid4().hex
+    assert delete_answer(conn, "Website", idem=key) == {"deleted": True}
+    assert delete_answer(conn, "Website", idem=key) == {"deleted": True}
+    assert delete_answer(conn, "Website", idem=uuid.uuid4().hex) == {"deleted": False}
+
+
+def test_deleting_an_answer_appends_its_event_even_when_nothing_went(conn, user):
+    """"Somebody asked to remove an answer that was not there" is a real thing to
+    be able to read afterwards."""
+    delete_answer(conn, "Never stored")
+    (payload, actor) = events(conn, user, "apply.answer_deleted")[0]
+    assert payload == {"questionKey": "never stored", "companyKey": "", "deleted": False}
+    assert actor == "user"
+
+
+def test_the_answer_delete_refuses_the_same_junk_every_other_write_refuses(conn, user):
+    """A third write path is a third place to forget the two guards the other two
+    have — the blank key that would replay one gesture forever, and a question
+    that normalizes to nothing."""
+    for bad in ("", " \n\t"):
+        with pytest.raises(psycopg.errors.InvalidParameterValue,
+                           match="idempotency key required"):
+            delete_answer(conn, "Website", idem=bad)
+    with pytest.raises(psycopg.errors.InvalidParameterValue,
+                       match="must contain letters or digits"):
+        delete_answer(conn, "!!! ???")
+
+
+def test_a_user_cannot_delete_another_users_answer(conn, two_users):
+    """The definer function derives `auth.uid()` and takes no user id, so there is
+    no argument to point at somebody else's row — and it is aimed at exactly the
+    question key B holds, so a leak would take it."""
+    u = two_users
+    as_authenticated(conn, u["a"])
+    try:
+        answered = conn.execute(
+            "select public.app_delete_answer('Question for beta', '', %s)",
+            (uuid.uuid4().hex,),
+        ).fetchone()[0]
+    finally:
+        conn.execute("reset role")
+    assert answered == {"deleted": False}
+    assert conn.execute(
+        "select count(*) from public.answers where user_id=%s", (u["b"],)
+    ).fetchone()[0] == 1
 
 
 def test_a_policy_rule_and_its_company_override_coexist(conn, user):

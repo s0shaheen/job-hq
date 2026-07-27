@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -10,6 +10,8 @@ import { isLinkedinId } from "@/lib/referral/linkedin";
 import { FIXTURE_JOBS } from "@/lib/data/fixtures";
 import { CADENCE, SupabaseDataSource, toCompanyView, toJobView } from "@/lib/data/supabase-source";
 import { blankTrim, companyNameKey, PROPOSE_SOURCE_TAGS } from "@/lib/data/view-models";
+import { ANSWER_KINDS, engineRules, parseSituationFact } from "@/lib/apply/views";
+import { prepareApplication } from "@/lib/apply/prepare";
 import type { CompanyView, JobView, ReviewState, Triage } from "@/lib/data/view-models";
 
 /**
@@ -1529,5 +1531,707 @@ describe("connections import parity with migration 0013", () => {
     // second name for the same thing.
     expect(returned).toContain("'skipped',  v_total - v_named");
     expect(fake).toContain("skipped: input.rows.length - named.length");
+  });
+});
+
+// ---------------------------------------------------- the answer library (0014)
+
+/**
+ * `app_upsert_answer`, `app_set_policy_rule` and `app_delete_policy_rule` are the
+ * only write path to the answer library, and `FixtureDataSource` reimplements all
+ * three. The engine that reads what they store is judged on one metric — "wrong
+ * knockout answers (must be zero, ever)" — so a fake that accepts a row Postgres
+ * refuses is not a demo bug: it is a demo staging an application the database
+ * could never have produced.
+ *
+ * Matrix row 238 is the standard this section is written to. Pinning the SQL's
+ * clauses by text is not enough on its own, because a fake can hold every clause
+ * and misuse it; where a number, a list or a regexp exists on both sides it is
+ * EXTRACTED from the migration and then executed.
+ */
+const APPLY_SQL = readFileSync(
+  path.join(REPO, "db", "migrations", "0014_apply_answers.sql"),
+  "utf8",
+);
+
+const SET_RULE_FN = APPLY_SQL.slice(
+  APPLY_SQL.indexOf("function public.app_set_policy_rule"),
+  APPLY_SQL.indexOf("revoke all on function public.app_set_policy_rule"),
+);
+const DELETE_RULE_FN = APPLY_SQL.slice(
+  APPLY_SQL.indexOf("function public.app_delete_policy_rule"),
+  APPLY_SQL.indexOf("revoke all on function public.app_delete_policy_rule"),
+);
+
+/**
+ * 0017 — the scope column, the decline flag and the answer delete.
+ *
+ * Read as its own file rather than folded into `APPLY_SQL`, because
+ * `app_upsert_answer` now exists TWICE across the migrations and a slice over
+ * the concatenation would read whichever came first. The database ends up with
+ * the last one; so does this.
+ */
+const SCOPE_SQL = readFileSync(
+  path.join(REPO, "db", "migrations", "0017_answer_scope.sql"),
+  "utf8",
+);
+
+/**
+ * Every migration, in the order Postgres applies them.
+ *
+ * Needed for a pin about the LIVE schema rather than about one file's text. The
+ * failure it exists for: `parity.test.ts` asserted 0014 creates
+ * `answers_user_question_key_uk` — an index 0017 DROPS — and passed forever by
+ * reading history, while nothing anywhere pinned the index that replaced it. Same
+ * class as `_sql_function_params` reading a function's first definition, one
+ * screen above the fix for it.
+ */
+const MIGRATIONS_IN_ORDER: string[] = readdirSync(path.join(REPO, "db", "migrations"))
+  .filter((f) => f.endsWith(".sql"))
+  .sort()
+  .map((f) => readFileSync(path.join(REPO, "db", "migrations", f), "utf8"));
+
+/** `/* … *​/` and `-- …`, gone. See `stripSql`'s note. */
+function stripSql(sql: string): string {
+  return sql.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "");
+}
+
+/**
+ * COMMENTS STRIPPED, and watched red without it.
+ *
+ * `indexFate` below reads the last statement that mentions an index. Commenting
+ * out 0017's `drop index` left the phrase in the file, the regex matched it, and
+ * the pin stayed green on a migration that no longer drops anything — the
+ * `_strip_sql_comments` lesson (`tests/core/test_migrations.py`: "a checker that
+ * reads prose is a checker that will be worked around by rewording") arriving on
+ * the guard written to close a guard that read history.
+ */
+const ALL_MIGRATIONS_SQL = MIGRATIONS_IN_ORDER.map(stripSql).join("\n");
+
+/**
+ * What the LAST statement mentioning an index does to it — `create` or `drop`.
+ *
+ * Reading the last mention is what makes this a statement about the live schema:
+ * an index created in one migration and dropped in a later one does not exist, and
+ * a name that reappears in a migration after the drop does.
+ */
+function indexFate(name: string): "create" | "drop" | "absent" {
+  const hits = [...ALL_MIGRATIONS_SQL.matchAll(new RegExp(`(create|drop)[^;]*?index[^;]*?\\b${name}\\b`, "gi"))];
+  if (hits.length === 0) return "absent";
+  return hits[hits.length - 1][1].toLowerCase() as "create" | "drop";
+}
+/**
+ * The LIVE `app_upsert_answer` — 0017's, not 0014's.
+ *
+ * The same trap `tests/core/test_migrations.py::_sql_function_params` grew a
+ * comment for: a function defined in two migrations is, in the database, the
+ * later one. Slicing the earlier definition pins bounds and an ordering that
+ * nothing executes any more, which is a guard reading history (rows 92, 130).
+ */
+const UPSERT_ANSWER_FN = SCOPE_SQL.slice(
+  SCOPE_SQL.indexOf("function public.app_upsert_answer"),
+  SCOPE_SQL.indexOf("revoke all on function public.app_upsert_answer"),
+);
+const DELETE_ANSWER_FN = SCOPE_SQL.slice(
+  SCOPE_SQL.indexOf("function public.app_delete_answer"),
+  SCOPE_SQL.indexOf("revoke all on function public.app_delete_answer"),
+);
+
+const APPLY_FAKE_SRC = readFileSync(
+  path.join(REPO, "webapp", "lib", "data", "fixture-source.ts"),
+  "utf8",
+);
+const APPLY_SUPABASE_SRC = readFileSync(
+  path.join(REPO, "webapp", "lib", "data", "supabase-source.ts"),
+  "utf8",
+);
+
+/** One well-formed value per fact kind, for the CHECK-coverage test below. */
+const WELLFORMED_FACT: Record<string, unknown> = {
+  boolean: { kind: "boolean", value: true },
+  enum: { kind: "enum", value: "none" },
+  text: { kind: "text", value: "Chicago, IL" },
+  countries: { kind: "countries", value: ["united states"] },
+  money: { kind: "money", value: 180000 },
+  date: { kind: "date", value: "2026-08-17" },
+  directive: { kind: "directive", value: "monday-weeks-out:3" },
+};
+
+/** A store with nothing in it, so a write is the only thing that puts a row there. */
+function emptyLibraryStore(): FixtureDataSource {
+  return new FixtureDataSource(undefined, undefined, undefined, undefined, undefined, undefined, {
+    answers: [],
+    rules: [],
+  });
+}
+
+function idem(): string {
+  return `t-${Math.random().toString(36).slice(2)}`;
+}
+
+type AnswerArgs = Parameters<FixtureDataSource["upsertAnswer"]>[0];
+type RuleArgs = Parameters<FixtureDataSource["setPolicyRule"]>[0];
+
+function saveAnswer(src: FixtureDataSource, over: Partial<AnswerArgs> = {}) {
+  return src.upsertAnswer({
+    question: "What is your favourite colour?",
+    answer: "Blue",
+    kind: "freeform",
+    company: "",
+    declined: false,
+    provenance: "user-entered",
+    idempotencyKey: idem(),
+    expectedUpdatedAt: null,
+    ...over,
+  });
+}
+
+function saveRule(src: FixtureDataSource, over: Partial<RuleArgs> = {}) {
+  return src.setPolicyRule({
+    topic: "relocation",
+    company: "",
+    fact: { kind: "boolean", value: true },
+    provenance: "user-entered",
+    note: "",
+    enabled: true,
+    idempotencyKey: idem(),
+    expectedUpdatedAt: null,
+    ...over,
+  });
+}
+
+/**
+ * The column list of the FIRST `.from(table).select(...)` in `supabase-source.ts`.
+ *
+ * A helper rather than a regexp per test, and it tolerates the trailing comma a
+ * formatter adds when the list outgrows one line — which is exactly what
+ * happened when 0017's two columns joined the `answers` select, and it turned
+ * two pins into vacuous nulls until they were asserted non-null.
+ */
+function selectColumns(table: string): string {
+  const m = new RegExp(`\\.from\\("${table}"\\)\\s*\\.select\\(\\s*"([^"]*)",?\\s*\\)`).exec(
+    APPLY_SUPABASE_SRC,
+  );
+  expect(m, `the ${table} select was not found`).not.toBeNull();
+  return m![1];
+}
+
+/** `/* … *​/` and `// …`, gone. A checker that reads prose is worked around by rewording. */
+function stripTsComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+}
+
+function refusal(result: { ok: boolean }): string {
+  expect(result.ok, `expected a refusal, got ${JSON.stringify(result)}`).toBe(false);
+  const r = result as unknown as { kind: string; message: string };
+  expect(r.kind).toBe("error");
+  return r.message;
+}
+
+describe("answer library parity with migration 0014", () => {
+  it("sliced the three functions it is about to read", () => {
+    // Without this every `toContain` below passes against an empty string — the
+    // vacuous-guard shape this repo has paid for four times (rows 92, 130, 163, 165).
+    expect(UPSERT_ANSWER_FN, "app_upsert_answer not found in 0014").toContain(
+      "answer must not be blank",
+    );
+    expect(SET_RULE_FN, "app_set_policy_rule not found in 0014").toContain("fact must be an object");
+    expect(DELETE_RULE_FN, "app_delete_policy_rule not found in 0014").toContain("'deleted', v_deleted");
+    expect(UPSERT_ANSWER_FN.length).toBeGreaterThan(500);
+    expect(SET_RULE_FN.length).toBeGreaterThan(500);
+    expect(DELETE_RULE_FN.length).toBeGreaterThan(500);
+  });
+
+  it("refuses what the functions refuse, in the functions' own words", async () => {
+    const src = emptyLibraryStore();
+
+    expect(APPLY_SQL).toContain(refusal(await saveAnswer(src, { idempotencyKey: "" })));
+    expect(APPLY_SQL).toContain(refusal(await saveAnswer(src, { idempotencyKey: " \n\t" })));
+    expect(APPLY_SQL).toContain(refusal(await saveAnswer(src, { answer: "   " })));
+    expect(APPLY_SQL).toContain(refusal(await saveAnswer(src, { question: "!!! ???" })));
+    // The two length bounds, reported with the number the caller sent.
+    expect(refusal(await saveAnswer(src, { question: "x".repeat(2001) }))).toBe(
+      "question too long: 2001 characters",
+    );
+    expect(refusal(await saveAnswer(src, { answer: "x".repeat(8001) }))).toBe(
+      "answer too long: 8001 characters",
+    );
+    expect(APPLY_SQL).toContain(refusal(await saveRule(src, { fact: null as never })));
+    expect(refusal(await saveRule(src, { note: "n".repeat(2001) }))).toBe(
+      "note too long: 2001 characters",
+    );
+    expect(refusal(await saveRule(src, { company: "c".repeat(201) }))).toBe(
+      "company too long: 201 characters",
+    );
+    expect(APPLY_SQL).toContain(
+      refusal(await src.deletePolicyRule({ topic: "relocation", company: "", idempotencyKey: "" })),
+    );
+  });
+
+  it("uses the same numeric bounds the functions declare", () => {
+    // EXTRACTED, then compared against the behaviour above. A hand-typed 2000
+    // here against a 20000 in the migration would leave every assertion green.
+    const bound = (fn: string, re: RegExp) => {
+      const m = re.exec(fn);
+      expect(m, `bound not found: ${re}`).not.toBeNull();
+      return Number(m![1]);
+    };
+    expect(bound(UPSERT_ANSWER_FN, /length\(v_question\) > (\d+)/)).toBe(2000);
+    expect(bound(UPSERT_ANSWER_FN, /length\(v_answer\) > (\d+)/)).toBe(8000);
+    expect(bound(SET_RULE_FN, /pg_column_size\(p_fact\) > (\d+)/)).toBe(8192);
+    expect(bound(SET_RULE_FN, /length\(v_note\) > (\d+)/)).toBe(2000);
+    expect(bound(SET_RULE_FN, /length\(v_company\) > (\d+)/)).toBe(200);
+    // The idempotency bound is the same on all three, and its BLANK half is the
+    // one that matters: `''` is a legal text value and a primary-key component
+    // (matrix row 218).
+    for (const fn of [UPSERT_ANSWER_FN, SET_RULE_FN, DELETE_RULE_FN]) {
+      expect(fn).toContain("public.hq_blank_trim(p_idem) = ''");
+      expect(bound(fn, /length\(p_idem\) > (\d+)/)).toBe(200);
+    }
+  });
+
+  it("is never KINDER than pg_column_size near the fact bound", async () => {
+    /**
+     * The divergence the pins above missed, in the dangerous direction.
+     *
+     * Both sides carried the number 8192 and neither compared the MEASUREMENT:
+     * the fake counted the UTF-8 bytes of `JSON.stringify(fact)`, Postgres counts
+     * `pg_column_size(jsonb)`, and jsonb is bigger than its text because every
+     * element carries a 4-byte JEntry. Executed against a real postgres:16 with
+     * the value built below:
+     *
+     *   679 countries -> JSON.stringify   8,068 bytes  (the old fake SAVED it)
+     *                 -> pg_column_size   8,765 bytes  (`fact too large: 8765 bytes`)
+     *
+     * A fake that accepts a row the store refuses is not a demo bug: it is a demo
+     * staging an application the database could never have produced.
+     */
+    const fact = {
+      kind: "countries" as const,
+      value: Array.from({ length: 679 }, (_, i) => `c${i}-abcd`),
+    };
+    const textBytes = new TextEncoder().encode(JSON.stringify(fact)).length;
+    // The window, pinned in both directions: past the fake's bound, and under the
+    // store's — so a fake that took the store's number verbatim would accept it.
+    expect(textBytes).toBeGreaterThan(6144);
+    expect(textBytes).toBeLessThan(8192);
+    const refused = await saveRule(emptyLibraryStore(), { fact });
+    expect(refusal(refused)).toMatch(/^fact too large: \d+ bytes$/);
+
+    // The bound is the store's, divided by the worst ratio the ALLOWED shapes can
+    // reach (a `countries` array of one-character strings: 5N binary against 4N
+    // text). Both numbers are extracted rather than typed, so a change to either
+    // side fails here instead of silently reopening the window.
+    const sqlBound = Number(/pg_column_size\(p_fact\) > (\d+)/.exec(SET_RULE_FN)![1]);
+    const fakeBound = Number(/MAX_FACT_TEXT_BYTES = (\d+)/.exec(APPLY_FAKE_SRC)![1]);
+    expect(sqlBound).toBe(8192);
+    expect(fakeBound).toBeLessThanOrEqual(sqlBound / 1.25);
+    // …and it still accepts the shape it exists for.
+    const ok = await saveRule(emptyLibraryStore(), {
+      fact: { kind: "countries" as const, value: ["united states", "canada", "united kingdom"] },
+    });
+    expect(ok.ok).toBe(true);
+  });
+
+  it("counts CHARACTERS the way length() does, not UTF-16 units", async () => {
+    /**
+     * The second divergence, safe direction and still a divergence: `length()` in
+     * Postgres counts characters, `String.length` counts UTF-16 code units. A
+     * 1,500-emoji question is 1,500 characters there and 3,000 here, so the fake
+     * refused `question too long: 3002 characters` for a question the database
+     * takes. Executed against real pg: `pg length: 1502`.
+     */
+    // A letter in front, because the NORMALIZER refuses a question of pure
+    // punctuation and this test is about the length bound rather than that one.
+    const emoji = `Q ${"🙂".repeat(1499)}`;
+    expect(emoji.length).toBe(3000);
+    expect([...emoji].length).toBe(1501);
+    const src = emptyLibraryStore();
+    expect((await saveAnswer(src, { question: emoji })).ok).toBe(true);
+    // And the bound itself still bites, in characters.
+    expect(refusal(await saveAnswer(src, { question: "🙂".repeat(2001) }))).toBe(
+      "question too long: 2001 characters",
+    );
+    expect(refusal(await saveAnswer(src, { answer: "🙂".repeat(8001) }))).toBe(
+      "answer too long: 8001 characters",
+    );
+    expect(APPLY_FAKE_SRC).toContain("function charLength");
+  });
+
+  it("declares exactly the answer kinds the CHECK declares", async () => {
+    const check = /answers_kind_is_known[\s\S]*?check \(kind in \(([^)]*)\)\)/.exec(APPLY_SQL);
+    expect(check, "answers_kind_is_known not found").not.toBeNull();
+    const fromSql = [...check![1].matchAll(/'([^']*)'/g)].map((m) => m[1]);
+    expect(fromSql.length).toBeGreaterThan(0);
+    // Set equality in BOTH directions: a kind added on one side only fails here,
+    // rather than being refused at the door of a screen that offers it.
+    expect([...ANSWER_KINDS].sort()).toEqual([...fromSql].sort());
+    // …and the fake uses the list rather than carrying it decoratively.
+    await expect(saveAnswer(emptyLibraryStore(), { kind: "not-a-kind" })).resolves.toMatchObject({
+      ok: false,
+      kind: "error",
+    });
+  });
+
+  it("implements exactly the fact kinds the CHECK implements", () => {
+    const check =
+      /answer_policies_fact_is_wellformed[\s\S]*?case fact ->> 'kind'([\s\S]*?)else false/.exec(
+        APPLY_SQL,
+      );
+    expect(check, "answer_policies_fact_is_wellformed not found").not.toBeNull();
+    const fromSql = [...check![1].matchAll(/when '([a-z]+)'\s+then/g)].map((m) => m[1]);
+    expect(fromSql.length).toBe(7);
+    const implemented = fromSql.filter((kind) => parseSituationFact(WELLFORMED_FACT[kind]) !== null);
+    // Every kind the CHECK names is one this build can read. The reverse — a kind
+    // this build reads and SQL refuses — cannot be written through the RPC, and
+    // the parser's `default: return null` is what keeps it that way.
+    expect(implemented.sort()).toEqual([...fromSql].sort());
+    expect(parseSituationFact({ kind: "phrase-bank", value: ["a recruiter"] })).toBeNull();
+  });
+
+  it("is the STRICTER side on the two shapes SQL cannot check", () => {
+    // Stated in `lib/apply/views.ts` and executed here, because a divergence
+    // nobody runs is a comment. Both go the same way round: this side refuses
+    // rows Postgres accepts, never the reverse.
+    //
+    // (a) `countries` — SQL checks the ARRAY, never its elements, and
+    //     `deriveAnswer` calls `.trim()` on each one.
+    expect(APPLY_SQL).toContain("jsonb_array_length(fact -> 'value') > 0");
+    expect(parseSituationFact({ kind: "countries", value: ["united states", 5] })).toBeNull();
+    expect(parseSituationFact({ kind: "countries", value: ["united states"] })).not.toBeNull();
+    // (b) `date` — Postgres's `\d` is `[[:digit:]]`, wider than `[0-9]` in a
+    //     UTF-8 database.
+    expect(APPLY_SQL).toContain("fact ->> 'value' ~ '^\\d{4}-\\d{2}-\\d{2}$'");
+    expect(parseSituationFact({ kind: "date", value: "٢٠٢٦-٠١-٠١" })).toBeNull();
+    expect(parseSituationFact({ kind: "date", value: "2026-01-01" })).not.toBeNull();
+    // The consequence, executed rather than described: a rule this side cannot
+    // read is DROPPED from the engine's input, so the field gaps as
+    // `policy-unset` ("you have no rule") rather than `situation-mismatch`
+    // ("your rule does not fit"), which would be a sentence about the wrong thing.
+    expect(
+      engineRules([
+        {
+          topic: "relocation",
+          companyKey: "",
+          fact: null,
+          provenance: "user-entered",
+          authoredBy: "user",
+          note: "",
+          enabled: true,
+          updatedAt: null,
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("generates the question key rather than taking one", async () => {
+    const src = emptyLibraryStore();
+    const first = await saveAnswer(src, { question: "Are you 18 years of age or older?" });
+    expect(first).toMatchObject({ ok: true, created: true });
+    if (!first.ok) throw new Error("unreachable");
+    // Two spellings of one question are ONE row: the unique index is on the
+    // generated key, and 0001's primary key was on the raw text.
+    const second = await saveAnswer(src, {
+      question: "ARE YOU 18 YEARS OF AGE OR OLDER?",
+      answer: "Yes",
+      expectedUpdatedAt: first.answer.updatedAt,
+    });
+    expect(second).toMatchObject({ ok: true, created: false });
+    const rows = await src.answers();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].answer).toBe("Yes");
+    expect(APPLY_SQL).toContain("generated always as (public.hq_question_key(question)) stored");
+    // The LIVE identity index, and the death of the one it replaced. Asserted by
+    // last-mention across every migration in order rather than by the text of the
+    // file that happens to name it: the previous version pinned
+    // `answers_user_question_key_uk`, which 0017 drops, so it passed by reading
+    // history while nothing pinned the index that actually enforces this row.
+    expect(indexFate("answers_user_question_scope_uk")).toBe("create");
+    expect(indexFate("answers_user_question_key_uk")).toBe("drop");
+    // …and the scoped one really is the scoped one, so a rename to the live name
+    // over the old single-column definition cannot satisfy the pin above.
+    const scopeCode = stripSql(SCOPE_SQL);
+    expect(scopeCode).toContain(
+      "create unique index if not exists answers_user_question_scope_uk\n  on public.answers (user_id, question_key, company_key)",
+    );
+    expect(scopeCode).toContain("drop index if exists public.answers_user_question_key_uk");
+  });
+
+  it("compares the version token as an INSTANT, not as text", async () => {
+    const src = emptyLibraryStore();
+    const saved = await saveAnswer(src);
+    if (!saved.ok) throw new Error("unreachable");
+    // PostgREST answers `+00:00` where `toISOString()` answers `Z`: one moment,
+    // two strings (matrix rows 146, 168), and the reason the SQL parameter is
+    // DECLARED timestamptz.
+    const other = String(saved.answer.updatedAt).replace(/Z$/, "+00:00");
+    expect(other).not.toBe(saved.answer.updatedAt);
+    await expect(saveAnswer(src, { answer: "Green", expectedUpdatedAt: other })).resolves.toMatchObject(
+      { ok: true, created: false },
+    );
+    expect(UPSERT_ANSWER_FN).toContain("p_expected_updated_at timestamptz");
+    expect(SET_RULE_FN).toContain("p_expected_updated_at timestamptz");
+  });
+
+  it("conflicts with the SERVER's row, in the word supabase-source matches on", async () => {
+    const src = emptyLibraryStore();
+    expect((await saveAnswer(src)).ok).toBe(true);
+    const stale = await saveAnswer(src, {
+      answer: "Green",
+      expectedUpdatedAt: "2020-01-01T00:00:00.000Z",
+    });
+    expect(stale).toMatchObject({ ok: false, kind: "conflict" });
+    if (stale.ok || stale.kind !== "conflict") throw new Error("unreachable");
+    // The value that LOST is not what the surface shows (matrix row 113).
+    expect(stale.current?.answer).toBe("Blue");
+    expect(UPSERT_ANSWER_FN).toContain("conflict: this answer changed since you read it");
+    expect(SET_RULE_FN).toContain("conflict: this rule changed since you read it");
+    expect(APPLY_SUPABASE_SRC).toContain("/conflict|stale/i");
+  });
+
+  it("ratchets provenance the way the trigger does", async () => {
+    const src = emptyLibraryStore();
+    const saved = await saveAnswer(src);
+    if (!saved.ok) throw new Error("unreachable");
+    const downgrade = await saveAnswer(src, {
+      answer: "Green",
+      provenance: "suggested",
+      expectedUpdatedAt: saved.answer.updatedAt,
+    });
+    expect(APPLY_SQL).toContain(refusal(downgrade));
+    expect(APPLY_SQL).toContain("a suggested answer may not overwrite one the user entered");
+  });
+
+  it("replays the stored RESULT, and validates BEFORE it looks for one", async () => {
+    const src = emptyLibraryStore();
+    const key = idem();
+    expect(await saveAnswer(src, { idempotencyKey: key })).toMatchObject({ ok: true, created: true });
+    // The same key answers the FIRST result — `created: true` — though the row
+    // now exists and a fresh write would answer `created: false`.
+    const replay = await saveAnswer(src, { idempotencyKey: key, answer: "Green" });
+    expect(replay).toMatchObject({ ok: true, created: true });
+    if (!replay.ok) throw new Error("unreachable");
+    expect(replay.answer.answer).toBe("Blue");
+    // 0014 checks the payload before it looks for a key, so a retry carrying
+    // something the function refuses gets the refusal rather than the stored
+    // result. Proved from the SQL's own ordering, not asserted about the fake alone.
+    expect(UPSERT_ANSWER_FN.indexOf("answer must not be blank")).toBeLessThan(
+      UPSERT_ANSWER_FN.indexOf("from public.command_idempotency"),
+    );
+    expect(await saveAnswer(src, { idempotencyKey: key, answer: "   " })).toMatchObject({
+      ok: false,
+      kind: "error",
+    });
+    // A delete replays its own answer, so a second tap on a flaky connection is
+    // never told it did nothing when the first one did.
+    const dkey = idem();
+    await saveRule(src);
+    expect(
+      await src.deletePolicyRule({ topic: "relocation", company: "", idempotencyKey: dkey }),
+    ).toEqual({ ok: true, deleted: true });
+    expect(
+      await src.deletePolicyRule({ topic: "relocation", company: "", idempotencyKey: dkey }),
+    ).toEqual({ ok: true, deleted: true });
+    expect(
+      await src.deletePolicyRule({ topic: "relocation", company: "", idempotencyKey: idem() }),
+    ).toEqual({ ok: true, deleted: false });
+  });
+
+  it("keys a rule by company KEY, and lets a disabled override fall back", async () => {
+    const src = emptyLibraryStore();
+    // `company_name_key`, never `lower()` — 0008's NBSP lesson, with the CHECK
+    // that makes it true for every writer rather than for this one.
+    await saveRule(src, { company: "  Modern Treasury  " });
+    expect((await src.policyRules()).map((r) => r.companyKey)).toEqual(["modern treasury"]);
+    expect(APPLY_SQL).toContain("check (company_key = public.company_name_key(company_key))");
+    expect(SET_RULE_FN).toContain("public.company_name_key(coalesce(p_company, ''))");
+
+    // A DISABLED override is ABSENT to the engine, so the global rule applies —
+    // which is what "turning a rule off" has to mean for that sentence to be true.
+    //
+    // Asserted through `prepareApplication` rather than by inspecting the array:
+    // `engineRules` passes a disabled rule through WITH its flag (skipping it here
+    // would move a decision the engine owns), so a membership check would pass on
+    // a build where the fallback is broken. What is being pinned is the staged
+    // ANSWER — "Yes" is the global rule, "No" would be the override that is off.
+    await saveRule(src, { company: "", fact: { kind: "boolean", value: true } });
+    await saveRule(src, { company: "Ramp", fact: { kind: "boolean", value: false }, enabled: false });
+    const staged = prepareApplication({
+      form: {
+        ats: "greenhouse",
+        jobId: "1",
+        company: "Ramp",
+        title: "Product Manager",
+        url: "",
+        fields: [
+          {
+            name: "question_1",
+            label: "Are you open to relocation for this role?",
+            kind: "select",
+            required: true,
+            options: [
+              { label: "Yes", value: "1" },
+              { label: "No", value: "0" },
+            ],
+            siblings: [],
+            selfIdentification: false,
+            rawType: "multi_value_single_select",
+          },
+        ],
+        unsupportedBlocks: [],
+      },
+      answers: [],
+      rules: engineRules(await src.policyRules()),
+      companyKey: "ramp",
+    });
+    expect(staged.fields[0].answer).toBe("1");
+    expect(staged.fields[0].source).toBe("policy:relocation/direct");
+  });
+
+  it("reads both tables through one cap, and never without authored_by", () => {
+    // THE clause of `lib/apply/index.ts`'s contract: omitting the column does not
+    // fail, it silently turns every sensitive library row into a gap. Pinned by
+    // text, because a stub client cannot tell a missing column from a null one.
+    const answersSelect = selectColumns("answers");
+    expect(answersSelect).toContain("authored_by");
+    expect(answersSelect).toContain("question_key");
+    expect(selectColumns("answer_policies")).toContain("authored_by");
+    // One bound, read by both, so a demo cannot render a library production
+    // truncates (matrix row 172).
+    expect(APPLY_SUPABASE_SRC).toContain(".limit(APPLY_LIBRARY_LIMIT)");
+    expect(APPLY_FAKE_SRC).toContain("slice(0, APPLY_LIBRARY_LIMIT)");
+  });
+
+  it("keys a library answer by SCOPE as well as by question (0017)", async () => {
+    const src = emptyLibraryStore();
+    // The row 0014's table could not hold: 0001's primary key was the RAW
+    // question text, so a second row for one question at a second scope was a
+    // unique violation whatever the index said.
+    await saveAnswer(src, { question: "Have you worked here before?", answer: "No" });
+    await saveAnswer(src, {
+      question: "Have you worked here before?",
+      answer: "Yes",
+      company: "  Stripe  ",
+    });
+    const rows = await src.answers();
+    expect(rows.map((r) => [r.companyKey, r.answer])).toEqual([
+      ["", "No"],
+      ["stripe", "Yes"],
+    ]);
+    // The name is KEYED by the store, never by the caller — `company_name_key`,
+    // the same rule `app_set_policy_rule` follows and 0008's NBSP lesson.
+    expect(UPSERT_ANSWER_FN).toContain("public.company_name_key(coalesce(p_company, ''))");
+    expect(SCOPE_SQL).toContain("check (company_key = public.company_name_key(company_key))");
+    // …and the identity is still the KEY within a scope: two spellings of one
+    // question at one company stay one row.
+    await saveAnswer(src, { question: "HAVE YOU WORKED HERE BEFORE", answer: "No", company: "stripe" });
+    expect((await src.answers()).filter((r) => r.companyKey === "stripe")).toHaveLength(1);
+    expect(SCOPE_SQL).toContain(
+      "on public.answers (user_id, question_key, company_key)",
+    );
+  });
+
+  it("records a decline as a choice, and lets it be taken back", async () => {
+    const src = emptyLibraryStore();
+    const saved = await saveAnswer(src, {
+      question: "Gender",
+      answer: "I don't wish to answer",
+      kind: "eeo",
+      declined: true,
+    });
+    expect(saved).toMatchObject({ ok: true });
+    if (!saved.ok) throw new Error("unreachable");
+    expect(saved.answer.declined).toBe(true);
+    // Overwritten, never OR-ed. 0017's UPDATE sets the column unconditionally
+    // and so does the fake, because somebody who declines and then changes their
+    // mind must not be stuck with the flag.
+    const again = await saveAnswer(src, {
+      question: "Gender",
+      answer: "Woman",
+      kind: "eeo",
+      expectedUpdatedAt: saved.answer.updatedAt,
+    });
+    expect(again.ok && again.answer.declined).toBe(false);
+    expect(UPSERT_ANSWER_FN).toContain("declined    = v_declined");
+    // The door's half of "the engine never declines", keyed on the column the
+    // trigger stamps rather than on anything a caller says.
+    expect(SCOPE_SQL).toContain("check (declined = false or authored_by = 'user')");
+  });
+
+  it("deletes an answer the way it deletes a rule: by RESULT, not by effect", async () => {
+    const src = emptyLibraryStore();
+    expect(DELETE_ANSWER_FN, "app_delete_answer not found in 0017").toContain("'deleted', v_deleted");
+    expect(DELETE_ANSWER_FN.length).toBeGreaterThan(500);
+
+    await saveAnswer(src, { question: "Website", answer: "https://a.example" });
+    await saveAnswer(src, { question: "Website", answer: "https://b.example", company: "Stripe" });
+    const key = idem();
+    expect(await src.deleteAnswer({ question: "Website", company: "Stripe", idempotencyKey: key }))
+      .toEqual({ ok: true, deleted: true });
+    // Only that scope. Removing a one-company answer must not remove the one
+    // every other board uses.
+    expect((await src.answers()).map((r) => r.companyKey)).toEqual([""]);
+    // The replay says what the FIRST call said, forever after.
+    expect(await src.deleteAnswer({ question: "Website", company: "Stripe", idempotencyKey: key }))
+      .toEqual({ ok: true, deleted: true });
+    expect(await src.deleteAnswer({ question: "Website", company: "Stripe", idempotencyKey: idem() }))
+      .toEqual({ ok: true, deleted: false });
+    // And the same two refusals every other write makes.
+    expect(APPLY_SQL).toContain(
+      refusal(await src.deleteAnswer({ question: "Website", company: "", idempotencyKey: "" })),
+    );
+    expect(SCOPE_SQL).toContain(
+      refusal(await src.deleteAnswer({ question: "!!! ???", company: "", idempotencyKey: idem() })),
+    );
+  });
+
+  it("reads the scope and the decline flag, or every row reads as global", () => {
+    // `authored_by`'s sibling clause, and the same failure shape: omitting
+    // `company_key` from the select does not fail, it silently turns a
+    // one-company answer into the answer at every company. Pinned by text,
+    // because a stub client cannot tell a missing column from a null one.
+    const answersSelect = selectColumns("answers");
+    expect(answersSelect).toContain("company_key");
+    expect(answersSelect).toContain("declined");
+    // Ordered by BOTH halves of the identity: without the second, the two scopes
+    // of one question tie, and a tie is the query plan deciding which survives
+    // the cap.
+    expect(APPLY_SUPABASE_SRC).toContain('.order("company_key", { ascending: true })');
+    expect(APPLY_FAKE_SRC).toContain("a.company_key.localeCompare(b.company_key)");
+  });
+
+  it("has no way to send authored_by, and neither does the SQL", () => {
+    // `lib/apply/index.ts`: "There is no `p_authored_by` and there must never be
+    // one." Asserted across all three layers rather than remembered — this is the
+    // parameter an adversarial review already walked through once.
+    // Comments stripped first, because 0014 SAYS the words "there is no
+    // p_authored_by" in prose — a search over the raw file asserts the presence
+    // of the sentence rather than the absence of the parameter, which is the
+    // guard-that-cannot-bite shape (matrix row 245's technique, one file over).
+    const code = APPLY_SQL.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "");
+    expect(code).toContain("app_upsert_answer");
+    expect(code).not.toContain("p_authored_by");
+    expect(code).toContain("new.authored_by := case when auth.uid() is not null");
+    const sourceSrc = readFileSync(path.join(REPO, "webapp", "lib", "data", "source.ts"), "utf8");
+    // COMMENTS STRIPPED, for the reason `_strip_sql_comments` exists one language
+    // over: the type's own doc comment EXPLAINS that `authoredBy` is the one
+    // field it must never take, so a raw search asserts the presence of the
+    // sentence rather than the absence of the field — and would have to be
+    // satisfied by rewording the explanation away (matrix row 245's technique).
+    const input = stripTsComments(
+      sourceSrc.slice(
+        sourceSrc.indexOf("export type UpsertAnswerInput"),
+        sourceSrc.indexOf("export type AnswerWriteResult"),
+      ),
+    );
+    expect(input.length).toBeGreaterThan(100);
+    expect(input).toContain("idempotencyKey");
+    expect(input).not.toMatch(/authoredBy/);
+    const rpcArgs = APPLY_SUPABASE_SRC.slice(
+      APPLY_SUPABASE_SRC.indexOf('rpc("app_upsert_answer"'),
+      APPLY_SUPABASE_SRC.indexOf('rpc("app_set_policy_rule"'),
+    );
+    expect(rpcArgs.length).toBeGreaterThan(100);
+    expect(rpcArgs).not.toMatch(/authored/i);
   });
 });

@@ -28,6 +28,8 @@ import type {
   SavedView,
   Triage,
 } from "./view-models";
+import type { AnswerView, PolicyRuleView } from "@/lib/apply/views";
+import type { Provenance, SituationFact } from "@/lib/apply/types";
 import type { ProfileCriteria } from "@/lib/profile/criteria";
 import type { PreviewResult } from "@/lib/profile/preview";
 import type { RegateEntry } from "@/lib/profile/regate";
@@ -545,6 +547,137 @@ export type CommitProfileResult =
   | { ok: false; kind: "auth" }
   | { ok: false; kind: "error"; message: string };
 
+// ---- the answer library (0014) ---------------------------------------------
+
+/**
+ * How many library rows and policy rules one render reads.
+ *
+ * PostgREST caps a select at its own configured maximum whatever this app asks
+ * for, so the number has to exist on this side or the truncation is invisible —
+ * matrix row 241, where a cap the app enforced and never mentioned made every
+ * warm popover under-count in silence. Past this ceiling rows are STORED and not
+ * READ: the library page says so when a user is actually at it, and the prepare
+ * engine would answer from a partial library, which is why the same limit is
+ * used for both reads rather than one being quietly larger.
+ *
+ * 500 is generous against the real shape (16 topics × the companies somebody
+ * overrides; one answer per novel question) and finite.
+ */
+export const APPLY_LIBRARY_LIMIT = 500;
+
+/**
+ * Saving one library answer.
+ *
+ * There is no `authoredBy`, here or anywhere: 0014 stamps it from `auth.uid()`
+ * in a trigger, and `webapp/lib/apply/index.ts` states in bold that a parameter
+ * for it must never exist. `provenance` is the caller's claim — `user-entered`
+ * for something typed, `confirmed` for a suggestion accepted unchanged.
+ */
+export type UpsertAnswerInput = {
+  question: string;
+  answer: string;
+  /** `answers.kind` — identity/location/address/auth/comp/skills/eeo/freeform. */
+  kind: string;
+  /**
+   * WHERE it applies. A NAME, keyed by the store (`company_name_key`), so an
+   * answer saved from the review screen and one saved from a script land on the
+   * same row. `""` is the answer every board gets.
+   *
+   * 0017's column, and the reason it exists: a library row is per-question human
+   * memory, which says nothing about whether the fact is the same at every
+   * employer. Saving "have you worked here before?" globally, from one board,
+   * silently overruled the exception somebody had deliberately set.
+   */
+  company: string;
+  /**
+   * The person picked the board's own "I don't wish to answer".
+   *
+   * Accepted from the caller, unlike `authoredBy`, and safe to accept for the
+   * reason that one is not: 0017 stamps authorship from `auth.uid()` in a
+   * trigger and then refuses `declined` on any row a machine authored. So this
+   * flag can only ever describe a choice a signed-in person made.
+   */
+  declined: boolean;
+  provenance: Provenance;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+export type AnswerWriteResult =
+  | { ok: true; answer: AnswerView; created: boolean }
+  /** `current` is the row as the SERVER has it — null only if it vanished. */
+  | { ok: false; kind: "conflict"; current: AnswerView | null }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+/**
+ * Saving one policy rule.
+ *
+ * `company` is a NAME and the store keys it: `app_set_policy_rule` runs it
+ * through `company_name_key`, and `answer_policies_company_is_a_key` is what
+ * makes that true for every writer rather than customary for this one. `""` is
+ * the global rule.
+ *
+ * `fact` is the user's SITUATION, typed — never the word to submit. That is the
+ * change the adversarial review forced and the reason one rule can answer both
+ * "do you require sponsorship?" and "can you work without sponsorship?".
+ */
+export type SetPolicyRuleInput = {
+  topic: string;
+  company: string;
+  fact: SituationFact;
+  provenance: Provenance;
+  note: string;
+  enabled: boolean;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+export type PolicyWriteResult =
+  | { ok: true; rule: PolicyRuleView; created: boolean }
+  | { ok: false; kind: "conflict"; current: PolicyRuleView | null }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+export type DeleteAnswerInput = {
+  question: string;
+  /** The scope to remove. `""` removes the global answer, never a company one. */
+  company: string;
+  idempotencyKey: string;
+};
+
+/**
+ * Removing one library answer.
+ *
+ * 0014 had no delete for `answers` at all and the settings page said so on
+ * screen. That stopped being acceptable when a decline became storable: the only
+ * exit from a recorded "I don't wish to answer" was to overwrite it with an
+ * answer somebody had chosen not to give.
+ */
+export type DeleteAnswerResult =
+  | { ok: true; deleted: boolean }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+export type DeletePolicyRuleInput = {
+  topic: string;
+  company: string;
+  idempotencyKey: string;
+};
+
+/**
+ * `deleted` is what the STORE did, replayed verbatim on a retry.
+ *
+ * Deleting a rule that is already gone answers `false`; a replay of a real
+ * delete answers `true` forever after, because somebody who taps twice on a
+ * flaky connection must not be told the second tap did nothing when the first
+ * one did.
+ */
+export type DeletePolicyResult =
+  | { ok: true; deleted: boolean }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
 export interface DataSource {
   /** Qualified, untriaged, freshest first. */
   queue(opts?: QueueOptions): Promise<JobView[]>;
@@ -630,6 +763,26 @@ export interface DataSource {
   previewProfile(input: PreviewProfileInput): Promise<PreviewProfileResult>;
   /** Save the profile and restamp the untriaged rows it moves, in one transaction. */
   commitProfile(input: CommitProfileInput): Promise<CommitProfileResult>;
+
+  // ---- the answer library (0014) ------------------------------------------
+
+  /**
+   * This user's stored answers. The select MUST include `authored_by` — the
+   * engine refuses to reuse an answer on a knockout or demographic field
+   * without it, so omitting the column silently turns every sensitive library
+   * row into a gap.
+   */
+  answers(): Promise<AnswerView[]>;
+  /** This user's policy rules: typed situations, global and per-company. */
+  policyRules(): Promise<PolicyRuleView[]>;
+  /** Save one answer, at a scope. The growth loop: a question answered once is reused. */
+  upsertAnswer(input: UpsertAnswerInput): Promise<AnswerWriteResult>;
+  /** Remove one answer. Idempotent by RESULT, not by effect. */
+  deleteAnswer(input: DeleteAnswerInput): Promise<DeleteAnswerResult>;
+  /** Save one rule. Turning one off is `enabled: false`, not a delete. */
+  setPolicyRule(input: SetPolicyRuleInput): Promise<PolicyWriteResult>;
+  /** Remove one rule. Idempotent by RESULT, not by effect. */
+  deletePolicyRule(input: DeletePolicyRuleInput): Promise<DeletePolicyResult>;
 
   /** A user's saved grid states for a surface. Built-in presets live in code. */
   savedViews(surface: string): Promise<SavedView[]>;

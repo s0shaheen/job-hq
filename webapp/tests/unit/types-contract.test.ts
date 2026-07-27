@@ -68,6 +68,13 @@ const CONTRACT: Record<string, string> = {
   // `companies` (above) picks up 0013's two new columns for free, which is the
   // point of listing tables rather than columns.
   connections: "Connection",
+  // 0014. Both are read DIRECTLY through PostgREST — the prepare engine takes
+  // its two inputs from them and the settings surface renders them — so a drift
+  // here is a staged application answered from columns nobody selected, which is
+  // the failure `lib/apply/index.ts` warns about in bold: omit `authored_by` and
+  // every sensitive library row silently becomes a gap.
+  answers: "Answer",
+  answer_policies: "AnswerPolicy",
 };
 
 // ---------------------------------------------------------------- SQL side

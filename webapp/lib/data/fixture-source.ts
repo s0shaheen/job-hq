@@ -59,12 +59,35 @@ import type {
   ImportConnectionsInput,
   ImportConnectionsResult,
   LinkedinCompanyIdInput,
+  AnswerWriteResult,
+  DeleteAnswerInput,
+  DeleteAnswerResult,
+  DeletePolicyResult,
+  DeletePolicyRuleInput,
+  PolicyWriteResult,
+  SetPolicyRuleInput,
+  UpsertAnswerInput,
 } from "./source";
 import {
+  APPLY_LIBRARY_LIMIT,
   CONNECTION_LIST_LIMIT,
   IMPORT_LIST_LIMIT,
   MAX_CONNECTION_CHUNK,
 } from "./source";
+import { questionKey } from "@/lib/apply/normalize";
+import { POLICY_TOPICS } from "@/lib/apply/policy";
+import {
+  isAnswerKind,
+  parseSituationFact,
+  toAnswerView,
+  toPolicyRuleView,
+  type AnswerView,
+  type PolicyRuleView,
+} from "@/lib/apply/views";
+import {
+  FIXTURE_APPLY_LIBRARY,
+  type ApplyLibrarySeed,
+} from "./apply-fixtures";
 import {
   FIXTURE_APPLICATIONS,
   FIXTURE_HEALTH,
@@ -171,11 +194,80 @@ type FixtureImportRow = ImportRowView & {
   };
 };
 
+/** `public.answers` as the store holds it — including the GENERATED key. */
+type AnswerRowShape = {
+  question: string;
+  question_key: string;
+  /** 0017's scope: `''` is every board, a key is one company. */
+  company_key: string;
+  answer: string;
+  declined: boolean;
+  kind: string;
+  provenance: string;
+  authored_by: string;
+  confirmed_at: string | null;
+  updated_at: string;
+};
+
+/** `public.answer_policies` as the store holds it — `fact` still raw jsonb. */
+type PolicyRowShape = {
+  topic: string;
+  company_key: string;
+  fact: unknown;
+  provenance: string;
+  authored_by: string;
+  note: string;
+  enabled: boolean;
+  updated_at: string;
+};
+
+const POLICY_TOPIC_SET: ReadonlySet<string> = new Set(POLICY_TOPICS);
+
+/**
+ * CHARACTERS, the way Postgres's `length()` counts them.
+ *
+ * `String.length` counts UTF-16 code units, so every astral character counts
+ * twice: a 1,500-emoji question is 1,500 characters to Postgres and 3,000 to
+ * JavaScript. The fake refused `question too long: 3002 characters` for a
+ * question the database accepts — the SAFE direction, and still a divergence in
+ * a fake whose whole job is answering the same question as the store.
+ */
+function charLength(s: string): number {
+  return [...s].length;
+}
+
+/**
+ * The fake's bound on a `fact`, and why it is NOT 8192.
+ *
+ * `app_set_policy_rule` refuses `pg_column_size(p_fact) > 8192` — the size of
+ * jsonb's BINARY form. This side can only measure the text, and jsonb is larger
+ * than its text: each element carries a 4-byte JEntry on top of its bytes. So the
+ * two measurements diverge, and the first version diverged the DANGEROUS way —
+ * executed against real Postgres, a 679-element `countries` fact was 7,499 text
+ * bytes (accepted here) and 8,196 binary bytes (`fact too large: 8196 bytes`
+ * there). A fake kinder than the store near a boundary is the exact failure class
+ * `parity.test.ts` exists for.
+ *
+ * The bound is therefore the store's, divided by the worst ratio the shapes
+ * `parseSituationFact` admits can reach. The worst is `countries` full of
+ * one-character strings: text is `4N` bytes, jsonb is `5N` plus a fixed header,
+ * so 1.25. 8192 / 1.25 = 6553; 6 KiB rounds it down and states the margin.
+ *
+ * The consequence, stated rather than discovered: between 6 KiB and the store's
+ * real ceiling this side refuses rows Postgres would take. That is the direction
+ * `lib/apply/views.ts` already declares for `countries` and `date` — this side
+ * refuses rows the database accepts, never the reverse — and a country list is a
+ * handful of short strings.
+ */
+const MAX_FACT_TEXT_BYTES = 6144;
+
 export class FixtureDataSource implements DataSource {
   private jobsByKey = new Map<string, JobView>();
   private apps: ApplicationView[];
   private seenIdempotencyKeys = new Map<string, WriteResult>();
   private failNext: string | null = null;
+  /** Seam tokens already armed once — see `failNextWrite`. */
+  private armedTokens = new Set<string>();
 
   private channels: ChannelHealthView[];
 
@@ -212,6 +304,13 @@ export class FixtureDataSource implements DataSource {
     // clears the postings too, so there is no row to carry a chip and the branch
     // stays unreachable. The build log claimed `empty` covered it; it did not.
     connections: ConnectionView[] = FIXTURE_CONNECTIONS,
+    // Injectable for the same reason as every collection above it, and this one
+    // has two empty states that matter rather than one: a person with no answers
+    // at all (the settings surface's "nothing here yet") and a person with
+    // answers but no rule for a knockout topic (every staged application blocked
+    // on a question only they can answer). The second is the state the whole
+    // feature is judged on, so it is seeded rather than reachable only by hand.
+    library: ApplyLibrarySeed = FIXTURE_APPLY_LIBRARY,
   ) {
     // Stored as the DATABASE stores it — a jsonb object, `{}` for a profile
     // nobody has completed — rather than as the view model. `profile()` then maps
@@ -232,6 +331,41 @@ export class FixtureDataSource implements DataSource {
     for (const c of companies) this.companiesById.set(c.id, { ...c });
     for (const c of connections) this.connectionsById.set(c.id, { ...c });
 
+    // The generated column, generated. A seed supplies `question` and the store
+    // computes the key from it — which is what makes the normalizer part of what
+    // every fixture-driven test exercises, rather than a function only the unit
+    // tests reach. Last seed wins on a collision, exactly as the unique index
+    // would leave one row standing.
+    for (const a of library.answers) {
+      const key = questionKey(a.question);
+      if (key === "") continue;
+      const companyKey = companyNameKey(a.companyKey ?? "");
+      this.answerRows.set(this.answerKey(key, companyKey), {
+        question: a.question,
+        question_key: key,
+        company_key: companyKey,
+        answer: a.answer,
+        declined: a.declined === true,
+        kind: a.kind,
+        provenance: a.provenance,
+        authored_by: a.authoredBy,
+        confirmed_at: a.confirmedAt ?? null,
+        updated_at: a.updatedAt ?? FIXTURE_NOW,
+      });
+    }
+    for (const r of library.rules) {
+      this.ruleRows.set(this.ruleKey(r.topic, r.companyKey), {
+        topic: r.topic,
+        company_key: r.companyKey,
+        fact: r.fact,
+        provenance: r.provenance,
+        authored_by: r.authoredBy,
+        note: r.note ?? "",
+        enabled: r.enabled !== false,
+        updated_at: r.updatedAt ?? FIXTURE_NOW,
+      });
+    }
+
     // 0010's backfill, reproduced: one `import`-authored note per non-empty flat
     // `notes` column, and the column left in place. Without this the fake starts
     // with an empty history for rows that visibly have a note, so the notes
@@ -243,8 +377,28 @@ export class FixtureDataSource implements DataSource {
     }
   }
 
-  /** Force the next write to fail, so the UI's failure path can be tested. */
-  failNextWrite(message = "Network unavailable"): void {
+  /**
+   * Force the next write to fail, so the UI's failure path can be tested.
+   *
+   * `token` makes an arming happen ONCE per store, and it exists because of a
+   * bug that only showed under load. `?demo=failnext` is applied by the page
+   * component, and a page component runs again on the RSC re-render every server
+   * action produces — so the failed write re-armed the seam on its way back, and
+   * the RETRY failed too. `pipeline.spec.ts`'s idempotency test then found no
+   * note at all, deterministically in a full run and never in isolation, because
+   * whether the re-render lands before the click is a question about the machine.
+   *
+   * The demo behaviour is the same fix: "make the next write fail" is one write,
+   * not every write for as long as the parameter stays in the address bar.
+   *
+   * The COOKIE path (`hq_demo_fail`) passes no token and keeps arming on every
+   * resolve — that one is armed and cleared by a test that owns both ends.
+   */
+  failNextWrite(message = "Network unavailable", token?: string): void {
+    if (token !== undefined) {
+      if (this.armedTokens.has(token)) return;
+      this.armedTokens.add(token);
+    }
     this.failNext = message;
   }
 
@@ -1355,6 +1509,371 @@ export class FixtureDataSource implements DataSource {
       newlyQualifiedKeys: newlyQualified,
     };
     this.seenProfileKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  // ---- the answer library (0014) -------------------------------------------
+  //
+  // Stored in the DATABASE's shape — snake_case keys, `question_key` computed
+  // rather than supplied, `fact` as raw jsonb — and read back through the SAME
+  // `toAnswerView` / `toPolicyRuleView` the Supabase source uses. Matrix row 212:
+  // a fake that holds the view model tests the RESULT and never the MAPPING, and
+  // an `isOnboarded` mutant survived 383 tests exactly that way.
+
+  private answerRows = new Map<string, AnswerRowShape>();
+  private ruleRows = new Map<string, PolicyRowShape>();
+  private seenApplyKeys = new Map<
+    string,
+    AnswerWriteResult | PolicyWriteResult | DeletePolicyResult | DeleteAnswerResult
+  >();
+  private applySeq = 0;
+
+  /** The next version token for a row: its own value plus a second. Never `Date.now()`. */
+  private bumpedStamp(prev: string): string {
+    return new Date(new Date(prev).getTime() + 1000 + ++this.applySeq).toISOString();
+  }
+
+  private ruleKey(topic: string, companyKey: string): string {
+    // NUL between the halves: a topic cannot contain one and neither can a
+    // company key, so no two distinct pairs can collide on one string.
+    return `${topic}\u0000${companyKey}`;
+  }
+
+  /**
+   * 0017's identity: `(question_key, company_key)`, not the question key alone.
+   *
+   * Keying on the question alone is what the TABLE did until 0017, and it is the
+   * reason a per-company answer had nowhere to live. Same NUL join as `ruleKey`,
+   * for the same reason: neither half can contain one.
+   */
+  private answerKey(question: string, companyKey: string): string {
+    return `${question}\u0000${companyKey}`;
+  }
+
+  async answers(): Promise<AnswerView[]> {
+    return [...this.answerRows.values()]
+      .sort(
+        (a, b) =>
+          a.question_key.localeCompare(b.question_key) ||
+          a.company_key.localeCompare(b.company_key),
+      )
+      .slice(0, APPLY_LIBRARY_LIMIT)
+      .map((r) => toAnswerView({ ...r }));
+  }
+
+  async policyRules(): Promise<PolicyRuleView[]> {
+    return [...this.ruleRows.values()]
+      .sort((a, b) => a.topic.localeCompare(b.topic) || a.company_key.localeCompare(b.company_key))
+      .slice(0, APPLY_LIBRARY_LIMIT)
+      .map((r) => toPolicyRuleView({ ...r }));
+  }
+
+  /**
+   * `app_upsert_answer`, clause for clause.
+   *
+   * The ORDER is the migration's, not the convenience one, and one step of it is
+   * load-bearing in a way the other fakes here are not: 0014 validates the
+   * payload BEFORE it looks for a replay, so a retry carrying something the
+   * function refuses gets the refusal rather than the stored result. A
+   * replay-first fake would answer "saved" to a request Postgres rejects.
+   */
+  async upsertAnswer(input: UpsertAnswerInput): Promise<AnswerWriteResult> {
+    if (!input.idempotencyKey || blankTrim(input.idempotencyKey) === "" || charLength(input.idempotencyKey) > 200) {
+      return { ok: false, kind: "error", message: "idempotency key required" };
+    }
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    const question = input.question ?? "";
+    const answer = input.answer ?? "";
+    // CHARACTERS, not UTF-16 units — see `charLength`.
+    if (charLength(question) > 2000) {
+      return {
+        ok: false,
+        kind: "error",
+        message: `question too long: ${charLength(question)} characters`,
+      };
+    }
+    if (charLength(answer) > 8000) {
+      return { ok: false, kind: "error", message: `answer too long: ${charLength(answer)} characters` };
+    }
+    const companyKey = companyNameKey(input.company ?? "");
+    if (charLength(companyKey) > 200) {
+      return {
+        ok: false,
+        kind: "error",
+        message: `company too long: ${charLength(companyKey)} characters`,
+      };
+    }
+    if (blankTrim(answer) === "") {
+      return { ok: false, kind: "error", message: "answer must not be blank" };
+    }
+    const key = questionKey(question);
+    if (key === "") {
+      return { ok: false, kind: "error", message: "question must contain letters or digits" };
+    }
+
+    const replay = this.seenApplyKeys.get(input.idempotencyKey) as AnswerWriteResult | undefined;
+    if (replay) return replay;
+
+    // The function's own defaults: a blank kind is `freeform`, a blank
+    // provenance is `user-entered`.
+    const kind = blankTrim(input.kind) === "" ? "freeform" : input.kind;
+    const provenance = blankTrim(input.provenance) === "" ? "user-entered" : input.provenance;
+    if (!isAnswerKind(kind)) {
+      // What Postgres itself answers, verbatim shape — the UI has to handle the
+      // real string, not a friendlier invention.
+      return {
+        ok: false,
+        kind: "error",
+        message: 'new row for relation "answers" violates check constraint "answers_kind_is_known"',
+      };
+    }
+
+    const now = new Date(new Date(FIXTURE_NOW).getTime() + ++this.applySeq).toISOString();
+    const rowKey = this.answerKey(key, companyKey);
+    const existing = this.answerRows.get(rowKey);
+
+    if (!existing) {
+      const row: AnswerRowShape = {
+        question,
+        question_key: key,
+        company_key: companyKey,
+        answer,
+        declined: input.declined === true,
+        kind,
+        // The TRIGGER's stamp, and the whole reason there is no parameter for
+        // it: a signed-in session writes `user`, and this fake only ever models
+        // a signed-in session. A `service` row can only be SEEDED.
+        //
+        // It is also what makes `declined` safe to take from a caller:
+        // `answers_declined_is_human_authored` refuses the flag on any row this
+        // stamp did not mark `user`, so the fake's "always a session" model and
+        // the constraint agree on every row either can produce.
+        authored_by: "user",
+        provenance,
+        confirmed_at: provenance === "confirmed" ? now : null,
+        updated_at: now,
+      };
+      this.answerRows.set(rowKey, row);
+      const result: AnswerWriteResult = { ok: true, answer: toAnswerView({ ...row }), created: true };
+      this.seenApplyKeys.set(input.idempotencyKey, result);
+      return result;
+    }
+
+    // Compared as INSTANTS, never as text: `p_expected_updated_at` is declared
+    // timestamptz, and one moment has three renderings (matrix rows 146, 168).
+    if (input.expectedUpdatedAt !== null && !sameInstant(existing.updated_at, input.expectedUpdatedAt)) {
+      return { ok: false, kind: "conflict", current: toAnswerView({ ...existing }) };
+    }
+
+    // `hq_authorship_guard`'s advisory half. It guards a caller-supplied column
+    // and cannot refuse a dishonest write; it is here because the surface reads
+    // that column and a real UI does make this mistake.
+    if (
+      (existing.provenance === "user-entered" || existing.provenance === "confirmed") &&
+      provenance === "suggested"
+    ) {
+      return {
+        ok: false,
+        kind: "error",
+        message: "a suggested answer may not overwrite one the user entered",
+      };
+    }
+
+    existing.question = question;
+    existing.answer = answer;
+    // Overwritten, never OR-ed: somebody who declines and then changes their
+    // mind must not be stuck with the flag, and 0017's UPDATE sets the column
+    // unconditionally for the same reason.
+    existing.declined = input.declined === true;
+    existing.kind = kind;
+    existing.provenance = provenance;
+    // Confirmation is a MOMENT, not a flag a later edit inherits.
+    if (provenance === "confirmed") existing.confirmed_at = now;
+    existing.updated_at = this.bumpedStamp(existing.updated_at);
+
+    const result: AnswerWriteResult = {
+      ok: true,
+      answer: toAnswerView({ ...existing }),
+      created: false,
+    };
+    this.seenApplyKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  /**
+   * `app_delete_answer`. Idempotent by RESULT, not by effect — the same rule
+   * `deletePolicyRule` follows, and for the same reason: a second tap on a flaky
+   * connection must not be told it did nothing when the first one did.
+   */
+  async deleteAnswer(input: DeleteAnswerInput): Promise<DeleteAnswerResult> {
+    if (!input.idempotencyKey || blankTrim(input.idempotencyKey) === "" || charLength(input.idempotencyKey) > 200) {
+      return { ok: false, kind: "error", message: "idempotency key required" };
+    }
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+    const key = questionKey(input.question ?? "");
+    if (key === "") {
+      return { ok: false, kind: "error", message: "question must contain letters or digits" };
+    }
+    const replay = this.seenApplyKeys.get(input.idempotencyKey) as DeleteAnswerResult | undefined;
+    if (replay) return replay;
+
+    const deleted = this.answerRows.delete(
+      this.answerKey(key, companyNameKey(input.company ?? "")),
+    );
+    const result: DeleteAnswerResult = { ok: true, deleted };
+    this.seenApplyKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  /** `app_set_policy_rule`, in the same order, with the same refusals. */
+  async setPolicyRule(input: SetPolicyRuleInput): Promise<PolicyWriteResult> {
+    if (!input.idempotencyKey || blankTrim(input.idempotencyKey) === "" || charLength(input.idempotencyKey) > 200) {
+      return { ok: false, kind: "error", message: "idempotency key required" };
+    }
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    const fact = input.fact as unknown;
+    if (fact === null || typeof fact !== "object" || Array.isArray(fact)) {
+      return { ok: false, kind: "error", message: "fact must be an object" };
+    }
+    // Text bytes against a bound BELOW the store's, because jsonb's binary form
+    // is bigger than its text and a fake that is kinder near a boundary is the
+    // failure this file's parity tests exist for. See `MAX_FACT_TEXT_BYTES`.
+    const factBytes = new TextEncoder().encode(JSON.stringify(fact)).length;
+    if (factBytes > MAX_FACT_TEXT_BYTES) {
+      return { ok: false, kind: "error", message: `fact too large: ${factBytes} bytes` };
+    }
+    const note = input.note ?? "";
+    if (charLength(note) > 2000) {
+      return { ok: false, kind: "error", message: `note too long: ${charLength(note)} characters` };
+    }
+    const companyKey = companyNameKey(input.company ?? "");
+    if (charLength(companyKey) > 200) {
+      return {
+        ok: false,
+        kind: "error",
+        message: `company too long: ${charLength(companyKey)} characters`,
+      };
+    }
+
+    const replay = this.seenApplyKeys.get(input.idempotencyKey) as PolicyWriteResult | undefined;
+    if (replay) return replay;
+
+    const topic = blankTrim(input.topic ?? "");
+    if (!POLICY_TOPIC_SET.has(topic)) {
+      return {
+        ok: false,
+        kind: "error",
+        message:
+          'new row for relation "answer_policies" violates check constraint "answer_policies_topic_is_known"',
+      };
+    }
+    // The SHAPE check. This side is deliberately the stricter of the two on
+    // `countries` and `date` — see `lib/apply/views.ts` — so a rule this fake
+    // accepts is always one Postgres accepts, never the other way round.
+    if (parseSituationFact(fact) === null) {
+      return {
+        ok: false,
+        kind: "error",
+        message:
+          'new row for relation "answer_policies" violates check constraint "answer_policies_fact_is_wellformed"',
+      };
+    }
+
+    const provenance = blankTrim(input.provenance) === "" ? "user-entered" : input.provenance;
+    const now = new Date(new Date(FIXTURE_NOW).getTime() + ++this.applySeq).toISOString();
+    const key = this.ruleKey(topic, companyKey);
+    const existing = this.ruleRows.get(key);
+
+    if (!existing) {
+      const row: PolicyRowShape = {
+        topic,
+        company_key: companyKey,
+        fact,
+        provenance,
+        // The trigger's stamp again. `answer_policies_knockouts_are_human_authored`
+        // refuses a knockout rule whose `authored_by` is not `user`, which is
+        // unreachable from any UI write for exactly this reason — it exists to
+        // stop a service-role INSERT, not this caller.
+        authored_by: "user",
+        note,
+        enabled: input.enabled !== false,
+        updated_at: now,
+      };
+      this.ruleRows.set(key, row);
+      const result: PolicyWriteResult = {
+        ok: true,
+        rule: toPolicyRuleView({ ...row }),
+        created: true,
+      };
+      this.seenApplyKeys.set(input.idempotencyKey, result);
+      return result;
+    }
+
+    if (input.expectedUpdatedAt !== null && !sameInstant(existing.updated_at, input.expectedUpdatedAt)) {
+      return { ok: false, kind: "conflict", current: toPolicyRuleView({ ...existing }) };
+    }
+    if (
+      (existing.provenance === "user-entered" || existing.provenance === "confirmed") &&
+      provenance === "suggested"
+    ) {
+      return {
+        ok: false,
+        kind: "error",
+        message: "a suggested answer may not overwrite one the user entered",
+      };
+    }
+
+    existing.fact = fact;
+    existing.provenance = provenance;
+    existing.note = note;
+    existing.enabled = input.enabled !== false;
+    existing.updated_at = this.bumpedStamp(existing.updated_at);
+
+    const result: PolicyWriteResult = {
+      ok: true,
+      rule: toPolicyRuleView({ ...existing }),
+      created: false,
+    };
+    this.seenApplyKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  /**
+   * `app_delete_policy_rule`. Idempotent by RESULT, not by effect: a replay of a
+   * real delete answers `true` forever after, and a first delete of a rule that
+   * was never there answers `false`.
+   */
+  async deletePolicyRule(input: DeletePolicyRuleInput): Promise<DeletePolicyResult> {
+    if (!input.idempotencyKey || blankTrim(input.idempotencyKey) === "" || charLength(input.idempotencyKey) > 200) {
+      return { ok: false, kind: "error", message: "idempotency key required" };
+    }
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+    const replay = this.seenApplyKeys.get(input.idempotencyKey) as DeletePolicyResult | undefined;
+    if (replay) return replay;
+
+    const topic = blankTrim(input.topic ?? "");
+    const companyKey = companyNameKey(input.company ?? "");
+    const deleted = this.ruleRows.delete(this.ruleKey(topic, companyKey));
+    const result: DeletePolicyResult = { ok: true, deleted };
+    this.seenApplyKeys.set(input.idempotencyKey, result);
     return result;
   }
 

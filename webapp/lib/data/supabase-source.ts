@@ -46,8 +46,24 @@ import type {
   ImportConnectionsInput,
   ImportConnectionsResult,
   LinkedinCompanyIdInput,
+  AnswerWriteResult,
+  DeleteAnswerInput,
+  DeleteAnswerResult,
+  DeletePolicyResult,
+  DeletePolicyRuleInput,
+  PolicyWriteResult,
+  SetPolicyRuleInput,
+  UpsertAnswerInput,
 } from "./source";
-import { CONNECTION_LIST_LIMIT, IMPORT_LIST_LIMIT } from "./source";
+import { APPLY_LIBRARY_LIMIT, CONNECTION_LIST_LIMIT, IMPORT_LIST_LIMIT } from "./source";
+import { questionKey } from "@/lib/apply/normalize";
+import {
+  toAnswerView,
+  toPolicyRuleView,
+  type AnswerView,
+  type PolicyRuleView,
+} from "@/lib/apply/views";
+import { companyNameKey } from "./view-models";
 import { parseComp } from "@/lib/gating/comp";
 import { clampWindowDays, computePreview, type PreviewPosting } from "@/lib/profile/preview";
 import { isOnboarded, parseCriteria } from "@/lib/profile/criteria";
@@ -994,6 +1010,172 @@ export class SupabaseDataSource implements DataSource {
         ? (row.newly_qualified_keys as unknown[]).map(String)
         : [],
     };
+  }
+
+  // ---- the answer library (0014) ------------------------------------------
+
+  /**
+   * The library, as the engine and the settings screen both read it.
+   *
+   * `authored_by` is in the select for the reason `lib/apply/index.ts` puts in
+   * bold: every gate in `prepare.ts` that could touch a knockout or a demographic
+   * field reads THAT column, so a select without it turns each of those rows into
+   * a gap — silently, and with the row visibly present on the settings page.
+   *
+   * `question_key` comes from the column too. It is `generated always as` and it
+   * is the identity the unique index enforces; recomputing it in the browser is
+   * how two sides end up disagreeing about which row they are talking about.
+   */
+  async answers(): Promise<AnswerView[]> {
+    const { data, error } = await this.supabase
+      .from("answers")
+      .select(
+        "question, question_key, company_key, answer, declined, kind, provenance, authored_by, confirmed_at, updated_at",
+      )
+      .eq("user_id", this.userId)
+      // Ordered so the cap decides WHICH rows survive it rather than the query
+      // plan, and by the key the page groups on. `connections()`' rule.
+      // `company_key` joins it as 0017's second half of the identity: without it
+      // the two scopes of one question tie, and a tie is the query plan deciding.
+      .order("question_key", { ascending: true })
+      .order("company_key", { ascending: true })
+      .limit(APPLY_LIBRARY_LIMIT);
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r) => toAnswerView(r as Record<string, unknown>));
+  }
+
+  async policyRules(): Promise<PolicyRuleView[]> {
+    const { data, error } = await this.supabase
+      .from("answer_policies")
+      .select("topic, company_key, fact, provenance, authored_by, note, enabled, updated_at")
+      .eq("user_id", this.userId)
+      .order("topic", { ascending: true })
+      .order("company_key", { ascending: true })
+      .limit(APPLY_LIBRARY_LIMIT);
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r) => toPolicyRuleView(r as Record<string, unknown>));
+  }
+
+  /** One library row by its full identity, for the conflict path's re-read. */
+  private async oneAnswer(questionKey: string, companyKey: string): Promise<AnswerView | null> {
+    const { data, error } = await this.supabase
+      .from("answers")
+      .select(
+        "question, question_key, company_key, answer, declined, kind, provenance, authored_by, confirmed_at, updated_at",
+      )
+      .eq("user_id", this.userId)
+      .eq("question_key", questionKey)
+      // The scope, or `maybeSingle` throws on the day somebody has both — which
+      // is the day 0017 exists for, and it would turn a conflict into a crash.
+      .eq("company_key", companyKey)
+      .maybeSingle();
+    if (error || !data) return null;
+    return toAnswerView(data as Record<string, unknown>);
+  }
+
+  private async onePolicyRule(topic: string, companyKey: string): Promise<PolicyRuleView | null> {
+    const { data, error } = await this.supabase
+      .from("answer_policies")
+      .select("topic, company_key, fact, provenance, authored_by, note, enabled, updated_at")
+      .eq("user_id", this.userId)
+      .eq("topic", topic)
+      .eq("company_key", companyKey)
+      .maybeSingle();
+    if (error || !data) return null;
+    return toPolicyRuleView(data as Record<string, unknown>);
+  }
+
+  /**
+   * There is no `p_authored_by`, and this method is where somebody would add
+   * one. 0014's trigger stamps the column from `auth.uid()`; a parameter here
+   * would hand a caller the one field every knockout gate keys on.
+   */
+  async upsertAnswer(input: UpsertAnswerInput): Promise<AnswerWriteResult> {
+    const { data, error } = await this.supabase.rpc("app_upsert_answer", {
+      p_question: input.question,
+      p_answer: input.answer,
+      p_kind: input.kind,
+      p_provenance: input.provenance,
+      p_idem: input.idempotencyKey,
+      p_expected_updated_at: input.expectedUpdatedAt,
+      // 0017. `p_company` is a NAME and the function keys it, so this side never
+      // normalizes what the store owns.
+      p_company: input.company,
+      p_declined: input.declined,
+    });
+    if (error) {
+      if (/conflict|stale/i.test(error.message)) {
+        // Re-read rather than echo what was sent: the conflict path's job is to
+        // put the OTHER device's value on screen, and the value that lost is
+        // exactly what the caller already has.
+        return {
+          ok: false,
+          kind: "conflict",
+          current: await this.oneAnswer(
+            questionKey(input.question),
+            companyNameKey(input.company),
+          ),
+        };
+      }
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const row = (data ?? {}) as Record<string, unknown>;
+    return {
+      ok: true,
+      answer: toAnswerView((row.answer ?? {}) as Record<string, unknown>),
+      created: row.created === true,
+    };
+  }
+
+  async deleteAnswer(input: DeleteAnswerInput): Promise<DeleteAnswerResult> {
+    const { data, error } = await this.supabase.rpc("app_delete_answer", {
+      p_question: input.question,
+      p_company: input.company,
+      p_idem: input.idempotencyKey,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    const row = (data ?? {}) as Record<string, unknown>;
+    return { ok: true, deleted: row.deleted === true };
+  }
+
+  async setPolicyRule(input: SetPolicyRuleInput): Promise<PolicyWriteResult> {
+    const { data, error } = await this.supabase.rpc("app_set_policy_rule", {
+      p_topic: input.topic,
+      p_company: input.company,
+      p_fact: input.fact,
+      p_provenance: input.provenance,
+      p_note: input.note,
+      p_enabled: input.enabled,
+      p_idem: input.idempotencyKey,
+      p_expected_updated_at: input.expectedUpdatedAt,
+    });
+    if (error) {
+      if (/conflict|stale/i.test(error.message)) {
+        return {
+          ok: false,
+          kind: "conflict",
+          current: await this.onePolicyRule(input.topic, companyNameKey(input.company)),
+        };
+      }
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const row = (data ?? {}) as Record<string, unknown>;
+    return {
+      ok: true,
+      rule: toPolicyRuleView((row.rule ?? {}) as Record<string, unknown>),
+      created: row.created === true,
+    };
+  }
+
+  async deletePolicyRule(input: DeletePolicyRuleInput): Promise<DeletePolicyResult> {
+    const { data, error } = await this.supabase.rpc("app_delete_policy_rule", {
+      p_topic: input.topic,
+      p_company: input.company,
+      p_idem: input.idempotencyKey,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    const row = (data ?? {}) as Record<string, unknown>;
+    return { ok: true, deleted: row.deleted === true };
   }
 
   async savedViews(surface: string): Promise<SavedView[]> {

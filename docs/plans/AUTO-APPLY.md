@@ -1,8 +1,36 @@
-# Auto-apply — design brief (unscheduled)
+# Auto-apply — design brief
 
-**Status: researched + designed, NOT scheduled. Do not build until the current
-roadmap (company discovery → pipeline → import → profile → digest) is done.**
-This doc is the compaction anchor for the feature: the thesis, the decisions,
+**Status: steps 1–2 are BUILT (2026-07-27). Steps 3–6 are not, and step 3 is
+blocked on an owner decision rather than on a build.** The header used to read
+"researched + designed, NOT scheduled"; that stopped being true when migration
+0014 landed. What exists: the answer library and its typed policy rules (0014,
+scoped and refusable in **0017**), the pure prepare engine (`webapp/lib/apply/`),
+the settings surface at `/settings/answers`, and Prepare/Review at
+`/apply/[applicationId]` — every question a Greenhouse posting will ask, answered
+from what the user has told the app, with gaps rendered as questions and nothing
+guessed. `webapp/lib/apply/index.ts` is the module contract;
+`docs/WEBAPP-BUILD.md` rows 247–270 are the failure modes and the deferrals.
+
+Two things about the layer order that a reader of the four layers below will not
+guess, both of them from an adversarial review that executed them:
+
+* **Scope outranks layer.** A library answer beats a policy rule (layer 1 before
+  layer 2) — but only at the same SCOPE. `answers` carries a `company_key` since
+  0017, and the engine resolves this company's answer, then this company's rule,
+  then the global answer, then the global rule. Without that, a fact that differs
+  per employer, typed once at one board, overrode the exception the person had set
+  themselves. Polarity-safe is not company-safe.
+* **A human's decline is an answer.** The engine may never pick "I don't wish to
+  answer" from any layer, and a person picking it must still be remembered, or the
+  question comes back forever under copy telling them to pick one of the board's
+  options — which they did. `answers.declined` records the choice; only a
+  signed-in session can set it.
+
+**No real Greenhouse posting reaches `ready`.** Every one asks for a résumé,
+`attachment` is a blocking gap on a required field, and Prepare does not attach.
+That is where this work stops, said on screen rather than papered over.
+
+This doc remains the compaction anchor for the feature: the thesis, the decisions,
 the open forks. Grounding research (all claims cited + confidence-tagged there,
 2026-07-25): `docs/research/auto-apply-landscape.md` (product landscape),
 `docs/research/ats-apply-mechanics.md` (per-ATS ground truth).
@@ -167,15 +195,23 @@ precedent, and the account is the referral channel).
 
 ---
 
-## Build shape (when scheduled — each step independently useful)
+## Build shape (each step independently useful)
 
-1. **Answer library + policy rules** — schema (extend `answers`, add rules
-   config) + the settings surface. Useful alone: it's the profile for *manual*
-   applying too, and the scout can read it.
-2. **Greenhouse Prepare + Review** (no submit): `?questions=true` → staged,
+1. ✅ **Answer library + policy rules** — schema (0014) + the settings surface
+   (`/settings/answers`). Useful alone: it's the profile for *manual* applying
+   too, and the scout can read it. **One correction the build forced on this
+   line:** a rule stores the user's SITUATION as a typed fact, never the answer
+   to submit. One topic covers questions of opposite polarity, and replaying a
+   stored word against both submits its opposite half the time — which an
+   adversarial review executed against the first draft, on a card marked ready.
+2. ✅ **Greenhouse Prepare + Review** (no submit): `?questions=true` → staged,
    provenance-tagged, gap-flagged applications in the webapp. Already useful:
    "here is every question this job will ask, pre-answered" turns a 20-min
    application into a 3-min review-and-paste even by hand. 43% coverage.
+   **Delivered per row from `/pipeline`, not per selection:** a batch of staged
+   applications needs a queue surface and somewhere to keep them, and neither is
+   built. **Nothing reaches `ready` on a real board** — the résumé is a blocking
+   gap and Prepare does not attach.
 3. **Submit + receipts** — the Playwright harness, screenshot + payload
    capture, Gmail confirmation join, `applied_via=autoapply`.
 4. **Ashby, then Lever** on the same harness (→ ~80%).

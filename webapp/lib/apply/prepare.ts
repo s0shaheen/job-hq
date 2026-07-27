@@ -157,24 +157,33 @@ function resolveDirective(directive: string, today: Date): string | null {
 }
 
 /**
- * The rule that governs a topic here: a company-scoped one if it exists,
- * otherwise the global one.
+ * The exception this person set for THIS company, if any.
+ *
+ * Split out of the old `ruleFor` — which returned `company ?? global` — because
+ * the two scopes are consulted at different points in the precedence now, and a
+ * function that quietly picks one of them hides the thing that matters. See
+ * `stageField`'s "MOST SPECIFIC SCOPE WINS".
  *
  * A DISABLED rule is treated as ABSENT rather than as an override that answers
- * nothing — so turning off a company override falls back to the global rule,
+ * nothing — so turning off a company override falls back to everything below it,
  * which is what "turning a rule off is the gesture a person wants" has to mean.
  * The first version returned the disabled override and then gapped, which
  * silently made the global rule unreachable for that company.
  */
-function ruleFor(rules: PolicyRule[], topic: string, companyKey: string): PolicyRule | null {
-  let global: PolicyRule | null = null;
-  let company: PolicyRule | null = null;
+function companyRuleFor(rules: PolicyRule[], topic: string, companyKey: string): PolicyRule | null {
+  if (companyKey === "") return null;
   for (const r of rules) {
-    if (r.topic !== topic || !r.enabled) continue;
-    if (companyKey !== "" && r.companyKey === companyKey) company = r;
-    else if (r.companyKey === "") global = r;
+    if (r.topic === topic && r.enabled && r.companyKey === companyKey) return r;
   }
-  return company ?? global;
+  return null;
+}
+
+/** The rule that governs a topic everywhere. Same disabled-is-absent rule. */
+function globalRuleFor(rules: PolicyRule[], topic: string): PolicyRule | null {
+  for (const r of rules) {
+    if (r.topic === topic && r.enabled && r.companyKey === "") return r;
+  }
+  return null;
 }
 
 /**
@@ -199,6 +208,11 @@ function matchOption(field: FormField, proposed: string): string | null {
   for (const o of field.options) {
     // Never on somebody's behalf, from any layer. The decline option exists so
     // the review surface can OFFER it; choosing it is still a choice.
+    //
+    // Still literally true after 0017: a recorded decline reaches the board's
+    // option through `stageFromLibrary`'s own branch, keyed on a flag only a
+    // person's own choice can set, and never through here. A value that merely
+    // SPELLS the decline label still falls through to `option-mismatch`.
     if (o.declineToAnswer) continue;
     if (questionKey(o.label) === want) return o.value;
   }
@@ -268,11 +282,17 @@ function deriveAnswer(
     case "money":
       // Inverting a number is meaningless; there is no branch for it.
       if (polarity !== "direct") return { gap: "situation-mismatch" };
+      // Plain digits, because `parseSituationFact` refuses anything that is not a
+      // whole number under a billion. Without that bound `String(1e21)` is
+      // "1e+21" — submitted, on a knockout field.
       return { value: String(fact.value) };
 
     case "text":
       if (polarity !== "direct") return { gap: "situation-mismatch" };
-      return { value: fact.value };
+      // TRIMMED at the point it becomes a submitted value. SQL only checks that
+      // `hq_blank_trim(value)` is non-empty, so `"  Chicago, IL  "` is a legal
+      // row, and it went onto the board's box with its padding.
+      return { value: blankTrim(fact.value) };
 
     case "date":
       if (polarity !== "direct") return { gap: "situation-mismatch" };
@@ -292,16 +312,169 @@ function deriveAnswer(
 }
 
 interface StageContext {
-  answers: AnswerEntry[];
   rules: PolicyRule[];
   companyKey: string;
   postingCountry?: string;
   today: Date;
   infer?: BackedInference;
+  /** Library rows that apply everywhere, by question key. */
   byKey: Map<string, AnswerEntry>;
+  /** Library rows scoped to THIS company (0017), by question key. Empty when there is no company. */
+  byCompanyKey: Map<string, AnswerEntry>;
 }
 
-/** Resolve one field through the four layers, in order, stopping at the first hit. */
+/** A library row and whether it matched THIS question rather than a canonical alias. */
+interface LibraryHit {
+  entry: AnswerEntry;
+  exact: boolean;
+}
+
+/**
+ * The library row for this field, at one scope.
+ *
+ * The canonical field name wins over the label, and `exact` records which one
+ * matched — because a sensitive field may only take a row matched on ITS OWN
+ * question key. That is what makes layer 1 polarity-safe: the human answered
+ * that exact sentence, so no direction has to be inferred.
+ */
+function lookupEntry(
+  byKey: Map<string, AnswerEntry>,
+  canonical: string | null,
+  labelKey: string,
+): LibraryHit | null {
+  const byCanonical = canonical ? byKey.get(canonical) : undefined;
+  const byLabel = labelKey === "" ? undefined : byKey.get(labelKey);
+  const entry = byCanonical ?? byLabel;
+  if (!entry) return null;
+  return { entry, exact: entry === byLabel };
+}
+
+/**
+ * Layer 1 against one scope: an answer, an `option-mismatch` gap, or nothing.
+ *
+ * `null` means "this scope has nothing usable here" and the caller falls through
+ * to the next one. A gap RETURN, by contrast, stops the search: a stored answer
+ * that is not on this board's menu is a thing to tell a person about, not a
+ * reason to go looking for a different answer to submit.
+ */
+function stageFromLibrary(
+  field: FormField,
+  hit: LibraryHit | null,
+  sensitive: boolean,
+  base: Pick<StagedField, "name" | "label" | "required" | "kind">,
+): StagedField | null {
+  if (!hit) return null;
+  const { entry, exact } = hit;
+  /**
+   * A sensitive field takes an answer only when BOTH hold:
+   *
+   *   the server saw a signed-in person write it (`authoredBy === "user"`,
+   *   stamped by a trigger, not claimed by the caller), and
+   *
+   *   the match was on THIS question's key — never the canonical-field alias.
+   *
+   * An entry that fails either falls through as if it did not exist.
+   */
+  const usable = !sensitive || (entry.authoredBy === "user" && exact);
+  if (!usable) return null;
+
+  /**
+   * A refusal the person recorded, replayed onto THIS board's own decline option.
+   *
+   * The engine still never DERIVES a decline — `matchOption` skips the option
+   * from every layer, including this one — and nothing but a person picking it
+   * can set the flag (0017 refuses `declined` on any row the trigger did not
+   * stamp `user`). What changes is that picking it is no longer a one-way door:
+   * the first version stored the option's LABEL as an ordinary answer, which no
+   * layer may select, so the question gapped as `option-mismatch` forever after
+   * and the copy for that gap — "pick one of theirs" — was false about the one
+   * case it was printed for.
+   *
+   * Matched on the FLAG rather than on the words, so a board wording its decline
+   * option differently still gets its own. A board offering none gaps, and there
+   * `option-mismatch` is the honest sentence rather than a false one.
+   */
+  if (entry.declined === true) {
+    const decline = field.options.find((o) => o.declineToAnswer);
+    if (!decline) return gap(field, "option-mismatch");
+    return {
+      ...base,
+      answer: decline.value,
+      layer: "constant",
+      provenance: entry.provenance,
+      source: answerSource(entry),
+      gap: null,
+      declined: true,
+    };
+  }
+
+  const value = blankTrim(entry.answer);
+  const option = value === "" ? null : matchOption(field, value);
+  if (option !== null) {
+    return {
+      ...base,
+      answer: option,
+      layer: "constant",
+      provenance: entry.provenance,
+      source: answerSource(entry),
+      gap: null,
+    };
+  }
+  // A stored answer that is not on the menu — including one that names the
+  // decline option, which `matchOption` refuses from every layer.
+  if (value !== "" && field.options.length > 0) return gap(field, "option-mismatch");
+  return null;
+}
+
+/** Layer 2 against one rule, once its polarity is known to be usable. */
+function stageFromRule(
+  field: FormField,
+  topic: PolicyTopic,
+  rule: PolicyRule,
+  polarity: Polarity,
+  ctx: StageContext,
+  base: Pick<StagedField, "name" | "label" | "required" | "kind">,
+): StagedField {
+  const derived = deriveAnswer(field, rule.fact, polarity, ctx.postingCountry, ctx.today);
+  if ("gap" in derived) return gap(field, derived.gap);
+  const option = matchOption(field, derived.value);
+  if (option === null) return gap(field, "option-mismatch");
+  return {
+    ...base,
+    answer: option,
+    layer: "policy",
+    provenance: rule.provenance,
+    source: sourceOf(topic, rule.companyKey, polarity),
+    gap: null,
+  };
+}
+
+/**
+ * Resolve one field. Four layers, two scopes, stopping at the first hit.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * MOST SPECIFIC SCOPE WINS, AND ONLY THEN THE LAYER ORDER
+ *
+ *   1  this company's saved answer      (library, `company_key = <this company>`)
+ *   2  this company's exception         (`answer_policies`, same company)
+ *   3  the saved answer for every board (library, `company_key = ''`)
+ *   4  the rule for every board         (`answer_policies`, global)
+ *
+ * The middle two used to be the other way round, and an adversarial review
+ * walked through the gap: `answers` had no company column, the review screen
+ * wrote every typed gap answer globally, and layer 1 ran before layer 2 — so a
+ * one-off answer typed at one board silently and permanently overrode a rule the
+ * person had deliberately scoped to another. The justification for layer-1 reuse
+ * on sensitive fields is that an exact question-key match is "polarity-safe by
+ * construction". True, and not the whole claim: polarity-safe is not
+ * COMPANY-safe, which is the entire reason `answer_policies` has a `company_key`
+ * — and now `answers` does too (0017).
+ *
+ * A company exception that then CANNOT answer (its polarity is unreadable, its
+ * fact is the wrong kind) gaps rather than falling through to the global answer.
+ * That is deliberate: the person said this company is different, so the general
+ * answer is the one thing that is known to be wrong here.
+ */
 function stageField(field: FormField, ctx: StageContext): StagedField {
   const base = {
     name: field.name,
@@ -333,81 +506,85 @@ function stageField(field: FormField, ctx: StageContext): StagedField {
    */
   const sensitive = field.selfIdentification || knockout || isSensitiveLabel(field.label);
 
-  // ── Layer 1: the answer library ────────────────────────────────────────────
   const canonical = canonicalKeyFor(field);
   const labelKey = questionKey(field.label);
-  const byCanonical = canonical ? ctx.byKey.get(canonical) : undefined;
-  const byLabel = ctx.byKey.get(labelKey);
-  const entry = byCanonical ?? byLabel;
 
-  if (entry) {
-    /**
-     * A sensitive field takes an answer only when BOTH hold:
-     *
-     *   the server saw a signed-in person write it (`authoredBy === "user"`,
-     *   stamped by a trigger, not claimed by the caller), and
-     *
-     *   the match was on THIS question's key — never the canonical-field alias.
-     *   Per-question human memory is polarity-safe by construction: the human
-     *   answered that exact question, so no direction has to be inferred.
-     *
-     * An entry that fails either falls through as if it did not exist.
-     */
-    const humanAuthored = entry.authoredBy === "user";
-    const exactQuestion = entry === byLabel && labelKey !== "";
-    const usable = !sensitive || (humanAuthored && exactQuestion);
+  // ── 1. the library, at THIS company ────────────────────────────────────────
+  const scoped = stageFromLibrary(
+    field,
+    lookupEntry(ctx.byCompanyKey, canonical, labelKey),
+    sensitive,
+    base,
+  );
+  if (scoped) return scoped;
 
-    if (usable) {
-      const value = blankTrim(entry.answer);
-      const option = value === "" ? null : matchOption(field, value);
-      if (option !== null) {
-        return {
-          ...base,
-          answer: option,
-          layer: "constant",
-          provenance: entry.provenance,
-          source: `answer:${entry.questionKey ?? questionKey(entry.question)}`,
-          gap: null,
-        };
+  /**
+   * May a POLICY RULE answer this field, at any scope?
+   *
+   * Self-identification is the human's alone. The LIBRARY may still answer it —
+   * their own words, on this exact question, human-authored — which is why the
+   * stop below sits under the two library rungs rather than above everything.
+   * No rule may, and that has to be true at BOTH scopes.
+   *
+   * Read here rather than only at the stop, because rung 2 runs above it: an
+   * adversarial review found a demographic-block question that classifies to a
+   * topic ("Are you legally authorized to work in the United States?" inside an
+   * EEO block) answered from a company exception while the same rule scoped
+   * globally was correctly refused. Same field, same fact, two answers depending
+   * on scope, which is an asymmetry rather than a judgement call.
+   */
+  const policyMayAnswer = !field.selfIdentification;
+
+  // ── 2. the exception this person set for THIS company ──────────────────────
+  //
+  // Ahead of the global library, and this is the whole of it: a rule scoped to
+  // one employer is more specific than an answer that applies to every one of
+  // them, and losing to one is how a deliberate exception got silently overruled
+  // on a card marked ready.
+  if (policyMayAnswer && topicMatch.kind === "topic") {
+    const { topic, polarity } = topicMatch;
+    const exception = companyRuleFor(ctx.rules, topic, ctx.companyKey);
+    if (exception !== null) {
+      // The direction was not established. Never fall through to another layer —
+      // a knockout question the engine half-read is a human's to answer, and
+      // here the general answer is the one that is known to be wrong.
+      if (polarity === "uncertain" || polarity === "unanswerable") {
+        return gap(field, "polarity-unknown");
       }
-      // A stored answer that is not on the menu — including one that names the
-      // decline option, which `matchOption` refuses from every layer.
-      if (value !== "" && field.options.length > 0) return gap(field, "option-mismatch");
+      return stageFromRule(field, topic, exception, polarity, ctx, base);
     }
   }
 
-  // Self-identification, unanswered by the library, stops here. Layers 2-4 do
-  // not exist for it: "self-ID is the human's alone".
+  // ── 3. the library, everywhere ─────────────────────────────────────────────
+  const everywhere = stageFromLibrary(
+    field,
+    lookupEntry(ctx.byKey, canonical, labelKey),
+    sensitive,
+    base,
+  );
+  if (everywhere) return everywhere;
+
+  // Self-identification, unanswered by the library at either scope, stops here.
+  // The POLICY layers do not exist for it — rung 2 is gated on the same flag
+  // above, because it runs before this line and the old comment claimed a reach
+  // this stop no longer had.
   if (field.selfIdentification) return gap(field, "self-identification");
 
-  // ── Layer 2: the situation ─────────────────────────────────────────────────
+  // ── 4. the situation, everywhere ───────────────────────────────────────────
   if (topicMatch.kind === "ambiguous") return gap(field, "policy-ambiguous");
 
   if (topicMatch.kind === "topic") {
     const { topic, polarity } = topicMatch;
-    // The direction was not established. Never fall through to another layer —
-    // a knockout question the engine half-read is a human's to answer.
     if (polarity === "uncertain" || polarity === "unanswerable") {
       return gap(field, "polarity-unknown");
     }
-    const rule = ruleFor(ctx.rules, topic, ctx.companyKey);
+    const rule = globalRuleFor(ctx.rules, topic);
     if (rule === null) {
       // THE case the metric is about. No rule → a gap, on every topic and
       // unconditionally on a knockout one.
       return gap(field, "policy-unset");
     }
-    const derived = deriveAnswer(field, rule.fact, polarity, ctx.postingCountry, ctx.today);
-    if ("gap" in derived) return gap(field, derived.gap);
-    const option = matchOption(field, derived.value);
-    if (option === null) return gap(field, "option-mismatch");
-    return {
-      ...base,
-      answer: option,
-      layer: "policy",
-      provenance: rule.provenance,
-      source: sourceOf(topic, rule.companyKey, polarity),
-      gap: null,
-    };
+    return stageFromRule(field, topic, rule, polarity, ctx, base);
   }
 
   // A consent or acknowledgement. Named so the review surface offers the right
@@ -472,6 +649,22 @@ function stageField(field: FormField, ctx: StageContext): StagedField {
 function sourceOf(topic: PolicyTopic, companyKey: string, polarity: Polarity): string {
   const scope = companyKey === "" ? topic : `${topic}@${companyKey}`;
   return `policy:${scope}/${polarity}`;
+}
+
+/**
+ * The provenance token for a library answer, carrying its SCOPE.
+ *
+ * `answer:<question key>` for the answer every board gets, `answer:<key>@<company
+ * key>` for one that applies at a single employer. The review surface renders
+ * the scope beside the value for the same reason it renders the polarity: an
+ * answer that is right at one company and wrong at every other one is a thing a
+ * person has to be able to see. A question key is `[a-z0-9 ]+` by construction,
+ * so the first `@` is always the separator.
+ */
+function answerSource(entry: AnswerEntry): string {
+  const key = entry.questionKey ?? questionKey(entry.question);
+  const scope = entry.companyKey ?? "";
+  return scope === "" ? `answer:${key}` : `answer:${key}@${scope}`;
 }
 
 function summarize(fields: StagedField[]): CoverageSummary {
@@ -551,23 +744,32 @@ export function prepareApplication(input: PrepareInput): StagedApplication {
   const today = input.today ?? new Date();
   const companyKey = input.companyKey ?? "";
 
-  // Last write wins on a duplicate key, which cannot happen through the store
-  // (0014's unique index) and can happen through a caller that concatenated two
-  // reads. Built explicitly rather than assuming uniqueness.
+  // Two maps, one per scope. Last write wins on a duplicate key, which cannot
+  // happen through the store (0017's unique index is `(question_key,
+  // company_key)`) and can happen through a caller that concatenated two reads.
+  // Built explicitly rather than assuming uniqueness.
+  //
+  // An answer scoped to a DIFFERENT company is dropped here rather than filtered
+  // later: it is not this application's business at all, and a map that held it
+  // would be one lookup away from being the bug 0017 exists to close.
   const byKey = new Map<string, AnswerEntry>();
+  const byCompanyKey = new Map<string, AnswerEntry>();
   for (const a of input.answers) {
     const key = a.questionKey ?? questionKey(a.question);
-    if (key !== "") byKey.set(key, a);
+    if (key === "") continue;
+    const scope = a.companyKey ?? "";
+    if (scope === "") byKey.set(key, a);
+    else if (companyKey !== "" && scope === companyKey) byCompanyKey.set(key, a);
   }
 
   const ctx: StageContext = {
-    answers: input.answers,
     rules: input.rules,
     companyKey,
     postingCountry: input.postingCountry,
     today,
     infer: input.infer,
     byKey,
+    byCompanyKey,
   };
 
   const fields = input.form.fields.filter(isAnswerable).map((f) => stageField(f, ctx));

@@ -255,7 +255,15 @@ describe("the whole journey, over the real fixture files", () => {
 
     expect(at("Company", "read-only")?.sample).toEqual(["Stripe Payments, Inc."]);
     expect(at("Title", "read-only")?.sample).toEqual(["PM - Billing Platform"]);
-    expect(at("URL", "read-only")?.rows).toBe(2);
+    // ONE, not two. The Stripe row's URL now AGREES with the application this
+    // store already holds — the fixture applications carry real board links since
+    // Prepare started reading them — and a column reaches this list only when the
+    // file disagreed with what the engine owns. The sample names the row that
+    // still does, so the number cannot drift into meaning nothing.
+    expect(at("URL", "read-only")?.rows).toBe(1);
+    expect(at("URL", "read-only")?.sample).toEqual([
+      "https://boards.greenhouse.io/brex/jobs/7788991",
+    ]);
     // The second "Notes" column, and a column this app has never heard of.
     expect(at("Notes", "unmapped")).toBeTruthy();
     expect(at("Recruiter", "unknown-column")).toBeTruthy();

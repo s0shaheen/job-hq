@@ -25,9 +25,15 @@
  *
  * ── reads it must provide ──────────────────────────────────────────────────
  *
- *   answers: AnswerEntry[]   `select question, question_key, answer, kind,
- *                             provenance, authored_by from public.answers` (RLS
- *                             scopes it to the caller).
+ *   answers: AnswerEntry[]   `select question, question_key, company_key, answer,
+ *                             declined, kind, provenance, authored_by from
+ *                             public.answers` (RLS scopes it to the caller).
+ *
+ *                             `company_key` and `declined` are 0017's, and both
+ *                             fail the same quiet way as `authored_by`: omit the
+ *                             first and every one-company answer becomes the
+ *                             answer at every company; omit the second and a
+ *                             recorded decline turns back into a permanent gap.
  *
  *                             **`authored_by` is not optional in practice.** It
  *                             is the server's stamp, and the engine refuses to
@@ -60,7 +66,9 @@
  * ── writes it must route through the RPCs ──────────────────────────────────
  *
  *   app_upsert_answer(p_question, p_answer, p_kind, p_provenance, p_idem,
- *                     p_expected_updated_at) -> {answer, created}
+ *                     p_expected_updated_at, p_company, p_declined)
+ *                     -> {answer, created}
+ *   app_delete_answer(p_question, p_company, p_idem) -> {deleted}
  *   app_set_policy_rule(p_topic, p_company, p_fact, p_provenance, p_note,
  *                       p_enabled, p_idem, p_expected_updated_at)
  *                       -> {rule, created}
@@ -84,15 +92,26 @@
  *      an option, and do not let a "select all Yes" affordance reach one.
  *   2. **Never pick `declineToAnswer`.** The engine refuses it from every layer;
  *      the surface must too. It is carried on demographic options so the surface
- *      can OFFER it. Choosing to decline is still a choice.
+ *      can OFFER it. Choosing to decline is still a choice — and when a person
+ *      makes it, SAVE IT AS ONE: `declined: true` on the write, never the
+ *      option's label as an ordinary answer. A label no layer may select is a
+ *      question that gaps as `option-mismatch` forever, and that gap's copy
+ *      ("pick one of theirs") is false about the only case it would print for.
+ *      0017 refuses the flag on any row the authorship trigger did not stamp
+ *      `user`, which is what makes it safe to accept from a caller at all.
  *   3. **`batchApprovable` is an opinion, not permission.** It answers "could a
  *      human approve this in one keystroke?" — it never answers "may this be
  *      submitted without one". The plan is explicit: blind-batch is not legal.
- *   4. **Save what the human types back to the library.** That is the growth
- *      loop ("every novel question answered once becomes a constant"), and it
- *      is the only thing that makes the second application cheaper than the
- *      first. Provenance `user-entered`, or `confirmed` when they accepted a
- *      suggestion unchanged. `authored_by` looks after itself.
+ *   4. **Save what the human types back to the library, AT A SCOPE.** The first
+ *      half is the growth loop ("every novel question answered once becomes a
+ *      constant") and the only thing that makes the second application cheaper
+ *      than the first. The second half is what an adversarial review broke:
+ *      layer 1 outranks layer 2, so an answer saved globally overrules a rule
+ *      the person scoped to one company — polarity-safe is not company-safe.
+ *      Pass `company` (0017), and default it to THIS company for the topics
+ *      `isCompanyVaryingTopic` names. Provenance `user-entered`, or `confirmed`
+ *      when they accepted a suggestion unchanged. `authored_by` looks after
+ *      itself.
  *   5. **Show the polarity, not just the topic.** `source` is
  *      `policy:<topic>[@<company>]/<direction>`, and the direction is the half a
  *      person needs in order to catch the engine misreading a question. Showing
@@ -120,6 +139,8 @@ export { questionKey, hasNoQuestionKey } from "./normalize";
 
 export {
   classifyTopic,
+  COMPANY_VARYING_TOPICS,
+  isCompanyVaryingTopic,
   isConsentLabel,
   isKnockoutTopic,
   isSensitiveLabel,

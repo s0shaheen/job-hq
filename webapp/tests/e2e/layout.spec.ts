@@ -31,6 +31,17 @@ const PAGES = [
   // cannot wrap pushes the page sideways, which is the owner's stated fear
   // arriving through a text field (matrix row 88).
   "/settings",
+  // Sixteen rule cards, a country chip list, a company name somebody pastes, and
+  // a stored answer up to 8,000 characters long — the widest free text in the app
+  // after the profile, on a surface whose whole job is holding what a person
+  // typed. Named here rather than assumed covered by `/settings`: they are two
+  // routes, and matrix row 170 is what happens when a sweep is credited with a
+  // screen it never loaded.
+  "/settings/answers",
+  // A staged application. Every gap card carries a question label the board
+  // wrote — arbitrary length, no wrapping guarantees — beside two badges, which
+  // is the row-88 shape on a new surface.
+  "/apply/1",
   // The LANDING page, and only that. This list is static and every screen of the
   // wizard lives at `/import/<batchId>`, minted at upload time — so a path here
   // cannot reach the mapping list, the preview or the report. A comment that used

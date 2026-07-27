@@ -233,6 +233,143 @@ describe("a situation is derived against the question's polarity, never replayed
 
 // ═══════════════════════════════════ the absolute: no wrong knockout answers
 
+// ═══════════════════════════════════ scope, which layer order alone got wrong
+
+/**
+ * The precedence an adversarial review walked through, executed from the
+ * direction it was broken from.
+ *
+ * The shape of the bug: `answers` had no company column, the review screen wrote
+ * every typed gap answer globally, and layer 1 ran before layer 2. So a one-off
+ * answer typed at one board silently and permanently overrode a rule the person
+ * had deliberately scoped to a different company — on a card marked ready, on a
+ * knockout-adjacent question, through the growth loop the whole feature is built
+ * on.
+ *
+ * The rule now: MOST SPECIFIC SCOPE WINS, and only then the layer order.
+ */
+describe("a per-company exception outranks an answer that applies everywhere", () => {
+  const FORM = synthetic("Have you previously been employed by Stripe?");
+  const RULES = [
+    rule("prior_employment", no),
+    rule("prior_employment", yes, { companyKey: "stripe" }),
+  ];
+  const YES = optionValue(FORM, "q1", "Yes");
+  const NO = optionValue(FORM, "q1", "No");
+
+  it("the exception answers, and says whose it is", () => {
+    const staged = stage(FORM, { answers: [], rules: RULES, companyKey: "stripe" });
+    expect(field(staged, "q1").answer).toBe(YES);
+    expect(field(staged, "q1").source).toBe("policy:prior_employment@stripe/direct");
+  });
+
+  it("REGRESSION: a global library answer no longer beats it", () => {
+    // The probe's exact scenario. Before the fix this staged "No" — the person's
+    // own one-off answer, typed at some other company — at the one company where
+    // the truth is Yes, and `batchApprovable` was true.
+    const staged = stage(FORM, {
+      answers: [answer("Have you previously been employed by Stripe?", "No")],
+      rules: RULES,
+      companyKey: "stripe",
+    });
+    expect(field(staged, "q1").answer).toBe(YES);
+    expect(field(staged, "q1").layer).toBe("policy");
+  });
+
+  it("…and everywhere else that same answer still answers, from the library", () => {
+    // The other half, or the fix is just "rules always win": at a company with no
+    // exception, layer 1 is still layer 1.
+    const staged = stage(FORM, {
+      answers: [answer("Have you previously been employed by Stripe?", "No")],
+      rules: RULES,
+      companyKey: "ramp",
+    });
+    expect(field(staged, "q1").answer).toBe(NO);
+    expect(field(staged, "q1").layer).toBe("constant");
+  });
+
+  it("a DISABLED exception falls through to the library, not into a gap", () => {
+    // "Turning a rule off puts the general answer back" — the sentence the
+    // settings page makes, and it has to stay true of the library too.
+    const staged = stage(FORM, {
+      answers: [answer("Have you previously been employed by Stripe?", "No")],
+      rules: [rule("prior_employment", yes, { companyKey: "stripe", enabled: false })],
+      companyKey: "stripe",
+    });
+    expect(field(staged, "q1").answer).toBe(NO);
+    expect(field(staged, "q1").layer).toBe("constant");
+  });
+
+  it("an exception that cannot answer GAPS rather than using the general answer", () => {
+    // A rule whose fact is the wrong kind for the question. Falling through to
+    // the library here would submit the one answer the person has said is wrong
+    // at this company, which is the failure in a quieter costume.
+    const staged = stage(FORM, {
+      answers: [answer("Have you previously been employed by Stripe?", "No")],
+      rules: [rule("prior_employment", { kind: "enum", value: "maybe" }, { companyKey: "stripe" })],
+      companyKey: "stripe",
+    });
+    expect(field(staged, "q1").answer).toBeNull();
+    expect(field(staged, "q1").gap).toBe("situation-mismatch");
+  });
+
+  it("a company-scoped ANSWER outranks the exception, and never leaves its company", () => {
+    // 0017's own column, and the top of the ladder: the person answered this
+    // exact question at this exact company.
+    const answers = [
+      answer("Have you previously been employed by Stripe?", "No", { companyKey: "stripe" }),
+    ];
+    const here = stage(FORM, { answers, rules: RULES, companyKey: "stripe" });
+    expect(here.fields[0].answer).toBe(NO);
+    expect(here.fields[0].layer).toBe("constant");
+    expect(here.fields[0].source).toBe(
+      "answer:have you previously been employed by stripe@stripe",
+    );
+
+    // …and at Ramp it does not exist: the answer is Stripe's, so what stages is
+    // the GLOBAL rule. A scoped answer leaking across companies is the same bug
+    // pointing the other way, and the tell is the layer rather than the value —
+    // both scopes happen to say No here, which is exactly the coincidence a
+    // value-only assertion would pass on.
+    const elsewhere = stage(FORM, { answers, rules: RULES, companyKey: "ramp" });
+    expect(elsewhere.fields[0].layer).toBe("policy");
+    expect(elsewhere.fields[0].source).toBe("policy:prior_employment/direct");
+  });
+
+  it("a scoped answer is invisible when the application has no company at all", () => {
+    const staged = stage(FORM, {
+      answers: [answer("Have you previously been employed by Stripe?", "No", { companyKey: "stripe" })],
+      rules: [],
+      companyKey: "",
+    });
+    expect(staged.fields[0].gap).toBe("policy-unset");
+  });
+});
+
+describe("what a derived value looks like when it reaches the board", () => {
+  it("trims a text situation rather than submitting its padding", () => {
+    // SQL only checks that `hq_blank_trim(value)` is non-empty, so
+    // `"  Chicago, IL  "` is a legal row — and it went onto the board's box with
+    // the padding still on it.
+    const form = synthetic("What city are you based in?", { type: "input_text" });
+    const staged = stage(form, {
+      rules: [rule("current_location", { kind: "text", value: "  Chicago, IL\u00a0 " })],
+    });
+    expect(field(staged, "q1").answer).toBe("Chicago, IL");
+  });
+
+  it("submits a pay expectation as plain digits", () => {
+    // `String(1e21)` is "1e+21". The magnitude bound lives in
+    // `parseSituationFact` (a fact that large is refused at the door), and this is
+    // the half that says what the accepted range renders as.
+    const form = synthetic("What are your salary expectations?", { type: "input_text" });
+    const staged = stage(form, {
+      rules: [rule("compensation", { kind: "money", value: 185_000, currency: "USD" })],
+    });
+    expect(field(staged, "q1").answer).toBe("185000");
+  });
+});
+
 describe("a policy question with no rule is a GAP, never a guess", () => {
   it("leaves Coinbase's work-authorization question unanswered", () => {
     const staged = stage(COINBASE);
@@ -445,6 +582,148 @@ describe("self-identification is the human's alone", () => {
     const gender = staged.fields.find((f) => f.label === "Gender")!;
     expect(gender.answer).toBeNull();
     expect(gender.gap).toBe("option-mismatch");
+  });
+
+  it("REGRESSION: a decline the person CHOSE is replayed, not gapped forever", () => {
+    /**
+     * The other blocking finding. `matchOption` refuses the decline option from
+     * every layer — correct, and the engine still does — but the review screen
+     * stored the option's LABEL as an ordinary answer, so the next prepare found
+     * a value no layer may select and gapped as `option-mismatch`: *"The value
+     * we would submit is not one of the options this board offers. Pick one of
+     * theirs."* It is one of theirs. They already picked it.
+     *
+     * The flag is what makes it replayable. The test above still holds — an
+     * answer that merely SPELLS the label is refused — so the two together pin
+     * the distinction the whole fix rests on: the engine never declines, and a
+     * person's own decline is an answer.
+     */
+    const staged = stage(DISCORD, {
+      answers: [
+        ...IDENTITY,
+        answer("Gender", "I don't wish to answer", {
+          kind: "eeo",
+          authoredBy: "user",
+          declined: true,
+        }),
+      ],
+    });
+    const gender = staged.fields.find((f) => f.label === "Gender")!;
+    const src = DISCORD.fields.find((f) => f.label === "Gender")!;
+    const decline = src.options.find((o) => o.declineToAnswer)!;
+    expect(gender.gap).toBeNull();
+    expect(gender.answer).toBe(decline.value);
+    expect(gender.declined).toBe(true);
+    expect(gender.layer).toBe("constant");
+  });
+
+  it("replays a decline onto the board's OWN option, whatever it calls it", () => {
+    // Matched on the flag rather than on the words, so a board wording its
+    // decline differently still gets its own option rather than a mismatch.
+    const form = synthetic("Gender", { options: ["Man", "Woman", "Prefer not to say"] });
+    // `synthetic` builds an ordinary question, so mark the option the way the
+    // demographic parser does and re-stage against it.
+    form.fields[0].selfIdentification = true;
+    form.fields[0].options[2].declineToAnswer = true;
+    const staged = stage(form, {
+      answers: [
+        answer("Gender", "I don't wish to answer", {
+          kind: "eeo",
+          authoredBy: "user",
+          declined: true,
+        }),
+      ],
+    });
+    expect(field(staged, "q1").answer).toBe(optionValue(form, "q1", "Prefer not to say"));
+  });
+
+  it("gaps a decline on a board that offers no way to decline", () => {
+    // The honest end of the same branch: `option-mismatch` is TRUE here — this
+    // board really does not offer it — which is the case the copy was written
+    // for and the case it was wrongly printed for before.
+    const form = synthetic("Gender", { options: ["Man", "Woman"] });
+    form.fields[0].selfIdentification = true;
+    const staged = stage(form, {
+      answers: [
+        answer("Gender", "I don't wish to answer", {
+          kind: "eeo",
+          authoredBy: "user",
+          declined: true,
+        }),
+      ],
+    });
+    expect(field(staged, "q1").answer).toBeNull();
+    expect(field(staged, "q1").gap).toBe("option-mismatch");
+  });
+
+  it("a MACHINE cannot ride the decline flag onto a demographic field", () => {
+    // Belt and braces against the door 0017 already closes: the constraint
+    // refuses `declined` on any row the trigger did not stamp `user`, and the
+    // engine's sensitive gate refuses the row anyway.
+    const staged = stage(DISCORD, {
+      answers: [
+        ...IDENTITY,
+        answer("Gender", "I don't wish to answer", {
+          kind: "freeform",
+          authoredBy: "service",
+          declined: true,
+        }),
+      ],
+    });
+    const gender = staged.fields.find((f) => f.label === "Gender")!;
+    expect(gender.answer).toBeNull();
+    expect(gender.gap).toBe("self-identification");
+  });
+
+  it("REGRESSION: no policy rule reaches a demographic field, at EITHER scope", () => {
+    /**
+     * The scope reordering put rung 2 — this company's exception — ABOVE the
+     * self-identification stop, so a demographic-block question that classifies
+     * to a topic was answered from a company-scoped rule while the same rule
+     * scoped globally was refused. Same field, same fact, two answers depending
+     * on scope.
+     *
+     * Written through the PRODUCTION classifier: the demo's EEO labels are
+     * "Gender" and "Veteran status" and neither classifies to a topic, so a test
+     * using them cannot see this at all. "Are you legally authorized to work in
+     * the United States?" inside an EEO block does classify, and boards do put
+     * work-authorization questions in that block.
+     */
+    const form = synthetic("Are you legally authorized to work in the United States?");
+    form.fields[0].selfIdentification = true;
+    const fact: SituationFact = { kind: "countries", value: ["united states"] };
+
+    for (const [scope, rules] of [
+      ["a company exception", [rule("work_authorization", fact, { companyKey: "stripe" })]],
+      ["the global rule", [rule("work_authorization", fact)]],
+      [
+        "both",
+        [rule("work_authorization", fact), rule("work_authorization", fact, { companyKey: "stripe" })],
+      ],
+    ] as const) {
+      const staged = stage(form, {
+        answers: [],
+        rules: [...rules],
+        companyKey: "stripe",
+        postingCountry: "United States",
+      });
+      expect(field(staged, "q1").answer, scope).toBeNull();
+      expect(field(staged, "q1").layer, scope).toBeNull();
+      expect(field(staged, "q1").gap, scope).toBe("self-identification");
+    }
+
+    // The positive control: the same rule, the same board, WITHOUT the
+    // demographic flag, answers — so the refusal above is about self-ID and not
+    // about a rule that cannot answer this question at all.
+    const ordinary = synthetic("Are you legally authorized to work in the United States?");
+    const answered = stage(ordinary, {
+      answers: [],
+      rules: [rule("work_authorization", fact, { companyKey: "stripe" })],
+      companyKey: "stripe",
+      postingCountry: "United States",
+    });
+    expect(field(answered, "q1").layer).toBe("policy");
+    expect(field(answered, "q1").source).toBe("policy:work_authorization@stripe/direct");
   });
 
   it("refuses a machine-written self-ID answer even when it is labelled ordinary", () => {

@@ -27,11 +27,35 @@ function stampAgo(hours: number): string {
   return new Date(new Date(FIXTURE_NOW).getTime() - hours * 3_600_000).toISOString();
 }
 
+/**
+ * The URL the board would have given us, per ATS family.
+ *
+ * It was `https://example.com/jobs/<key>` for every row, which was fine while
+ * nothing read it — and stopped being fine the moment Prepare did.
+ * `resolveApplyTarget` reads the BOARD TOKEN out of a Greenhouse URL, so a demo
+ * of example.com links exercises the "this URL names no board" branch on every
+ * row and the fetchable one on none. That is the shape the house rule is about:
+ * a fake that answers a different question than production.
+ *
+ * The token is the company name with everything but letters and digits removed,
+ * which is what a real Greenhouse slug looks like.
+ */
+function boardUrl(key: string, company: string): string {
+  const dash = key.indexOf("-");
+  const ats = dash > 0 ? key.slice(0, dash) : "";
+  const id = dash > 0 ? key.slice(dash + 1) : key;
+  const token = company.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (ats === "greenhouse") return `https://boards.greenhouse.io/${token}/jobs/${id}`;
+  if (ats === "ashby") return `https://jobs.ashbyhq.com/${token}/${id}`;
+  if (ats === "lever") return `https://jobs.lever.co/${token}/${id}`;
+  return `https://example.com/jobs/${key}`;
+}
+
 type Seed = Partial<JobView> & Pick<JobView, "key" | "company" | "title">;
 
 function job(seed: Seed): JobView {
   return {
-    url: `https://example.com/jobs/${seed.key}`,
+    url: boardUrl(seed.key, seed.company),
     location: null,
     metro: null,
     market: "US",
@@ -257,7 +281,7 @@ function app(
 export const FIXTURE_APPLICATIONS: ApplicationView[] = [
   app({
     id: 1, postingKey: "greenhouse-4410982", company: "Stripe",
-    title: "Product Manager, Billing", url: "https://example.com/jobs/greenhouse-4410982",
+    title: "Product Manager, Billing", url: "https://boards.greenhouse.io/stripe/jobs/4410982",
     status: "Interview", suggestedStatus: null,
     evidence: "https://mail.google.com/mail/u/0/#inbox/abc123",
     appliedDate: daysAgo(21), nextAction: "Prep the ledger case study",
@@ -269,7 +293,7 @@ export const FIXTURE_APPLICATIONS: ApplicationView[] = [
   // whole point is that nothing human has claimed it yet.
   app({
     id: 2, postingKey: "ashby-3f21a9c4", company: "Plaid",
-    title: "Product Manager, Payments", url: "https://example.com/jobs/ashby-3f21a9c4",
+    title: "Product Manager, Payments", url: "https://jobs.ashbyhq.com/plaid/3f21a9c4",
     status: "Applied", suggestedStatus: "Rejected",
     evidence: "https://mail.google.com/mail/u/0/#inbox/def456",
     appliedDate: daysAgo(14), nextAction: null, nextActionDate: null,
@@ -285,7 +309,7 @@ export const FIXTURE_APPLICATIONS: ApplicationView[] = [
   }),
   app({
     id: 4, postingKey: "greenhouse-8814021", company: "Ramp",
-    title: "Product Manager, Core Platform", url: "https://example.com/jobs/greenhouse-8814021",
+    title: "Product Manager, Core Platform", url: "https://boards.greenhouse.io/ramp/jobs/8814021",
     status: "Queued", suggestedStatus: null, evidence: null,
     appliedDate: null, nextAction: "Tailor résumé", nextActionDate: daysAgo(-1),
     notes: null, updatedAt: stampAgo(4),
@@ -306,7 +330,7 @@ export const FIXTURE_APPLICATIONS: ApplicationView[] = [
   // explicit that a delisted posting does not remove the application.
   app({
     id: 6, postingKey: "greenhouse-5540118", company: "Affirm",
-    title: "Product Manager, Checkout", url: "https://example.com/jobs/greenhouse-5540118",
+    title: "Product Manager, Checkout", url: "https://boards.greenhouse.io/affirm/jobs/5540118",
     status: "Screen", suggestedStatus: null,
     evidence: "https://mail.google.com/mail/u/0/#inbox/jkl012",
     appliedDate: daysAgo(18), nextAction: null, nextActionDate: null,
@@ -316,12 +340,36 @@ export const FIXTURE_APPLICATIONS: ApplicationView[] = [
   // it highest by construction; without a row like this, "an invented status
   // still renders" (matrix row 53) is unfalsifiable. Claimed by a human, so it
   // also covers the locked-row rendering.
+  // …and the row that reaches Prepare's `no-board` refusal. A company careers
+  // page carrying `?gh_jid=` is knowably Greenhouse and unfetchable — the schema
+  // is keyed by the BOARD TOKEN and this URL has only the job id — which is a
+  // different sentence from "not Greenhouse" and from "the fetch failed".
+  //
+  // It was unreachable through the demo: `15460da` gave every fixture row a real
+  // board URL, which fixed the opposite hole (the fetchable branch was the one
+  // nothing could reach) and closed this one. The branch is cited four times as
+  // the reason for the other fixture URLs, so leaving one screen without a path
+  // to it is the same rule applied unevenly (matrix row 15).
   app({
     id: 7, postingKey: null, company: "Brex", title: "Product Manager, Spend",
-    url: "https://example.com/jobs/manual-2",
+    url: "https://www.brex.com/careers/open-roles?gh_jid=7788991",
     status: "waiting on referral", statusActor: "user", suggestedStatus: null,
     evidence: null, appliedDate: daysAgo(6), nextAction: "Ping Dev again",
     nextActionDate: daysAgo(-4), notes: null, updatedAt: stampAgo(120),
+  }),
+  // The row Prepare can stage COMPLETELY. Its demo board (see
+  // `lib/apply/demo-boards.ts`) asks for no file, which is the only way a staged
+  // application reaches `ready` at all — every real Greenhouse posting asks for a
+  // résumé, and Prepare does not attach. Without this row the green card, the
+  // `batchApprovable` rendering and the "an opinion, not permission" sentence
+  // beside it would ship having never been looked at (matrix row 15).
+  app({
+    id: 8, postingKey: "greenhouse-1120044", company: "Modern Treasury",
+    title: "Product Manager, Ledgers",
+    url: "https://boards.greenhouse.io/moderntreasury/jobs/1120044",
+    status: "Queued", suggestedStatus: null, evidence: null,
+    appliedDate: null, nextAction: null, nextActionDate: null,
+    notes: null, updatedAt: stampAgo(3),
   }),
 ];
 

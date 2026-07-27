@@ -159,7 +159,7 @@ test("the long fixture row stays one row tall and keeps its full text reachable"
   // title= (hover) and the link still opens the posting.
   const link = row.locator('[data-col="title"] a');
   await expect(link).toHaveAttribute("title", longTitle);
-  await expect(link).toHaveAttribute("href", "https://example.com/jobs/greenhouse-9920117");
+  await expect(link).toHaveAttribute("href", "https://boards.greenhouse.io/northwesternmutualinvestmentservices/jobs/9920117");
   await expect(link).toHaveAttribute("rel", /noopener/);
 });
 

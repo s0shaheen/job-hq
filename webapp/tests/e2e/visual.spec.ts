@@ -311,3 +311,32 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("warm-popover")).toHaveScreenshot(`warm-popover-${theme}.png`);
   });
 }
+
+for (const theme of ["light", "dark"] as const) {
+  test(`application answers look right — ${theme}`, async ({ page }) => {
+    // Sixteen rule cards, a disclosure, a library list and a set of company
+    // exceptions, carrying three colour claims nothing else asserts: the warn
+    // badge on every knockout rule, the "written by the app" tone that keeps a
+    // machine row visibly apart from a person's, and the unreadable-fact line.
+    // Matrix row 101's rule — a claim about colour belongs where the fonts and
+    // the palette are pinned.
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto("/settings/answers");
+    await expect(page.getByTestId("answers-surface")).toHaveAttribute("data-hydrated", "true");
+    await page.waitForLoadState("load");
+    await expect(page).toHaveScreenshot(`answers-${theme}.png`, { fullPage: true });
+  });
+
+  test(`a staged application looks right — ${theme}`, async ({ page }) => {
+    // The BLOCKED one, which is the shape a real board produces: a readiness
+    // banner in its danger tone, a gap card per reason, and a provenance line
+    // under every filled field. `/apply/8` (the green card) is deliberately not
+    // shot as well — one baseline per shape, and the banner is the only thing
+    // that differs between them.
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto("/apply/1");
+    await expect(page.getByTestId("apply-surface")).toHaveAttribute("data-hydrated", "true");
+    await page.waitForLoadState("load");
+    await expect(page).toHaveScreenshot(`apply-${theme}.png`, { fullPage: true });
+  });
+}

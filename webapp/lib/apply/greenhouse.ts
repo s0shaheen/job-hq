@@ -36,6 +36,7 @@
  *     zero questions and call it ready.
  */
 import { blankTrim } from "@/lib/data/view-models";
+import { httpUrlOrEmpty } from "./board";
 import type {
   ApplicationForm,
   FieldKind,
@@ -300,7 +301,11 @@ export function parseGreenhouseForm(payload: unknown): ApplicationForm {
     jobId,
     company: blankTrim(str(p.company_name)),
     title: blankTrim(str(p.title)),
-    url: blankTrim(str(p.absolute_url)),
+    // SCHEME-CHECKED at the door. `absolute_url` is third-party JSON that becomes
+    // an `href`, which is `connectionUrl`'s failure class exactly — and React
+    // neuters `javascript:` and nothing else, so `data:` and `vbscript:` reached
+    // the DOM verbatim. Guarded here so nothing downstream has to remember.
+    url: httpUrlOrEmpty(str(p.absolute_url)),
     fields,
     unsupportedBlocks,
   };

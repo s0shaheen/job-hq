@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getDataSource } from "@/lib/data/get-source";
 import { draftFromPreset } from "@/lib/profile/presets";
 import { DisplayPrefs } from "./display-prefs";
@@ -40,8 +41,32 @@ export default async function SettingsPage() {
         </p>
       </header>
 
-      <div className="mx-auto max-w-2xl px-4 pt-5 sm:px-6">
+      <div className="mx-auto max-w-2xl space-y-3 px-4 pt-5 sm:px-6">
         <DisplayPrefs />
+        {/* The other half of "settings", and deliberately a link rather than a
+            section: these ids are the why-popover's contract, and sixteen policy
+            topics in that namespace would be sixteen anchors nothing links to. */}
+        <section
+          id="answers"
+          aria-labelledby="answers-heading"
+          className="scroll-mt-20 rounded-lg border border-border bg-surface p-4"
+        >
+          <h2 id="answers-heading" className="text-sm font-semibold">
+            Application answers
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            What an application form can be filled in with — your situation, and every
+            question you have answered once. This page decides which jobs reach you; that one
+            decides what we can say on your behalf.
+          </p>
+          <Link
+            href="/settings/answers"
+            data-testid="answers-link"
+            className="mt-3 inline-block text-sm underline"
+          >
+            Edit your application answers
+          </Link>
+        </section>
       </div>
 
       <ProfileForm

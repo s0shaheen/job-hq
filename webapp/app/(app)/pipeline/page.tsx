@@ -34,7 +34,7 @@ export const dynamic = "force-dynamic";
  */
 type Seam = {
   simulateExternalEdit?: (id: number, patch?: Record<string, unknown>) => void;
-  failNextWrite?: (message?: string) => void;
+  failNextWrite?: (message?: string, token?: string) => void;
 };
 
 /**
@@ -78,7 +78,11 @@ function applyDemoSeam(store: unknown, demo: string | undefined): void {
   if (!isDemoMode() || !demo) return;
   const seam = store as Seam;
   if (demo === "failnext") {
-    seam.failNextWrite?.("Network unavailable");
+    // ONCE per store, not once per render. This component runs again on the RSC
+    // re-render that every server action returns, so an untokened arming re-armed
+    // the seam on the way back from the write it had just failed — and the RETRY
+    // failed too. `failNextWrite`'s docstring carries the measurement.
+    seam.failNextWrite?.("Network unavailable", "demo:failnext");
     return;
   }
   const conflict = /^conflict:(\d+)$/.exec(demo);

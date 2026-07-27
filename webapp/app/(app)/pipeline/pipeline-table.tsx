@@ -8,7 +8,8 @@ import {
   type ColumnDef,
   type Row,
 } from "@tanstack/react-table";
-import { ChevronDown, ChevronRight, ExternalLink, Mail, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronRight, ClipboardList, ExternalLink, Mail, RotateCcw } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
@@ -649,6 +650,26 @@ function PipelineRow({
               </a>
             ) : null}
             <NotesDialog app={app} busy={anyBusy} onAdd={onAddNote} />
+            {/* Prepare, beside the notes rather than as a column: this table is a
+                stack of cards on a phone and a seventh column at 375px is the
+                overflow row 123 measures — the same reasoning the warm chip is
+                placed by.
+
+                Shown on EVERY row, not only the ones Prepare can read. Which
+                ones those are is a fact about the ATS family and the board link,
+                and the surface that knows it is the one you land on: a link that
+                appears and disappears teaches somebody that the feature is
+                flaky, while a link that explains what it does not support
+                teaches them what it does. */}
+            <Link
+              href={`/apply/${app.id}`}
+              data-testid={`prepare-${app.id}`}
+              className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-2xs text-muted
+                         hover:bg-raised hover:text-text focus-visible:outline-2
+                         focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              <ClipboardList aria-hidden="true" className="size-3" /> Prepare
+            </Link>
             {/* The warm path, beside the evidence link rather than in a column
                 of its own: this table is a stack of cards on a phone, and a
                 seventh column at 375px is the overflow row 123 measures. The

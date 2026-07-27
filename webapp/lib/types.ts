@@ -195,6 +195,71 @@ export type UserCompany = {
 };
 
 /**
+ * One stored answer to an application question — the answer library (0001,
+ * widened by 0014). Read DIRECTLY through PostgREST by the prepare engine and by
+ * the settings surface, which is why it is in the drift contract.
+ *
+ * Two columns carry the security of the whole feature and they are not
+ * interchangeable:
+ *
+ *   `provenance`  the CALLER'S CLAIM about how the answer was produced. Advisory.
+ *                 It drives the review surface's "needs a look" state and guards
+ *                 nothing — 0014's header is explicit, after a review walked
+ *                 through four refusals keyed on it by writing `'confirmed'`.
+ *   `authored_by` the SERVER'S view, stamped by a trigger from `auth.uid()` and
+ *                 never accepted from a caller. Every gate that could touch a
+ *                 knockout or a demographic field reads this one.
+ *
+ * `question_key` is `generated always as (hq_question_key(question)) stored`. It
+ * carries no NOT NULL in the DDL, so it is nullable HERE too rather than being
+ * quietly promoted: the honest reading is "the store computes this and a client
+ * must not", and `lib/apply/prepare.ts` already treats a missing key as a key to
+ * recompute rather than as an error.
+ */
+export type Answer = {
+  user_id: string;
+  question: string;
+  question_key: string | null;
+  /**
+   * WHERE this answer applies (0017): `''` is every board, a company key scopes
+   * it to one employer. Part of the row's identity, because a library answer is
+   * per-question human memory and says nothing about whether the fact is the
+   * same everywhere — "have you worked here before?" is not.
+   */
+  company_key: string;
+  answer: string;
+  /** The person picked the board's own "I don't wish to answer" (0017). */
+  declined: boolean;
+  kind: string;
+  provenance: string;
+  authored_by: string;
+  /** When a suggestion was accepted unchanged. Null on everything else. */
+  confirmed_at: string | null;
+  updated_at: string;
+};
+
+/**
+ * One policy rule (0014): the user's SITUATION as a typed fact, never the word
+ * to submit.
+ *
+ * `fact` is jsonb whose SHAPE is checked in SQL and whose topic-appropriateness
+ * is the engine's business. `company_key` is a KEY and not a name — the CHECK
+ * requires `company_key = company_name_key(company_key)`, so a rule written
+ * against `'Coinbase '` cannot exist and then silently never match.
+ */
+export type AnswerPolicy = {
+  user_id: string;
+  topic: string;
+  company_key: string;
+  fact: Record<string, unknown>;
+  provenance: string;
+  authored_by: string;
+  note: string;
+  enabled: boolean;
+  updated_at: string;
+};
+
+/**
  * One row of the user's own LinkedIn `Connections.csv` export (0013).
  *
  * Read directly through PostgREST by every surface that shows a warm path, which

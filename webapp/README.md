@@ -163,11 +163,14 @@ only one caller.
 
 ## Visual regression baselines
 
-`tests/e2e/visual.spec.ts` pins how the queue, the jobs grid, and the companies
-grid + coverage meter look, as `-linux` PNG baselines. The companies pair earns a
-baseline for a reason the others do not: that surface's whole job is a
-colour-coded distinction (verified / inferred / unverified / unresolved), so a
-token that quietly drifts in one theme changes what the page CLAIMS about its own
+`tests/e2e/visual.spec.ts` pins how the queue, the jobs grid, the companies
+grid + coverage meter, the answer library and a staged application look, as
+`-linux` PNG baselines. Several of those earn a baseline for a reason the others
+do not: their whole job is a colour-coded distinction — verified / inferred /
+unverified / unresolved on `/companies`, a rule that ends an application versus
+one that shrinks it on `/settings/answers`, a row the app wrote versus one the
+person wrote, a readiness banner in one of three tones on `/apply` — so a token
+that quietly drifts in one theme changes what the page CLAIMS about its own
 evidence, and no assertion would notice.
 
 Pixel baselines only mean something where the fonts

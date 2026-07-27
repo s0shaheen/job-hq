@@ -130,6 +130,52 @@ export const POLICY_TOPICS = [...KNOCKOUT_TOPICS, ...STANDARD_TOPICS] as const;
 
 export type PolicyTopic = (typeof POLICY_TOPICS)[number];
 
+/**
+ * Topics whose truth can differ from one employer to the next.
+ *
+ * Not a security boundary and not a subset of the knockouts — it is the list the
+ * review surface uses to decide which way round to default the SCOPE of an
+ * answer somebody types. Getting it wrong costs a mis-scoped row a person can
+ * fix; leaving it empty costs the bug 0017 exists to close, which an adversarial
+ * review executed: a `compensation` number typed at one board became the global
+ * constant submitted at the next.
+ *
+ * Why each of them, since a list with no reasons drifts into a list with no
+ * meaning:
+ *
+ *   compensation           bands differ per employer, and the label is worded
+ *                          universally ("What are your salary expectations?"),
+ *                          so nothing in the wording scopes it. THE executed case.
+ *   prior_employment       the question literally names the company applied to —
+ *   prior_interview        "usually no, and true at one or two places", which is
+ *   relative_at_company    what `TOPIC_SPECS` already tells people exceptions are
+ *   employee_referral      for.
+ *   how_did_you_hear       "a friend on the payments team" is not true anywhere
+ *                          else.
+ *
+ * And why the others are absent: work authorization, sponsorship, convictions,
+ * a legal name, an age are facts about the PERSON, and a board asking them at
+ * two companies is asking one question twice. Relocation and onsite willingness
+ * could vary in principle; the settings page's exceptions are where that is
+ * expressed, and defaulting them narrow here would scatter one rule across
+ * companies for nobody's benefit.
+ */
+export const COMPANY_VARYING_TOPICS = [
+  "compensation",
+  "prior_employment",
+  "prior_interview",
+  "relative_at_company",
+  "employee_referral",
+  "how_did_you_hear",
+] as const;
+
+const COMPANY_VARYING_SET: ReadonlySet<string> = new Set(COMPANY_VARYING_TOPICS);
+
+/** Does the truth of this topic depend on which company is asking? */
+export function isCompanyVaryingTopic(topic: string): boolean {
+  return COMPANY_VARYING_SET.has(topic);
+}
+
 const KNOCKOUT_SET: ReadonlySet<string> = new Set(KNOCKOUT_TOPICS);
 
 /** Is a wrong answer here fatal? Layers 3 and 4 may never reach one. */
@@ -407,6 +453,21 @@ const COUNTRY_LEXICON: Array<[RegExp, string]> = [
   [/\bindia\b/, "india"],
   [/\baustralia\b/, "australia"],
 ];
+
+/**
+ * The country names a stored `countries` fact can be matched against.
+ *
+ * Derived FROM the lexicon rather than written out again: a settings screen that
+ * offered "USA" while the classifier answers "united states" would store a list
+ * that matches nothing, and nobody would ever see why. Matrix row 192 is the same
+ * failure between two languages ("Washington D.C." here, "Washington DC" there);
+ * this is it between two files.
+ *
+ * It is a list of what is RECOGNISED, not a closed set of what may be stored: a
+ * question that defers to the posting ("the country where this position is
+ * located") resolves against the posting's own country, which can be anything.
+ */
+export const RECOGNISED_COUNTRIES: readonly string[] = COUNTRY_LEXICON.map(([, name]) => name);
 
 const DEFERS_TO_POSTING =
   /\bthe country (where|in which)\b|\bthis country\b|\bthe country of\b|\bfor our company\b/;

@@ -4,7 +4,27 @@ import { collectPaintedOverflow, describeOffenders } from "./painted-overflow";
 
 const ORIGIN = "http://127.0.0.1:3210";
 
-const PAGES = ["/queue", "/pipeline", "/health", "/jobs", "/companies", "/companies/add", "/import", "/settings"];
+const PAGES = [
+  "/queue",
+  "/pipeline",
+  "/health",
+  "/jobs",
+  "/companies",
+  "/companies/add",
+  "/import",
+  "/settings",
+  // Its own route, so its own sweep. It carries the two colour claims axe is
+  // most likely to catch on a new surface — a warn-toned badge on every knockout
+  // rule, and muted body text inside a selected radio card, which is exactly the
+  // pair rows 82 and 195 were both about.
+  "/settings/answers",
+  // A staged application: the widest set of tones in the app on one screen — a
+  // gap card per reason, a provenance chip per filled field, and a readiness
+  // banner in one of three colours. `/apply/1` is the rich one on purpose; the
+  // green card is `/apply/8` and it is swept for the same reasons.
+  "/apply/1",
+  "/apply/8",
+];
 
 /**
  * The wizard's screens, which a static list of app routes cannot reach: they

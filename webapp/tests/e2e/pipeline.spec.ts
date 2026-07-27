@@ -509,13 +509,26 @@ test("a retry replays the same command rather than issuing a second one", async 
   await wroteMore(page, mark);
 
   // Exactly one note, in the store, after a reload.
+  //
+  // POLLED, not read once. The dialog fetches its history through a separate
+  // server action, so `allInnerTexts()` — an instant read with no retry — was
+  // racing that fetch: under a full-suite load it ran while the dialog still said
+  // "Loading…" and reported zero notes for a note that had saved perfectly.
+  // Deterministic in a full run, green whenever this file ran alone, and the test
+  // was the thing that was wrong (matrix rows 45 and 206).
+  //
+  // A double application would put TWO notes in the list before it renders at
+  // all — both come from the same Retry — so polling for exactly one still fails
+  // on the bug this test exists for.
   await page.reload();
   await page.getByTestId(`notes-trigger-${PLAID}`).click();
-  const bodies = await page
-    .getByTestId(`notes-list-${PLAID}`)
-    .getByTestId("note-body")
-    .allInnerTexts();
-  expect(bodies.filter((b) => b.trim() === "only once")).toHaveLength(1);
+  const bodies = page.getByTestId(`notes-list-${PLAID}`).getByTestId("note-body");
+  await expect
+    .poll(
+      async () => (await bodies.allInnerTexts()).filter((b) => b.trim() === "only once").length,
+      { message: "the note history did not load", timeout: 15_000 },
+    )
+    .toBe(1);
 });
 
 // ------------------------------------------------------------------ a11y

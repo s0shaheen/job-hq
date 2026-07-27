@@ -171,7 +171,27 @@ export interface AnswerEntry {
    * Recomputed only when absent.
    */
   questionKey?: string;
+  /**
+   * WHERE this answer applies — `company_name_key(name)`, or `""` for the
+   * answer every board gets (0017).
+   *
+   * The column exists because polarity-safe is not COMPANY-safe. A library row
+   * is per-question human memory, which is why layer 1 may reuse it on a
+   * sensitive field at all; it says nothing about whether the fact is the same
+   * at every employer, and "have you worked here before?" is not. Absent reads
+   * as global, which is what every row written before 0017 meant.
+   */
+  companyKey?: string;
   answer: string;
+  /**
+   * The person picked the board's own "I don't wish to answer" (0017).
+   *
+   * Carried as the CHOICE rather than as the words, so it replays onto whatever
+   * option THIS board marks `declineToAnswer`. Nothing in the engine sets it and
+   * nothing derives it: `matchOption` still refuses that option from every
+   * layer, and the only writer is a person picking it on the review screen.
+   */
+  declined?: boolean;
   kind: string;
   provenance: Provenance;
   /** Absent reads as `"service"`: the safe direction for an unknown writer. */
@@ -225,6 +245,17 @@ export interface StagedField {
   gap: GapReason | null;
   /** For `inference` only: the fact that backs the answer. Never empty when set. */
   citation?: string;
+  /**
+   * This value is the board's own "I don't wish to answer", because the person
+   * recorded that choice against this question (0017).
+   *
+   * Carried so the review surface can render it as a refusal rather than as an
+   * answer — the label reads like one, and a screen that shows "I don't wish to
+   * answer" beside "Saved answer" with nothing else is describing a person's
+   * silence as a statement. Never set by any layer but the library, and never
+   * derived: `matchOption` still refuses the option everywhere.
+   */
+  declined?: boolean;
 }
 
 /** The counts the Review UI needs before it renders a single card. */
