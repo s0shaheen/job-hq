@@ -218,6 +218,20 @@ export default function PipelineTable({ initial, reviewItems = [] }: Props) {
   const [pending, setPending] = React.useState(0);
 
   /**
+   * False in the server HTML, true only after an effect runs — which is the
+   * definition of "hydration finished and handlers are attached". The trace
+   * that finally cracked the durability flake showed both blur gestures firing
+   * 95ms after load into a server-rendered-but-unhydrated form: locators
+   * resolve, fill sets DOM values, and NOTHING is listening — zero POSTs in
+   * the whole trace. Tests gate on this attribute before the first gesture
+   * (docs/WEBAPP-BUILD.md row 21's pattern); a real fast-fingered user on a
+   * slow device hits the same gap, which is why the marker is honest surface
+   * state, not test scaffolding.
+   */
+  const [hydrated, setHydrated] = React.useState(false);
+  React.useEffect(() => setHydrated(true), []);
+
+  /**
    * How many writes have FINISHED — monotonic, and the thing a test can wait on.
    *
    * `pending === 0` looks like the obvious signal and is unsound: it is true both
@@ -447,6 +461,7 @@ export default function PipelineTable({ initial, reviewItems = [] }: Props) {
       className="min-w-0"
       data-testid="pipeline"
       data-saving={pending > 0 ? "true" : "false"}
+      data-hydrated={hydrated ? "true" : "false"}
       data-writes={writes}
     >
       {/* `aria-live` so a screen-reader user gets the same signal a sighted one

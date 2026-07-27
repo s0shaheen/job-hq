@@ -36,7 +36,12 @@ async function isolate(page: Page, id: string) {
 
 async function gotoPipeline(page: Page, query = "") {
   await page.goto(`/pipeline${query}`);
-  await expect(page.getByTestId("pipeline")).toBeVisible();
+  // Visible is not interactive: the server HTML renders the full surface long
+  // before React attaches a single handler, and on a loaded CI runner that gap
+  // swallowed BOTH blur-commits of the durability test — the trace showed zero
+  // POSTs. data-hydrated flips in an effect, so it CANNOT be true before the
+  // handlers exist. Gate here, once, for every test that enters the surface.
+  await expect(page.getByTestId("pipeline")).toHaveAttribute("data-hydrated", "true");
 }
 
 /**

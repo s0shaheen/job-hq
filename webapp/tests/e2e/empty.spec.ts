@@ -77,8 +77,17 @@ test.describe("zero rows", () => {
       // is nothing, or a bare bordered box. Below the page header there must
       // be real text.
       const main = page.locator("main");
-      const text = (await main.innerText()).trim();
-      expect(text.length, `${path} renders almost nothing below the header`).toBeGreaterThan(60);
+      // Eventual, not instant: a streamed/suspended surface legitimately shows
+      // its skeleton for a beat, and this sweep sampled /companies at 18 chars
+      // on a loaded mobile CI runner — the same read-before-ready class the
+      // pipeline durability test died of eight times. The claim is "an empty
+      // panel with real words RENDERS", so poll until the words exist.
+      await expect
+        .poll(async () => (await main.innerText()).trim().length, {
+          message: `${path} renders almost nothing below the header`,
+          timeout: 15_000,
+        })
+        .toBeGreaterThan(60);
     }
   });
 
