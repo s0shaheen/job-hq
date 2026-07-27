@@ -192,7 +192,7 @@ One Lambda function (`job-hq-bots`, one container image) runs every job; EventBr
 
 | Job | Cron (UTC) | ~CT | Module chain it runs | Note in `variables.tf` |
 |---|---|---|---|---|
-| `monitor` | `cron(0 12,23 * * ? *)` | 07:00 + 18:00 | `monitor.run` | daily 12:00 + 23:00 UTC (monitor.run) |
+| `monitor` | `cron(0 12,23 * * ? *)` | 07:00 + 18:00 | `monitor.run` → `monitor.pgmirror` | daily 12:00 + 23:00 UTC (monitor.run) |
 | `review` | `cron(0 15 * * ? *)` | 10:00 | `monitor.regate` → `monitor.review` | daily 15:00 UTC  (regate + review) |
 | `tracker` | `cron(31 0/2 * * ? *)` | every 2 h at :31 | `tracker.promote` → `tracker.quickadd` → `tracker.scout` → `tracker.stale` → `tracker.join` → `tracker.outbox` | every 2h at :31  (promote/quickadd/scout/stale/join/outbox) |
 | `digest` | `cron(40 11 * * ? *)` | 06:40 | `tracker.digest` | daily 11:40 UTC  (digest) |

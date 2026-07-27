@@ -29,7 +29,11 @@ DEADLINE_ENV = "HQ_RUNTIME_DEADLINE_TS"   # consumed by monitor.run (same name t
 
 # job -> ordered [(module, argv-tail)]. Also run by scripts/runjob.py on Actions dispatch.
 JOBS: dict[str, list[tuple[str, list[str]]]] = {
-    "monitor":         [("monitor.run", [])],
+    # The pg mirror rides the sweep's tail: Feed rows land in the sheet, then the
+    # same reconcile's output mirrors to Supabase postings/user_postings — Phase A
+    # of docs/plans/SHEET-SUNSET.md (dual-write soak). A mirror failure fails the
+    # job loudly (ops push names the module); the sweep itself already flushed.
+    "monitor":         [("monitor.run", []), ("monitor.pgmirror", [])],
     "review":          [("monitor.regate", []), ("monitor.review", [])],
     # tracker.outbox last: it delivers whatever quiet hours held back, so the
     # 2-hourly cadence of this chain IS the flush cadence (core/outbox.py)

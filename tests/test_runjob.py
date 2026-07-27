@@ -47,11 +47,15 @@ def test_extra_args_land_on_the_last_module_only(argvs):
 def test_extra_args_do_not_mutate_the_handlers_table(argvs):
     """The chain lists are the handler's own module-level objects; extending one in place would
     make a second run in the same process pass --dry-run again."""
+    before = [(m, list(a)) for m, a in runjob.handler.JOBS["monitor"]]
     runjob.main(["monitor", "--dry-run"])
-    assert runjob.handler.JOBS["monitor"] == [("monitor.run", [])]
+    # Compare against a deep snapshot, not a hardcoded chain — the claim is
+    # "no in-place mutation", and a literal here breaks every time the chain
+    # legitimately grows (it did: pgmirror joined the sweep's tail).
+    assert [(m, list(a)) for m, a in runjob.handler.JOBS["monitor"]] == before
     argvs.clear()
     runjob.main(["monitor"])
-    assert argvs == [["monitor.run"]]
+    assert argvs == [[m] for m, _ in runjob.handler.JOBS["monitor"]]
 
 
 def test_unknown_or_missing_job_exits_nonzero_and_lists_the_known_ones():
