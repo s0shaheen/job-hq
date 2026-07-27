@@ -27,6 +27,14 @@ import type {
   SavedView,
   Triage,
 } from "./view-models";
+import type {
+  ImportBatchView,
+  ImportColumnReportView,
+  ImportCounts,
+  ImportMapping,
+  ImportRowView,
+  ImportSourceKind,
+} from "@/lib/import/views";
 
 export type QueueOptions = {
   /** Hard cap. A queue that cannot be finished is just another inbox. */
@@ -227,6 +235,159 @@ export type AppWriteResult =
   | { ok: false; kind: "auth" }
   | { ok: false; kind: "error"; message: string };
 
+// ---- import (P9) ----------------------------------------------------------
+//
+// Ten methods, which is more than any other feature here, and the reason is the
+// state machine: an import is the one gesture in this app that cannot be one
+// call. It parses on the server into Postgres and then reads back — so closing
+// the tab loses nothing, which is what G12's "resumable" actually requires.
+//
+// Every mutating one carries an idempotency key, exactly as the triage and
+// pipeline writes do, because every one of them is retried by something: the
+// upload route chunks, the commit loop chunks, and the outbox replays.
+
+export type CreateImportInput = {
+  filename: string;
+  sourceKind: ImportSourceKind;
+  /**
+   * sha-256 of the uploaded bytes. NOT the batch identity — re-importing the
+   * same file is a first-class flow (AC 20), and content-addressing the batch
+   * would make it impossible to perform. It is here so the preview can say
+   * "you imported this exact file on the 3rd" before somebody commits it twice.
+   */
+  contentHash: string;
+  rowCount: number;
+  idempotencyKey: string;
+};
+
+export type ImportBatchResult =
+  | { ok: true; batch: ImportBatchView }
+  | { ok: false; kind: "conflict" }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+export type StageImportInput = {
+  batchId: string;
+  rows: { rowNumber: number; raw: Record<string, string> }[];
+};
+
+export type StageImportResult =
+  | { ok: true; staged: number; total: number }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+/**
+ * One row's mapped values, plus the key computed FROM them.
+ *
+ * `jobKey`/`keyStrength` are computed by `lib/import/job-key.ts` and travel as
+ * data because the alternative is a third implementation of `job_key` — one in
+ * Python, one here, one in SQL — and a key that differs by a character makes
+ * every re-import a silent duplicate. Two implementations are pinned to one
+ * golden fixture from both languages; a third would need its own.
+ */
+/**
+ * How many import batches the landing list shows, newest first.
+ *
+ * One constant because two implementations ask for it: `SupabaseDataSource`
+ * passes it to PostgREST and `FixtureDataSource` slices by it. Unbounded in the
+ * fake, a demo with 60 batches rendered a list production truncates — a screen
+ * nobody could reproduce against the real store.
+ */
+export const IMPORT_LIST_LIMIT = 25;
+
+export type MappedImportRow = {
+  rowNumber: number;
+  mapped: Record<string, string>;
+  jobKey: string;
+  keyStrength: "strong" | "weak" | "none";
+};
+
+export type SetImportMappingInput = {
+  batchId: string;
+  rows: MappedImportRow[];
+  mapping: ImportMapping;
+  /** The last chunk: stores the mapping and moves the batch on. */
+  final: boolean;
+  /** Checked on the final call only — two tabs mapping one import conflict. */
+  expectedUpdatedAt: string | null;
+};
+
+export type ImportPreviewResult =
+  | { ok: true; batch: ImportBatchView; counts: ImportCounts; unresolved: number }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+export type ResolveImportRowInput = {
+  batchId: string;
+  rowNumber: number;
+  choices: Record<string, "mine" | "theirs">;
+};
+
+export type ResolveImportRowResult =
+  | { ok: true; unresolved: number }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+export type IncludeImportRowsInput = {
+  batchId: string;
+  rowNumbers: number[];
+  included: boolean;
+};
+
+export type CommitImportInput = {
+  batchId: string;
+  /** Rows per transaction. Bounded server-side to 500 whatever is sent. */
+  limit: number;
+  idempotencyKey: string;
+};
+
+export type ImportCommitResult =
+  | {
+      ok: true;
+      batch: ImportBatchView;
+      created: number;
+      updated: number;
+      skipped: number;
+      failed: number;
+      /** Rows still pending. The resume cursor, and the loop's exit condition. */
+      remaining: number;
+    }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+export type UndoImportInput = { batchId: string; idempotencyKey: string };
+
+/**
+ * Throwing away an import that never committed.
+ *
+ * It exists because of a sentence: `createImport` refuses a 21st unfinished
+ * batch with "finish or discard one first", and without this that message named
+ * a gesture nobody implemented — after twenty abandoned uploads a person could
+ * never import again. A refusal that tells someone to do something the system
+ * does not offer is the same defect as a button that does nothing.
+ */
+export type DiscardImportInput = { batchId: string; idempotencyKey: string };
+
+export type DiscardImportResult =
+  | { ok: true }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+export type ImportUndoResult =
+  | {
+      ok: true;
+      batch: ImportBatchView;
+      deleted: number;
+      reverted: number;
+      /** Rows edited since the import, deliberately left alone (matrix row 33). */
+      kept: number;
+      keptIds: number[];
+      /** Imported notes on surviving rows. Append-only means they stay. */
+      notesKept: number;
+    }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
 export interface DataSource {
   /** Qualified, untriaged, freshest first. */
   queue(opts?: QueueOptions): Promise<JobView[]>;
@@ -261,6 +422,33 @@ export interface DataSource {
   setCompanyFlags(input: CompanyFlagsInput): Promise<CompanyFlagsResult>;
   /** A pasted list of names → tier-3 proposals awaiting review. */
   proposeCompanies(input: ProposeCompaniesInput): Promise<ProposeCompaniesResult>;
+
+  // ---- import (P9) --------------------------------------------------------
+
+  /** Recent imports, newest first — the `/import` landing list. */
+  imports(): Promise<ImportBatchView[]>;
+  /** One batch and its rows, for `/import/[batchId]`. Null when it is not yours. */
+  importBatch(batchId: string): Promise<{ batch: ImportBatchView; rows: ImportRowView[] } | null>;
+  /** Open a batch before a single row is staged. */
+  createImport(input: CreateImportInput): Promise<ImportBatchResult>;
+  /** Bulk-insert source rows verbatim, in chunks. Idempotent per row number. */
+  stageImportRows(input: StageImportInput): Promise<StageImportResult>;
+  /** Apply the chosen mapping to staged rows, in chunks. */
+  setImportMapping(input: SetImportMappingInput): Promise<ImportBatchResult>;
+  /** Decide what committing each row would do. Writes nothing to applications. */
+  previewImport(batchId: string): Promise<ImportPreviewResult>;
+  /** Answer one conflicted round-trip row, cell by cell. */
+  resolveImportRow(input: ResolveImportRowInput): Promise<ResolveImportRowResult>;
+  /** The preview's veto: exclude rows before they are written. */
+  setImportRowsIncluded(input: IncludeImportRowsInput): Promise<StageImportResult>;
+  /** Commit one chunk. Called in a loop until `remaining` is 0. */
+  commitImportChunk(input: CommitImportInput): Promise<ImportCommitResult>;
+  /** The per-column account of what landed and what did not (G13). */
+  importReport(batchId: string): Promise<ImportColumnReportView[]>;
+  /** Put the whole batch back, in one transaction (AC 21). */
+  undoImport(input: UndoImportInput): Promise<ImportUndoResult>;
+  /** Bin an import that never wrote anything. Refuses one that did. */
+  discardImport(input: DiscardImportInput): Promise<DiscardImportResult>;
 
   /** A user's saved grid states for a surface. Built-in presets live in code. */
   savedViews(surface: string): Promise<SavedView[]>;

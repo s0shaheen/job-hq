@@ -1,0 +1,15 @@
+# Import test fixtures are BYTES, not text.
+#
+# `webapp/tests/unit/read.test.ts` asserts that a CRLF file parses as CRLF, that
+# a BOM is detected and stripped, and that windows-1252 bytes decode through the
+# C1 table rather than as ISO-8859-1. Every one of those assertions is about the
+# exact bytes on disk — and git's autocrlf/eol normalisation rewrites precisely
+# those bytes on checkout. A normalised `crlf-bom.csv` still passes its test on
+# the machine that created it and disarms it for everybody else: the test keeps
+# reporting green while the dialect it exists to cover is no longer in the file.
+#
+# `-text` turns every kind of line-ending conversion off for these paths.
+webapp/tests/fixtures/import/*.csv -text
+webapp/tests/fixtures/import/*.xlsx -text binary
+webapp/tests/fixtures/import/*.xls  -text binary
+webapp/tests/fixtures/import/*.numbers -text binary

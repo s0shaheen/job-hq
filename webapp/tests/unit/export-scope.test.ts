@@ -23,7 +23,15 @@ describe("parsing", () => {
     const r = parseExportRequest(good);
     expect(r).toEqual({
       ok: true,
-      request: { dataset: "jobs", scope: "view", format: "csv", keys: ["greenhouse-1"] },
+      request: {
+        dataset: "jobs",
+        scope: "view",
+        format: "csv",
+        keys: ["greenhouse-1"],
+        // Absent means off. The round-trip columns are never added to a file
+        // nobody asked to import back — see export-round-trip.test.ts.
+        roundTrip: false,
+      },
     });
   });
 

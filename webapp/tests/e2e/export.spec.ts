@@ -159,6 +159,50 @@ test("the pipeline exports applications, not roles", async ({ page }) => {
   expect(csv.split("\r\n")[0]).toContain("Status"); // the applications header, not the jobs one
 });
 
+test("the round-trip option adds the two machine columns, and only when asked", async ({
+  page,
+}) => {
+  // The half of AC 23 that was never built: `ROUND_TRIP_COLUMNS` had no callers,
+  // so no file this app produced could be imported back into the rows it came
+  // from. Driven through the dialog rather than the route, because the toggle is
+  // the only thing a person has.
+  await gotoWithExport(page, "/pipeline");
+  await page.getByTestId("export-open").click();
+  await page.getByTestId("format-csv").click();
+
+  const plain = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByTestId("export-download").click(),
+  ]).then(([d]) => d);
+  const plainHeader = text(plain, await save(plain)).replace(/^﻿/, "").split("\r\n")[0];
+  expect(plainHeader).not.toContain("hq_id");
+  expect(plainHeader).not.toContain("hq_version");
+
+  await page.getByTestId("export-open").click();
+  await page.getByTestId("format-csv").click();
+  await page.getByTestId("round-trip-toggle").check();
+  const rt = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByTestId("export-download").click(),
+  ]).then(([d]) => d);
+  const rtCsv = text(rt, await save(rt));
+  const rtHeader = rtCsv.replace(/^﻿/, "").split("\r\n")[0];
+  // Trailing and clearly named, which is the arrangement `round-trip.ts` records
+  // (write-excel-file 4.1.1 has no `hidden`, so there is no hiding them).
+  expect(rtHeader.endsWith("hq_id,hq_version")).toBe(true);
+  // Same rows, two more columns — the toggle changes the shape, not the scope.
+  expect(csvDataRows(rtCsv)).toBe(csvDataRows(text(plain, await save(plain))));
+});
+
+test("the queue's dialog does not offer a round trip it cannot honour", async ({ page }) => {
+  // A posting has no row an import can write back to, and the request parser
+  // refuses the flag for `jobs` — so the control must not be there to press.
+  await gotoWithExport(page, "/queue");
+  await page.getByTestId("export-open").click();
+  await expect(page.getByTestId("export-scope")).toBeVisible();
+  await expect(page.getByTestId("export-round-trip")).toHaveCount(0);
+});
+
 test("a failed export leaves the dialog open with the scope intact", async ({ page }) => {
   await gotoWithExport(page, "/queue");
   await page.getByTestId("export-open").click();

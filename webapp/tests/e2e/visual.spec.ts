@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 
 /**
@@ -165,6 +168,40 @@ for (const theme of ["light", "dark"] as const) {
       Math.abs(loadedRail - skeletonRail),
       `skeleton rail at ${skeletonRail}, loaded rail at ${loadedRail}`,
     ).toBeLessThan(8);
+  });
+
+  test(`the import mapping screen looks right — ${theme}`, async ({ page }) => {
+    // ONE shot of the wizard, and the mapping step is the one worth having: a
+    // card per target field carrying a Select, an explanation, live sample values
+    // and — on this fixture — the amber "none of these read as a year-first date"
+    // warning, which is a COLOUR claim no assertion checks. It is also the first
+    // screen a new user sees, and until this branch no test had rendered
+    // `wide-60.xlsx` in a browser at all. The preview and the report are lists of
+    // text whose drift shows up in assertions; a warning that quietly stops being
+    // amber does not.
+    //
+    // Uploaded rather than navigated to, because `/import/<batchId>` is minted at
+    // upload time and cannot be written into a path list — the same reason the
+    // sweeps in import-wizard.spec.ts do it. Nothing on this screen carries a
+    // timestamp or an id, so the image is stable.
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto("/import");
+    await page.getByTestId("import-file").setInputFiles({
+      name: "wide-60.xlsx",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: readFileSync(
+        path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "import", "wide-60.xlsx"),
+      ),
+    });
+    await page.getByTestId("import-upload").click();
+    await page.waitForURL(/\/import\/[^/]+$/, { timeout: 60_000 });
+    await expect(page.getByTestId("import-step")).toHaveAttribute("data-step", "map");
+    // Hydrated, so the controls are live rather than disabled-until-attached —
+    // the two render differently and a shot taken in that window is a picture of
+    // a page nobody uses.
+    await expect(page.getByTestId("import-step")).toHaveAttribute("data-ready", "true");
+    await page.waitForLoadState("load");
+    await expect(page).toHaveScreenshot(`import-map-${theme}.png`, { fullPage: true });
   });
 
   test(`a selection looks right — ${theme}`, async ({ page }) => {

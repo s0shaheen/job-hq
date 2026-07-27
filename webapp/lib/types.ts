@@ -100,6 +100,13 @@ export type Application = {
    * destructive migration here would blank a column in every export.
    */
   notes: string;
+  /**
+   * The import batch that CREATED this row (0011), null for everything else.
+   *
+   * It is what `app_import_undo` uses to find exactly what a batch made, so it
+   * is the difference between a reversible import and a permanent one.
+   */
+  import_batch_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -176,4 +183,75 @@ export type UserCompany = {
   seeded: boolean;
   review_state: string;
   updated_at: string;
+};
+
+/**
+ * One uploaded file (0011). Read directly by the wizard, which is why it is in
+ * the drift contract: `/import/[batchId]` renders from these columns, so a shape
+ * change here is a blank screen rather than a type error.
+ *
+ * `state` is the resume cursor's other half. `committing` and `failed` are not
+ * decoration — a batch that is mid-commit is not "previewed" and a batch that
+ * died is not "committed", and silence about either makes a half-imported
+ * spreadsheet look identical to a finished one.
+ */
+export type ImportBatch = {
+  id: string;
+  user_id: string;
+  state: string;
+  filename: string;
+  source_kind: string;
+  content_hash: string;
+  row_count: number;
+  committed_count: number;
+  mapping: unknown;
+  idempotency_key: string;
+  created_at: string;
+  updated_at: string;
+  committed_at: string | null;
+  /** When the 24-hour undo window closes. Read from here, never from a clock. */
+  undo_expires_at: string | null;
+};
+
+/**
+ * One source row (0011). `raw` is kept forever — it is the only way to answer
+ * "what did the file actually say" a month later, and it costs kilobytes.
+ */
+export type ImportRow = {
+  batch_id: string;
+  user_id: string;
+  row_number: number;
+  raw: unknown;
+  mapped: unknown;
+  mapped_at: string | null;
+  job_key: string;
+  key_strength: string;
+  match_kind: string;
+  matched_application_id: number | null;
+  conflict_state: string;
+  conflict: unknown;
+  choices: unknown;
+  included: boolean;
+  outcome: string;
+  /** What undo needs: the values as they were, and the token the import wrote. */
+  revert: unknown;
+  notice: string;
+  error: string;
+};
+
+/**
+ * What happened to each COLUMN of the file (0011) — G13's "engine-owned columns
+ * re-import as a report, never a silent drop".
+ *
+ * Keyed by (batch, column, disposition) in SQL, because one column legitimately
+ * has several verdicts: "Status — 38 imported" and "Status — 2 left alone, you
+ * had chosen those by hand" are both true and the second is the one that matters.
+ */
+export type ImportColumnReport = {
+  batch_id: string;
+  user_id: string;
+  column_name: string;
+  disposition: string;
+  rows_affected: number;
+  sample: unknown;
 };

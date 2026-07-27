@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { ApplicationView, JobView } from "@/lib/data/view-models";
 import { APPLICATION_COLUMNS, JOB_COLUMNS, type Column } from "@/lib/export/columns";
 import { toCsv } from "@/lib/export/delimited";
+import { ROUND_TRIP_COLUMNS } from "@/lib/import/round-trip";
 import {
   contentTypeFor,
   exportFilename,
@@ -39,6 +40,12 @@ type Spec<T> = {
   view: (s: DataSource) => Promise<T[]>;
   key: (row: T) => string;
   columns: Column<T>[];
+  /**
+   * The same columns plus `hq_id`/`hq_version`, when the request asks for a file
+   * it can import back. Absent for a dataset that has no such thing, and the
+   * request parser refuses the flag there rather than letting this fall back.
+   */
+  roundTripColumns?: Column<T>[];
 };
 
 const JOBS: Spec<JobView> = {
@@ -56,6 +63,7 @@ const APPLICATIONS: Spec<ApplicationView> = {
   view: (s) => s.applications(),
   key: (a) => String(a.id),
   columns: APPLICATION_COLUMNS,
+  roundTripColumns: ROUND_TRIP_COLUMNS,
 };
 
 function fail(message: string, status: number): Response {
@@ -96,11 +104,15 @@ async function build<T>(
   dataset: ExportDataset,
 ): Promise<{ body: BodyInit; rows: number }> {
   const rows = await rowsFor(spec, req, src);
+  // `?? spec.columns` is unreachable rather than a fallback: `parseExportRequest`
+  // refuses `roundTrip` for any dataset without these, so a request that reaches
+  // here asking for them has them.
+  const columns = req.roundTrip ? (spec.roundTripColumns ?? spec.columns) : spec.columns;
   if (req.format === "xlsx") {
-    const buf = await buildXlsx(rows, spec.columns, { sheetName: sheetNameFor(dataset) });
+    const buf = await buildXlsx(rows, columns, { sheetName: sheetNameFor(dataset) });
     return { body: new Uint8Array(buf), rows: rows.length };
   }
-  return { body: toCsv(rows, spec.columns), rows: rows.length };
+  return { body: toCsv(rows, columns), rows: rows.length };
 }
 
 export async function POST(request: Request): Promise<Response> {

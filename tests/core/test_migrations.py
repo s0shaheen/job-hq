@@ -38,13 +38,76 @@ def test_migrations_are_contiguously_numbered():
 
 # ---------------------------------------------------------------- the contract
 
+def _brace_body(ts: str, start: int) -> tuple[str, int]:
+    """The text between `ts[start] == '{'` and its BALANCED close.
+
+    `(.*?)\\}` stops at the first brace, which is wrong the moment an argument is
+    itself an object — `p_rows: rows.map((r) => ({ row_number: r.n }))`. The
+    non-greedy version cut the argument list at that inner brace, so the outer
+    keys after it were invisible and the inner ones were read as arguments. That
+    is matrix row 92's shape: a drift guard that cannot see what it guards.
+    """
+    depth = 0
+    for i in range(start, len(ts)):
+        if ts[i] == "{":
+            depth += 1
+        elif ts[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return ts[start + 1 : i], i
+    return "", len(ts)
+
+
+def _top_level_keys(body: str) -> set[str]:
+    """`key:` names at nesting depth 0 — the arguments, not their contents."""
+    keys: set[str] = set()
+    depth = 0
+    token = ""
+    for ch in body:
+        if ch in "{[(":
+            depth += 1
+        elif ch in "}])":
+            depth -= 1
+        elif ch == ":" and depth == 0:
+            name = token.strip().split()[-1] if token.strip() else ""
+            if re.fullmatch(r"\w+", name):
+                keys.add(name)
+            token = ""
+            continue
+        elif ch == "," and depth == 0:
+            token = ""
+            continue
+        token += ch
+    return keys
+
+
 def _rpc_calls(ts: str) -> dict[str, set[str]]:
     """Every `supabase.rpc("name", { p_x: ..., p_y: ... })` in the TypeScript."""
     calls: dict[str, set[str]] = {}
-    for m in re.finditer(r"""\.rpc\(\s*["'](\w+)["']\s*,\s*\{(.*?)\}\s*\)""", ts, re.S):
-        name, body = m.group(1), m.group(2)
-        calls.setdefault(name, set()).update(re.findall(r"(\w+)\s*:", body))
+    for m in re.finditer(r"""\.rpc\(\s*["'](\w+)["']\s*,\s*(?=\{)""", ts):
+        name = m.group(1)
+        body, _ = _brace_body(ts, m.end())
+        calls.setdefault(name, set()).update(_top_level_keys(body))
     return calls
+
+
+def test_the_rpc_parser_reads_nested_arguments_correctly():
+    """The parser is itself load-bearing, so it gets a case of its own.
+
+    Both halves are real shapes from `supabase-source.ts`: `app_import_stage`
+    passes an array of objects, and the old regex reported `row_number`/`raw` as
+    arguments of the function while missing nothing only by luck.
+    """
+    sample = """
+      await this.supabase.rpc("app_import_stage", {
+        p_batch: input.batchId,
+        p_rows: input.rows.map((r) => ({ row_number: r.rowNumber, raw: r.raw })),
+      });
+      await this.supabase.rpc("plain_one", { p_a: 1, p_b: 2 });
+    """
+    calls = _rpc_calls(sample)
+    assert calls["app_import_stage"] == {"p_batch", "p_rows"}, calls["app_import_stage"]
+    assert calls["plain_one"] == {"p_a", "p_b"}
 
 
 def _sql_function_params(sql: str, name: str) -> list[str] | None:
@@ -140,11 +203,55 @@ def test_conflict_path_keeps_the_word_the_client_matches_on():
     """`supabase-source.ts` decides between the conflict path and a generic
     error by matching /conflict|stale/i on the message. That coupling is
     invisible from either side alone, so it is pinned from here: rewording the
-    exception turns a handled conflict into 'Couldn't save that.'"""
-    assert re.search(r"raise\s+exception\s+'(conflict|stale)", ALL_SQL, re.I), (
-        "no exception message starts with 'conflict'/'stale' — the client's "
-        "conflict detection in supabase-source.ts will silently stop working"
+    exception turns a handled conflict into "Couldn't save that."
+
+    PER MIGRATION, not over the concatenation. Searching ALL_SQL meant 0010's
+    three `conflict: this application changed` lines satisfied the assertion on
+    behalf of every other file -- so 0011's import-conflict message could have
+    been reworded to anything and this stayed green. A guard one file can satisfy
+    for another is not a guard (matrix rows 92, 130, 163).
+    """
+    pattern = re.compile(r"raise\s+exception\s+'(conflict|stale)", re.I)
+    # Every migration that RAISES on an optimistic-concurrency check has to use
+    # the word. Detected by the check itself rather than by a hand-kept list, so
+    # a new migration with a conflict path is covered the day it lands.
+    for m in MIGRATIONS:
+        text = m.read_text()
+        if "expected_updated_at" not in text and "p_expected" not in text:
+            continue
+        assert pattern.search(text), (
+            f"{m.name} takes an expected-version argument but raises no "
+            "'conflict'/'stale' message — supabase-source.ts will classify its "
+            "refusal as a generic error and show the wrong toast"
+        )
+
+
+def test_job_key_is_never_computed_in_sql():
+    """The rule 0011's own header states, with nothing enforcing it until now.
+
+    `job_key` is computed in exactly two places -- `core/jobkeys.py` and
+    `webapp/lib/import/job-key.ts` -- pinned to one golden fixture asserted from
+    both languages. A THIRD implementation in SQL would need its own guard, and
+    the failure it produces is silent: a key differing by one character makes
+    every re-import a duplicate.
+
+    So the only thing SQL may do with a job key is carry it in from the caller's
+    payload and compare it. Any line that BUILDS one -- a `norm-`/`url-`/ats
+    prefix concatenated together, or a `job_key :=` assignment -- is the third
+    implementation arriving.
+    """
+    building = re.compile(
+        r"job_key\s*:=|'(norm|url)-'\s*\|\||\|\|\s*'(norm|url)-'",
+        re.I,
     )
+    for m in MIGRATIONS:
+        text = _strip_sql_comments(m.read_text())
+        hit = building.search(text)
+        assert not hit, (
+            f"{m.name} looks like it computes a job key ({hit.group(0)!r}) — that is a "
+            "third implementation of the most drift-prone function in the system, "
+            "and the golden fixture guards only two"
+        )
 
 
 # ---------------------------------------------------------------- security

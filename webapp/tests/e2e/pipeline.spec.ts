@@ -312,6 +312,14 @@ test("Reopen is absent on a live row and present on a terminal one", async ({ pa
 // ------------------------------------------------------------ next action
 
 test("a next action saves on blur and survives a reload", async ({ page }) => {
+  // The claim is eventual durability, not latency: two serialized server-action
+  // round-trips on a loaded 2-core CI runner (628 tests sharing one next-start,
+  // 42 of them parsing workbooks) have starved past 25s twice. The poll below
+  // budgets 15s per write; the DEFAULT 30s test timeout truncated it — so this
+  // test gets the room its own arithmetic asks for. If a write takes >2m the
+  // component's WRITE_TIMEOUT_MS has already surfaced an error toast and the
+  // poll fails on that, loudly, not on a truncation artifact.
+  test.setTimeout(120_000);
   await isolate(page, "next-action");
   await gotoPipeline(page);
 

@@ -1,6 +1,21 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   AppWriteResult,
+  CommitImportInput,
+  CreateImportInput,
+  ImportBatchResult,
+  ImportCommitResult,
+  ImportPreviewResult,
+  ImportUndoResult,
+  IncludeImportRowsInput,
+  DiscardImportInput,
+  DiscardImportResult,
+  ResolveImportRowInput,
+  ResolveImportRowResult,
+  SetImportMappingInput,
+  StageImportInput,
+  StageImportResult,
+  UndoImportInput,
   BulkReviewInput,
   BulkReviewResult,
   BulkTriageInput,
@@ -22,6 +37,7 @@ import type {
   TriageInput,
   WriteResult,
 } from "./source";
+import { IMPORT_LIST_LIMIT } from "./source";
 import type {
   ApplicationView,
   ChannelHealthView,
@@ -34,6 +50,14 @@ import type {
   SavedView,
   Triage,
 } from "./view-models";
+import {
+  EMPTY_IMPORT_MAPPING,
+  type ImportBatchView,
+  type ImportColumnReportView,
+  type ImportCounts,
+  type ImportMapping,
+  type ImportRowView,
+} from "@/lib/import/views";
 
 /** One saved_views row, mapped for the grid. `state` is passed through as-is. */
 function toSavedView(r: Record<string, unknown>): SavedView {
@@ -72,6 +96,91 @@ const APPLICATION_COLS =
   "id, posting_key, company, title, url, status, status_actor, suggested_status, " +
   "evidence, applied_date, next_action, next_action_date, notes, updated_at";
 const COMPANY_COLS = "id, name, ats, slug, source, reliability_tier, resolution_method";
+
+// ---- import row shapes (P9) -------------------------------------------------
+
+// One string literal each, not a concatenation. `postgrest-js` parses the select
+// list out of the literal TYPE to shape its result, and a `"a" + "b"` widens to
+// `string`, at which point every row comes back as `GenericStringError` and the
+// mapper below needs a cast through `unknown` to compile. The cast would work and
+// it would also be the point where a renamed column stops being a type error.
+const IMPORT_BATCH_COLS =
+  "id, state, filename, source_kind, content_hash, row_count, committed_count, mapping, created_at, updated_at, committed_at, undo_expires_at";
+
+const IMPORT_ROW_COLS =
+  "row_number, raw, mapped, job_key, key_strength, match_kind, matched_application_id, conflict_state, conflict, choices, included, outcome, notice, error";
+
+/**
+ * A batch row (from a select) or the jsonb `app_import_batch_row` returns.
+ *
+ * Both shapes on purpose: the RPCs return the jsonb and the landing list selects
+ * columns, and they carry the same keys precisely so this function is the only
+ * reader either needs. `staged_count` exists only in the jsonb — a plain select
+ * cannot count another table — so it falls back to `row_count`, which is what
+ * the batch itself declared.
+ */
+function toImportBatchView(r: Record<string, unknown>): ImportBatchView {
+  const mapping = (r.mapping ?? {}) as Partial<ImportMapping>;
+  return {
+    id: String(r.id ?? ""),
+    state: String(r.state ?? "uploaded") as ImportBatchView["state"],
+    filename: String(r.filename ?? ""),
+    sourceKind: String(r.source_kind ?? "csv") as ImportBatchView["sourceKind"],
+    contentHash: String(r.content_hash ?? ""),
+    rowCount: Number(r.row_count ?? 0),
+    committedCount: Number(r.committed_count ?? 0),
+    stagedCount: Number(r.staged_count ?? r.row_count ?? 0),
+    mapping: {
+      ...EMPTY_IMPORT_MAPPING,
+      ...mapping,
+      headers: Array.isArray(mapping.headers) ? mapping.headers.map(String) : [],
+      unmapped: Array.isArray(mapping.unmapped) ? mapping.unmapped : [],
+    },
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+    committedAt: str(r.committed_at),
+    undoExpiresAt: str(r.undo_expires_at),
+  };
+}
+
+/** Every cell as a string — a spreadsheet cell is text by the time we show it. */
+function cells(v: unknown): Record<string, string> {
+  if (!v || typeof v !== "object") return {};
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    // A blank cell stays absent rather than becoming "", because "the file did
+    // not say" and "the file said nothing" are the same claim and both must read
+    // as absent everywhere downstream.
+    if (val === null || val === undefined) continue;
+    out[k] = String(val);
+  }
+  return out;
+}
+
+function toImportRowView(r: Record<string, unknown>): ImportRowView {
+  const conflict: Record<string, { mine: string; theirs: string }> = {};
+  for (const [col, pair] of Object.entries((r.conflict ?? {}) as Record<string, unknown>)) {
+    const p = (pair ?? {}) as { mine?: unknown; theirs?: unknown };
+    conflict[col] = { mine: String(p.mine ?? ""), theirs: String(p.theirs ?? "") };
+  }
+  return {
+    rowNumber: Number(r.row_number ?? 0),
+    raw: cells(r.raw),
+    mapped: cells(r.mapped),
+    jobKey: String(r.job_key ?? ""),
+    keyStrength: String(r.key_strength ?? "none") as ImportRowView["keyStrength"],
+    matchKind: String(r.match_kind ?? "new") as ImportRowView["matchKind"],
+    matchedApplicationId: num(r.matched_application_id),
+    conflictState: String(r.conflict_state ?? "none") as ImportRowView["conflictState"],
+    conflict,
+    choices: (r.choices ?? {}) as Record<string, "mine" | "theirs">,
+    included: bool(r.included),
+    outcome: String(r.outcome ?? "pending") as ImportRowView["outcome"],
+    notice: String(r.notice ?? ""),
+    error: String(r.error ?? ""),
+  };
+}
+
 
 /** jsonb fields arrive untyped; coerce narrowly and never guess a value. */
 function num(v: unknown): number | null {
@@ -739,6 +848,223 @@ export class SupabaseDataSource implements DataSource {
     });
     if (error) return { ok: false, kind: "error", message: error.message };
     return { ok: true };
+  }
+
+  // ---- import (P9) ------------------------------------------------------
+  //
+  // Thin on purpose. Every rule an import has to obey — the merge authorisation,
+  // the human-status lock, the blank-never-erases rule, the undo window, AC 23's
+  // refusal — lives in migration 0011, because there are two callers (this class
+  // and, one day, a script) and only the database sees both. What is here is the
+  // shape translation and the classification of an error the UI must distinguish.
+
+  async imports(): Promise<ImportBatchView[]> {
+    const { data, error } = await this.supabase
+      .from("import_batches")
+      .select(IMPORT_BATCH_COLS)
+      .eq("user_id", this.userId)
+      .order("created_at", { ascending: false })
+      .limit(IMPORT_LIST_LIMIT);
+    if (error) throw new Error(error.message);
+    // `staged_count` is computed by the RPC and absent from a plain select, so
+    // the row count comes from the column. Stated rather than papered over: the
+    // landing list shows a total, and the wizard's progress bar — which needs
+    // the real staged figure — reads it from the RPC result instead.
+    return (data ?? []).map((r) => toImportBatchView(r as Record<string, unknown>));
+  }
+
+  async importBatch(
+    batchId: string,
+  ): Promise<{ batch: ImportBatchView; rows: ImportRowView[] } | null> {
+    const { data, error } = await this.supabase
+      .from("import_batches")
+      .select(IMPORT_BATCH_COLS)
+      .eq("user_id", this.userId)
+      .eq("id", batchId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+
+    const { data: rows, error: rowsError } = await this.supabase
+      .from("import_rows")
+      .select(IMPORT_ROW_COLS)
+      .eq("user_id", this.userId)
+      .eq("batch_id", batchId)
+      .order("row_number", { ascending: true })
+      // The same 5,000-row cap the upload enforces. A bound on every read that
+      // can grow, or one pathological batch is a page that never renders.
+      .limit(5000);
+    if (rowsError) throw new Error(rowsError.message);
+
+    const batch = toImportBatchView(data as Record<string, unknown>);
+    // The honest staged count, from the rows actually present.
+    batch.stagedCount = (rows ?? []).length;
+    return {
+      batch,
+      rows: (rows ?? []).map((r) => toImportRowView(r as Record<string, unknown>)),
+    };
+  }
+
+  async createImport(input: CreateImportInput): Promise<ImportBatchResult> {
+    return this.importBatchRpc("app_import_create", {
+      p_idem: input.idempotencyKey,
+      p_filename: input.filename,
+      p_source_kind: input.sourceKind,
+      p_content_hash: input.contentHash,
+      p_row_count: input.rowCount,
+    });
+  }
+
+  async stageImportRows(input: StageImportInput): Promise<StageImportResult> {
+    const { data, error } = await this.supabase.rpc("app_import_stage", {
+      p_batch: input.batchId,
+      p_rows: input.rows.map((r) => ({ row_number: r.rowNumber, raw: r.raw })),
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    const payload = (data ?? {}) as { staged?: number; total?: number };
+    return { ok: true, staged: Number(payload.staged ?? 0), total: Number(payload.total ?? 0) };
+  }
+
+  async setImportMapping(input: SetImportMappingInput): Promise<ImportBatchResult> {
+    return this.importBatchRpc(
+      "app_import_set_mapping",
+      {
+        p_batch: input.batchId,
+        p_rows: input.rows.map((r) => ({
+          row_number: r.rowNumber,
+          mapped: r.mapped,
+          job_key: r.jobKey,
+          key_strength: r.keyStrength,
+        })),
+        p_mapping: input.mapping,
+        p_final: input.final,
+        p_expected_updated_at: input.expectedUpdatedAt,
+      },
+      "batch",
+    );
+  }
+
+  async previewImport(batchId: string): Promise<ImportPreviewResult> {
+    const { data, error } = await this.supabase.rpc("app_import_preview", {
+      p_batch: batchId,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    const payload = (data ?? {}) as Record<string, unknown>;
+    return {
+      ok: true,
+      batch: toImportBatchView((payload.batch ?? {}) as Record<string, unknown>),
+      counts: (payload.counts ?? {}) as ImportCounts,
+      unresolved: Number(payload.unresolved ?? 0),
+    };
+  }
+
+  async resolveImportRow(input: ResolveImportRowInput): Promise<ResolveImportRowResult> {
+    const { data, error } = await this.supabase.rpc("app_import_resolve", {
+      p_batch: input.batchId,
+      p_row: input.rowNumber,
+      p_choices: input.choices,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    const payload = (data ?? {}) as { unresolved?: number };
+    return { ok: true, unresolved: Number(payload.unresolved ?? 0) };
+  }
+
+  async setImportRowsIncluded(input: IncludeImportRowsInput): Promise<StageImportResult> {
+    const { data, error } = await this.supabase.rpc("app_import_set_included", {
+      p_batch: input.batchId,
+      p_rows: input.rowNumbers,
+      p_included: input.included,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    const payload = (data ?? {}) as { rows?: number };
+    return { ok: true, staged: Number(payload.rows ?? 0), total: Number(payload.rows ?? 0) };
+  }
+
+  async commitImportChunk(input: CommitImportInput): Promise<ImportCommitResult> {
+    const { data, error } = await this.supabase.rpc("app_import_commit_chunk", {
+      p_batch: input.batchId,
+      p_limit: input.limit,
+      p_idem: input.idempotencyKey,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    const payload = (data ?? {}) as Record<string, unknown>;
+    return {
+      ok: true,
+      batch: toImportBatchView((payload.batch ?? {}) as Record<string, unknown>),
+      created: Number(payload.created ?? 0),
+      updated: Number(payload.updated ?? 0),
+      skipped: Number(payload.skipped ?? 0),
+      failed: Number(payload.failed ?? 0),
+      remaining: Number(payload.remaining ?? 0),
+    };
+  }
+
+  async importReport(batchId: string): Promise<ImportColumnReportView[]> {
+    const { data, error } = await this.supabase.rpc("app_import_report", {
+      p_batch: batchId,
+    });
+    if (error) throw new Error(error.message);
+    const payload = (data ?? {}) as { columns?: unknown[] };
+    return (payload.columns ?? []).map((c) => {
+      const r = c as Record<string, unknown>;
+      return {
+        column: String(r.column ?? ""),
+        disposition: String(r.disposition ?? "unmapped") as ImportColumnReportView["disposition"],
+        rows: Number(r.rows ?? 0),
+        sample: Array.isArray(r.sample) ? r.sample.map((s) => String(s)) : [],
+      };
+    });
+  }
+
+  async undoImport(input: UndoImportInput): Promise<ImportUndoResult> {
+    const { data, error } = await this.supabase.rpc("app_import_undo", {
+      p_batch: input.batchId,
+      p_idem: input.idempotencyKey,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    const payload = (data ?? {}) as Record<string, unknown>;
+    return {
+      ok: true,
+      batch: toImportBatchView((payload.batch ?? {}) as Record<string, unknown>),
+      deleted: Number(payload.deleted ?? 0),
+      reverted: Number(payload.reverted ?? 0),
+      kept: Number(payload.kept ?? 0),
+      keptIds: Array.isArray(payload.kept_ids) ? payload.kept_ids.map((x) => Number(x)) : [],
+      notesKept: Number(payload.notes_kept ?? 0),
+    };
+  }
+
+  async discardImport(input: DiscardImportInput): Promise<DiscardImportResult> {
+    const { error } = await this.supabase.rpc("app_import_discard", {
+      p_batch: input.batchId,
+      p_idem: input.idempotencyKey,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    return { ok: true };
+  }
+
+  /**
+   * The two RPCs that answer with a batch, and the one place `conflict` is
+   * classified.
+   *
+   * The word is load-bearing: 0011 raises "conflict: this import changed since
+   * you read it" and this is what turns that into the banner rather than a
+   * generic red toast — the same contract `setTriage` and `saveView` rely on, and
+   * `tests/core/test_migrations.py` pins the string to the SQL.
+   */
+  private async importBatchRpc(
+    fn: string,
+    args: Record<string, unknown>,
+    key?: "batch",
+  ): Promise<ImportBatchResult> {
+    const { data, error } = await this.supabase.rpc(fn, args);
+    if (error) {
+      if (/conflict|stale/i.test(error.message)) return { ok: false, kind: "conflict" };
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const payload = (data ?? {}) as Record<string, unknown>;
+    const row = key ? ((payload[key] ?? {}) as Record<string, unknown>) : payload;
+    return { ok: true, batch: toImportBatchView(row) };
   }
 }
 

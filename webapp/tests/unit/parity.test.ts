@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 import { FixtureDataSource } from "@/lib/data/fixture-source";
+import { IMPORT_LIST_LIMIT } from "@/lib/data/source";
 import { FIXTURE_JOBS } from "@/lib/data/fixtures";
 import { CADENCE, SupabaseDataSource, toCompanyView, toJobView } from "@/lib/data/supabase-source";
 import { blankTrim, companyNameKey, PROPOSE_SOURCE_TAGS } from "@/lib/data/view-models";
@@ -40,6 +41,10 @@ const COMPANY_REVIEW_SQL = readFileSync(
 );
 const PIPELINE_SQL = readFileSync(
   path.join(REPO, "db", "migrations", "0010_pipeline.sql"),
+  "utf8",
+);
+const IMPORT_SQL = readFileSync(
+  path.join(REPO, "db", "migrations", "0011_import.sql"),
   "utf8",
 );
 
@@ -1094,5 +1099,139 @@ describe("pipeline write parity with migration 0010", () => {
       "utf8",
     );
     expect(ts).toContain('referencedTable: "application_notes", ascending: false');
+  });
+});
+
+describe("import parity with migration 0011", () => {
+  /**
+   * The import half, which had no section here at all.
+   *
+   * `SupabaseDataSource`'s ten import methods were never instantiated by any
+   * test — the fake carried the whole feature's behaviour and nothing compared
+   * the two. What can be compared without a database is what the rest of this
+   * file compares: the messages a user meets, the bounds a caller can hit, and
+   * the two numbers the two implementations each chose for themselves.
+   */
+  const src = () => new FixtureDataSource();
+
+  it("clamps a commit chunk the way the SQL clamps it, including limit 0", async () => {
+    // `least(greatest(coalesce(p_limit, 200), 1), 500)`: 0 is not NULL, so it is
+    // raised to 1 — one row. The fake used `input.limit || 200`, which reads 0 as
+    // absent and committed the whole batch. A caller sending 0 saw one row in
+    // production and 200 in the demo.
+    expect(IMPORT_SQL).toContain("least(greatest(coalesce(p_limit, 200), 1), 500)");
+
+    const store = src();
+    const created = await store.createImport({
+      filename: "f.csv", sourceKind: "csv", contentHash: "h", rowCount: 3,
+      idempotencyKey: "clamp-1",
+    });
+    if (!created.ok) throw new Error("createImport failed");
+    const batchId = created.batch.id;
+    await store.stageImportRows({
+      batchId,
+      rows: [1, 2, 3].map((n) => ({ rowNumber: n, raw: {} })),
+    });
+    await store.setImportMapping({
+      batchId,
+      rows: [1, 2, 3].map((n) => ({
+        rowNumber: n,
+        mapped: { company: `Co ${n}`, title: "PM", status: "Applied" },
+        jobKey: `greenhouse-77${n}`,
+        keyStrength: "strong" as const,
+      })),
+      mapping: { headers: [], headerRowIndex: 0, columnMap: {}, statusMap: {}, roundTrip: false, unmapped: [] },
+      final: true,
+      expectedUpdatedAt: null,
+    });
+    await store.previewImport(batchId);
+
+    const chunk = await store.commitImportChunk({ batchId, limit: 0, idempotencyKey: "clamp-c1" });
+    expect(chunk.ok && chunk.created, "limit 0 committed more than one row").toBe(1);
+    expect(chunk.ok && chunk.remaining).toBe(2);
+  });
+
+  it("shares the SQL's own refusal messages, so the demo teaches production", async () => {
+    const tooMany = await src().createImport({
+      filename: "big.csv", sourceKind: "csv", contentHash: "h", rowCount: 5001,
+      idempotencyKey: "parity-rows",
+    });
+    expect(tooMany.ok).toBe(false);
+    if (!tooMany.ok && tooMany.kind === "error") {
+      // The SQL's sentence carries `%` placeholders, so the shared half is
+      // asserted rather than the whole string.
+      expect(tooMany.message).toMatch(/the limit is 5000/);
+      expect(IMPORT_SQL).toContain("split it and import in parts");
+    }
+    for (const bound of [
+      "idempotency key required",
+      "unsupported import source",
+      "imports still in progress",
+    ]) {
+      expect(IMPORT_SQL, `SQL is missing the bound ${bound}`).toContain(bound);
+    }
+  });
+
+  it("the landing list is bounded to the same number on both sides", async () => {
+    // `IMPORT_LIST_LIMIT` is now one constant that both implementations read; the
+    // fake used to be unbounded, so a demo with 60 batches rendered a list
+    // production truncates at 25.
+    expect(IMPORT_LIST_LIMIT).toBe(25);
+    const store = src();
+    // Each batch is carried all the way to `committed`, because a batch left
+    // open counts against `app_import_create`'s in-progress cap of 20 — which is
+    // below the list limit, so the list can only ever exceed 25 with finished
+    // batches in it. That is worth knowing and is why this loop is not three
+    // lines.
+    for (let i = 0; i < IMPORT_LIST_LIMIT + 5; i += 1) {
+      const created = await store.createImport({
+        filename: `f${i}.csv`, sourceKind: "csv", contentHash: `h${i}`, rowCount: 1,
+        idempotencyKey: `list-${i}`,
+      });
+      if (!created.ok) throw new Error(`createImport ${i} failed: ${JSON.stringify(created)}`);
+      const id = created.batch.id;
+      await store.stageImportRows({ batchId: id, rows: [{ rowNumber: 1, raw: {} }] });
+      await store.setImportMapping({
+        batchId: id,
+        rows: [{
+          rowNumber: 1,
+          mapped: { company: `List Co ${i}`, title: "PM", status: "Applied" },
+          jobKey: `greenhouse-88${i}`,
+          keyStrength: "strong" as const,
+        }],
+        mapping: { headers: [], headerRowIndex: 0, columnMap: {}, statusMap: {}, roundTrip: false, unmapped: [] },
+        final: true,
+        expectedUpdatedAt: null,
+      });
+      await store.previewImport(id);
+      await store.commitImportChunk({ batchId: id, limit: 200, idempotencyKey: `list-c-${i}` });
+    }
+    expect((await store.imports()).length).toBe(IMPORT_LIST_LIMIT);
+  });
+
+  it("every hand-copied MAX_CHUNK is the same number", () => {
+    // 1000 is written out in four places across two languages — the stage RPC,
+    // the mapping RPC, the upload route and the mapping action — and a chunk
+    // larger than the function accepts is refused mid-import, after some of the
+    // rows have already landed. There was no drift test.
+    const fromSql = [...IMPORT_SQL.matchAll(/MAX_CHUNK\s+constant integer := (\d+)/g)].map((m) =>
+      Number(m[1]),
+    );
+    expect(fromSql.length, "no MAX_CHUNK declarations found in 0011").toBeGreaterThanOrEqual(2);
+
+    const route = readFileSync(
+      path.join(REPO, "webapp", "app", "api", "import", "upload", "route.ts"),
+      "utf8",
+    );
+    const actions = readFileSync(
+      path.join(REPO, "webapp", "app", "(app)", "import", "actions.ts"),
+      "utf8",
+    );
+    const stage = /const STAGE_CHUNK = (\d+);/.exec(route);
+    const mapping = /const MAPPING_CHUNK = (\d+);/.exec(actions);
+    expect(stage, "STAGE_CHUNK not found in the upload route").toBeTruthy();
+    expect(mapping, "MAPPING_CHUNK not found in the import actions").toBeTruthy();
+
+    expect(new Set([...fromSql, Number(stage![1]), Number(mapping![1])]).size, "MAX_CHUNK drifted").toBe(1);
   });
 });

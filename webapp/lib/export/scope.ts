@@ -36,6 +36,16 @@ export type ExportRequest = {
   format: ExportFormat;
   /** Explicit row keys, or null to let the server resolve the scope. */
   keys: string[] | null;
+  /**
+   * Carry `hq_id` and `hq_version`, so the file can be imported back.
+   *
+   * Applications only, and refused rather than ignored for `jobs`: a posting has
+   * no editable row behind it, so a jobs file with those columns would promise a
+   * round trip the importer cannot perform. Silently dropping the flag is the
+   * same class of failure this whole module exists to prevent — a file that
+   * looks right and is not.
+   */
+  roundTrip: boolean;
 };
 
 export type ParseResult =
@@ -85,7 +95,24 @@ export function parseExportRequest(raw: unknown): ParseResult {
     return { ok: false, error: "Nothing is selected." };
   }
 
-  return { ok: true, request: { dataset: body.dataset, scope: body.scope, format: body.format, keys } };
+  let roundTrip = false;
+  if (body.roundTrip !== undefined && body.roundTrip !== null) {
+    if (typeof body.roundTrip !== "boolean") {
+      return { ok: false, error: "roundTrip must be true or false." };
+    }
+    roundTrip = body.roundTrip;
+  }
+  if (roundTrip && body.dataset !== "applications") {
+    return {
+      ok: false,
+      error: "Only the pipeline can be exported for re-import; a role has no row to write back to.",
+    };
+  }
+
+  return {
+    ok: true,
+    request: { dataset: body.dataset, scope: body.scope, format: body.format, keys, roundTrip },
+  };
 }
 
 export function exportFilename(

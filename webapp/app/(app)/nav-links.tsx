@@ -1,6 +1,15 @@
 "use client";
 
-import { Inbox, LayoutGrid, ListChecks, Building2, Plus, Activity, Settings } from "lucide-react";
+import {
+  Inbox,
+  LayoutGrid,
+  ListChecks,
+  Building2,
+  Plus,
+  Upload,
+  Activity,
+  Settings,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -29,6 +38,10 @@ const PRIMARY: readonly NavItem[] = [
   // it is upstream plumbing — deciding which companies get watched — and the three
   // above it are the daily work.
   { href: "/companies", label: "Companies", icon: Building2 },
+  // Live, so no `soon` flag. It sits last of the primary items because it is
+  // something you do once when you arrive and rarely again — the three above it
+  // are the daily work, and /companies is the plumbing behind them.
+  { href: "/import", label: "Import", icon: Upload },
   { href: "/add", label: "Add", icon: Plus, soon: true },
 ];
 

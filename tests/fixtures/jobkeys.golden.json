@@ -1,0 +1,758 @@
+[
+  {
+    "why": "greenhouse boards path",
+    "url": "https://boards.greenhouse.io/stripe/jobs/4285367",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "greenhouse-4285367",
+    "strong": true
+  },
+  {
+    "why": "greenhouse job-boards host with query and fragment",
+    "url": "https://job-boards.greenhouse.io/garnerhealth/jobs/7123456002?gh_src=abc#app",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "greenhouse-7123456002",
+    "strong": true
+  },
+  {
+    "why": "greenhouse embedded application widget",
+    "url": "https://boards.greenhouse.io/embed/job_app?for=acme&token=5544332",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "greenhouse-5544332",
+    "strong": true
+  },
+  {
+    "why": "gh_jid as the first query param",
+    "url": "https://careers.airbnb.com/positions/?gh_jid=5678",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "greenhouse-5678",
+    "strong": true
+  },
+  {
+    "why": "gh_jid buried between utm params",
+    "url": "https://www.example.com/careers?utm_source=x&gh_jid=99887766&utm_medium=y",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "greenhouse-99887766",
+    "strong": true
+  },
+  {
+    "why": "gh_jid with a non-numeric value does not match \u2014 falls through to url-",
+    "url": "https://www.example.com/careers?gh_jid=abc",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-www.example.com/careers",
+    "strong": false
+  },
+  {
+    "why": "lever posting",
+    "url": "https://jobs.lever.co/plaid/0c66e8ed-1c18-4b64-ad27-a522a866b6e1",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "lever-0c66e8ed-1c18-4b64-ad27-a522a866b6e1",
+    "strong": true
+  },
+  {
+    "why": "lever EU host with /apply suffix and tracking",
+    "url": "https://jobs.eu.lever.co/spotify/7f3a91b2-88cd-4e01-9a5f-1122334455aa/apply?lever-source=LinkedIn#top",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "lever-7f3a91b2-88cd-4e01-9a5f-1122334455aa",
+    "strong": true
+  },
+  {
+    "why": "lever uuid in uppercase hex",
+    "url": "https://jobs.lever.co/ramp/A1B2C3D4-E5F6-4A7B-8C9D-0E1F2A3B4C5D",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "lever-A1B2C3D4-E5F6-4A7B-8C9D-0E1F2A3B4C5D",
+    "strong": true
+  },
+  {
+    "why": "ashby posting",
+    "url": "https://jobs.ashbyhq.com/sierra/0c66e8ed-1c18-4b64-ad27-a522a866b6e1",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "ashby-0c66e8ed-1c18-4b64-ad27-a522a866b6e1",
+    "strong": true
+  },
+  {
+    "why": "ashby with /application suffix, utm and fragment",
+    "url": "https://jobs.ashbyhq.com/openai/7f3a91b2-88cd-4e01-9a5f-1122334455aa/application?utm_source=Ashby#form",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "ashby-7f3a91b2-88cd-4e01-9a5f-1122334455aa",
+    "strong": true
+  },
+  {
+    "why": "smartrecruiters posting with slug tail",
+    "url": "https://jobs.smartrecruiters.com/Visa/743999912345678-product-manager",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "smartrec-743999912345678",
+    "strong": true
+  },
+  {
+    "why": "smartrecruiters with query and fragment",
+    "url": "https://jobs.smartrecruiters.com/Bosch/744000012345678?trid=abc#details",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "smartrec-744000012345678",
+    "strong": true
+  },
+  {
+    "why": "workday JR requisition",
+    "url": "https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/California/Product-Manager_JR-123456",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "workday-JR-123456",
+    "strong": true
+  },
+  {
+    "why": "workday R requisition with a trailing slash",
+    "url": "https://blackrock.wd1.myworkdayjobs.com/en-US/BlackRock/job/Senior-Associate_R264872/",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "workday-R264872",
+    "strong": true
+  },
+  {
+    "why": "workday posting-variant suffix collapses to the base requisition",
+    "url": "https://adobe.wd5.myworkdayjobs.com/external_experienced/job/San-Jose/PM_R168260-1",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "workday-R168260",
+    "strong": true
+  },
+  {
+    "why": "workday Visa-style REF id",
+    "url": "https://visa.wd5.myworkdayjobs.com/Visa/job/Austin/Product-Manager_REF085011W",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "workday-REF085011W",
+    "strong": true
+  },
+  {
+    "why": "workday REQ id followed by query and fragment",
+    "url": "https://acme.wd3.myworkdayjobs.com/en-US/careers/job/Remote/PM_REQ-12345?q=pm#top",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "workday-REQ-12345",
+    "strong": true
+  },
+  {
+    "why": "workday lowercase requisition \u2014 the only case-insensitive pattern",
+    "url": "https://acme.wd1.myworkdayjobs.com/en-US/careers/job/NYC/pm_jr_998877",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "workday-jr_998877",
+    "strong": true
+  },
+  {
+    "why": "workday with no requisition id at all \u2014 falls through to url-",
+    "url": "https://acme.wd1.myworkdayjobs.com/careers/job/NYC/Product-Manager",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-acme.wd1.myworkdayjobs.com/careers/job/NYC/Product-Manager",
+    "strong": false
+  },
+  {
+    "why": "amazon.jobs with a two-letter locale",
+    "url": "https://www.amazon.jobs/en/jobs/2871234/product-manager",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "amazon-2871234",
+    "strong": true
+  },
+  {
+    "why": "amazon.jobs with no locale, plus query and fragment",
+    "url": "https://www.amazon.jobs/jobs/2998877?cmpid=x#job",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "amazon-2998877",
+    "strong": true
+  },
+  {
+    "why": "amazon.jobs with a region locale",
+    "url": "https://www.amazon.jobs/en-gb/jobs/2765432/senior-pm",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "amazon-2765432",
+    "strong": true
+  },
+  {
+    "why": "oracle candidate experience with a trailing slash",
+    "url": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210765300/",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "oraclehcm-210765300",
+    "strong": true
+  },
+  {
+    "why": "oracle candidate experience with query and fragment",
+    "url": "https://ehhr.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/445566?mode=location#top",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "oraclehcm-445566",
+    "strong": true
+  },
+  {
+    "why": "google careers results id with a slug tail",
+    "url": "https://www.google.com/about/careers/applications/jobs/results/123456789012345-product-manager",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "google-123456789012345",
+    "strong": true
+  },
+  {
+    "why": "google careers results id with query and hash-bang",
+    "url": "https://www.google.com/about/careers/applications/jobs/results/987654321098765?location=US&hl=en#!t=jo",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "google-987654321098765",
+    "strong": true
+  },
+  {
+    "why": "apple jobs details",
+    "url": "https://jobs.apple.com/en-us/details/200554321/product-manager",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "apple-200554321",
+    "strong": true
+  },
+  {
+    "why": "apple jobs details with team query and fragment",
+    "url": "https://jobs.apple.com/en-gb/details/200999888?team=SFTWR#content",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "apple-200999888",
+    "strong": true
+  },
+  {
+    "why": "goldman higher.gs.com role",
+    "url": "https://higher.gs.com/roles/168945",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "goldman-168945",
+    "strong": true
+  },
+  {
+    "why": "goldman role with empty-valued query params and a fragment",
+    "url": "https://higher.gs.com/roles/170001?EMAIL=&sort=RELEVANCE#jobs",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "goldman-170001",
+    "strong": true
+  },
+  {
+    "why": "radancy intuit job id at the end of the path",
+    "url": "https://jobs.intuit.com/job/san-diego/product-manager/27595/82412345",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "radancy-82412345",
+    "strong": true
+  },
+  {
+    "why": "radancy intuit job id before a trailing slash and query",
+    "url": "https://jobs.intuit.com/job/mountain-view/staff-pm/27595/91234567/?utm=x",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "radancy-91234567",
+    "strong": true
+  },
+  {
+    "why": "eightfold pid as the first query param",
+    "url": "https://acme.eightfold.ai/careers?pid=1234567890&domain=acme.com",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "eightfold-1234567890",
+    "strong": true
+  },
+  {
+    "why": "eightfold pid after another query param, with a fragment",
+    "url": "https://careers.eightfold.ai/careers?query=pm&pid=98765432109876#job",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "eightfold-98765432109876",
+    "strong": true
+  },
+  {
+    "why": "eightfold pid on the netflix explore host",
+    "url": "https://explore.jobs.netflix.net/careers?pid=790298765432",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "eightfold-790298765432",
+    "strong": true
+  },
+  {
+    "why": "eightfold pid on the microsoft apply host, with utm and fragment",
+    "url": "https://apply.careers.microsoft.com/careers?q=pm&pid=1234567890123&utm=z#top",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "eightfold-1234567890123",
+    "strong": true
+  },
+  {
+    "why": "eightfold careers/job path form",
+    "url": "https://acme.eightfold.ai/careers/job/1234567890123",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "eightfold-1234567890123",
+    "strong": true
+  },
+  {
+    "why": "eightfold careers/job path form on netflix, with query and fragment",
+    "url": "https://jobs.netflix.net/careers/job/9876543210?utm_source=li#apply",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "eightfold-9876543210",
+    "strong": true
+  },
+  {
+    "why": "icims subdomain with a hyphen separator \u2014 two capture groups",
+    "url": "https://careers-acme.icims.com/jobs/12345/product-manager/job",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "icims-acme-12345",
+    "strong": true
+  },
+  {
+    "why": "icims subdomain with a dot separator, plus query and fragment",
+    "url": "https://careers.pfizer.icims.com/jobs/4488/senior-pm/job?hub=7&mobile=false#top",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "icims-pfizer-4488",
+    "strong": true
+  },
+  {
+    "why": "icims singular 'career' host and an alphanumeric tenant",
+    "url": "https://career-x5.icims.com/jobs/900/pm/job",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "icims-x5-900",
+    "strong": true
+  },
+  {
+    "why": "sfsf jobs2web id on a company vanity domain",
+    "url": "https://careers.chevron.com/job/houston/123456789",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "sfsf-123456789",
+    "strong": true
+  },
+  {
+    "why": "sfsf jobs2web id followed by query and fragment",
+    "url": "https://jobs.aa.com/job/dallas/987654321012?src=li#apply",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "sfsf-987654321012",
+    "strong": true
+  },
+  {
+    "why": "ats pattern beats the norm- fallback even when company and title are present",
+    "url": "https://boards.greenhouse.io/ramp/jobs/6001234",
+    "company": "Ramp",
+    "title": "Product Manager",
+    "location": "New York, NY",
+    "key": "greenhouse-6001234",
+    "strong": true
+  },
+  {
+    "why": "norm- from company and title, city taken from before the comma",
+    "url": "",
+    "company": "Garner Health",
+    "title": "Product Manager III",
+    "location": "NY, NY",
+    "key": "norm-garner-health|product-manager-iii|ny",
+    "strong": false
+  },
+  {
+    "why": "norm- is stable under case and doubled spaces",
+    "url": "",
+    "company": "garner  health",
+    "title": "Product Manager III",
+    "location": "NY",
+    "key": "norm-garner-health|product-manager-iii|ny",
+    "strong": false
+  },
+  {
+    "why": "norm- ampersand becomes ' and ' before the punctuation squash",
+    "url": "",
+    "company": "Johnson & Johnson",
+    "title": "PM, Payments",
+    "location": "New Brunswick, NJ",
+    "key": "norm-johnson-and-johnson|pm-payments|new-brunswick",
+    "strong": false
+  },
+  {
+    "why": "norm- punctuation-heavy company and an em-dashed title",
+    "url": "",
+    "company": "O'Reilly Media, Inc. (US)",
+    "title": "Sr. Product Manager \u2014 Platform",
+    "location": " Boston , MA",
+    "key": "norm-o-reilly-media-inc-us|sr-product-manager-platform|boston",
+    "strong": false
+  },
+  {
+    "why": "norm- ampersand inside the title too",
+    "url": "",
+    "company": "Acme",
+    "title": "R&D Product Manager",
+    "location": "Austin, TX",
+    "key": "norm-acme|r-and-d-product-manager|austin",
+    "strong": false
+  },
+  {
+    "why": "norm- company at exactly the 32-char truncation boundary",
+    "url": "",
+    "company": "Aaaaaaaaaa Bbbbbbbbbb Cccccccccc",
+    "title": "PM",
+    "location": "NY",
+    "key": "norm-aaaaaaaaaa-bbbbbbbbbb-cccccccccc|pm|ny",
+    "strong": false
+  },
+  {
+    "why": "norm- company one char past the 32-char boundary",
+    "url": "",
+    "company": "Aaaaaaaaaa Bbbbbbbbbb Ccccccccccd",
+    "title": "PM",
+    "location": "NY",
+    "key": "norm-aaaaaaaaaa-bbbbbbbbbb-cccccccccc|pm|ny",
+    "strong": false
+  },
+  {
+    "why": "norm- ampersand expansion pushes the company past 32 chars",
+    "url": "",
+    "company": "A&B Consolidated Widget Holdings",
+    "title": "PM",
+    "location": "NY",
+    "key": "norm-a-and-b-consolidated-widget-hold|pm|ny",
+    "strong": false
+  },
+  {
+    "why": "norm- title at exactly the 48-char truncation boundary",
+    "url": "",
+    "company": "Acme",
+    "title": "Senior Product Manager Payments And Ledgers Core",
+    "location": "NY",
+    "key": "norm-acme|senior-product-manager-payments-and-ledgers-core|ny",
+    "strong": false
+  },
+  {
+    "why": "norm- title one char past the 48-char boundary",
+    "url": "",
+    "company": "Acme",
+    "title": "Senior Product Manager Payments And Ledgers Cores",
+    "location": "NY",
+    "key": "norm-acme|senior-product-manager-payments-and-ledgers-core|ny",
+    "strong": false
+  },
+  {
+    "why": "norm- city at exactly the 24-char truncation boundary",
+    "url": "",
+    "company": "Acme",
+    "title": "PM",
+    "location": "San Francisco Bay Region, CA",
+    "key": "norm-acme|pm|san-francisco-bay-region",
+    "strong": false
+  },
+  {
+    "why": "norm- city one char past the 24-char boundary",
+    "url": "",
+    "company": "Acme",
+    "title": "PM",
+    "location": "San Francisco Bay Regions, CA",
+    "key": "norm-acme|pm|san-francisco-bay-region",
+    "strong": false
+  },
+  {
+    "why": "norm- with no location at all keeps the trailing separator",
+    "url": "",
+    "company": "Acme",
+    "title": "PM",
+    "location": "",
+    "key": "norm-acme|pm|",
+    "strong": false
+  },
+  {
+    "why": "norm- when the location is only a comma",
+    "url": "",
+    "company": "Acme",
+    "title": "PM",
+    "location": ",",
+    "key": "norm-acme|pm|",
+    "strong": false
+  },
+  {
+    "why": "norm- with surrounding whitespace on every field",
+    "url": "",
+    "company": "  Acme  ",
+    "title": "  Staff PM  ",
+    "location": "  Chicago , IL  ",
+    "key": "norm-acme|staff-pm|chicago",
+    "strong": false
+  },
+  {
+    "why": "norm- beats the url- fallback when the url matches no ATS pattern",
+    "url": "https://acme.io/careers/pm",
+    "company": "Acme",
+    "title": "Product Manager",
+    "location": "Remote",
+    "key": "norm-acme|product-manager|remote",
+    "strong": false
+  },
+  {
+    "why": "url- from an unrecognised careers host, trailing slash stripped",
+    "url": "https://fingerprint.com/careers/jobs/abc123/",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-fingerprint.com/careers/jobs/abc123",
+    "strong": false
+  },
+  {
+    "why": "url- strips every trailing slash, not just one",
+    "url": "https://example.com/careers//",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-example.com/careers",
+    "strong": false
+  },
+  {
+    "why": "url- drops the query and the fragment",
+    "url": "https://acme.io/careers/pm?utm=x#top",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-acme.io/careers/pm",
+    "strong": false
+  },
+  {
+    "why": "url- from a relative path \u2014 urlparse gives netloc='' where new URL() would throw",
+    "url": "careers/foo/bar",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-careers/foo/bar",
+    "strong": false
+  },
+  {
+    "why": "url- from a root-relative path",
+    "url": "/jobs/pm-role",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-/jobs/pm-role",
+    "strong": false
+  },
+  {
+    "why": "url- host-only url, the lone slash stripped",
+    "url": "https://acme.io/",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-acme.io",
+    "strong": false
+  },
+  {
+    "why": "url- host with no path at all",
+    "url": "https://acme.io",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-acme.io",
+    "strong": false
+  },
+  {
+    "why": "url- keeps userinfo and port, which live in netloc",
+    "url": "https://user:pw@jobs.acme.io:8443/careers/pm",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-user:pw@jobs.acme.io:8443/careers/pm",
+    "strong": false
+  },
+  {
+    "why": "url- lowercases nothing outside the scheme",
+    "url": "HTTPS://ACME.IO/Careers/PM",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-ACME.IO/Careers/PM",
+    "strong": false
+  },
+  {
+    "why": "url- ;params are split off the last path segment by urlparse",
+    "url": "https://acme.io/careers/pm;jsessionid=42",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-acme.io/careers/pm",
+    "strong": false
+  },
+  {
+    "why": "url- ;params split on a relative path too \u2014 '' is in uses_params",
+    "url": "careers/pm;id=42",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-careers/pm",
+    "strong": false
+  },
+  {
+    "why": "url- a scheme with no // means the whole rest is path",
+    "url": "mailto:jobs@acme.io",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-jobs@acme.io",
+    "strong": false
+  },
+  {
+    "why": "url- an embedded tab is deleted by urlsplit, not turned into a character",
+    "url": "https://acme.io/car\theers/pm",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-acme.io/carheers/pm",
+    "strong": false
+  },
+  {
+    "why": "url- surrounding whitespace is stripped before parsing",
+    "url": "  https://acme.io/careers/pm  ",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-acme.io/careers/pm",
+    "strong": false
+  },
+  {
+    "why": "url- a leading U+0085 IS stripped by Python str.strip, unlike JS trim",
+    "url": "\u0085https://acme.io/careers/pm",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-acme.io/careers/pm",
+    "strong": false
+  },
+  {
+    "why": "url- a leading BOM is NOT stripped by Python str.strip, unlike JS trim",
+    "url": "\ufeffhttps://acme.io/careers/pm",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "url-\ufeffhttps://acme.io/careers/pm",
+    "strong": false
+  },
+  {
+    "why": "url- when the company normalizes to nothing there is no norm- key to fall back to",
+    "url": "https://acme.io/x",
+    "company": "!!!",
+    "title": "PM",
+    "location": "NY",
+    "key": "url-acme.io/x",
+    "strong": false
+  },
+  {
+    "why": "url- when only the title is present",
+    "url": "https://acme.io/careers/staff-pm",
+    "company": "",
+    "title": "Staff PM",
+    "location": "NY",
+    "key": "url-acme.io/careers/staff-pm",
+    "strong": false
+  },
+  {
+    "why": "empty key: nothing at all to key on",
+    "url": "",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "",
+    "strong": false
+  },
+  {
+    "why": "empty key: a company with no title and no url",
+    "url": "",
+    "company": "Acme",
+    "title": "",
+    "location": "Austin, TX",
+    "key": "",
+    "strong": false
+  },
+  {
+    "why": "empty key: a title with no company and no url",
+    "url": "",
+    "company": "",
+    "title": "Product Manager",
+    "location": "Austin, TX",
+    "key": "",
+    "strong": false
+  },
+  {
+    "why": "empty key: a whitespace-only url with nothing else",
+    "url": "   ",
+    "company": "",
+    "title": "",
+    "location": "",
+    "key": "",
+    "strong": false
+  },
+  {
+    "why": "empty key: company normalizes to nothing and there is no url",
+    "url": "",
+    "company": "!!!",
+    "title": "PM",
+    "location": "NY",
+    "key": "",
+    "strong": false
+  }
+]

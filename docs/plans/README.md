@@ -16,6 +16,69 @@ resolutions here override the individual plans where they conflict.
 > selection + atomic bulk triage, and Linux visual baselines. See
 > `docs/WEBAPP-BUILD.md` for the full state.
 >
+> **Import (build order #3) is BUILT** — migration **0011**, the TypeScript
+> `job_key` port + its two-language golden fixture, the parse/map libraries, the
+> data layer on both implementations, and the `/import` wizard. Discharges AC
+> **20**, **21**, **23** and G12/G13. Matrix rows 140-167 in
+> `docs/WEBAPP-BUILD.md`.
+>
+> **AC 23's loop was only half-built when that was first written**, and the fix
+> pass closed it: `ROUND_TRIP_COLUMNS` had no callers, so no file this app
+> produced carried an `hq_id` and the "export, edit in Excel, import back" path
+> existed only in tests that typed their own CSV. The export now offers it
+> (`roundTrip` on the request, a toggle on the pipeline's dialog) and an
+> export → re-import test closes the loop end to end. One known limit is stated
+> rather than implied, in the dialog and in matrix row 167: a status a person
+> invented cannot survive the trip, because the import vocabulary is closed.
+>
+> Three places this build **deviated from PHASE-IMPORT.md on purpose**, recorded
+> here because the plan reads the other way:
+>
+> 1. **`job_key` is never computed in SQL** (the plan has
+>    `app_import_set_mapping` recompute it). A third implementation of the most
+>    drift-prone function in the system fails silently — a key differing by one
+>    character makes every re-import a duplicate. Keys travel as data from the
+>    server action; SQL only compares them, and every lookup is `auth.uid()`-scoped
+>    so a fabricated key reaches nothing but the caller's own rows.
+> 2. **An import is not a human status gesture — except on a round trip.** The
+>    plan is silent; 0010's lock forces the question. A bulk import writes
+>    `status_actor='system'` and leaves a locked row's status alone (reporting the
+>    skip), because claiming the lock on 2,000 imported rows would mean the engine
+>    can never advance any of them again. A round trip carries the row's own
+>    `hq_version`, which is the same proof `app_set_status` demands, so it does
+>    claim it.
+> 3. **`import_column_reports` is keyed on disposition too**, and there is a
+>    fifth disposition (`locked`). One column carries several verdicts across a
+>    batch, and the plan's key let "Status — 38 imported" erase "Status — 2 left
+>    alone, you chose those by hand".
+>
+> **Five more deviations, added by the fix pass because the list above read as
+> complete and was not.** None of them is a mistake; each is a place the plan and
+> the build disagree and the build is what runs:
+>
+> 4. **The commit gate refuses on INCLUDED unresolved rows**, not on "any row in
+>    the batch" as §5 has it. A row the person deliberately skipped cannot block
+>    the import they asked for — the plan's reading makes one unanswered conflict
+>    unskippable.
+> 5. **Undo reverts from `import_rows.revert`**, a column 0011 adds, rather than
+>    by replaying `events`. The events trail is append-only and shared with every
+>    other gesture; reconstructing a revert from it means trusting that nothing
+>    else wrote in between. The column holds the values as they were plus the
+>    `updated_at` the import wrote, which is also what makes "kept" answerable.
+> 6. **`app_import_stage` takes no `p_idem`.** Staging is idempotent by row
+>    number (`on conflict (batch_id, row_number) do nothing`), so a key would
+>    imply a guarantee the shape already gives.
+> 7. **`app_import_set_mapping` takes five arguments, not three** — the rows and
+>    the `final` flag are the chunking the plan does not describe, and
+>    `expectedUpdatedAt` is checked on the final call only.
+> 8. **`app_import_set_included` and `app_import_discard` are in no plan at all.**
+>    The per-row veto and "get rid of this one" are both things a person needs on
+>    a preview screen, and neither was specified.
+>
+> Also settled by running it, against the plan's §1/§4.2: `_PATTERNS` has 17
+> entries across 14 ATS families (not 14 patterns), and `TextDecoder`'s
+> windows-1252 is ISO-8859-1 wearing the label — see matrix row 157.
+
 > **Active design thread: [COMPANY-DISCOVERY.md](COMPANY-DISCOVERY.md)** — how
 > non-operator users populate their company universe by NL / filters / pasted
 > list (agentic generate→ground→verify→expand, shared universe, reliability

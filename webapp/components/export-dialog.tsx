@@ -96,6 +96,10 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
   const [counts, setCounts] = React.useState<ExportCounts | null>(null);
   const [scope, setScope] = React.useState<ExportScope>("view");
   const [format, setFormat] = React.useState<ExportFormat>("xlsx");
+  // Off by default. The two extra columns are machine plumbing, and a file that
+  // grows them without being asked is a file somebody has to explain to the
+  // person they send it to.
+  const [roundTrip, setRoundTrip] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   // Same discipline as the triage queue: the ⌘E hint renders from the server,
   // but nothing is listening until React attaches the handler. The hint stays
@@ -135,7 +139,7 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
       const res = await fetch("/api/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dataset, scope, format }),
+        body: JSON.stringify({ dataset, scope, format, roundTrip }),
         // Bounded, like every other outbound call in this system. A request
         // with no timeout becomes a spinner that never resolves.
         signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -181,7 +185,7 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
     } finally {
       setBusy(false);
     }
-  }, [dataset, scope, format]);
+  }, [dataset, scope, format, roundTrip]);
 
   const rowCount = counts ? copy.scopes.find((s) => s.value === scope)?.count(counts) : null;
 
@@ -325,6 +329,59 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
             ))}
           </RadioGroup.Root>
         </fieldset>
+
+        {/* Applications only, because it is the only dataset with rows an import
+            can write back to — `parseExportRequest` refuses the flag for jobs
+            rather than quietly dropping it.
+
+            A native checkbox rather than a Radix Switch: one on/off with a label
+            is exactly what a checkbox is, it announces its own state, and it
+            survives forced-colors mode without a token. */}
+        {dataset === "applications" ? (
+          <fieldset className="mt-4" data-testid="export-round-trip">
+            <legend className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-muted">
+              Bringing it back
+            </legend>
+            <label
+              className={cn(
+                "flex cursor-pointer gap-2.5 rounded-lg border p-2.5 transition-colors",
+                roundTrip ? "border-accent bg-accent-subtle" : "border-border hover:bg-raised",
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={roundTrip}
+                onChange={(e) => setRoundTrip(e.target.checked)}
+                data-testid="round-trip-toggle"
+                className="mt-0.5 size-4 shrink-0"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-text">
+                  Let this file be imported back
+                </span>
+                {/* Names the columns, because they are visible in the file and an
+                    unexplained `hq_version` reads as a leak rather than a feature.
+                    The last sentence is the honest degradation, not a warning:
+                    deleting them costs the id match, not the import. */}
+                <span className="mt-0.5 block text-xs text-text-2">
+                  Adds two columns at the end — <code className="text-2xs">hq_id</code> and{" "}
+                  <code className="text-2xs">hq_version</code> — so edits you make in Excel go back to
+                  the rows they came from instead of arriving as copies. A row somebody changed in
+                  the meantime asks you which value wins. Delete the columns and the file still
+                  imports; it just matches on the job link.
+                </span>
+                {/* Said here rather than discovered on the way back in. A status
+                    this app does not have is one a person typed, the import
+                    vocabulary is closed on purpose, and the round trip therefore
+                    cannot carry it home. Stated as the limit it is. */}
+                <span className="mt-1 block text-xs text-warn">
+                  A status you invented yourself comes back as Inbox — importing only understands
+                  this app&rsquo;s own stages.
+                </span>
+              </span>
+            </label>
+          </fieldset>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

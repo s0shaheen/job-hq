@@ -29,8 +29,8 @@ All four are the build. Mapped to a new person's journey:
 | Get my universe populated | Discovery infra (engine + agent + oracle) | 1 | designed, building |
 | Pull the jobs reliably, day-of | Resolution engine + adapters + Tier-2 | 1 | 12 adapters; +3 in scope |
 | See & triage | Grid (`/jobs`) | — | ✅ done (PRs #31–34) |
-| Manage status (human-wins) | Pipeline | 2 | partial (read-only) |
-| Import my existing tracker | Import | 2 | not built |
+| Manage status (human-wins) | Pipeline | 2 | ✅ done (P8, migration 0010, PR #66) |
+| Import my existing tracker | Import | 2 | ✅ done (migration 0011, `feat/import`) |
 | Get notified, act in one tap | Digest | 2 | not built (legacy markdown) |
 | …all per-user, shared universe | Multi-user / RLS / subscriptions | 3 | partial |
 | …eventually open to the world | OSS + security | 4 | not started |
@@ -189,6 +189,39 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 ---
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
+
+- **2026-07-26** — **Import is built (`feat/import`, migration 0011).** Discharges AC **20**,
+  **21**, **23** plus G12/G13: `/import` uploads xlsx/csv/paste, parses on the server into
+  Postgres, maps columns and status values, previews what each row would do, commits in
+  chunks, reports per column, and undoes the whole batch in one gesture. Matrix rows
+  **140-163** in `docs/WEBAPP-BUILD.md`.
+
+  **Numbering note for the next session:** this is migration **0011**, not the 0003 the plan
+  pencilled or the 0009/0010 the phase list above guesses. Migrations are assigned serially AT
+  BUILD TIME and `test_migrations_are_contiguously_numbered` is the tripwire. The phase list's
+  parenthesised numbers are aspirations, not reservations — **P9 Profile takes 0012.** Also
+  worth knowing: the phase list calls Import "P10" and this log calls it P9, because the
+  Profile wizard was ordered ahead of it and then was not built first. The number is not the
+  point; the migration number is.
+
+  **Three deviations from `PHASE-IMPORT.md`, all deliberate** (also in
+  `docs/plans/README.md`): `job_key` is never computed in SQL (a third implementation of the
+  dedup key drifts silently, and the two that exist are pinned to one golden fixture from both
+  languages); an import is not a human status gesture except on a round trip, where the file
+  carries the row's own `hq_version` — the same proof `app_set_status` demands; and
+  `import_column_reports` is keyed on disposition too, so "Status — 2 left alone, you chose
+  those by hand" cannot be erased by "Status — 38 imported".
+
+  **Two things the plan got wrong and running it found:** `_PATTERNS` in `core/jobkeys.py` has
+  17 entries across 14 ATS families, not 14 patterns; and `TextDecoder("windows-1252")` on
+  Node 24 / ICU 77 is ISO-8859-1 wearing the label — it decodes 0x80-0x9F as raw C1
+  codepoints, so `’` (the character Excel autocorrects `'` into) arrived as U+0092 in a large
+  share of Windows-exported company names, invisibly. Hand-written C1 table now.
+
+  **P8 merged as PR #66 without a checkpoint entry**, which is why the pointer below still said
+  "next: P8". Recorded here so the log is usable again.
+
+  **Next: P9 Profile wizard** (`PHASE-PROFILE.md`, migration **0012**), then Digest.
 
 - **2026-07-26** — **P7's two "not wired" caveats are wired — the sweep-review integration
   (`feat/sweep-review-integration`, migration 0009).** P7 shipped the `/companies` grid and was

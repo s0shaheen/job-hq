@@ -28,6 +28,7 @@ stage 3; until then the bots and the sheet remain the write path.
 | `/queue` | Qualified, untriaged postings for you, freshest first (max 50). `j`/`k` move, `o`/`Enter` opens the posting, `i`/`x`/`s` are stubbed. |
 | `/pipeline` | Your applications in pipeline order (Inbox → Offer, then terminal states), newest activity first within a stage: company, title, status, applied date, next action, evidence link. |
 | `/health` | Operator view — latest 20 `channel_runs` plus a per-channel "hours since last run" strip. |
+| `/import` | Bring an existing tracker in: xlsx / csv / paste → map columns → map status words → preview what each row would do → commit in chunks → a per-column report, with one-gesture undo for 24 hours. Deep-linkable per batch (`/import/<id>`), so closing the tab loses nothing. |
 | `/login` | One button: Sign in with Google (Supabase Auth, PKCE). |
 | `/setup` | What to configure when env vars are missing (also shown by every page instead of crashing). |
 
@@ -105,6 +106,60 @@ lib/
   supabase/         # browser / server / middleware clients (@supabase/ssr)
 middleware.ts       # session refresh + redirect unauthenticated -> /login
 ```
+
+## Importing a spreadsheet (how the pipeline actually works)
+
+The browser never parses the file and never holds the working set. The upload
+route parses the bytes ONCE on the server, writes every source row verbatim into
+`import_rows`, and throws the bytes away; every later step — mapping, the live
+samples, preview, commit, resume — reads from Postgres. That is what makes
+"resumable" true rather than aspirational: close the tab mid-import and
+`/import/<batchId>` renders the same step back.
+
+Three rules worth knowing before changing anything here:
+
+1. **`job_key` is computed in exactly two places** — `core/jobkeys.py` and
+   `webapp/lib/import/job-key.ts` — pinned to one golden fixture asserted from
+   both languages (`tests/fixtures/jobkeys.golden.json`). SQL never computes one.
+   A key differing by a single character makes every re-import a silent duplicate.
+2. **A weak key never merges.** `isStrong()` is the only merge authorisation
+   there is; a `norm-`/`url-` key produces a flagged suggestion, because two
+   people at one company with the same title is not a hypothetical and a wrong
+   merge is unrecoverable. It is added as its own row — or skipped, saying so,
+   when you already have that exact company and title with no posting behind it,
+   because `applications_manual_dedup` forbids the second copy. Both are correct;
+   the update is the one that must never happen.
+3. **An import is not a human status gesture** — it writes `status_actor='system'`
+   and leaves a status a person chose alone (reporting the skip). The exception is
+   the round trip, where the file carries that row's own `hq_version`: that is the
+   same proof `app_set_status` demands, so it does claim the row.
+
+The file that carries those columns comes from the pipeline's own Export dialog —
+tick **"Let this file be imported back"** and the export gains a trailing `hq_id`
+and `hq_version` (`lib/import/round-trip.ts`). It is off by default: the two
+columns are machine plumbing, and a file that grows them unasked is one somebody
+has to explain to whoever they send it to. Two limits, both stated rather than
+left to be discovered: a status you invented yourself comes back as Inbox (the
+dialog says so — the import vocabulary is closed to this app's own stages), and a
+**CSV** round trip keeps the apostrophe that the CSV writer puts in front of a
+cell beginning `= + - @`, which is the formula-injection defence doing its job.
+Prefer the xlsx format for a round trip; a workbook cell is typed, so nothing is
+marked.
+
+Caps, and *when* each one is enforced — the order is the load-bearing part:
+
+| Cap | Value | Where |
+|---|---|---|
+| Upload bytes | 10 MB | the route, from `Content-Length` **before the body is read**, then again on the real bytes |
+| Paste bytes | 4 MB | the route, before the JSON is parsed — a paste is a string in memory, not a streamed file |
+| Workbook inflated | 64 MB | the route, from the zip's central directory **before the workbook is opened** — this is the zip-bomb guard |
+| Rows | 5,000 | the route **after** parsing, and again in `app_import_create` |
+
+The row cap comes after the parse because nothing can count a workbook's rows
+without opening it; what bounds that parse is the inflated cap above it.
+`app_import_create` re-enforces the ROW cap only — it never sees the bytes — and
+it does so because the function is granted to `authenticated` and the route is
+only one caller.
 
 ## Visual regression baselines
 

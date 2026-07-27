@@ -323,3 +323,91 @@ def test_an_authenticated_user_has_no_direct_write_to_application_notes(conn, tw
         ).lower(), stmt
     assert app_id is None  # nothing above was supposed to return a row
 
+
+
+def test_a_user_cannot_read_another_users_import(conn, two_users):
+    """An import batch is somebody's whole spreadsheet — every company they are
+    talking to, every note they typed into it. Spec §I mandates a two-real-user
+    test per per-user table, and 0011 adds three of them: the wizard READS all
+    three directly through PostgREST, so these select policies are load-bearing
+    rather than belt-and-braces.
+
+    Both directions, positive control first. "B sees nothing" is equally true
+    when nobody can read the table at all, and would keep passing with the
+    policies dropped.
+    """
+    u = two_users
+    batches = {}
+    for who in ("a", "b"):
+        conn.execute("reset role")
+        conn.execute("select set_config('hq.test_user', %s, false)", (u[who],))
+        batches[who] = conn.execute(
+            "select public.app_import_create(%s, %s, %s, %s, %s)",
+            (str(uuid.uuid4()), f"{who}-tracker.xlsx", "xlsx", "", 1),
+        ).fetchone()[0]["id"]
+        conn.execute(
+            "select public.app_import_stage(%s, %s)",
+            (batches[who], f'[{{"row_number": 1, "raw": {{"Company": "{who}-secret"}}}}]'),
+        )
+        conn.execute(
+            "select public.app_import_set_mapping(%s, %s, %s, %s, %s)",
+            (batches[who],
+             '[{"row_number": 1, "mapped": {"company": "' + who + '-secret", "title": "PM"},'
+             ' "job_key": "greenhouse-99' + ("1" if who == "a" else "2") + '",'
+             ' "key_strength": "strong"}]',
+             '{"unmapped": [{"name": "Recruiter", "disposition": "unknown-column"}]}',
+             True, None),
+        )
+
+    for me, them in (("a", "b"), ("b", "a")):
+        as_authenticated(conn, u[me])
+        assert count(
+            conn, "select count(*) from public.import_batches where id = %s", batches[me]
+        ) == 1, f"{me} cannot read their own import — every negative below is vacuous"
+        assert count(
+            conn, "select count(*) from public.import_batches where id = %s", batches[them]
+        ) == 0, f"{me} can read {them}'s import batch"
+
+        assert count(
+            conn, "select count(*) from public.import_rows where batch_id = %s", batches[me]
+        ) == 1, f"{me} cannot read their own import rows"
+        assert count(
+            conn, "select count(*) from public.import_rows where batch_id = %s", batches[them]
+        ) == 0, f"{me} can read the CONTENTS of {them}'s spreadsheet"
+
+        assert count(
+            conn,
+            "select count(*) from public.import_column_reports where batch_id = %s",
+            batches[me],
+        ) == 1, f"{me} cannot read their own column report"
+        assert count(
+            conn,
+            "select count(*) from public.import_column_reports where batch_id = %s",
+            batches[them],
+        ) == 0, f"{me} can read {them}'s column report"
+
+
+def test_an_authenticated_user_has_no_direct_write_to_the_import_tables(conn, two_users):
+    """The wizard writes through `app_import_*` or not at all (0001's closing
+    note). Without the revoke, a browser could stage rows into somebody else's
+    batch and then commit them as its own — the tables are read directly, so it
+    is easy to assume they are writable directly too."""
+    u = two_users
+    as_authenticated(conn, u["a"])
+    for stmt, args in (
+        ("insert into public.import_batches (user_id, source_kind, idempotency_key) "
+         "values (%s, 'csv', 'x')", (u["a"],)),
+        ("update public.import_batches set state = 'committed'", ()),
+        ("delete from public.import_batches", ()),
+        ("insert into public.import_rows (batch_id, user_id, row_number, raw) "
+         "values (gen_random_uuid(), %s, 1, '{}')", (u["a"],)),
+        ("update public.import_rows set outcome = 'created'", ()),
+        ("insert into public.import_column_reports "
+         "(batch_id, user_id, column_name, disposition) "
+         "values (gen_random_uuid(), %s, 'Status', 'imported')", (u["a"],)),
+    ):
+        with pytest.raises(psycopg.errors.Error) as exc:
+            conn.execute(stmt, args)
+        assert "permission denied" in str(exc.value).lower() or "policy" in str(
+            exc.value
+        ).lower(), stmt

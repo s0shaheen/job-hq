@@ -56,6 +56,13 @@ const CONTRACT: Record<string, string> = {
   // because the pipeline reads it directly (`notes()`), and an append-only
   // table is exactly the kind whose shape must not drift silently.
   application_notes: "ApplicationNote",
+  // 0011. All three are read DIRECTLY by the import wizard through PostgREST —
+  // `/import/[batchId]` renders from these columns — so a drift here is a blank
+  // screen, not a type error. `applications.import_batch_id` is caught by the
+  // `applications` entry above.
+  import_batches: "ImportBatch",
+  import_rows: "ImportRow",
+  import_column_reports: "ImportColumnReport",
 };
 
 // ---------------------------------------------------------------- SQL side

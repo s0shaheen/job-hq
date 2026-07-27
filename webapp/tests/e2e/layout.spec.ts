@@ -24,6 +24,13 @@ const PAGES = [
   "/jobs",
   "/companies",
   "/companies/add",
+  // The LANDING page, and only that. This list is static and every screen of the
+  // wizard lives at `/import/<batchId>`, minted at upload time — so a path here
+  // cannot reach the mapping list, the preview or the report. A comment that used
+  // to claim this line retro-fitted six widths to "the 60-header mapping list"
+  // was describing a screen no test in this file has ever loaded;
+  // `import-wizard.spec.ts` uploads a fixture and sweeps them for real.
+  "/import",
   // The pipeline's other GROUPING states — everything collapsed, and a subset
   // open. Group headers are the widest thing on the row once the rows are gone.
   //
