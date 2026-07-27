@@ -189,7 +189,22 @@ leak rate (50% → ~0 for auto-eligible); fields auto-filled correctly (target
 ~100% on filled fields — beat Simplify by refusing to guess); wrong knockout
 answers (must be zero, ever); % applications receipt-confirmed by Gmail.
 
-## Open forks (Salman decides at scheduling time)
+## Owner decisions (2026-07-27)
+
+1. **Execution host: anyone-anywhere, NOT the operator's Mac.** Verbatim intent: "this may be
+   a tool that anyone uses, there should be a better way." This upgrades the product ambition
+   and reopens a technical question the Mac answer had closed: residential headed browsers pass
+   the captchas that datacenter egress does not. **New research spike, required before the
+   submit tier (step 3):** managed browser infra (Browserbase/Steel-class), self-hosted headed
+   Chrome behind residential-quality egress, and the honest captcha/anti-bot pass rates of
+   each, priced per application. Steps 1–2 are host-independent and unblocked.
+2. **Submit-click ownership: the bot submits after batch-approve** (approval is the human act).
+3. **Tier-C identity: per-user** — resolved by decision 1's multi-user framing; each user's own
+   email owns their Workday-class accounts, and their capture reads their own inbox.
+4. **Scout integration: none.** Out of scope, owner's call.
+5. **Answer library: per-user from day one.**
+
+## Open forks (superseded — kept for the reasoning; decisions above govern)
 
 1. **Execution host**: Mac launchd vs review-remote/execute-local vs paid
    browser infra. Cheapest honest answer is the Mac; it bends "never open the

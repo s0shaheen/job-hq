@@ -162,7 +162,18 @@ outreach → reply → referral → interview conversion by contact type; referr
 per week (currently 0); eventually, interview rate warm vs cold from our own
 events — the number the whole system exists to move.
 
-## Open forks (Salman decides at scheduling time)
+## Owner decisions (2026-07-27)
+
+1. **Vendor: to be selected by hands-on free-tier testing** (PDL and Apollo both, quotas move;
+   research leans PDL) — a build-time task, not a standing question.
+2. **Priority gate: manual star** to start; derive from the measured funnel later.
+3. **Multi-user and ask-order: defaults stand** (profile-driven signals port to other users
+   when their lanes mature; referral-before-apply ships as the nudge, the funnel overrules).
+   Neither judged load-bearing by the owner.
+4. **The hard line is blessed by construction:** nothing ever touches the owner's LinkedIn
+   session — layer-∞ (cookies, extensions, messaging-as-user) stays permanently unbuilt.
+
+## Open forks (superseded — kept for the reasoning; decisions above govern)
 
 1. **Vendor**: PDL vs Apollo first (verify both free tiers hands-on — quotas
    move); Exa is already wired as an MCP tool in dev sessions.

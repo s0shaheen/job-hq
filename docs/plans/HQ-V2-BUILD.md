@@ -190,6 +190,17 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
 
+- **2026-07-27 (later)** — **Auto-apply + referral-finder forks decided** (recorded in each
+  doc's "Owner decisions" section). Headline override: auto-apply execution must serve
+  anyone-anywhere — NOT the operator's Mac — which adds a browser-infra research spike before
+  the submit tier; Prepare/Review (steps 1–2) and referral steps 1–2 are host-independent and
+  **scheduled as the webapp lane once the current queue clears** (P10 → purge → Phase A
+  verification), running parallel to sunset B/C's engine lane. Scout integration: none.
+  Same block: Phase A went live — Supabase provisioned + migrated (27 app_* fns), owner's
+  users row created via admin API, HQ_PG_USER_ID in SSM, pgmirror wired into the monitor
+  chain (#74), PGDUMP_ENABLED armed. #71/#72/#73 merged after the hydration-gate trace
+  finally killed the durability flake's whole class.
+
 - **2026-07-27 (evening)** — **Salman decided the five open forks**, and the biggest reshapes the
   end-state: **the Google Sheet is to become obsolete** — pg-authoritative for everyone, Salman
   included; the webapp is the only surface; only file import/export survives of the sheet world.
