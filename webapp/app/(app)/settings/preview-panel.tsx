@@ -45,9 +45,9 @@ export function PreviewPanel({
       <p className="flex items-start gap-2 rounded-lg border border-dashed border-border-strong p-4 text-sm text-muted">
         <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
         <span>
-          Nothing has been checked yet. Running a check reads the last 30 days of
-          postings and reports what these settings would have done with them. It
-          writes nothing.
+          Nothing checked yet. A check reads the last 30 days of postings and
+          reports what these settings would have done with them. It writes
+          nothing.
         </span>
       </p>
     );
@@ -76,8 +76,8 @@ export function PreviewPanel({
       >
         <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warn" />
         <span>
-          Couldn’t compute the preview — {state.message}. You can still save and
-          check your queue afterwards.
+          The check did not run: {state.message}. You can save anyway and look at
+          your queue.
         </span>
       </p>
     );
@@ -102,21 +102,21 @@ export function PreviewPanel({
           className="mb-3 rounded-md border border-warn px-2 py-1.5 text-xs"
           data-testid="preview-stale"
         >
-          You’ve changed something since this was checked. Run it again to see
-          what the new settings would do.
+          Something changed since this was checked. Run it again for the new
+          numbers.
         </p>
       ) : null}
 
       <p className="text-sm">
         Of <strong className="tabular">{nf.format(p.corpusTotal)}</strong> postings
-        collected in the last {p.windowDays} days, these settings would have
-        qualified <strong className="tabular">{nf.format(p.qualified)}</strong> and
-        filtered <strong className="tabular">{nf.format(p.filtered)}</strong>.
+        from the last {p.windowDays} days, these settings would have qualified{" "}
+        <strong className="tabular">{nf.format(p.qualified)}</strong> and skipped{" "}
+        <strong className="tabular">{nf.format(p.filtered)}</strong>.
         {p.needsInfo > 0 ? (
           <>
             {" "}
             <span className="text-muted">
-              {nf.format(p.needsInfo)} are still waiting to be analysed.
+              {nf.format(p.needsInfo)} are still being read.
             </span>
           </>
         ) : null}
@@ -131,18 +131,18 @@ export function PreviewPanel({
           <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warn" />
           {coverage === "no-titles" ? (
             <span>
-              You haven’t listed any job titles yet, so nothing is being searched
-              for by name. Add a few and the numbers above will mean something —
-              the sweep matches a posting’s title against that list, and an empty
-              list matches nothing.
+              You have not listed any job titles yet, so nothing is being matched
+              by name. Add one and the numbers above will mean something. A
+              posting reaches you when its title contains one of them, and an
+              empty list matches nothing.
             </span>
           ) : (
             <span>
               Only <strong className="tabular">{nf.format(p.titleMatched)}</strong> of
-              those {nf.format(p.corpusTotal)} match your job titles. The engine has
-              not been sweeping for this kind of role yet — your first full queue
-              arrives after the next couple of sweeps, roughly 24 hours. The number
-              above is not a verdict on your settings.
+              those {nf.format(p.corpusTotal)} match your job titles. We have not
+              been sweeping for this kind of role yet. Your first full queue lands
+              after the next couple of sweeps, roughly 24 hours. The number above
+              is not a verdict on your settings.
             </span>
           )}
         </p>
@@ -150,7 +150,7 @@ export function PreviewPanel({
 
       {p.binding ? (
         <p className="mt-3 text-sm" data-testid="binding-constraint">
-          The single biggest filter is your{" "}
+          Most of the filtering is your{" "}
           <button
             type="button"
             onClick={() => onGoToSetting(p.binding!.setting)}
@@ -160,7 +160,7 @@ export function PreviewPanel({
           >
             {p.binding.label}
           </button>
-          . Relaxing it alone would qualify{" "}
+          . Loosening that alone would let through{" "}
           <strong className="tabular">{nf.format(p.binding.recovers)}</strong> more.
           {p.binding.sample ? (
             <span className="block text-xs text-muted">
@@ -181,7 +181,7 @@ export function PreviewPanel({
           <ul className="mt-1 space-y-0.5 text-xs text-muted">
             {p.samples.qualified.map((s) => (
               <li key={s.key} className="min-w-0 break-words">
-                {s.company} — {s.title}
+                {s.company} · {s.title}
                 {s.compRange ? ` · ${s.compRange}` : ""}
               </li>
             ))}
@@ -195,7 +195,7 @@ export function PreviewPanel({
           <ul className="mt-1 space-y-0.5 text-xs text-muted">
             {p.samples.filtered.map((s) => (
               <li key={s.key} className="min-w-0 break-words">
-                {s.company} — {s.title} · {s.explanation}
+                {s.company} · {s.title} · {s.explanation}
               </li>
             ))}
           </ul>

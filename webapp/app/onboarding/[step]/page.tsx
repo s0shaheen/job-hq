@@ -8,7 +8,7 @@ export const metadata = { title: "Set up your search — Job Search HQ" };
 export const dynamic = "force-dynamic";
 
 /**
- * `/onboarding/[step]` — the six-step Search Profile wizard.
+ * `/onboarding/[step]` — the two-step Search Profile wizard.
  *
  * OUTSIDE the `(app)` route group, deliberately. The onboarding guard lives in
  * that group's layout, so a wizard inside it would redirect to itself forever;
@@ -66,15 +66,18 @@ export default async function OnboardingStep({
         // already there to know whether a change came from an edit or from the
         // user pressing Back.
         rawDraft={typeof sp[DRAFT_PARAM] === "string" ? sp[DRAFT_PARAM] : ""}
-        // A draft that would not decode falls back to the FIRST PRESET, not to
-        // `BASE_CRITERIA`. The two differ in the one way that matters:
-        // `BASE_CRITERIA.role_family` is "product manager" (the committed default,
-        // faithful to `Profile`'s dataclass) while its `titles_include` is empty —
-        // so the step-1 radio read as "Product management selected" over a title
-        // list with nothing in it, and step 2's gate then refused to advance a
-        // profile the screen said was already chosen. A preset is internally
-        // consistent, and everything in it is visible and editable.
-        draft={draft ?? profile.criteria ?? draftFromPreset("product-manager")}
+        // A fresh wizard opens EMPTY, not on a preset.
+        //
+        // It used to open on the product-management preset, because
+        // `BASE_CRITERIA.role_family` is "product manager" with an empty title
+        // list and the old step-1 radios then read as "Product management
+        // selected" over a list matching nothing. With the radios gone the
+        // honest starting state is a blank role box: the owner's second
+        // complaint was that step one framed the whole app around two
+        // professions, and a pre-filled "product manager" is that framing with
+        // the radios taken off. `other` is `BASE_CRITERIA` with the three
+        // free-text fields and both title lists emptied.
+        draft={draft ?? profile.criteria ?? draftFromPreset("other")}
         version={profile.updatedAt}
       />
     </main>

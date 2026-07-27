@@ -59,12 +59,12 @@ export function DisplayPrefs() {
     {
       flag: "large",
       label: "Larger text",
-      body: "Scales every type size across the app. Applies before the page paints, so nothing reflows.",
+      body: "Scales every type size in the app. Applied before the page paints, so nothing jumps.",
     },
     {
       flag: "comfortable",
       label: "Roomier rows",
-      body: "More vertical space in the pipeline's rows. The jobs grid keeps its own per-view setting.",
+      body: "More vertical space in the pipeline. The jobs grid keeps its own setting per view.",
     },
   ];
 
@@ -78,8 +78,8 @@ export function DisplayPrefs() {
         Display
       </h2>
       <p className="mt-1 text-sm text-muted">
-        How this app looks on this device. Kept out of shared links on purpose — a link you
-        send should not impose your eyesight on whoever opens it.
+        How this app looks on this device. Kept out of shared links, so a link
+        you send does not impose your eyesight on whoever opens it.
       </p>
 
       <div className="mt-3 space-y-3">

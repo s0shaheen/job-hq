@@ -214,17 +214,22 @@ const FIELD_SETTING: Record<string, string> = {
   work_model_exclude: "workModelExclude",
 };
 
-/** …and how each field is named to a person. */
+/**
+ * …and how each field is named to a person.
+ *
+ * The same vocabulary the why-popover and the `/settings` headings use, because
+ * this string is rendered as a link INTO one of those headings.
+ */
 const FIELD_LABELS: Record<string, string> = {
   countries: "countries",
-  geo_unknown: "how unplaceable locations are handled",
-  metros: "metros",
-  yoe_max: "years-of-experience limit",
-  yoe_unknown: "how unstated experience is handled",
-  seniority_exclude: "seniority exclusions",
-  comp_min: "compensation floor",
-  comp_unknown: "how unstated pay is handled",
-  work_model_exclude: "work-model exclusions",
+  geo_unknown: "rule for postings with no location",
+  metros: "cities",
+  yoe_max: "experience limit",
+  yoe_unknown: "rule for postings with no years given",
+  seniority_exclude: "levels ruled out",
+  comp_min: "pay floor",
+  comp_unknown: "rule for postings with no salary",
+  work_model_exclude: "ways of working",
 };
 
 /**

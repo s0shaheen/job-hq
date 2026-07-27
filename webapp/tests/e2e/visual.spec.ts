@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { LAST_STEP } from "@/lib/profile/draft";
 
 /**
  * Visual regression. A pixel diff beyond the tolerance fails the run — this is
@@ -255,7 +256,7 @@ for (const theme of ["light", "dark"] as const) {
     // match your job titles", which is a different (and, as it turned out,
     // wrongly-worded) state. The picture was of a page the test did not mean to
     // take, which is the exact thing looking at a baseline is for.
-    await page.goto(`/onboarding/6?d=${FPA_DRAFT}`);
+    await page.goto(`/onboarding/${LAST_STEP}?d=${FPA_DRAFT}`);
     await expect(page.getByTestId("wizard")).toHaveAttribute("data-hydrated", "true");
     // The panel computes on arrival; a shot taken before it lands is a picture
     // of the running state, which is a different thing entirely.

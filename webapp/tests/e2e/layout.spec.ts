@@ -71,9 +71,11 @@ const LONG_DRAFT =
 
 const ONBOARDING_PAGES = [
   "/onboarding/1",
+  // The long draft goes to step ONE, which is where the title chips live now.
+  // Pointed at step two it would measure a screen the long strings never reach.
+  `/onboarding/1?d=${LONG_DRAFT}`,
   "/onboarding/2",
   `/onboarding/2?d=${LONG_DRAFT}`,
-  "/onboarding/6",
 ];
 
 async function seedOnboarding(page: Page) {

@@ -22,11 +22,11 @@ import { explainReason, reasonSetting, type JobView } from "@/lib/data/view-mode
  */
 const SETTING_LABELS: Record<string, string> = {
   countries: "countries",
-  metros: "metros",
-  yoeMax: "years-of-experience limit",
-  seniorityExclude: "seniority exclusions",
-  compMin: "compensation floor",
-  workModelExclude: "work-model exclusions",
+  metros: "cities",
+  yoeMax: "experience limit",
+  seniorityExclude: "levels ruled out",
+  compMin: "pay floor",
+  workModelExclude: "ways of working",
 };
 
 /**

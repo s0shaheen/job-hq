@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { clampStep, decodeDraft, encodeDraft, MAX_DRAFT_LENGTH } from "@/lib/profile/draft";
+import {
+  clampStep,
+  decodeDraft,
+  encodeDraft,
+  FIRST_STEP,
+  LAST_STEP,
+  MAX_DRAFT_LENGTH,
+} from "@/lib/profile/draft";
 import { BASE_CRITERIA, MAX_CHIP_LENGTH } from "@/lib/profile/criteria";
 import { draftFromPreset } from "@/lib/profile/presets";
 
@@ -83,13 +90,18 @@ describe("encodeDraft / decodeDraft", () => {
 
 describe("clampStep", () => {
   it("turns any address into a real step", () => {
-    expect(clampStep("1")).toBe(1);
-    expect(clampStep("6")).toBe(6);
-    expect(clampStep("99")).toBe(6);
-    expect(clampStep("0")).toBe(1);
-    expect(clampStep("-3")).toBe(1);
-    expect(clampStep("banana")).toBe(1);
-    expect(clampStep(undefined)).toBe(1);
-    expect(clampStep("3.7")).toBe(3);
+    // Written against `LAST_STEP` rather than the literal, because the step
+    // count is a product decision that has already moved once: six screens
+    // became two, and a test hard-coding 6 would have failed for the shape of
+    // the change rather than for anything being wrong.
+    expect(clampStep("1")).toBe(FIRST_STEP);
+    expect(clampStep(String(LAST_STEP))).toBe(LAST_STEP);
+    expect(clampStep("99")).toBe(LAST_STEP);
+    expect(clampStep("0")).toBe(FIRST_STEP);
+    expect(clampStep("-3")).toBe(FIRST_STEP);
+    expect(clampStep("banana")).toBe(FIRST_STEP);
+    expect(clampStep(undefined)).toBe(FIRST_STEP);
+    // Truncated, not rounded, and still clamped into range.
+    expect(clampStep("1.7")).toBe(1);
   });
 });

@@ -4,6 +4,7 @@ import * as React from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MAX_CHIP_LENGTH, MAX_CHIPS } from "@/lib/profile/criteria";
+import { formatDollars, parseDollars } from "@/lib/profile/money";
 
 /**
  * The profile's field controls, shared by `/settings` and the wizard.
@@ -225,6 +226,85 @@ export function PolicyChoice<T extends string>({
         ))}
       </div>
     </fieldset>
+  );
+}
+
+/**
+ * A salary, in dollars.
+ *
+ * Typed as `200000`, `200k` or `$200,000`, shown as `$200,000` once focus
+ * leaves. The stored value is still `comp_min` in thousands, converted by the
+ * caller: the gate reads that unit and the audit trail is stamped with it, so
+ * the translation belongs at this one boundary rather than in the contract.
+ *
+ * A plain `<input type="number">` cannot do this — it refuses the `$`, the
+ * commas and the `k` — which is how the field ended up labelled "in thousands"
+ * with a maximum of 2000 and reading, correctly, as a $2,000 ceiling.
+ */
+export function MoneyField({
+  id,
+  label,
+  dollars,
+  hint,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  dollars: number;
+  hint?: string;
+  onChange: (next: number) => void;
+}) {
+  // Null means "showing the stored value"; a string means somebody is editing.
+  const [draft, setDraft] = React.useState<string | null>(null);
+  const junk = draft !== null && draft.trim() !== "" && parseDollars(draft) === null;
+
+  return (
+    <div>
+      <label htmlFor={id} className="block text-xs font-medium text-text-2">
+        {label}
+      </label>
+      <input
+        id={id}
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        value={draft ?? formatDollars(dollars)}
+        placeholder="$120,000"
+        // NOTHING happens on focus.
+        //
+        // The first version swapped the formatted value for a bare number there,
+        // so editing would not mean picking commas out of a string. It corrupted
+        // the very next edit: focus schedules a React state update, the caret's
+        // select-all was computed against the value being replaced, and the
+        // typed text landed APPENDED — "$200,000" typed over "$200,000" parsed
+        // as $200,000,200,000 and clamped to the $2,000,000 ceiling. Caught by
+        // the e2e, and a person clicking in and typing fast would have hit it
+        // too. `parseDollars` reads the formatted string back, so there is
+        // nothing to swap.
+        onChange={(e) => {
+          setDraft(e.target.value);
+          const parsed = parseDollars(e.target.value);
+          // Committed on every keystroke that parses, so the preview goes stale
+          // against the number on screen rather than one blur behind it.
+          if (parsed !== null) onChange(parsed);
+        }}
+        // Dropping the draft re-formats from the stored value, which is also what
+        // discards an unparseable string: the last number that meant something
+        // comes back rather than the box keeping text nothing will read.
+        onBlur={() => setDraft(null)}
+        className={cn(
+          "mt-1 w-40 rounded-md border bg-surface px-2 py-1 text-sm tabular focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring",
+          junk ? "border-warn" : "border-border-strong",
+        )}
+      />
+      {junk ? (
+        <p className="mt-1 text-xs text-warn" data-testid={`${id}-junk`} role="status">
+          Type a number, like 200000 or 200k.
+        </p>
+      ) : hint ? (
+        <p className="mt-1 text-xs text-muted">{hint}</p>
+      ) : null}
+    </div>
   );
 }
 

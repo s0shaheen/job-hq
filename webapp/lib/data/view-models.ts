@@ -582,14 +582,22 @@ export function reasonSetting(reason: string): string | null {
   return null;
 }
 
-/** How a setting is named to a person, as opposed to in the profile record. */
+/**
+ * How a setting is named to a person, as opposed to in the profile record.
+ *
+ * ONE vocabulary in three places: here, `SETTING_LABELS` in
+ * `app/(app)/jobs/why-popover.tsx`, and the section headings on `/settings`.
+ * The popover says "Change your pay floor" and links to `#compMin`, so the
+ * heading it lands on has to be the same words — a link that arrives somewhere
+ * with a different name reads as the wrong link. Keep the three in step.
+ */
 const SETTING_LABELS: Record<string, string> = {
   countries: "countries",
-  metros: "metros",
-  yoeMax: "years-of-experience limit",
-  seniorityExclude: "seniority exclusions",
-  compMin: "compensation floor",
-  workModelExclude: "work-model exclusions",
+  metros: "cities",
+  yoeMax: "experience limit",
+  seniorityExclude: "levels ruled out",
+  compMin: "pay floor",
+  workModelExclude: "ways of working",
 };
 
 /** The single setting responsible for the most filtered-out postings. */

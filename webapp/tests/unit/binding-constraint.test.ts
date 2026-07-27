@@ -88,7 +88,10 @@ describe("bindingConstraint", () => {
 
   it("carries one filtered row's reason in plain English", () => {
     const c = bindingConstraint([filtered("a", "yoe:8>4")]);
-    expect(c?.label).toBe("years-of-experience limit");
+    // The same words the `/settings` heading and the why-popover use. The
+    // popover says "Change your experience limit" and links to `#yoeMax`, so a
+    // label that drifts from the heading reads as the wrong link.
+    expect(c?.label).toBe("experience limit");
     expect(c?.example).toBe("Asks for 8+ years; your limit is 4");
   });
 

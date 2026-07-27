@@ -2,9 +2,10 @@
  * The wizard's draft, carried in the URL.
  *
  * Not React state, not a cookie, not a server-side scratch row: the URL, because
- * the three things a person does to a six-step form are refresh it, press Back,
- * and send themselves the link. State that lives in a component loses all three
- * (matrix row 87), and every alternative store has to be cleaned up afterwards.
+ * the three things a person does to a multi-step form are refresh it, press
+ * Back, and send themselves the link. State that lives in a component loses all
+ * three (matrix row 87), and every alternative store has to be cleaned up
+ * afterwards.
  *
  * Encoded as base64url of JSON rather than as a dozen query parameters. A
  * flattened form would need an escaping grammar for a job title containing a
@@ -82,9 +83,18 @@ export function decodeDraft(raw: string | null | undefined): ProfileCriteria | n
   }
 }
 
-/** The six steps, and the clamp that makes `/onboarding/99` a real page. */
+/**
+ * The two steps, and the clamp that makes `/onboarding/99` a real page.
+ *
+ * Six of these shipped first, one per setting. Three of them asked about
+ * unknown-handling policies, which are the engine's questions rather than
+ * anyone's, and the owner's verdict on his own first run was that the whole
+ * thing had to be far shorter. What survives is the two a person can answer
+ * without being taught the product; the rest kept their defaults and moved
+ * behind a disclosure on step two.
+ */
 export const FIRST_STEP = 1;
-export const LAST_STEP = 6;
+export const LAST_STEP = 2;
 
 export function clampStep(raw: string | number | undefined): number {
   const n = typeof raw === "number" ? raw : Number(String(raw ?? "").trim());

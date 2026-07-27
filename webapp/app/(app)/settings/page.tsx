@@ -35,9 +35,8 @@ export default async function SettingsPage() {
       <header className="border-b border-border px-4 py-3 sm:px-6">
         <h1 className="text-lg font-semibold">Search profile</h1>
         <p className="text-xs text-muted">
-          The settings that decide what reaches your queue and what gets filtered.
-          Nothing here takes effect until you save, and you can see what a change
-          would do first.
+          What reaches your queue, and what gets skipped. Nothing takes effect
+          until you save, and you can see what a change would do first.
         </p>
       </header>
 
@@ -46,13 +45,12 @@ export default async function SettingsPage() {
       </div>
 
       <ProfileForm
-        // A profile that does not exist yet opens on the first PRESET rather
-        // than on `BASE_CRITERIA`, for the wizard's reason: the baseline names a
-        // role family and no titles, which is a state the form would then refuse
-        // to save. Mostly unreachable — the onboarding guard sends an
-        // un-onboarded user to the wizard — but a fallback that cannot be saved
-        // is not a fallback.
-        initial={profile.criteria ?? draftFromPreset("product-manager")}
+        // Mostly unreachable: the onboarding guard sends an un-onboarded user
+        // to the wizard. `other` rather than a job family, so a page reached
+        // some other way does not propose a product-management search to
+        // somebody who never asked for one — it renders the warning above the
+        // role box instead, which says what is missing.
+        initial={profile.criteria ?? draftFromPreset("other")}
         version={profile.updatedAt}
       />
     </div>

@@ -5,31 +5,43 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { METRO_NAMES } from "@/lib/profile/metros";
+import { describesASearch, MAX_YOE, type ProfileCriteria } from "@/lib/profile/criteria";
 import {
-  MAX_COMP_MIN_K,
-  MAX_YOE,
-  type ProfileCriteria,
-} from "@/lib/profile/criteria";
-import { draftFromPreset, presetFor, ROLE_PRESETS } from "@/lib/profile/presets";
+  boardTermFromRole,
+  titlesAreDerived,
+  titlesFromRole,
+  withDerivedDefaults,
+} from "@/lib/profile/derive";
+import { dollarsFromK, kFromDollars } from "@/lib/profile/money";
+import { draftFromPreset, ROLE_PRESETS } from "@/lib/profile/presets";
 import { encodeDraft, DRAFT_PARAM, FIRST_STEP, LAST_STEP } from "@/lib/profile/draft";
-import { ChipList, NumberField, PolicyChoice } from "../../(app)/settings/fields";
+import { ChipList, MoneyField, NumberField, PolicyChoice } from "../../(app)/settings/fields";
 import { PreviewPanel, type PreviewState } from "../../(app)/settings/preview-panel";
 import { commitProfileAction, previewProfileAction } from "../../(app)/settings/actions";
 
 /**
- * The six-step wizard. Same fields as `/settings`, the same two server actions,
- * one question at a time.
+ * Setup, in two screens.
  *
- * The step machinery is the only thing new here, and the reason for six screens
- * rather than one long form is the unknown-handling policies. `geo_unknown`,
- * `yoe_unknown` and `comp_unknown` are three abstract radio groups; collected
- * together on an "advanced" page they are where a non-technical user clicks
- * Next without reading. Asked next to the field they modify, each is a
- * sentence.
+ * It was six, one per setting, with three of them asking about unknown-handling
+ * policies. The owner ran it as the first real user and the verdict was that it
+ * needed to be far simpler, that step one should not be a choice between
+ * product management and finance, and that the language was unreadable. All
+ * three are the same defect: the wizard was organised around the ENGINE's
+ * fields instead of around the two questions a person can answer without being
+ * taught the product.
  *
- * Step 6 is the preview and it cannot be skipped — "Back to change something"
- * is exactly as prominent as "Looks right", because a profile nobody has seen
- * the consequences of is the silent empty queue this whole phase exists for.
+ * So: what are you looking for, then where and how much. The engine's other
+ * fields still exist and still ship with the same defaults; they sit behind a
+ * disclosure on screen two, pre-filled, and almost nobody will open it.
+ *
+ *   * `board_search_term` and `titles_include` are DERIVED from the role rather
+ *     than demanded (see `lib/profile/derive.ts`), so one typed field produces a
+ *     profile the sweep can run. Both stay visible and editable.
+ *   * The two curated title lists are TEMPLATES at the bottom of screen one, not
+ *     the frame around it. A nurse should not have to declare herself "something
+ *     else" before the app will talk to her.
+ *   * The preview renders INLINE under the last question. It was a step of its
+ *     own, which made the numbers feel like a checkpoint rather than an answer.
  */
 
 const WRITE_TIMEOUT_MS = 15_000;
@@ -46,42 +58,13 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | { timedOut
   }
 }
 
-/**
- * What a step still needs before Next means anything, or null.
- *
- * The wizard used to accept "Something else" with every field blank and store a
- * product-management search under the person's name, because `parseCriteria`
- * filled the three empty strings in from `BASE_CRITERIA`. That fallback is gone
- * (a deliberate empty string now survives), which turns the silent lie into an
- * unanswerable profile — so the wizard has to ask rather than guess.
- *
- * Only the two fields the ENGINE cannot work without are gated: `role_family`
- * is what the tagger is told it is reading, and `titles_include` is what the
- * sweep matches a posting's title against. An empty include list matches
- * NOTHING, so a profile without one produces an empty queue by construction —
- * which is the exact failure this whole phase exists to remove.
- */
-function stepBlocker(step: number, c: ProfileCriteria): string | null {
-  if (step === 1 && !c.role_family.trim()) {
-    return "Name the kind of role you are looking for — the classifier is told those words verbatim.";
-  }
-  if (step === 1 && !c.board_search_term.trim()) {
-    return "Add a search word for the big shared boards (Workday and friends search by keyword).";
-  }
-  if (step === 2 && c.titles_include.length === 0) {
-    return "Add at least one job title. A posting reaches you when its title contains one of these, so an empty list matches nothing.";
-  }
-  return null;
-}
-
 const STEP_TITLES: Record<number, string> = {
-  1: "What kind of role?",
-  2: "Which job titles?",
-  3: "Where?",
-  4: "How much experience?",
-  5: "Pay and work model",
-  6: "What this would find",
+  1: "What are you looking for?",
+  2: "Where, and how much?",
 };
+
+/** Templates, without the deliberately-empty third preset behind the radios. */
+const TEMPLATES = ROLE_PRESETS.filter((p) => p.criteria.role_family !== "");
 
 export default function Wizard({
   step,
@@ -99,7 +82,6 @@ export default function Wizard({
   const [preview, setPreview] = React.useState<PreviewState>({ kind: "idle" });
   const [busy, setBusy] = React.useState<null | "check" | "save">(null);
   const headingRef = React.useRef<HTMLHeadingElement | null>(null);
-  const checkedRef = React.useRef<string | null>(null);
   const idemRef = React.useRef<string>(crypto.randomUUID());
 
   /**
@@ -128,7 +110,7 @@ export default function Wizard({
   // ADOPT: keyed on the RAW parameter, so it fires when the URL's draft really
   // changed — a Back, a Forward, a refresh, a pasted link — and not on every
   // render. React keeps the state of a component it does not unmount, so
-  // without this, Back to step 2 shows the answers as they are NOW.
+  // without this, Back to step 1 shows the answers as they are NOW.
   React.useEffect(() => {
     setCriteria(draft);
     // `draft` is derived from `rawDraft` and depending on it would re-run this
@@ -197,13 +179,40 @@ export default function Wizard({
     setCriteria((c) => ({ ...c, ...next }));
     // Any edit invalidates the numbers, on this surface as on /settings.
     setPreview((p) => (p.kind === "ready" ? { kind: "stale", preview: p.preview } : p));
-    checkedRef.current = null;
   }
 
-  async function check() {
+  /**
+   * The role, plus the two engine fields that follow it while nobody has said
+   * otherwise.
+   *
+   * `titlesAreDerived` is asked against the OLD role, so a list somebody typed
+   * survives a later edit to the role box and a list this function wrote does
+   * not. The result is a title chip that appears as you type and can be deleted
+   * — which is the difference between a default and a guess.
+   */
+  function setRole(role: string) {
+    setCriteria((c) => {
+      const next: ProfileCriteria = { ...c, role_family: role };
+      if (titlesAreDerived(c.titles_include, c.role_family)) {
+        next.titles_include = titlesFromRole(role);
+      }
+      if (!c.board_search_term.trim() || c.board_search_term === boardTermFromRole(c.role_family)) {
+        next.board_search_term = boardTermFromRole(role);
+      }
+      if (!c.tag_domain.trim() || c.tag_domain === c.role_family.trim()) {
+        next.tag_domain = role.trim();
+      }
+      return next;
+    });
+    setPreview((p) => (p.kind === "ready" ? { kind: "stale", preview: p.preview } : p));
+  }
+
+  async function check(c: ProfileCriteria = criteria) {
     setBusy("check");
     setPreview({ kind: "running" });
-    const res = await withTimeout(previewProfileAction(criteria), WRITE_TIMEOUT_MS);
+    // Previewed through the same filling-in the save does, so the numbers on
+    // screen belong to the profile that would be stored.
+    const res = await withTimeout(previewProfileAction(withDerivedDefaults(c)), WRITE_TIMEOUT_MS);
     setBusy(null);
     if ("timedOut" in res) {
       setPreview({ kind: "failed", message: "it took too long" });
@@ -216,45 +225,37 @@ export default function Wizard({
       });
       return;
     }
-    checkedRef.current = "done";
     setPreview({ kind: "ready", preview: res.preview });
   }
 
-  // Step 6 runs the check on arrival: the whole point of the step is the
-  // number, and making somebody press a button to see the thing they navigated
-  // to is a step that looks broken.
+  // The last step runs the check on arrival: the panel is the answer to the
+  // questions above it, and making somebody press a button to see it reads as a
+  // page that has not finished loading.
   React.useEffect(() => {
     if (step !== LAST_STEP) return;
     if (preview.kind !== "idle") return;
     void check();
-    // `criteria` is deliberately not a dependency: an edit on this step marks
-    // the preview stale and the user re-runs it, which is row 95's behaviour.
-    // Re-running on every keystroke would be an unbounded fan-out of writes'
-    // worth of work for a number nobody asked to recompute yet.
+    // `criteria` is deliberately not a dependency: an edit marks the preview
+    // stale and the user re-runs it, which is row 95's behaviour. Re-running on
+    // every keystroke would be an unbounded fan-out for a number nobody asked to
+    // recompute yet.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, preview.kind]);
 
   async function save() {
     setBusy("save");
-    // `tag_domain` falls back to the role family — which is what the field's
-    // PLACEHOLDER showed, so the stored value is the one the screen promised.
-    // Nothing else is filled in: the other two are gated on step 1.
-    const toSave: ProfileCriteria = {
-      ...criteria,
-      tag_domain: criteria.tag_domain.trim() || criteria.role_family.trim(),
-    };
     const res = await withTimeout(
-      commitProfileAction(toSave, idemRef.current, version),
+      commitProfileAction(withDerivedDefaults(criteria), idemRef.current, version),
       WRITE_TIMEOUT_MS,
     );
     setBusy(null);
     if ("timedOut" in res) {
-      toast.error("That took too long. Try again — it will not save twice.");
+      toast.error("That took too long. Try again, it will not save twice.");
       return;
     }
     if (!res.ok) {
       if (res.kind === "conflict") {
-        toast.error("Your profile was set up on another device. Opening it.");
+        toast.error("You set this up on another device. Opening it.");
         router.replace("/settings");
         return;
       }
@@ -262,14 +263,21 @@ export default function Wizard({
       return;
     }
     idemRef.current = crypto.randomUUID();
-    // `replace`, not `push`: Back out of a finished setup should not land on
-    // step 6 of a wizard that has nothing left to do.
+    // `replace`, not `push`: Back out of a finished setup should not land on the
+    // last step of a wizard that has nothing left to do.
     router.replace("/queue");
   }
 
   const zero = preview.kind === "ready" && preview.preview.qualified === 0;
-  const activePreset = presetFor(criteria);
-  const blocker = stepBlocker(step, criteria);
+  /**
+   * The one thing this cannot be finished without.
+   *
+   * Everything else on both screens has a default that works. The role does
+   * not: it is read into the tagger's prompt verbatim and it is what the title
+   * list is derived from, so without it the queue is empty by construction —
+   * which on day one reads as a broken product rather than as a blank field.
+   */
+  const answerable = describesASearch(withDerivedDefaults(criteria));
 
   return (
     <div
@@ -289,258 +297,256 @@ export default function Wizard({
         >
           {STEP_TITLES[step]}
         </h1>
+        {step === FIRST_STEP ? (
+          // The time promise, which every one of these flows makes up front
+          // ("Your best matches are 3 minutes away!"). Ours can be literal,
+          // because there really are only two screens.
+          <p className="mt-1 text-sm text-muted">
+            Two short questions. You can change any of it later.
+          </p>
+        ) : null}
       </header>
 
       {step === 1 ? (
-        <fieldset className="space-y-2">
-          <legend className="sr-only">Role family</legend>
-          {ROLE_PRESETS.map((p) => (
-            <label
-              key={p.id}
-              className={`flex cursor-pointer items-start gap-2 rounded-md border p-3 text-sm ${
-                activePreset.id === p.id ? "border-accent bg-accent-subtle" : "border-border"
-              }`}
-            >
-              <input
-                type="radio"
-                name="preset"
-                value={p.id}
-                checked={activePreset.id === p.id}
-                onChange={() => patch(draftFromPreset(p.id))}
-                className="mt-0.5 accent-[var(--color-accent)]"
-              />
-              <span className="min-w-0">
-                <span className="block font-medium">{p.label}</span>
-                <span
-                  className={`block text-xs ${activePreset.id === p.id ? "text-text-2" : "text-muted"}`}
-                >
-                  {p.blurb}
-                </span>
-              </span>
-            </label>
-          ))}
-          <div className="space-y-3 pt-2">
-            <div>
-              <label htmlFor="role_family" className="block text-xs font-medium text-text-2">
-                Describe it in your own words
-              </label>
-              <input
-                id="role_family"
-                value={criteria.role_family}
-                placeholder="financial planning &amp; analysis"
-                onChange={(e) => patch({ role_family: e.target.value })}
-                className="mt-1 w-full rounded-md border border-border-strong bg-surface px-2 py-1 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
-              />
-              <p className="mt-1 text-xs text-muted">
-                The classifier is told these words verbatim when it reads a posting.
-              </p>
-            </div>
-            {/* Asked, not guessed. A preset fills both of these; "Something else"
-                leaves them empty, and the wizard used to store the
-                product-management values in their place without saying so. */}
-            <div>
-              <label
-                htmlFor="board_search_term"
-                className="block text-xs font-medium text-text-2"
-              >
-                One word to search the big shared boards for
-              </label>
-              <input
-                id="board_search_term"
-                value={criteria.board_search_term}
-                placeholder="financial"
-                onChange={(e) => patch({ board_search_term: e.target.value })}
-                className="mt-1 w-full rounded-md border border-border-strong bg-surface px-2 py-1 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
-              />
-              <p className="mt-1 text-xs text-muted">
-                Workday and the other corpus-wide boards have no company list to
-                walk, so they are searched by keyword.
-              </p>
-            </div>
-            <div>
-              <label htmlFor="tag_domain" className="block text-xs font-medium text-text-2">
-                Domain label for the classifier (optional)
-              </label>
-              <input
-                id="tag_domain"
-                value={criteria.tag_domain}
-                placeholder={criteria.role_family || "finance"}
-                onChange={(e) => patch({ tag_domain: e.target.value })}
-                className="mt-1 w-full rounded-md border border-border-strong bg-surface px-2 py-1 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
-              />
-              <p className="mt-1 text-xs text-muted">
-                Left blank, the words above are used — which is what the
-                placeholder shows.
-              </p>
-            </div>
-          </div>
-        </fieldset>
-      ) : null}
-
-      {step === 2 ? (
         <div className="space-y-4">
-          <p className="text-sm text-muted">
-            A posting reaches you if its title contains one of the first list and
-            none of the second. Excludes always win — that is what keeps “Product
-            Marketing Manager” out of a product-management search.
-          </p>
+          <div>
+            <label htmlFor="role_family" className="block text-xs font-medium text-text-2">
+              The job you want
+            </label>
+            <input
+              id="role_family"
+              value={criteria.role_family}
+              // No `autoFocus`: the step effect focuses the HEADING, which is
+              // what a screen reader announces when the step changes (matrix row
+              // 94). Two things claiming focus on mount is one of them losing.
+              placeholder="nurse practitioner"
+              onChange={(e) => setRole(e.target.value)}
+              className="mt-1 w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-base focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+            />
+            <p className="mt-1 text-xs text-muted">
+              A job title or a couple of words. Everything below fills itself in
+              from this, and you can change any of it.
+            </p>
+          </div>
+
           <ChipList
             id="titles_include"
-            label="Titles to include"
+            label="Show me postings whose title contains"
             values={criteria.titles_include}
             onChange={(v) => patch({ titles_include: v })}
-            placeholder="product manager"
+            placeholder="add another title"
           />
           <ChipList
             id="titles_exclude"
-            label="Titles to exclude"
+            label="Skip postings whose title contains"
             values={criteria.titles_exclude}
             onChange={(v) => patch({ titles_exclude: v })}
-            placeholder="product marketing"
+            placeholder="intern"
           />
+          {/* The example this line used to carry was "Product Marketing Manager
+              out of a search for product managers", which is the framing
+              complaint in miniature: a nurse read a sentence about product
+              management on her own setup screen. */}
+          <p className="text-xs text-muted">
+            Skips win. A word on the second list keeps the posting out even when
+            its title also matches the first.
+          </p>
+
+          {/* Templates, at the bottom and small. These two lists are the only
+              ones anybody has tuned against a live feed, so they are worth
+              offering — but offering them FIRST told every other kind of worker
+              that this app was not built for them, which is the owner's
+              complaint about step one. */}
+          <div className="pt-2" data-testid="templates">
+            <p className="text-xs text-muted">Or start from a tuned list:</p>
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {TEMPLATES.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  data-testid={`template-${p.id}`}
+                  onClick={() => setCriteria(draftFromPreset(p.id))}
+                  className="rounded-md border border-dashed border-border-strong px-2 py-1 text-xs text-text-2 hover:bg-raised focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       ) : null}
 
-      {step === 3 ? (
+      {step === LAST_STEP ? (
         <div className="space-y-4">
           <ChipList
-            id="countries"
-            label="Countries"
-            values={criteria.countries}
-            onChange={(v) => patch({ countries: v })}
-            placeholder="United States"
-          />
-          <ChipList
             id="metros"
-            label="Metros — leave empty for a nationwide search"
+            label="Cities"
             values={criteria.metros}
             onChange={(v) => patch({ metros: v })}
             placeholder="Chicago"
             suggestions={METRO_NAMES}
           />
           <p className="text-xs text-muted">
-            Naming a metro narrows to a local search. Remote roles still come
-            through, because they are not tied to a place.
+            Leave this empty to search the whole country. Remote postings come
+            through either way.
           </p>
-          <PolicyChoice
-            name="geo_unknown"
-            legend="When a posting’s location cannot be identified"
-            value={criteria.geo_unknown}
-            options={[
-              {
-                value: "filter",
-                label: "Filter it out",
-                body: "A posting nobody could place is probably not near you.",
-              },
-              {
-                value: "keep",
-                label: "Show it anyway",
-                body: "You would rather check a few by hand than miss one.",
-              },
-            ]}
-            onChange={(v) => patch({ geo_unknown: v })}
-          />
-        </div>
-      ) : null}
 
-      {step === 4 ? (
-        <div className="space-y-4">
-          <NumberField
-            id="yoe_max"
-            label="Most years a posting may ask for"
-            value={criteria.yoe_max}
-            min={0}
-            max={MAX_YOE}
-            suffix="years"
-            onChange={(n) => patch({ yoe_max: n })}
-          />
-          <PolicyChoice
-            name="yoe_unknown"
-            legend="When a posting states no years at all"
-            value={criteria.yoe_unknown}
-            options={[
-              {
-                value: "seniority-proxy",
-                label: "Judge it by seniority",
-                body: "Use the posting’s level (Senior, Staff, Director…) as a stand-in for the years it did not state.",
-              },
-              {
-                value: "keep",
-                label: "Show it",
-                body: "Right for a finance or operations ladder, where “Director” is a target rather than a level above you — the seniority stand-in is tuned for product titles and gets those backwards.",
-              },
-            ]}
-            onChange={(v) => patch({ yoe_unknown: v })}
-          />
-          {criteria.yoe_unknown === "seniority-proxy" ? (
-            <ChipList
-              id="seniority_exclude"
-              label="Levels to rule out"
-              values={criteria.seniority_exclude}
-              onChange={(v) => patch({ seniority_exclude: v })}
-              placeholder="Director"
-              suggestions={["Senior", "Staff", "GPM", "Director", "VP"]}
-            />
-          ) : null}
-        </div>
-      ) : null}
-
-      {step === 5 ? (
-        <div className="space-y-4">
-          <NumberField
+          <MoneyField
             id="comp_min"
-            label="Minimum pay, in thousands"
-            value={criteria.comp_min}
-            min={0}
-            max={MAX_COMP_MIN_K}
-            suffix="$k · 0 turns this off"
-            onChange={(n) => patch({ comp_min: n })}
+            label="Lowest pay you want to see"
+            dollars={dollarsFromK(criteria.comp_min)}
+            hint="Leave it empty to see every salary. Read off the top of a published band."
+            onChange={(d) => patch({ comp_min: kFromDollars(d) })}
           />
-          <PolicyChoice
-            name="comp_unknown"
-            legend="When a posting publishes no pay at all"
-            value={criteria.comp_unknown}
-            options={[
-              {
-                value: "keep",
-                label: "Show it",
-                body: "About half of live postings state nothing. Filtering them deletes most of the feed, which is why this is the default.",
-              },
-              {
-                value: "filter",
-                label: "Filter it out",
-                body: "Fewer postings, all of them with a number attached.",
-              },
-            ]}
-            onChange={(v) => patch({ comp_unknown: v })}
-          />
+
           <ChipList
             id="work_model_exclude"
-            label="Work models to rule out"
+            label="Ways of working to rule out"
             values={criteria.work_model_exclude}
             onChange={(v) => patch({ work_model_exclude: v })}
             placeholder="onsite"
             suggestions={["onsite", "hybrid"]}
           />
-        </div>
-      ) : null}
 
-      {step === LAST_STEP ? (
-        <div className="space-y-3">
-          <PreviewPanel
-            state={preview}
-            onGoToSetting={() => {
-              // On the wizard the constraint's name goes BACK to the step that
-              // owns it, rather than to an anchor on a page that is not open.
-              // Same intent as /settings, different geography.
-              go(stepForSetting(preview.kind === "ready" ? preview.preview.binding?.setting : undefined));
-            }}
-          />
-          {preview.kind === "stale" || preview.kind === "failed" ? (
-            <Button type="button" onClick={check} disabled={busy !== null} data-testid="check-button">
-              {busy === "check" ? "Checking…" : "Check again"}
-            </Button>
-          ) : null}
+          {/* Everything the engine needs and nobody asked about. Shipped with
+              the defaults two real profiles run on, closed, and reachable. Six
+              screens of these is what made setup feel like paperwork. */}
+          <details className="rounded-md border border-border p-3" data-testid="advanced">
+            <summary className="cursor-pointer text-sm font-medium">
+              More filters
+            </summary>
+            <div className="mt-3 space-y-4">
+              <ChipList
+                id="countries"
+                label="Countries"
+                values={criteria.countries}
+                onChange={(v) => patch({ countries: v })}
+                placeholder="United States"
+              />
+              <PolicyChoice
+                name="geo_unknown"
+                legend="Postings we cannot place on a map"
+                value={criteria.geo_unknown}
+                options={[
+                  {
+                    value: "filter",
+                    label: "Skip them",
+                    body: "A posting nobody could place is probably not near you.",
+                  },
+                  {
+                    value: "keep",
+                    label: "Include them",
+                    body: "You would rather check a few by hand than miss one.",
+                  },
+                ]}
+                onChange={(v) => patch({ geo_unknown: v })}
+              />
+
+              <NumberField
+                id="yoe_max"
+                label="Most years of experience a posting may ask for"
+                value={criteria.yoe_max}
+                min={0}
+                max={MAX_YOE}
+                suffix="years"
+                onChange={(n) => patch({ yoe_max: n })}
+              />
+              <PolicyChoice
+                name="yoe_unknown"
+                legend="Postings that name no number of years"
+                value={criteria.yoe_unknown}
+                options={[
+                  {
+                    value: "seniority-proxy",
+                    label: "Judge them by level",
+                    body: "Read Senior, Staff or Director as a stand-in for the years the posting left out.",
+                  },
+                  {
+                    value: "keep",
+                    label: "Include them",
+                    body: "Pick this on a finance or operations ladder. Director there is a job you want, and the stand-in reads it as one you have outgrown.",
+                  },
+                ]}
+                onChange={(v) => patch({ yoe_unknown: v })}
+              />
+              {criteria.yoe_unknown === "seniority-proxy" ? (
+                <ChipList
+                  id="seniority_exclude"
+                  label="Levels to rule out"
+                  values={criteria.seniority_exclude}
+                  onChange={(v) => patch({ seniority_exclude: v })}
+                  placeholder="Director"
+                  suggestions={["Senior", "Staff", "GPM", "Director", "VP"]}
+                />
+              ) : null}
+
+              <PolicyChoice
+                name="comp_unknown"
+                legend="Postings with no salary listed"
+                value={criteria.comp_unknown}
+                options={[
+                  {
+                    value: "keep",
+                    label: "Include them",
+                    body: "About half of live postings name no number. Skipping those empties most of the feed.",
+                  },
+                  {
+                    value: "filter",
+                    label: "Skip them",
+                    body: "Fewer postings, every one with a salary attached.",
+                  },
+                ]}
+                onChange={(v) => patch({ comp_unknown: v })}
+              />
+
+              <div>
+                <label
+                  htmlFor="board_search_term"
+                  className="block text-xs font-medium text-text-2"
+                >
+                  Keyword for the big shared boards
+                </label>
+                <input
+                  id="board_search_term"
+                  value={criteria.board_search_term}
+                  placeholder={boardTermFromRole(criteria.role_family)}
+                  onChange={(e) => patch({ board_search_term: e.target.value })}
+                  className="mt-1 w-full rounded-md border border-border-strong bg-surface px-2 py-1 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+                />
+                <p className="mt-1 text-xs text-muted">
+                  Workday and boards like it have no company list to walk, so we
+                  search them by one word.
+                </p>
+              </div>
+            </div>
+          </details>
+
+          {/* The numbers, under the questions rather than one screen further on.
+              As a step of its own this read as a checkpoint to get past; here it
+              is the answer to what you just typed. */}
+          <div className="space-y-3 pt-2">
+            <h2 className="text-sm font-semibold">What this finds today</h2>
+            <PreviewPanel
+              state={preview}
+              onGoToSetting={(setting) => {
+                // The constraint's name goes back to the step that owns it,
+                // rather than to an anchor on a page that is not open.
+                const target = stepForSetting(setting);
+                if (target === step) return;
+                go(target);
+              }}
+            />
+            {preview.kind === "stale" || preview.kind === "failed" ? (
+              <Button
+                type="button"
+                onClick={() => check()}
+                disabled={busy !== null}
+                data-testid="check-button"
+              >
+                {busy === "check" ? "Checking…" : "Check again"}
+              </Button>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -551,18 +557,16 @@ export default function Wizard({
           role="status"
         >
           These answers are too long to carry in the address bar, which is where
-          the wizard keeps them so a refresh and Back both work. Nothing has been
-          lost — shorten or remove a few of the longest entries and you can carry
-          on.
+          they live so that a refresh and a Back both work. Nothing is lost.
+          Shorten or remove a few of the longest entries and carry on.
         </p>
       ) : null}
 
-      {blocker ? (
+      {!answerable ? (
         // Said beside the button rather than after pressing it: a disabled
-        // control with no explanation is its own dead end (the /settings Save
-        // button's rule, on a surface where there is nowhere else to go).
+        // control with no explanation is its own dead end.
         <p className="text-xs text-warn" data-testid="step-blocker" role="status">
-          {blocker}
+          Tell us the job you want first. One or two words is enough.
         </p>
       ) : null}
 
@@ -574,7 +578,7 @@ export default function Wizard({
             onClick={() => go(step - 1)}
             data-testid="back-button"
           >
-            {step === LAST_STEP ? "Back to change something" : "Back"}
+            Back
           </Button>
         ) : null}
 
@@ -583,7 +587,7 @@ export default function Wizard({
             type="button"
             variant="primary"
             onClick={() => go(step + 1)}
-            disabled={blocker !== null || tooLong}
+            disabled={!answerable || tooLong}
             data-testid="next-button"
           >
             Next
@@ -593,13 +597,15 @@ export default function Wizard({
             type="button"
             variant="primary"
             onClick={save}
-            // Refused until the check has answered — with the same reasoning as
-            // /settings, and more force here: this is somebody's first day, and
+            // Refused until the check has answered, with the same reasoning as
+            // /settings and more force here: this is somebody's first day, and
             // an empty queue on day one reads as "the product does not work".
-            disabled={busy !== null || preview.kind === "idle" || preview.kind === "running"}
+            disabled={
+              busy !== null || !answerable || preview.kind === "idle" || preview.kind === "running"
+            }
             data-testid="finish-button"
           >
-            {busy === "save" ? "Saving…" : zero ? "Save anyway" : "Looks right — start"}
+            {busy === "save" ? "Saving…" : zero ? "Finish anyway" : "Finish"}
           </Button>
         )}
       </div>
@@ -610,16 +616,14 @@ export default function Wizard({
 /** Which step owns a `reasonSetting()` key, for the binding constraint's link. */
 function stepForSetting(setting: string | undefined): number {
   switch (setting) {
-    case "countries":
-    case "metros":
-      return 3;
-    case "yoeMax":
-    case "seniorityExclude":
-      return 4;
-    case "compMin":
-    case "workModelExclude":
-      return 5;
+    case "titlesInclude":
+    case "titlesExclude":
+    case "roleFamily":
+      return 1;
     default:
-      return 2;
+      // Everything the preview can name — countries, metros, yoeMax,
+      // seniorityExclude, compMin, workModelExclude — is on the last step, four
+      // of them inside the disclosure.
+      return LAST_STEP;
   }
 }

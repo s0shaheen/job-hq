@@ -192,11 +192,17 @@ test("a zero-result profile names the setting that caused it", async ({ page }) 
   // — a remote role with no stated origin is worth a look), so the corpus's
   // remote rows kept qualifying and the number never reached zero. The test was
   // wrong about the product, and the product is right.
-  await page.locator("#comp_min").fill("2000");
+  // DOLLARS, not thousands. The field used to be labelled "Minimum, in
+  // thousands" with a maximum of 2000, and the owner read that as a $2,000
+  // ceiling on his first run — which is what it said. Typing the number a
+  // salary is written with is now the whole interaction.
+  await page.locator("#comp_min").fill("2000000");
   await page.locator("#comp_min").blur();
-  // Scoped to the section: "Filter it out" is also the geo policy's wording, and
-  // an unscoped role query matches both radios.
-  await page.locator("#compMin").getByRole("radio", { name: "Filter it out" }).check();
+  // …and it comes back formatted, which is how a mistyped magnitude is visible.
+  await expect(page.locator("#comp_min")).toHaveValue("$2,000,000");
+  // Scoped to the section: "Skip them" is also the geo policy's wording, and an
+  // unscoped role query matches both radios.
+  await page.locator("#compMin").getByRole("radio", { name: "Skip them" }).check();
 
   await check(page);
   await expect(page.locator("[data-qualified='0']")).toBeVisible();
@@ -249,7 +255,7 @@ test("a role family the engine never sweeps for is reported separately", async (
   // The COPY, not only the attribute: a mutant collapsing the two branches into
   // one left the attribute correct and the sentence wrong, which is the half a
   // person actually reads.
-  await expect(empty).toContainText(/haven.t listed any job titles/i);
+  await expect(empty).toContainText(/not listed any job titles/i);
   await expect(empty).not.toContainText(/not a verdict/i);
   await addChip(page, "titles_include", "financial analyst");
 

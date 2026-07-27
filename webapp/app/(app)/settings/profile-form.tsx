@@ -9,12 +9,12 @@ import { METRO_NAMES } from "@/lib/profile/metros";
 import {
   BASE_CRITERIA,
   describesASearch,
-  MAX_COMP_MIN_K,
   MAX_YOE,
   unknownMetros,
   type ProfileCriteria,
 } from "@/lib/profile/criteria";
-import { ChipList, NumberField, PolicyChoice, Section } from "./fields";
+import { dollarsFromK, kFromDollars } from "@/lib/profile/money";
+import { ChipList, MoneyField, NumberField, PolicyChoice, Section } from "./fields";
 import { PreviewPanel, type PreviewState } from "./preview-panel";
 import { commitProfileAction, previewProfileAction } from "./actions";
 
@@ -163,12 +163,12 @@ export default function ProfileForm({
     if ("timedOut" in res) {
       // The write may still land, and its idempotency key makes that safe —
       // which is exactly why the key is NOT rotated here.
-      toast.error("That took too long. Try again — it will not save twice.");
+      toast.error("That took too long. Try again, it will not save twice.");
       return;
     }
     if (!res.ok) {
       if (res.kind === "conflict") {
-        toast.error("Your profile changed on another device — showing the latest.");
+        toast.error("Your profile changed on another device. Showing the latest.");
         router.refresh();
         return;
       }
@@ -227,10 +227,11 @@ export default function ProfileForm({
           {banner.newlyQualified > 0 ? (
             <>
               <strong>
-                {banner.newlyQualified} previously-filtered{" "}
-                {banner.newlyQualified === 1 ? "posting" : "postings"} now qualify.
+                {banner.newlyQualified}{" "}
+                {banner.newlyQualified === 1 ? "posting we had skipped" : "postings we had skipped"}{" "}
+                {banner.newlyQualified === 1 ? "now qualifies" : "now qualify"}.
               </strong>{" "}
-              They are waiting in your queue.{" "}
+              They are in your queue.{" "}
               {/* PHASE-PROFILE wants `/jobs?keys=…` from the event payload. The
                   grid has no `keys` filter and adding one is a change to the URL
                   grammar with its own round-trip guarantees, so this links to the
@@ -254,7 +255,7 @@ export default function ProfileForm({
             <>
               Saved. {banner.restamped === 0
                 ? "Nothing in your current set changed."
-                : `${banner.restamped} ${banner.restamped === 1 ? "posting" : "postings"} were re-checked.`}{" "}
+                : `${banner.restamped} ${banner.restamped === 1 ? "posting" : "postings"} re-checked.`}{" "}
               <button
                 type="button"
                 onClick={() => setBanner(null)}
@@ -270,7 +271,7 @@ export default function ProfileForm({
       <Section
         id="roleFamily"
         title="What you are looking for"
-        blurb="Drives how postings are classified and what the corpus-wide boards are searched for."
+        blurb="The job you want, and the words we match a posting's title against."
       >
         <div className="space-y-3">
           {!answerable ? (
@@ -279,16 +280,14 @@ export default function ProfileForm({
               data-testid="unanswerable-warning"
               role="status"
             >
-              This profile does not say what you are looking for yet. The
-              classifier is told the role family verbatim, and a posting only
-              reaches you when its title contains one of your included titles — so
-              an empty list matches nothing. Both are needed before this can be
-              saved.
+              This profile does not say what job you want yet. Fill in the role
+              and at least one title. A posting reaches you when its title
+              contains one of them, so an empty list finds nothing.
             </p>
           ) : null}
           <div>
             <label htmlFor="role_family" className="block text-xs font-medium text-text-2">
-              Role family
+              The job you want
             </label>
             <input
               id="role_family"
@@ -302,7 +301,7 @@ export default function ProfileForm({
               htmlFor="board_search_term"
               className="block text-xs font-medium text-text-2"
             >
-              Search word for the corpus-wide boards
+              Keyword for the big shared boards
             </label>
             <input
               id="board_search_term"
@@ -311,31 +310,35 @@ export default function ProfileForm({
               className="mt-1 w-full rounded-md border border-border-strong bg-surface px-2 py-1 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
             />
             <p className="mt-1 text-xs text-muted">
-              Workday and the other boards with no company list to walk are
-              searched by this keyword.
+              Workday and boards like it have no company list to walk, so we
+              search them by one word.
             </p>
           </div>
           <ChipList
             id="titles_include"
-            label="Job titles to include"
+            label="Show me postings whose title contains"
             values={criteria.titles_include}
             onChange={(v) => patch({ titles_include: v })}
-            placeholder="product manager"
+            placeholder="add another title"
           />
           <ChipList
             id="titles_exclude"
-            label="Job titles to exclude (these always win)"
+            label="Skip postings whose title contains"
             values={criteria.titles_exclude}
             onChange={(v) => patch({ titles_exclude: v })}
-            placeholder="product marketing"
+            placeholder="intern"
           />
+          <p className="text-xs text-muted">
+            Skips win. A word on the second list keeps the posting out even when
+            its title also matches the first.
+          </p>
         </div>
       </Section>
 
       <Section
         id="countries"
         title="Countries"
-        blurb="Which countries a posting may be located in. Roles anywhere else are filtered out of the queue."
+        blurb="Where a posting may be based. Anywhere else gets skipped."
       >
         <div className="space-y-3">
           <ChipList
@@ -347,18 +350,18 @@ export default function ProfileForm({
           />
           <PolicyChoice
             name="geo_unknown"
-            legend="When a posting’s location cannot be identified"
+            legend="Postings we cannot place on a map"
             value={criteria.geo_unknown}
             options={[
               {
                 value: "filter",
-                label: "Filter it out",
+                label: "Skip them",
                 body: "A posting nobody could place is probably not near you. This is the default.",
               },
               {
                 value: "keep",
-                label: "Show it anyway",
-                body: "You would rather see a few you have to check than miss one. Also governs postings inside your countries that could not be placed in a metro.",
+                label: "Include them",
+                body: "You would rather check a few by hand than miss one. This also covers postings inside your countries that no city could be matched to.",
               },
             ]}
             onChange={(v) => patch({ geo_unknown: v })}
@@ -368,8 +371,8 @@ export default function ProfileForm({
 
       <Section
         id="metros"
-        title="Metros"
-        blurb="Leave this empty for a nationwide search. Naming metros narrows to a LOCAL one — remote roles still come through, because they are not tied to a place."
+        title="Cities"
+        blurb="Add every city you would commute to. Leave it empty to search the whole country. Remote postings come through either way."
       >
         <div className="space-y-3">
           {/* The warning `unknownMetros`'s doc comment has always promised, which
@@ -384,16 +387,16 @@ export default function ProfileForm({
               data-testid="unknown-metros-warning"
               role="status"
             >
-              The sweep has never heard of{" "}
-              <strong>{unknownMetros(criteria).join(", ")}</strong>. Postings are
-              matched against a fixed list of metro names, so one that is not on
-              it matches nothing at all — pick from the suggestions below, or clear
-              it to search the whole country.
+              We have never heard of{" "}
+              <strong>{unknownMetros(criteria).join(", ")}</strong>. Cities are
+              matched against a fixed list, so a name that is not on it finds
+              nothing. Pick one from the suggestions below, or clear the box to
+              search the whole country.
             </p>
           ) : null}
           <ChipList
             id="metros"
-            label="Metros you follow"
+            label="Cities you would work in"
             values={criteria.metros}
             onChange={(v) => patch({ metros: v })}
             placeholder="Chicago"
@@ -404,13 +407,13 @@ export default function ProfileForm({
 
       <Section
         id="yoeMax"
-        title="Years-of-experience limit"
-        blurb="The most years a posting may ask for and still reach your queue."
+        title="Experience limit"
+        blurb="The most years a posting may ask for and still reach you."
       >
         <div className="space-y-3">
           <NumberField
             id="yoe_max"
-            label="Maximum years asked for"
+            label="Most years a posting may ask for"
             value={criteria.yoe_max}
             min={0}
             max={MAX_YOE}
@@ -419,18 +422,18 @@ export default function ProfileForm({
           />
           <PolicyChoice
             name="yoe_unknown"
-            legend="When a posting states no years at all"
+            legend="Postings that name no number of years"
             value={criteria.yoe_unknown}
             options={[
               {
                 value: "seniority-proxy",
-                label: "Judge it by seniority",
-                body: "Use the posting’s seniority (Senior, Staff, Director…) as a stand-in and filter the levels you exclude below.",
+                label: "Judge them by level",
+                body: "Read Senior, Staff or Director as a stand-in for the years the posting left out, then apply the levels ruled out below.",
               },
               {
                 value: "keep",
-                label: "Show it",
-                body: "Right for a finance or operations ladder, where “Director” is a target rather than a level above you — the seniority proxy is tuned for product titles and gets those backwards.",
+                label: "Include them",
+                body: "Pick this on a finance or operations ladder. Director there is a job you want, and the stand-in reads it as one you have outgrown.",
               },
             ]}
             onChange={(v) => patch({ yoe_unknown: v })}
@@ -440,12 +443,12 @@ export default function ProfileForm({
 
       <Section
         id="seniorityExclude"
-        title="Seniority exclusions"
-        blurb="Only used when a posting states no years and the seniority proxy is on."
+        title="Levels ruled out"
+        blurb="Used only when a posting names no years and the level stand-in is on."
       >
         <ChipList
           id="seniority_exclude"
-          label="Levels to exclude"
+          label="Levels to rule out"
           values={criteria.seniority_exclude}
           onChange={(v) => patch({ seniority_exclude: v })}
           placeholder="Director"
@@ -455,33 +458,33 @@ export default function ProfileForm({
 
       <Section
         id="compMin"
-        title="Compensation floor"
-        blurb="Judged on the TOP of a published band, so a $110–160k posting clears a $120k floor."
+        title="Pay floor"
+        blurb="Read off the top of a published band, so a $110k to $160k posting clears a $120,000 floor."
       >
         <div className="space-y-3">
-          <NumberField
+          <MoneyField
             id="comp_min"
-            label="Minimum, in thousands"
-            value={criteria.comp_min}
-            min={0}
-            max={MAX_COMP_MIN_K}
-            suffix="$k · 0 turns this off"
-            onChange={(n) => patch({ comp_min: n })}
+            label="Lowest pay you want to see"
+            dollars={dollarsFromK(criteria.comp_min)}
+            // Otta's line, and it earns its place: over-anchoring here is the
+            // one way this field quietly empties a queue.
+            hint="Leave it empty to see every salary. If you are unsure, pick a lower number. A high floor hides roles you would have taken."
+            onChange={(d) => patch({ comp_min: kFromDollars(d) })}
           />
           <PolicyChoice
             name="comp_unknown"
-            legend="When a posting publishes no pay at all"
+            legend="Postings with no salary listed"
             value={criteria.comp_unknown}
             options={[
               {
                 value: "keep",
-                label: "Show it",
-                body: "About half of live postings state nothing. Filtering them would delete most of the feed, which is why this is the default.",
+                label: "Include them",
+                body: "About half of live postings name no number. Skipping those empties most of the feed, which is why this is the default.",
               },
               {
                 value: "filter",
-                label: "Filter it out",
-                body: "You would rather see fewer, all of them with a number. Expect roughly half as many postings.",
+                label: "Skip them",
+                body: "Fewer postings, every one with a salary attached. Expect about half as many.",
               },
             ]}
             onChange={(v) => patch({ comp_unknown: v })}
@@ -491,12 +494,12 @@ export default function ProfileForm({
 
       <Section
         id="workModelExclude"
-        title="Work-model exclusions"
-        blurb="Matched inside the posting’s stated work model, case-insensitively."
+        title="Ways of working"
+        blurb="Matched against the work model a posting states, whatever its capitalisation."
       >
         <ChipList
           id="work_model_exclude"
-          label="Work models you have ruled out"
+          label="Ways of working to rule out"
           values={criteria.work_model_exclude}
           onChange={(v) => patch({ work_model_exclude: v })}
           placeholder="onsite"
@@ -516,7 +519,7 @@ export default function ProfileForm({
             disabled={busy !== null}
             data-testid="check-button"
           >
-            {busy === "check" ? "Checking…" : fresh ? "Check again" : "Check what this would let through"}
+            {busy === "check" ? "Checking…" : fresh ? "Check again" : "Check what this finds"}
           </Button>
           <Button
             type="button"
@@ -531,7 +534,7 @@ export default function ProfileForm({
             {busy === "save" ? "Saving…" : zero ? "Save anyway" : "Save profile"}
           </Button>
           {preview.kind === "idle" ? (
-            <span className="text-xs text-muted">Check first — it writes nothing.</span>
+            <span className="text-xs text-muted">Check first. It writes nothing.</span>
           ) : null}
         </div>
 
