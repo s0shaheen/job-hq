@@ -780,6 +780,20 @@ function NextActionCell({
   const [date, setDate] = React.useState(app.nextActionDate ?? "");
 
   /**
+   * The commit reads THESE, never the state above. Five CI failures established
+   * that the second of two blur-commits can vanish: under mobile-emulation
+   * scheduling the blur handler can run before React commits the onChange
+   * state, the no-op guard below then compares the OLD value, reads
+   * "unchanged", and drops the gesture with no trace. It survived a poll-budget
+   * fix, suite sharding, and a 120s test budget, and never reproduced under a
+   * 20x page-CPU throttle — the race needs an event-loop interleaving, not
+   * slowness. A ref written synchronously in the onChange handler cannot lag
+   * the blur, whatever the scheduler does. State keeps driving the render.
+   */
+  const pendingText = React.useRef(app.nextAction ?? "");
+  const pendingDate = React.useRef(app.nextActionDate ?? "");
+
+  /**
    * Re-seeded when the server row changes — a conflict refresh has to be visible
    * in the inputs too, or the screen keeps showing the value that lost.
    *
@@ -792,14 +806,16 @@ function NextActionCell({
    */
   React.useEffect(() => {
     setText(app.nextAction ?? "");
+    pendingText.current = app.nextAction ?? "";
   }, [app.nextAction]);
   React.useEffect(() => {
     setDate(app.nextActionDate ?? "");
+    pendingDate.current = app.nextActionDate ?? "";
   }, [app.nextActionDate]);
 
   const commit = () => {
-    const t = text.trim();
-    const d = date || null;
+    const t = pendingText.current.trim();
+    const d = pendingDate.current || null;
     // The action is idempotent and the server short-circuits a no-op, but not
     // sending at all is cheaper than both and keeps the audit trail clean.
     if (t === (app.nextAction ?? "") && d === (app.nextActionDate ?? null)) return;
@@ -815,7 +831,7 @@ function NextActionCell({
         id={`next-action-${app.id}`}
         data-testid={`next-action-${app.id}`}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => { pendingText.current = e.target.value; setText(e.target.value); }}
         onBlur={commit}
         maxLength={500}
         placeholder="Next action"
@@ -832,7 +848,7 @@ function NextActionCell({
         data-testid={`next-action-date-${app.id}`}
         type="date"
         value={date}
-        onChange={(e) => setDate(e.target.value)}
+        onChange={(e) => { pendingDate.current = e.target.value; setDate(e.target.value); }}
         onBlur={commit}
         className="tabular min-w-0 shrink rounded-md border border-transparent bg-transparent px-1
                    py-1 text-2xs text-muted hover:border-border focus:border-border

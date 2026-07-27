@@ -337,7 +337,20 @@ test("a next action saves on blur and survives a reload", async ({ page }) => {
   await page.getByTestId(`next-action-${PLAID}`).blur();
   await page.getByTestId(`next-action-date-${PLAID}`).fill("2026-08-03");
   await page.getByTestId(`next-action-date-${PLAID}`).blur();
-  await wroteMore(page, mark, 2);
+
+  // AT LEAST one finished write, then a quiet queue — NOT exactly two. The
+  // write COUNT is scheduling-dependent and both schedules are correct: on a
+  // fast machine the text blur commits before the date fill (two writes); under
+  // CI's async event dispatch the date fill's onChange lands in the pending
+  // refs BEFORE the text blur's handler runs, so the first write already
+  // carries both fields and the date blur correctly no-ops (one write, same
+  // data). Asserting `2` here pinned the mechanism instead of the claim and
+  // failed only on the scheduling that coalesces — the sixth and final shape
+  // of this test's CI saga. The reload assertions below carry the actual
+  // claim, and the quiet-queue gate keeps the reload from cancelling an
+  // in-flight write (the reason a gate exists at all).
+  await wroteMore(page, mark, 1);
+  await expect(page.getByTestId("pipeline")).toHaveAttribute("data-saving", "false");
 
   await page.reload();
   await expect(page.getByTestId(`next-action-${PLAID}`)).toHaveValue("Chase the recruiter");
