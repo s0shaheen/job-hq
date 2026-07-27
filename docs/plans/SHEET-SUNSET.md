@@ -1,0 +1,102 @@
+# Sheet sunset — Postgres becomes the system of record, for everyone
+
+**Owner decision, 2026-07-27, verbatim intent:** the Google Sheet becomes obsolete by way of
+the web app. Everyone — Salman included — runs on pg through the webapp. Nothing sheet-reliant
+survives except file import/export. This doc is the map from here to there.
+
+**The honest framing:** the sheet was never the product; it was the first durable, phone-
+editable, zero-infra store the system could trust. Every "sheet feature" is really a system
+capability that happens to live in a spreadsheet today. Sunsetting the sheet means giving each
+capability a pg-native home — most already exist (migrations 0001–0011) — then cutting reads,
+then writes, then the tabs themselves. Never a big bang: each phase leaves the system healthier
+than it found it, and the sheet stays a read-only mirror until the day nothing reads it.
+
+---
+
+## 0. What the sheet does today, and where each job goes
+
+| Sheet capability (tab) | Today | Pg-native home | Status |
+|---|---|---|---|
+| Discovery feed (Feed) | monitor writes rows | `postings` + `user_postings` | tables live; engine mirror exists (`monitor/pgmirror.py`) but is **off** (no SSM creds) |
+| Pipeline (Pipeline) | join/promote write; humans edit | `applications` + notes + status lock (0010) | built by P8; engine doesn't write it yet |
+| Company universe (Companies) | sweep reads; humans edit | `companies`/`user_companies` + review states (0008/0009) | built; `swept_companies` written, uncalled — **the decided bridge cutover** |
+| Config knobs (Config) | phone-editable behavior | per-user settings (P10 Profile groundwork + a `settings` read for the engine) | partial — the engine half needs a read path |
+| Heartbeats/watchdogs (Config rows) | digest flags stale beats | pg `heartbeats` table (or CloudWatch custom metrics) | not built |
+| Email events (Email Events) | Gmail Apps Script appends rows | an authenticated `/api/capture` endpoint writing pg | not built — the ONE component that must change outside this repo |
+| Quick Add (Quick Add) | pasted URLs | webapp add/paste (P7) + import (P9) | built |
+| Scout tabs (Raza-*) | scout's workflow | webapp grid + import + his own user lane | built in pieces; his onboarding = a user onboarding |
+| Digest (Digest tab + Apps Script mailer) | composed row, mailed at 7am | PHASE-DIGEST increments 3–6: the email IS the app (signed links), sent by the engine via an email API | designed, not built |
+| Outbox (Outbox tab) | quiet-hours deferrals | pg table | trivial port once pg is the engine's store |
+| Log/Health (Log, Health) | append-only audit + per-company fetch results | `events` (exists) + a `fetch_health` table | partial |
+| Backups (selfheal CSV + S3 snapshots) | git + S3 copies of tabs | **pg_dump lanes** — resurrect `pgdump.yml` (git lane) + a Lambda pg_dump→S3 (provider-diverse lane) | pgdump.yml deleted-resurrectable by design |
+| Schema self-repair (selfheal) | re-asserts tabs/headers | migrations ARE the schema; drift impossible by construction | replaced by the migration discipline |
+
+## 1. Prerequisite zero: a production Postgres that actually exists
+
+Everything above assumes a LIVE database. Today the webapp's migrations run against CI-fresh
+Postgres and (likely) a demo store in any deployed build; the engine's pg mirror skips loudly
+because `SUPABASE_URL`/`SUPABASE_SERVICE_KEY` are not in SSM. **Verify, then provision:**
+Supabase project per `db/README.md`, apply 0001–00NN, secrets into SSM `/job-hq/` + Vercel env,
+auth wired for the allowlist. Nothing else in this plan starts until a real `select 1` succeeds
+from both the webapp and a Lambda bot. (~an hour, mostly dashboards; needs the operator for
+account creation.)
+
+## 2. The phases (each shippable, each reversible until D)
+
+**A — Dual-write soak (engine → pg mirror ON).** Load the Supabase secrets into SSM; the
+existing `pgmirror` starts mirroring Feed→postings on every sweep. Resurrect `pgdump.yml`
+(one `git show` away) so the new store has its git backup lane from day one, and add the
+Lambda pg_dump→S3 twin (same two-lane doctrine as the sheet backups; `PGDUMP_ENABLED=true`).
+Sheet remains authoritative; pg fills with real data. *Exit test: row counts converge daily;
+backups verified restorable.*
+
+**B — Reads cutover.** The sweep's company list flips to `swept_companies` (the decided
+bridge): approving in the grid now changes what gets pulled — the P7 UI copy finally becomes
+fully true. The webapp reads real pg everywhere (retire demo-mode in production). Config
+knobs the ENGINE needs get a pg `settings` read with the same validate-or-default discipline
+as `core/config.py`. *Exit test: a company approved in the grid appears in the next sweep; a
+dismissed one never returns.*
+
+**C — Writes cutover (the real migration).** Engine writes pg first-class: discovery upserts
+postings (mirror becomes the write, not the echo); `join` matches email events to
+`applications` under the 0010 status lock; outbox/heartbeats/log move to their tables. The
+Gmail Apps Script stops appending to a tab and POSTs to `/api/capture` (bearer token; the
+script keeps a local retry queue — it already batches). Digest increments 3–6 land here: the
+engine composes AND sends the email (Resend or SES — pick at build time), signed one-click
+links back into the webapp. During C the sheet gets a one-way nightly EXPORT (pg→CSV→the same
+git/S3 lanes) so the human-readable mirror never dies before its replacement is trusted.
+*Exit test: two weeks of Gmail-capture→pipeline advances with zero sheet involvement.*
+
+**D — Decommission.** Freeze the sheet (final export archived in git + S3), retire the
+sheet-writing halves of selfheal/snapshot and the `core/sheets` write path (the read path
+stays for `tracker.migrate`-style imports), strip `hq.config.yaml`'s tab registry to history,
+update SYSTEM.md/CLAUDE.md/RUNBOOK (the sysmap gate forces this), and the durability contract
+gets rewritten for pg: **RLS + migrations + the status lock + two backup lanes are the new
+contract** — same principles (fail loud, humans win, no silent writes), new substrate.
+
+## 3. What gets SIMPLER (the payoff)
+
+- One store, one write path, one schema discipline — no gid pinning, no header re-assertion,
+  no SchemaAnomaly class, no self-heal, no Sheets quota arithmetic, no durability-contract
+  gymnastics for human sorting.
+- The Apps Script shrinks to a Gmail classifier with one HTTP POST (no Sheets bindings).
+- Onboarding a user stops touching Google entirely: profile + auth row + lanes.
+- The failure surface consolidates: pg down = one loud thing, not N tabs of partial truth.
+
+## 4. What gets LOST, named honestly
+
+- **Phone-editable-anything.** The sheet was an accidental admin UI; post-sunset, anything
+  without a webapp surface needs one before its sheet crutch dies (Config knobs are the risk).
+- **The scout's zero-training surface** — he onboards like any user, and that is a real
+  conversation, not a migration.
+- **Sheets version history** as a free restore line — replaced by pg_dump lanes, which must be
+  TESTED restorable before D, not assumed.
+- Google-native sharing/eyeballing. The export exists for exactly this.
+
+## 5. Sequencing against the live roadmap
+
+P10 (Profile) merges first — it IS the settings/onboarding groundwork this plan leans on.
+Then: prerequisite-zero + Phase A (small, mostly ops) → row-167 policy fix rides along →
+B → C (the big build, digest-email included) → D. The git-history purge (authorized) runs in
+the gap after P10 merges, before Phase A branches. Multi-user (dad) onboards on B/C's spine —
+his universe was never in the sheet to begin with.

@@ -190,6 +190,19 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
 
 ## 6. Checkpoint Log (the resume pointer — newest first)
 
+- **2026-07-27 (evening)** — **Salman decided the five open forks**, and the biggest reshapes the
+  end-state: **the Google Sheet is to become obsolete** — pg-authoritative for everyone, Salman
+  included; the webapp is the only surface; only file import/export survives of the sheet world.
+  The phased map (capability inventory → prerequisite-zero live Supabase → dual-write soak →
+  reads → writes → decommission) is **`docs/plans/SHEET-SUNSET.md`** — read it before planning
+  anything sheet-adjacent. Also decided: row-167 policy (round trip leaves an unrecognized
+  status alone; queued behind P10, edits 0011), dad AND Salman onboard the webapp, the
+  committed-password history purge is authorized (run after P10 merges; password already
+  rotated), branch protection is Salman's to enable. Same day, earlier: #67 P9 Import merged;
+  #68 halved CI (dedupe + shards); #69 closed the six-failure durability-test saga with a real
+  slow-device fix (blur reads synchronous refs) + the test asserting the claim, not the count.
+  P10 Profile is building. **Next after P10: SHEET-SUNSET prerequisite zero + Phase A.**
+
 - **2026-07-26** — **Import is built (`feat/import`, migration 0011).** Discharges AC **20**,
   **21**, **23** plus G12/G13: `/import` uploads xlsx/csv/paste, parses on the server into
   Postgres, maps columns and status values, previews what each row would do, commits in
