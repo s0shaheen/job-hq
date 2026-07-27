@@ -56,6 +56,12 @@ JOBS: dict[str, list[tuple[str, list[str]]]] = {
     "seed_pipeline":   [("tracker.pgseed", [])],
     "wide_cafe":       [("monitor.wide", ["--source", "cafe"])],
     "wide_theirstack": [("monitor.wide", ["--source", "theirstack"])],
+    # Referral finder: fill companies.linkedin_company_id for companies the free
+    # harvest inside wide_theirstack has not reached. Dispatchable, never scheduled —
+    # it SPENDS TheirStack credits (one per company probed, Config knob
+    # linkedin_backfill_budget), and a spend that recurs on a cron is a spend nobody
+    # decided on. Refuses without THEIRSTACK_API_KEY + SUPABASE_*.
+    "linkedin_backfill": [("monitor.linkedin_backfill", [])],
 }
 
 _secrets_loaded = False

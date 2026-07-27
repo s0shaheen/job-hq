@@ -3,6 +3,7 @@ import {
   connectionUrl,
   DEGREE_LABELS,
   extractLinkedinId,
+  isEngineWrittenId,
   isLinkedinId,
   peopleSearchUrl,
   RECRUITER_KEYWORDS,
@@ -584,5 +585,37 @@ describe("connectionUrl refuses anything that is not a linkedin.com profile", ()
     expect(
       decoded(connectionUrl({ fullName: "Ada Okonkwo", profileUrl: "" })),
     ).toBe(`${BASE}?network=["F"]&keywords=Ada Okonkwo`);
+  });
+});
+
+describe("isEngineWrittenId", () => {
+  /**
+   * The gate on the correction control (0016's `linkedin_id_source`). It is a
+   * one-line comparison and it still earns a test, because both ways of getting it
+   * wrong are invisible on screen and the e2e can only reach the states a fixture
+   * happens to hold.
+   */
+  it("is true for the sweep, and for nothing else", () => {
+    expect(isEngineWrittenId("engine")).toBe(true);
+  });
+
+  it("is false for a person's own paste", () => {
+    // MUTATION REASON: drop the gate in `warm-cell.tsx` and this rule is what says
+    // why the button must not appear — a bot's explanation printed over a human's own
+    // research. The e2e `a human-pasted id offers no change control` is the same
+    // claim through the UI.
+    expect(isEngineWrittenId("human")).toBe(false);
+  });
+
+  it("is false for a provenance nobody recognises, including blank", () => {
+    // MUTATION REASON: widen `=== "engine"` to `!== "human"` and every one of these
+    // flips to true — the control then tells somebody "the sweep set this ID" about a
+    // number whose origin is unknown. That mutant SURVIVES the e2e suite, because no
+    // fixture holds an id with an unrecognised provenance; this is the only test that
+    // fails on it. A row like that is reachable in production: a psql fix or the bulk
+    // mirror can write the id column without going through either door.
+    for (const source of ["", "  ", "ENGINE", "Engine", "robot", "sweep", "system", null, undefined]) {
+      expect(isEngineWrittenId(source), String(source)).toBe(false);
+    }
   });
 });

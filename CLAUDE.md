@@ -22,6 +22,8 @@ built and populated; tab gids are pinned in `hq.config.yaml`.
   (canonical `{ats}-{native_id}` dedup keys), `llm.py` (Haiku JSON helper), `notify.py` (ntfy).
 - `monitor/` — discovery. `run.py` (daily sweep), `priority.py` (hourly watch),
   `review.py` (nightly tag backfill), `wide.py` (hiring.cafe/TheirStack safety net),
+  `linkedin_backfill.py` (LinkedIn company ids: harvested free off wide's TheirStack
+  rows, then probed under a credit budget — the referral finder's deep links),
   `fetchers/` (12 ATS adapters: greenhouse, ashby, lever, smartrec, workday, amazon,
   eightfold, oraclehcm, google, apple, goldman, radancy), `discover.py` + `scripts/`
   (slug tooling, adapter smoke test), `companies.*.csv` (seed data, ~640 companies).
@@ -97,7 +99,7 @@ SHA) and ops: `infra/README.md`.
 | `snapshot` | `53 8 * * ?` | 03:53 nightly | `tracker.snapshot` → tab CSVs to the versioned S3 backup bucket (no git, no GitHub) |
 | `wide_cafe` | `30 13 * * ?` | 08:30 daily | `monitor.wide --source cafe` |
 | `wide_theirstack` | `50 13 * * ?` | 08:50 daily | `monitor.wide --source theirstack` |
-| `selfheal`, `simplify` | unscheduled | — | dispatchable: `aws lambda invoke --function-name job-hq-bots --payload '{"job":"selfheal"}'`; selfheal's CSV half is the scheduled `snapshot` job above, its git-commit half stays on Actions |
+| `selfheal`, `simplify`, `seed_universe`, `seed_pipeline`, `linkedin_backfill` | unscheduled | — | dispatchable: `aws lambda invoke --function-name job-hq-bots --payload '{"job":"selfheal"}'`; selfheal's CSV half is the scheduled `snapshot` job above, its git-commit half stays on Actions. `linkedin_backfill` is unscheduled because it SPENDS TheirStack credits — a recurring spend nobody decided on is not a cron job |
 
 Failure alerting is two layers (`infra/terraform/alerts.tf`), because one Lambda runs every bot:
 `handler.py` pushes ntfy itself naming the failed **job** on every exception, and two CloudWatch

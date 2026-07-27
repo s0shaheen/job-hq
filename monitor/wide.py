@@ -39,6 +39,13 @@ seniority (no numeric YoE field — min_yoe stays "" for review to fill).
 Every request must satisfy TheirStack's mandatory-filter rule (E-024) with a
 date or company identifier — see theirstack_body. TheirStack failure logs and
 continues; it is never fatal.
+
+Each TheirStack row also carries `company_object` firmographics, LinkedIn company
+id included (probe #2, 2026-07-26). `_harvest_linkedin` copies that id into the pg
+universe's blank cells on rows this sweep has ALREADY bought — zero extra requests
+and zero extra credits — which is what stops the referral finder's deep links
+depending on somebody pasting 640 numbers by hand. `monitor/linkedin_backfill.py`
+owns the write path and the bounded probe for companies this sweep never fences to.
 """
 from __future__ import annotations
 
@@ -310,6 +317,68 @@ def _default_client_factory(token: str):
     return ApifyClient(token)
 
 
+def _harvest_linkedin(hq, jobs: list[dict], *, session=None) -> tuple[int, int]:
+    """Copy the LinkedIn company ids off rows this run ALREADY bought.
+
+    Every TheirStack job carries a `company_object` with firmographics, LinkedIn id
+    included — measured 2026-07-27: `linkedin_id` is a NUMERIC STRING ("1304385"
+    AbbVie, "10135152" Commonwealth of KY), while `linkedin_url` carries the slug
+    form. So the id-field-first read below is the one that pays, and the URL
+    fallback is the rare path rather than the expected one.
+
+    The sweep was already parsing this payload for the Feed and dropping the id,
+    while the referral finder's only source for it was a per-company paste box.
+    This is the same data, kept: **zero extra requests, zero extra credits.**
+
+    EVERY LINE IS INSIDE THE ENVELOPE, including the import and the parse. The
+    first version put both outside, so a single `null` element in a TheirStack page
+    raised `AttributeError` out of the harvest, into wide's TheirStack handler, and
+    threw away the whole bought page — 0 postings appended where `main` appended 1,
+    exit code 0, heartbeat written, watchdog quiet. An enrichment that can eat the
+    sweep's primary product is not best-effort, whatever its docstring says.
+
+    Best-effort is still the posture, and it is a deliberate exception to
+    "fail loud": this rides a lane that is itself optional, writes to a column whose
+    emptiness is the normal pre-feature state, and `monitor.linkedin_backfill` picks
+    up anything dropped. The failure is logged to the Log tab and counted in the
+    summary, so it is visible rather than swallowed.
+
+    Returns (ids the payload carried, blanks actually filled).
+    """
+    pairs: list[tuple[str, str]] = []
+    try:
+        from monitor import linkedin_backfill   # local: keeps pg off cafe-only runs
+
+        pairs = linkedin_backfill.harvest_all(jobs)
+        if not pairs:
+            return 0, 0
+        from core import pg, pgwrites
+        user_id = pgwrites.user_id() if pg.enabled() else ""
+        if not user_id:
+            # Pre-provisioning, or a lane with no pg block. Not a failure, and not
+            # silent either: the ids were there and went nowhere.
+            print(f"[wide] linkedin: {len(pairs)} id(s) harvested but the v2 store is "
+                  f"not configured for this lane — not stored", file=sys.stderr)
+            return len(pairs), 0
+        out = linkedin_backfill.fill(pairs, user_id, source="wide-theirstack",
+                                     session=session)
+        filled = out["counts"]["filled"]
+        print(f"[wide] linkedin: harvested={len(pairs)} filled={filled} "
+              f"already_set={out['counts']['already_set']} "
+              f"human_owned={out['counts']['human_owned']} "
+              f"no_company={out['counts']['no_company']} errors={len(out['errors'])}",
+              file=sys.stderr)
+        if out["errors"]:
+            hq.log("wide", "linkedin_error", detail="; ".join(out["errors"])[:450])
+        return len(pairs), filled
+    except Exception as e:
+        hq.log("wide", "linkedin_error", detail=f"{type(e).__name__}: {e}"[:450])
+        print(f"::warning title=wide linkedin harvest failed::{type(e).__name__}: "
+              f"{str(e)[:200]} — the sweep's postings are unaffected; "
+              f"monitor.linkedin_backfill picks these up")
+        return len(pairs), 0
+
+
 @dataclass
 class WideSummary:
     skipped: bool = False        # wide layer not activated (no APIFY_TOKEN)
@@ -321,6 +390,11 @@ class WideSummary:
     appended: int = 0
     pushed: int = 0
     cursor: str = ""
+    # LinkedIn company ids riding free on the TheirStack rows this run already
+    # bought — see _harvest_linkedin. `seen` counts what the payload carried,
+    # `filled` what was actually still blank in the store.
+    linkedin_seen: int = 0
+    linkedin_filled: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -425,6 +499,10 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
     # search: "any employer in this metro"), else fenced to priority companies.
     ts_ok = False
     ts_cursor = ts_max = ""
+    # Held for the LinkedIn harvest, which runs only AFTER the Feed rows are
+    # committed — see the harvest call site. Initialised here so a failed fetch
+    # leaves it empty rather than unbound.
+    ts_jobs: list[dict] = []
     ts_key = os.environ.get("THEIRSTACK_API_KEY", "") if want_ts else ""
     if want_ts and not ts_key:
         # green-but-dead is banned: an unconfigured channel must say so in CI,
@@ -459,7 +537,7 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
                 # 1 credit per job RETURNED, so the budget is enforced as the
                 # request limit — the API can never hand back more than we
                 # agreed to pay for. Geo-first drops the company fence.
-                jobs = _theirstack_fetch(
+                ts_jobs = _theirstack_fetch(
                     session, ts_key, ts_cursor,
                     [] if loc_ids else names, terms,
                     location_ids=loc_ids or None, limit=min(budget, 500))
@@ -470,10 +548,10 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
                 # forever — a metro-wide query routinely matches far more than
                 # one page. Keep the cursor; the next run re-reads the same
                 # window (bounded, deduped by key) instead of losing jobs.
-                s.ts_truncated = len(jobs) >= min(budget, 500)
+                s.ts_truncated = len(ts_jobs) >= min(budget, 500)
                 ts_ok = True
                 ts_max = ts_cursor
-                for job in jobs:
+                for job in ts_jobs:
                     s.ts_fetched += 1
                     mapped = map_theirstack_job(job, today)
                     if mapped is None:
@@ -524,6 +602,19 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
     except Exception as e:  # cursor is an optimization; next run re-pulls, keys dedupe
         hq.log("wide", "cursor_write_failed", detail=str(e)[:200])
 
+    # ENRICHMENT RUNS LAST, after the Feed rows are appended and the cursors are
+    # parked. Same write-order doctrine as Phase C1: the sweep's product is the
+    # postings, so everything that can only ADD value happens once the value that
+    # matters is committed. Ordered before this, one malformed row in a bought page
+    # cost the entire page (MAJOR-2) — the envelope inside `_harvest_linkedin` makes
+    # that unreachable, and this ordering makes it unreachable twice.
+    #
+    # `ts_jobs` is the WHOLE page, not the rows that survived the title gate: the id
+    # is a fact about the EMPLOYER, the row is bought either way, and a company whose
+    # only match this week is a Sales role would otherwise keep its empty cell.
+    if ts_jobs:
+        s.linkedin_seen, s.linkedin_filled = _harvest_linkedin(hq, ts_jobs, session=session)
+
     pushable = [r for r in new_records
                 if r.get("disposition") != gates.FILTERED   # qualified-only pushes (WS1)
                 and r["min_yoe"] and int(r["min_yoe"]) <= cfg["yoe_push_max"]]
@@ -543,7 +634,8 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
         s.pushed = len(pushable)
 
     hq.log("wide", "sweep", detail=f"cafe={s.fetched} theirstack={s.ts_fetched} "
-                                   f"appended={s.appended} pushed={s.pushed}")
+                                   f"appended={s.appended} pushed={s.pushed} "
+                                   f"linkedin={s.linkedin_filled}/{s.linkedin_seen}")
     hq.heartbeat(_beat(sources))
     s.ok = True
     return s
@@ -567,7 +659,9 @@ def main(argv: list[str] | None = None) -> int:
         notify.ops_alert(f"Wide sweep failed ({a.source})", str(e)[:250], session=session)
         return 1
     print(f"[wide] skipped={s.skipped} cafe={s.fetched} theirstack={s.ts_fetched} "
-          f"appended={s.appended} pushed={s.pushed} errors={len(s.errors)}", file=sys.stderr)
+          f"appended={s.appended} pushed={s.pushed} "
+          f"linkedin={s.linkedin_filled}/{s.linkedin_seen} errors={len(s.errors)}",
+          file=sys.stderr)
     if s.errors:
         print(f"[wide] errors: {'; '.join(s.errors)}", file=sys.stderr)
     if s.skipped or s.ok:

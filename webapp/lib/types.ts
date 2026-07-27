@@ -174,6 +174,15 @@ export type Company = {
   reliability_tier: number | null;
   resolution_method: string;
   linkedin_company_id: string;
+  /**
+   * Who last answered `linkedin_company_id` (0016): 'human' | 'engine' | ''.
+   *
+   * The column exists because the engine became the SECOND writer of the id beside
+   * it, and blank could then mean either "nobody has looked" or "a person looked and
+   * deliberately emptied it". Free-vocab like `source`, so anything that is not
+   * exactly 'human' reads as not-human.
+   */
+  linkedin_id_source: string;
   updated_at: string;
 };
 

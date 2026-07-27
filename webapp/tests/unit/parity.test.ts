@@ -462,6 +462,7 @@ describe("company universe parity", () => {
       priority: false,
       seeded: false,
       linkedinCompanyId: "",
+      linkedinIdSource: "",
       companyUpdatedAt: null,
       updatedAt: STAMP,
       ...seed,

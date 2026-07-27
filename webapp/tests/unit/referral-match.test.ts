@@ -61,6 +61,7 @@ function co(over: Partial<CompanyView> & Pick<CompanyView, "id" | "name">): Comp
     priority: false,
     seeded: false,
     linkedinCompanyId: "",
+    linkedinIdSource: "",
     updatedAt: "2026-07-21T12:00:00.000Z",
     companyUpdatedAt: "2026-07-21T12:03:00.000Z",
     ...over,
@@ -203,6 +204,7 @@ describe("indexUniverse", () => {
         id: 101,
         name: "Ramp",
         linkedinCompanyId: "12345678",
+        linkedinIdSource: "human",
         updatedAt: "2026-07-21T12:00:00.000Z",
         companyUpdatedAt: "2026-07-21T12:03:21.000Z",
       }),
@@ -210,6 +212,10 @@ describe("indexUniverse", () => {
     expect(universeFor(index, "Ramp")).toEqual({
       id: 101,
       linkedinCompanyId: "12345678",
+      // Rides with the id, and asserted in the same `toEqual` for the reason the
+      // comment above gives about the other three: the cell needs them at one
+      // instant, so a field that silently stopped travelling is the bug.
+      linkedinIdSource: "human",
       companyUpdatedAt: "2026-07-21T12:03:21.000Z",
       name: "Ramp",
     });

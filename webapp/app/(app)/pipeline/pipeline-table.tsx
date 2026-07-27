@@ -680,6 +680,7 @@ function PipelineRow({
                 company={app.company}
                 title={app.title}
                 companyId={warmEntry?.linkedinCompanyId ?? ""}
+                linkedinIdSource={warmEntry?.linkedinIdSource ?? ""}
                 connections={connectionsAt(warm.connections, app.company)}
                 universeId={warmEntry?.id ?? null}
                 companyUpdatedAt={warmEntry?.companyUpdatedAt ?? null}

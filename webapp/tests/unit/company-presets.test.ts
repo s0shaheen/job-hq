@@ -28,6 +28,7 @@ function co(over: Partial<CompanyView> = {}): CompanyView {
     priority: false,
     seeded: false,
     linkedinCompanyId: "",
+    linkedinIdSource: "",
     companyUpdatedAt: null,
     updatedAt: null,
     ...over,

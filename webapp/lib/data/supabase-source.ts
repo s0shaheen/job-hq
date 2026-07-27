@@ -126,7 +126,7 @@ const APPLICATION_COLS =
   "id, posting_key, company, title, url, status, status_actor, suggested_status, " +
   "evidence, applied_date, next_action, next_action_date, notes, updated_at";
 const COMPANY_COLS =
-  "id, name, ats, slug, source, reliability_tier, resolution_method, linkedin_company_id, updated_at";
+  "id, name, ats, slug, source, reliability_tier, resolution_method, linkedin_company_id, linkedin_id_source, updated_at";
 
 /**
  * One string literal, for COMPANY_COLS' reason: `postgrest-js` parses the select
@@ -343,6 +343,7 @@ export function toCompanyView(uc: Record<string, unknown>): CompanyView | null {
     priority: bool(uc.priority),
     seeded: bool(uc.seeded),
     linkedinCompanyId: String(c.linkedin_company_id ?? ""),
+    linkedinIdSource: String(c.linkedin_id_source ?? ""),
     updatedAt: str(uc.updated_at),
     // The SHARED row's token, out of the nested object. Two tokens, two writes;
     // `app_company_row` puts this one inside `companies` precisely so a caller

@@ -41,15 +41,23 @@ function at(offsetSeconds: number): string {
  * branch is unreachable ships the warm-links popover unlooked-at, which is
  * matrix row 15 with a different surface.
  */
-type Seed = Omit<CompanyView, "key" | "linkedinCompanyId" | "companyUpdatedAt"> & {
+type Seed = Omit<
+  CompanyView,
+  "key" | "linkedinCompanyId" | "linkedinIdSource" | "companyUpdatedAt"
+> & {
   key?: string;
   linkedinCompanyId?: string;
+  linkedinIdSource?: string;
   companyUpdatedAt?: string;
 };
 
 function company(seed: Seed): CompanyView {
   return {
     linkedinCompanyId: "",
+    // Nobody has answered, which is what an empty id means. A seed that sets an id
+    // has to say who set it — the two are one fact and the demo would otherwise
+    // render every id as bot-written.
+    linkedinIdSource: "",
     // The SHARED row's token. Deliberately a DIFFERENT value from `updatedAt`:
     // if the fixture made them equal, a caller sending the wrong one would work
     // in the demo and conflict in production — the fake being kinder than the
@@ -78,6 +86,11 @@ export const FIXTURE_COMPANIES: CompanyView[] = [
     // Somebody pasted this one, so the warm-links popover has a row to render
     // its full link set on.
     linkedinCompanyId: "12345678",
+    // A PERSON pasted it, so the popover offers no change control — they know where
+    // the number came from, and the surface they used is the one they already know.
+    // This is also the row `visual.spec.ts` screenshots, so it is the row that must
+    // keep rendering exactly what it rendered before 0016.
+    linkedinIdSource: "human",
   }),
   company({
     id: 102,
@@ -95,6 +108,12 @@ export const FIXTURE_COMPANIES: CompanyView[] = [
     // An id with NO connections behind it, so "links but nobody you know" is a
     // reachable state and not the same cell as "no id at all".
     linkedinCompanyId: "3608",
+    // The SWEEP found this one (0016's harvest off a TheirStack row), which makes
+    // this the fixture that reaches the correction control — the state where a bot
+    // wrote an id and somebody may need to disagree with it. Deliberately a company
+    // no popover baseline opens, so the control is covered by the functional e2e
+    // project and no screenshot has to be re-recorded to see it.
+    linkedinIdSource: "engine",
   }),
   // Workday via the careers-page redirect, confirmed by a CXS jobs POST — the
   // grounded keystone of the Dad universe (research: 12/32 fingerprinted here).

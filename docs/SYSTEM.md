@@ -168,7 +168,7 @@ be overwritten on the next run, and CI would flag the mismatch first.
 <!-- sysmap:begin big-picture -->
 ```mermaid
 flowchart LR
-    EB["EventBridge Scheduler<br/>7 schedules"] --> LAM["Lambda job-hq-bots<br/>one image · 11 jobs"]
+    EB["EventBridge Scheduler<br/>7 schedules"] --> LAM["Lambda job-hq-bots<br/>one image · 12 jobs"]
     SSM["SSM /job-hq/* SecureStrings"] --> LAM
     LAM --> SHEET["Google Sheet<br/>Job Search HQ"]
     LAM --> S3["S3 backups bucket<br/>$HQ_BACKUP_S3_BUCKET"]
@@ -199,6 +199,7 @@ One Lambda function (`job-hq-bots`, one container image) runs every job; EventBr
 | `snapshot` | `cron(53 8 * * ? *)` | 03:53 | `tracker.snapshot` | daily 08:53 UTC  (tracker.snapshot -> S3) |
 | `wide_cafe` | `cron(30 13 * * ? *)` | 08:30 | `monitor.wide --source cafe` | daily 13:30 UTC  (wide --source cafe) |
 | `wide_theirstack` | `cron(50 13 * * ? *)` | 08:50 | `monitor.wide --source theirstack` | daily 13:50 UTC  (wide --source theirstack) |
+| `linkedin_backfill` | — | *unscheduled — dispatch by hand* | `monitor.linkedin_backfill` | — |
 | `seed_pipeline` | — | *unscheduled — dispatch by hand* | `tracker.pgseed` | — |
 | `seed_universe` | — | *unscheduled — dispatch by hand* | `monitor.seed_universe` | — |
 | `selfheal` | — | *unscheduled — dispatch by hand* | `tracker.selfheal` | — |

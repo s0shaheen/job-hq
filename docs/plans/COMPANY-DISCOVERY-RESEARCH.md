@@ -295,6 +295,16 @@ the free recall-diff and built `monitor/oracle.py`; this pass settled the rest, 
    num_jobs_last_30_days / yc_batch / is_recruiting_agency` — e.g. Northern Trust: Financial
    Services, 35,000 employees, $6.7B revenue, founded 1889, `num_jobs` 5,674 with 477 in the last
    30 days. That is the firmographics set the "~$50 fill-in" was going to buy.
+
+   **`linkedin_id` VALUE SHAPE — MEASURED 2026-07-27** (the field names above were recorded
+   without example values, so this was an open hedge for a day): `linkedin_id` is the **numeric
+   company id as a string** — `"1304385"` (AbbVie), `"10135152"` (Commonwealth of Kentucky) —
+   while `linkedin_url` carries the **slug** form. So the numeric id the referral finder's deep
+   links need (`f_C=<id>`, migration 0013) arrives directly on every job row we already buy, and
+   `monitor/linkedin_backfill.harvest` reads `linkedin_id` first for that reason. The slug in
+   `linkedin_url` is correctly refused by `core.linkedinids.extract_linkedin_id` — a slug is not
+   an id and `peopleSearchUrl` would drop it — so the URL is a fallback that only pays off on a
+   faceted `f_C=` shape and is expected to miss.
 6. **Rate limits (response headers):** 4/s, 10/min, 50/h, 400/day per key.
 
 Measured facet denominator: the **7-day US financial-analyst facet = 1,684 jobs / 1,282
@@ -346,6 +356,7 @@ gaps predate this branch and both must close before `wide_location_ids` is set o
 | Company **name** fences are precise enough to fence a query | **FALSE** (probe #2) — "Kraft Heinz" matched 3 companies, "Allstate" 6, "Abbott" 5; use `company_domain_or` / `company_id_or` / `company_linkedin_url_or` |
 | Coresignal $49 as the paid pick | **Contradicted** by `aggregator-apis.md:79` ("Out"); moot — see next row |
 | A ~$50 firmographics fill-in is needed at all | **KILLED** (probe #2) — `company_object` rides free on every job row (domain, industry, employee_count, annual_revenue_usd, founded_year, num_jobs_last_30_days) |
+| `company_object.linkedin_id` is the NUMERIC company id, not a slug | **MEASURED** (2026-07-27): `"1304385"` AbbVie, `"10135152"` Commonwealth of KY; `linkedin_url` carries the slug. This is what makes the referral finder's id harvest free — see finding 5 |
 | 7-day **US** financial-analyst facet denominator | **MEASURED** (probe #2): **1,684 jobs / 1,282 companies** — a *national* facet, NOT Chicago |
 | Chicago-finance facet denominator | **Still estimate-only** (~600–1,800, pt ~1,100). The US measurement above **bounds it from above**: Chicago ⊂ US, so ≤1,282 companies in a 7-day window — which makes the retained ~1,100 point estimate look *too high*, not confirmed. One blurred `job_location_or` call from measured |
 | US-startup SWE/PM facet denominator | **Estimate-only** (~8,000–20,000 companies) — one blurred call from measured |

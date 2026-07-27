@@ -24,6 +24,11 @@ fetch_workers: 8           # concurrent board fetches in the daily sweep (networ
 wide_location_ids: []      # TheirStack catalog location IDs (blank = company-fenced mode)
 wide_credit_budget: 25     # max jobs TheirStack may RETURN per run (1 credit each) — hard spend cap.
                            # 25 = the free tier's per-page cap; paid tiers allow up to 500
+# --- referral finder: LinkedIn company ids (monitor.linkedin_backfill, dispatch-only) ---
+linkedin_backfill_budget: 20  # companies probed per run = credits spent (limit:1 per probe).
+                              # 0 = off, max 50 (TheirStack allows 50 requests/HOUR per key,
+                              # and a 400-probe run cannot finish inside Lambda's 900s).
+                              # The free harvest in monitor.wide ignores this knob entirely.
 run_budget_min: 30         # soft wall-clock budget; the sweep stops starting new chunks past this and flushes
 stale_days: 30             # Applied + this many silent days -> stale flag + digest nudge
 digest_hour_ct: 7          # daily digest hour, America/Chicago

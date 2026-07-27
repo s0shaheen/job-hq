@@ -107,6 +107,15 @@ export type UniverseEntry = {
   id: number;
   /** `companies.linkedin_company_id`, "" when nobody has pasted one. */
   linkedinCompanyId: string;
+  /**
+   * `companies.linkedin_id_source` (0016) — `"human"`, `"engine"` or `""`.
+   *
+   * Travels with the id for this type's stated reason: the cell needs both at the
+   * same instant, and a second lookup over the same key is a second chance to answer
+   * for a different company. It decides whether the popover offers a way to CHANGE
+   * the id, which only matters when a bot is the one that wrote it.
+   */
+  linkedinIdSource: string;
   /** The SHARED company row's optimistic-concurrency token. */
   companyUpdatedAt: string | null;
   /** The name as the universe spells it, for copy that names the company. */
@@ -151,6 +160,7 @@ export function indexUniverse(companies: readonly CompanyView[]): UniverseIndex 
     index.set(key, {
       id: c.id,
       linkedinCompanyId: c.linkedinCompanyId,
+      linkedinIdSource: c.linkedinIdSource,
       companyUpdatedAt: c.companyUpdatedAt,
       name: c.name,
     });

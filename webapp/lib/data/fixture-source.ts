@@ -1122,6 +1122,7 @@ export class FixtureDataSource implements DataSource {
         // same reason, and an id nobody pasted would be a fabricated fact about a
         // company nobody has looked up.
         linkedinCompanyId: "",
+        linkedinIdSource: "",
         updatedAt: new Date(
           new Date(FIXTURE_NOW).getTime() + this.companySeq * 1000,
         ).toISOString(),
@@ -1194,9 +1195,16 @@ export class FixtureDataSource implements DataSource {
       };
     }
 
-    if (current.linkedinCompanyId === id) {
+    if (current.linkedinCompanyId === id && current.linkedinIdSource === "human") {
       // No-op rows keep their token, exactly as the SQL does: bumping it would
       // invalidate every other tab's token for a row nothing changed.
+      //
+      // `&& linkedinIdSource === "human"` tracks 0016, and the SQL condition it
+      // mirrors is `v_before is distinct from v_id or v_row.linkedin_id_source <>
+      // 'human'`. Re-pasting the id a BOT found is not a no-op: it is a person
+      // claiming that id, which is what protects it from the next harvest. A fake
+      // that treated it as a no-op would let the UI ship a gesture that appears to
+      // work in the demo and leaves the row bot-owned in production.
       const noop: CompanyFlagsResult = { ok: true, company: { ...current } };
       this.seenReferralKeys.set(input.idempotencyKey, noop);
       return noop;
@@ -1205,6 +1213,9 @@ export class FixtureDataSource implements DataSource {
     const updated: CompanyView = {
       ...current,
       linkedinCompanyId: id,
+      // Every write through this door is a person's, INCLUDING a clear — that is the
+      // tombstone the engine door refuses to overwrite (0016).
+      linkedinIdSource: "human",
       companyUpdatedAt: new Date(
         new Date(current.companyUpdatedAt ?? FIXTURE_NOW).getTime() + 1000,
       ).toISOString(),

@@ -99,6 +99,30 @@ export function isLinkedinId(value: string | null | undefined): boolean {
 }
 
 /**
+ * Did the SWEEP write the id in this cell? (`companies.linkedin_id_source`, 0016.)
+ *
+ * A predicate rather than an inline comparison in `warm-cell.tsx`, because it decides
+ * whether a person is offered a way to CHANGE an id, and the two ways of getting it
+ * wrong are both invisible on screen:
+ *
+ *   * `=== "engine"` widened to `!== "human"` offers the control on a row whose
+ *     provenance is unknown — telling somebody "the sweep set this ID" about a number
+ *     the sweep may never have touched. Copy that asserts a thing it cannot know.
+ *   * the check dropped entirely offers it on a HUMAN's own paste, which reopens the
+ *     surface churn this gate exists to avoid and puts a bot's explanation on a
+ *     person's own work.
+ *
+ * Exported so `referral-links.test.ts` can pin both directions without a browser; the
+ * e2e proves the wiring, this proves the rule. Anything that is not exactly `"engine"`
+ * is not evidence a bot wrote it — the opposite direction from the SQL guard, which
+ * treats unknown as "the engine may write", and deliberately so: there, unknown means
+ * a recoverable write; here, unknown would mean an unfounded claim.
+ */
+export function isEngineWrittenId(source: string | null | undefined): boolean {
+  return (source ?? "") === "engine";
+}
+
+/**
  * The id inside whatever a person pasted.
  *
  * People paste three things and mean the same one: the bare number, the

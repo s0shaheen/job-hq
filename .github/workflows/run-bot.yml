@@ -38,6 +38,7 @@ on:
           - simplify
           - wide_cafe
           - wide_theirstack
+          - linkedin_backfill
       user:
         description: "HQ user lane (blank = the flat single-user registry)"
         type: string
@@ -82,6 +83,24 @@ jobs:
           THEIRSTACK_API_KEY: ${{ secrets.THEIRSTACK_API_KEY }}
           SIMPLIFY_AUTH_COOKIE: ${{ secrets.SIMPLIFY_AUTH_COOKIE }}
           SIMPLIFY_CSRF: ${{ secrets.SIMPLIFY_CSRF }}
+          # The store, same four as selfheal.yml. Three jobs in the dropdown above are
+          # pg-only — seed_universe, seed_pipeline, linkedin_backfill — and without these
+          # each one refuses on this lane while working from the Lambda, which turns the
+          # documented fallback ("the day AWS itself is the problem") into a dead end.
+          #
+          # `HQ_PG_WRITES` is NOT here for those three. Two of them (seed_universe,
+          # linkedin_backfill) never read it — `pg.enabled()` is SUPABASE_URL +
+          # SUPABASE_SERVICE_KEY alone — and only `seed_pipeline` gates on it. It is here
+          # for LAMBDA PARITY, and the consequence has to be stated rather than discovered:
+          # this is a shared `env:` block, so the day `vars.HQ_PG_WRITES` is set, EVERY job
+          # in the dropdown (monitor, tracker, digest) dual-writes when run from this lane —
+          # which is exactly what they do from the Lambda, and a manual re-run that behaves
+          # differently from the schedule is the trap this one file exists to remove.
+          # Unset in Phase A, where the whole block is inert.
+          HQ_PG_WRITES: ${{ vars.HQ_PG_WRITES }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          HQ_PG_USER_ID: ${{ secrets.HQ_PG_USER_ID }}
           # Empty = unset as far as core.config is concerned, i.e. the flat single-user registry.
           HQ_USER: ${{ inputs.user }}
           PYTHONUNBUFFERED: "1"

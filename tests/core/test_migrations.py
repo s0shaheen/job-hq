@@ -44,10 +44,6 @@ def test_there_are_migrations():
 RESERVED_MIGRATION_NUMBERS: dict[int, str] = {
     # 13 was reserved for the referral-finder branch; it merged (#81) and the
     # reservation came out the same hour — the mechanism working as designed.
-    16: (
-        "claimed up front by the parallel engine branch, so 0017 could be written "
-        "here without either session having to guess what the other took."
-    ),
 }
 
 
@@ -261,7 +257,7 @@ def test_the_engine_only_rpcs_are_not_reachable_from_a_browser():
     prove it for a role it can `set role` to, and this is cheap and total."""
     for fn in ("reconcile_grounded_company", "note_grounding_blocked",
                "hq_apply_email_event", "hq_upsert_sheet_application",
-               "hq_note_unapplied_event"):
+               "hq_note_unapplied_event", "hq_fill_linkedin_company_id"):
         revokes = re.findall(rf"revoke\s+all\s+on\s+function\s+public\.{fn}\s*\([^)]*\)\s*\n?\s*"
                              rf"from\s+([^;]+);", ALL_SQL, re.I)
         assert revokes, f"{fn}() is never revoked"
@@ -321,11 +317,15 @@ def _outcomes(body: str) -> set[str]:
             | set(re.findall(r"v_outcome\s*:=\s*'(\w+)'", body)))
 
 
-@pytest.mark.parametrize("module,attr,fn", [
-    ("tracker.join", "PG_OUTCOMES", "hq_apply_email_event"),
-    ("tracker.pgseed", "PG_SEED_OUTCOMES", "hq_upsert_sheet_application"),
+@pytest.mark.parametrize("module,attr,fn,migration", [
+    ("tracker.join", "PG_OUTCOMES", "hq_apply_email_event", "0015_engine_writes.sql"),
+    ("tracker.pgseed", "PG_SEED_OUTCOMES", "hq_upsert_sheet_application",
+     "0015_engine_writes.sql"),
+    ("monitor.linkedin_backfill", "FILL_OUTCOMES", "hq_fill_linkedin_company_id",
+     "0016_linkedin_fill.sql"),
 ], ids=lambda v: str(v))
-def test_the_outcome_vocabulary_is_the_same_on_both_sides_of_the_wire(module, attr, fn):
+def test_the_outcome_vocabulary_is_the_same_on_both_sides_of_the_wire(
+        module, attr, fn, migration):
     """The engine branches on the strings these functions return, and nothing
     checked that the two agree.
 
@@ -333,11 +333,14 @@ def test_the_outcome_vocabulary_is_the_same_on_both_sides_of_the_wire(module, at
     by nothing at all and would have been counted as a successful write — the number
     that tells the operator whether the two stores agree. Parsed from the migration,
     so the pin cannot go stale in the direction that matters.
+
+    The migration FILE is a parameter, not a constant: 0016 defines a third engine
+    RPC with a third vocabulary, and reading one hardcoded file would have quietly
+    excused it from the check that exists for exactly this.
     """
     import importlib
 
-    sql = _strip_sql_comments(
-        (ROOT / "db" / "migrations" / "0015_engine_writes.sql").read_text())
+    sql = _strip_sql_comments((ROOT / "db" / "migrations" / migration).read_text())
     declared = _outcomes(_sql_function_body(sql, fn))
     expected = set(getattr(importlib.import_module(module), attr))
     assert declared, f"no outcome literals found in {fn}() — parser out of date?"
@@ -347,12 +350,43 @@ def test_the_outcome_vocabulary_is_the_same_on_both_sides_of_the_wire(module, at
     }
 
 
-def test_the_two_engine_vocabularies_really_are_different():
+def test_the_engine_vocabularies_really_are_different():
     """Non-vacuity for the parse above: if `_sql_function_body` silently returned
-    the whole file, both cases would compare the same union and pass together."""
+    the whole file, the two 0015 cases would compare the same union and pass
+    together."""
+    from monitor import linkedin_backfill
     from tracker import join, pgseed
     assert set(join.PG_OUTCOMES) != set(pgseed.PG_SEED_OUTCOMES)
     assert set(join.PG_NOTHING_TO_APPLY) < set(join.PG_OUTCOMES)
+    assert set(linkedin_backfill.FILL_OUTCOMES) not in (
+        set(join.PG_OUTCOMES), set(pgseed.PG_SEED_OUTCOMES))
+
+
+def test_the_linkedin_fill_rpc_the_engine_calls_exists_and_takes_what_it_is_passed():
+    """The same contract, for the referral finder's engine RPC (0016).
+
+    Two lanes call it — `monitor.wide`'s free harvest and `monitor.linkedin_backfill`'s
+    probe — through one `fill()`, so a typo in `FILL_FN` is a 404 in both at once and
+    the ids simply stop appearing. The unit suite monkeypatches the RPC and the db
+    suite calls the SQL directly, so the constant itself is only checked here.
+    """
+    import inspect
+
+    from monitor import linkedin_backfill
+
+    declared = set(_sql_function_params(ALL_SQL, linkedin_backfill.FILL_FN) or [])
+    assert declared, (
+        f"monitor.linkedin_backfill calls {linkedin_backfill.FILL_FN}() but no migration "
+        f"defines it — every harvested id would 404 into nothing"
+    )
+    passed = set(re.findall(r'"(p_\w+)":', inspect.getsource(linkedin_backfill.fill)))
+    # EQUALITY, the engine-owned-both-ends rule: an undeclared argument fails to
+    # resolve the function at all (PostgREST matches overloads by name), and a
+    # declared one the caller stops passing is worse because it is silent.
+    assert passed == declared, {
+        "passed but not declared": sorted(passed - declared),
+        "declared but not passed": sorted(declared - passed),
+    }
 
 
 def test_conflict_path_keeps_the_word_the_client_matches_on():

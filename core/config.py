@@ -167,6 +167,17 @@ VALIDATORS = {
     "fetch_workers":      _int(1, 32),
     "wide_location_ids":  _csv,
     "wide_credit_budget": _int(0, 5000),
+    # 50, which is `monitor.linkedin_backfill.MAX_BUDGET`, for two independent
+    # reasons — and NOT 400, which an earlier version used on the false claim that
+    # the daily ceiling was the binding one:
+    #   * TheirStack publishes 50 requests/HOUR per key (probe #2) and a probe is one
+    #     request, so probe 51 in a single run is a guaranteed 429;
+    #   * 400 probes cannot finish. At the module's 6.5s pacing that is 2594s of
+    #     sleeping alone, against a 900s Lambda timeout — measured, 2.9x over, before
+    #     a single HTTP round trip.
+    # The job also stops itself on HQ_RUNTIME_DEADLINE_TS, because a ceiling that is
+    # merely arithmetically survivable is not a guarantee.
+    "linkedin_backfill_budget": _int(0, 50),
     "run_budget_min":     _int(5, 120),
     "stale_days":         _int(3, 365),
     "digest_hour_ct":     _int(0, 23),

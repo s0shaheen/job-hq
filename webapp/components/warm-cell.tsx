@@ -8,7 +8,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { ConnectionView } from "@/lib/data/view-models";
 import { setLinkedinCompanyIdAction } from "@/lib/referral/actions";
-import { connectionUrl, extractLinkedinId, warmLinks } from "@/lib/referral/linkedin";
+import {
+  connectionUrl,
+  extractLinkedinId,
+  isEngineWrittenId,
+  warmLinks,
+} from "@/lib/referral/linkedin";
 import { MAX_LISTED_CONNECTIONS } from "@/lib/referral/match";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +48,23 @@ export type WarmCellProps = {
   title: string;
   /** `companies.linkedin_company_id`, or "" when nobody has pasted one. */
   companyId: string;
+  /**
+   * `companies.linkedin_id_source` (0016) — who put `companyId` there: `"human"`,
+   * `"engine"`, or `""` when it is empty.
+   *
+   * WHY A CELL NEEDS TO KNOW. The searches below render in place of the paste box,
+   * so a valid id used to remove the only writer surface in the app: no change, no
+   * clear, no settings row anywhere. That was fine while the only writer was the
+   * person who pasted it. It stopped being fine when the TheirStack sweep started
+   * harvesting ids (0016), because a bot's answer for hundreds of companies is one
+   * nobody could disagree with — and clearing the cell is exactly how somebody says
+   * "wrong id, and I do not have the right one".
+   *
+   * So the correction control appears for `"engine"` and only for `"engine"`: the
+   * regression's own footprint, nothing wider. A human-pasted id keeps the surface
+   * it has always had.
+   */
+  linkedinIdSource: string;
   /** The user's connections at this company, already matched and ordered. */
   connections: readonly ConnectionView[];
   /**
@@ -121,6 +143,14 @@ function WarmPopoverContent(props: WarmCellProps & { onDone: () => void }) {
   const links = warmLinks({ companyId: props.companyId, title: props.title });
   const listed = props.connections.slice(0, MAX_LISTED_CONNECTIONS);
   const overflow = props.connections.length - listed.length;
+  // The correction path, opened on demand rather than always rendered: the searches
+  // are what somebody came here for, and a form above them would push the whole link
+  // list down for every company whether or not the id is in question.
+  const [correcting, setCorrecting] = React.useState(false);
+  // The rule lives in `linkedin.ts` beside `isLinkedinId`, and is pinned there in both
+  // directions: an unrecognised provenance is NOT evidence that a bot wrote the id,
+  // and this button's copy asserts that it did.
+  const botWrote = isEngineWrittenId(props.linkedinIdSource);
 
   return (
     <Popover.Portal>
@@ -196,23 +226,57 @@ function WarmPopoverContent(props: WarmCellProps & { onDone: () => void }) {
         {/* --- the searches ---------------------------------------------- */}
         <div className="mt-3 border-t border-border pt-2">
           {links.length > 0 ? (
-            <ul className="space-y-1" data-testid="warm-links">
-              {links.map((l) => (
-                <li key={l.id}>
-                  <a
-                    href={l.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    data-testid={`warm-link-${l.id}`}
-                    title={l.detail}
-                    className="inline-flex max-w-full items-center gap-1 text-xs text-accent hover:underline"
+            <>
+              <ul className="space-y-1" data-testid="warm-links">
+                {links.map((l) => (
+                  <li key={l.id}>
+                    <a
+                      href={l.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid={`warm-link-${l.id}`}
+                      title={l.detail}
+                      className="inline-flex max-w-full items-center gap-1 text-xs text-accent hover:underline"
+                    >
+                      <span className="truncate">{l.label}</span>
+                      <ExternalLink aria-hidden="true" className="size-3 shrink-0" />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+              {/* The correction path for an id the SWEEP wrote. Renders nothing at
+                  all for a human-pasted id, which is what keeps every existing
+                  popover — and the baseline that screenshots one — untouched. */}
+              {botWrote && props.universeId !== null ? (
+                correcting ? (
+                  <div className="mt-2">
+                    <PasteIdForm
+                      company={props.company}
+                      universeId={props.universeId}
+                      companyUpdatedAt={props.companyUpdatedAt}
+                      current={props.companyId}
+                      onDone={props.onDone}
+                    />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="warm-change-id"
+                    onClick={() => setCorrecting(true)}
+                    className="mt-2 text-xs text-muted underline decoration-dotted
+                               underline-offset-2 hover:text-text-2
+                               focus-visible:outline-2 focus-visible:-outline-offset-1
+                               focus-visible:outline-ring"
                   >
-                    <span className="truncate">{l.label}</span>
-                    <ExternalLink aria-hidden="true" className="size-3 shrink-0" />
-                  </a>
-                </li>
-              ))}
-            </ul>
+                    {/* States only what is true and wired: the sweep put this number
+                        here, and this is where it gets changed. No claim about how it
+                        was found, no promise that a better one exists, no mention of
+                        clearing — the form says that, once it is open. */}
+                    The sweep set this ID — change it
+                  </button>
+                )
+              ) : null}
+            </>
           ) : (
             <PasteIdForm
               company={props.company}
@@ -244,9 +308,23 @@ function PasteIdForm(props: {
   company: string;
   universeId: number | null;
   companyUpdatedAt: string | null;
+  /**
+   * The id already in the cell, when this form is CORRECTING one rather than
+   * providing the first. Absent (the original case) means the cell is empty.
+   *
+   * Two things change when it is set: the field starts on the current value so a
+   * person can see what they are disagreeing with, and an EMPTY submit becomes legal.
+   * The empty submit is the point — `app_set_linkedin_company_id` has always accepted
+   * `''`, and 0016 turned that into a tombstone the sweep will not overwrite, so
+   * "clear it" is the honest answer when the bot is wrong and you have no better
+   * number. Without this it was unreachable: the Save button disabled on an empty
+   * field and `extractLinkedinId("")` returns an error.
+   */
+  current?: string;
   onDone: () => void;
 }) {
-  const [value, setValue] = React.useState("");
+  const correcting = props.current !== undefined;
+  const [value, setValue] = React.useState(props.current ?? "");
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   // One key per GESTURE, reused by every retry of it. A fresh uuid per attempt
@@ -267,24 +345,39 @@ function PasteIdForm(props: {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    const parsed = extractLinkedinId(value);
-    if ("error" in parsed) {
-      setError(parsed.error);
-      return;
+    // Emptying the field is a gesture, not a parse failure — but only when there is
+    // something to empty. On the first-paste form a blank submit is still the error
+    // the label asks for.
+    const clearing = correcting && value.trim() === "";
+    let linkedinId = "";
+    if (!clearing) {
+      const parsed = extractLinkedinId(value);
+      if ("error" in parsed) {
+        setError(parsed.error);
+        return;
+      }
+      linkedinId = parsed.id;
     }
     setError(null);
     setBusy(true);
     idem.current ??= crypto.randomUUID();
     const result = await setLinkedinCompanyIdAction({
       companyId: props.universeId!,
-      linkedinId: parsed.id,
+      linkedinId,
       idempotencyKey: idem.current,
       expectedUpdatedAt: props.companyUpdatedAt,
     });
     setBusy(false);
     if (result.ok) {
       idem.current = null;
-      toast.success(`Saved the LinkedIn id for ${props.company}`);
+      // The success string is unchanged for the save path, deliberately:
+      // `referral.spec.ts` asserts it verbatim, and this branch has no business
+      // rewording somebody else's passing test.
+      toast.success(
+        clearing
+          ? `Cleared the LinkedIn id for ${props.company}`
+          : `Saved the LinkedIn id for ${props.company}`,
+      );
       props.onDone();
       return;
     }
@@ -298,11 +391,23 @@ function PasteIdForm(props: {
   return (
     <form onSubmit={submit} data-testid="warm-paste-form">
       <label htmlFor="warm-linkedin-id" className="text-xs text-text-2">
-        No LinkedIn id for {props.company} yet
+        {correcting
+          ? `LinkedIn ID for ${props.company}`
+          : `No LinkedIn id for ${props.company} yet`}
       </label>
       <p className="mt-1 text-xs text-muted">
-        Open the company on LinkedIn, click <em>See all employees</em>, and paste that page&rsquo;s
-        address here. Once per company.
+        {correcting ? (
+          <>
+            Open the company on LinkedIn, click <em>See all employees</em>, and paste that
+            page&rsquo;s address. Or empty the field to remove the ID — the sweep will not put it
+            back.
+          </>
+        ) : (
+          <>
+            Open the company on LinkedIn, click <em>See all employees</em>, and paste that
+            page&rsquo;s address here. Once per company.
+          </>
+        )}
       </p>
       <div className="mt-2 flex gap-1">
         <input
@@ -316,8 +421,20 @@ function PasteIdForm(props: {
                      text-text placeholder:text-muted focus-visible:outline-2
                      focus-visible:-outline-offset-1 focus-visible:outline-ring"
         />
-        <Button type="submit" variant="primary" size="sm" disabled={busy || value.trim() === ""}>
-          {busy ? "Saving…" : "Save"}
+        {/* Correcting, the disabled rule inverts: an EMPTY field is the clear
+            gesture, and what has nothing to submit is a field still holding the id
+            it arrived with. On the first-paste form an empty field is nothing to
+            save, exactly as before. */}
+        <Button
+          type="submit"
+          variant="primary"
+          size="sm"
+          disabled={
+            busy ||
+            (correcting ? value.trim() === (props.current ?? "").trim() : value.trim() === "")
+          }
+        >
+          {busy ? "Saving…" : correcting && value.trim() === "" ? "Clear" : "Save"}
         </Button>
       </div>
       {error ? (

@@ -1308,6 +1308,10 @@ export default function JobsGrid({
                                 universeFor(warm.universe, row.original.company)
                                   ?.linkedinCompanyId ?? ""
                               }
+                              linkedinIdSource={
+                                universeFor(warm.universe, row.original.company)
+                                  ?.linkedinIdSource ?? ""
+                              }
                               connections={connectionsAt(warm.connections, row.original.company)}
                               universeId={
                                 universeFor(warm.universe, row.original.company)?.id ?? null

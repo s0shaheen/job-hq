@@ -238,6 +238,114 @@ test.describe("pasting a company id", () => {
   });
 });
 
+// ------------------------------------------------- correcting an id a bot wrote
+
+/**
+ * The lock-out this branch had to close, and the one thing about it that only a
+ * browser can prove.
+ *
+ * `warmLinks` returns `[]` only when there is no id, and the paste form renders only
+ * when `warmLinks` returns `[]`. So a valid id REMOVED the only writer surface in the
+ * product: no change, no clear, nowhere else in the app. That was survivable while
+ * the sole writer was the person who pasted it. Migration 0016 made the TheirStack
+ * sweep the first writer for hundreds of companies, and a bot's answer nobody can
+ * disagree with is a worse cell than an empty one.
+ *
+ * The control is gated on `linkedin_id_source === "engine"` — the regression's own
+ * footprint and nothing wider. Ramp's fixture id is human-pasted and Databricks' came
+ * from the sweep, which is what makes the two tests below a matched pair.
+ */
+test.describe("an id the sweep wrote can be corrected", () => {
+  test("a human-pasted id offers no change control", async ({ page }) => {
+    // MUTATION: drop the `linkedinIdSource === "engine"` gate in warm-cell.tsx (or
+    // widen it to `!== "human"`) and THIS test is the one that goes red. It is also
+    // what keeps `visual.spec.ts`'s warm-popover baseline byte-identical: that
+    // screenshot is this exact popover.
+    await isolate(page, "human-id-no-control");
+    await page.goto("/jobs?set=all");
+    await jobsReady(page);
+    await warmChipOn(page, "Ramp").click();
+
+    const pop = page.getByTestId("warm-popover");
+    await expect(pop.getByTestId("warm-links")).toBeVisible();
+    await expect(pop.getByTestId("warm-change-id")).toHaveCount(0);
+    await expect(pop.getByTestId("warm-paste-form")).toHaveCount(0);
+  });
+
+  test("a swept id offers the control, prefilled with what it is replacing", async ({ page }) => {
+    await isolate(page, "engine-id-control");
+    await page.goto("/jobs?set=all");
+    await jobsReady(page);
+    await warmChipOn(page, "Databricks").click();
+
+    const pop = page.getByTestId("warm-popover");
+    await expect(pop.getByTestId("warm-links")).toBeVisible();
+    // The searches stay first: they are what somebody opened this for.
+    await expect(pop.getByTestId("warm-change-id")).toBeVisible();
+    await pop.getByTestId("warm-change-id").click();
+
+    // Prefilled with the CURRENT id — a person correcting a number needs to see the
+    // one they are disagreeing with, and an empty box would make "change" and "clear"
+    // the same gesture.
+    const form = pop.getByTestId("warm-paste-form");
+    await expect(form.getByRole("textbox")).toHaveValue("3608");
+  });
+
+  test("a corrected id lands and survives a reload", async ({ page }) => {
+    await isolate(page, "engine-id-replaced");
+    await page.goto("/jobs?set=all");
+    await jobsReady(page);
+    await warmChipOn(page, "Databricks").click();
+    await page.getByTestId("warm-change-id").click();
+
+    const form = page.getByTestId("warm-paste-form");
+    await form.getByRole("textbox").fill("https://www.linkedin.com/search/results/people/?f_C=777");
+    await form.getByRole("button", { name: "Save" }).click();
+    // The toast, not the popover closing — this file's own rule for gating on a
+    // server action's completion rather than on its dispatch.
+    await expect(page.getByText("Saved the LinkedIn id for Databricks")).toBeVisible();
+
+    await page.reload();
+    await jobsReady(page);
+    await warmChipOn(page, "Databricks").click();
+    const pop = page.getByTestId("warm-popover");
+    const href = await pop.getByTestId("warm-link-first").getAttribute("href");
+    expect(decodeURIComponent(href ?? "")).toContain('currentCompany=["777"]');
+    // And the row is a PERSON's now, so the control it offered is gone — which is
+    // also what stops the next harvest touching it (0016's tombstone).
+    await expect(pop.getByTestId("warm-change-id")).toHaveCount(0);
+  });
+
+  test("clearing a swept id is a gesture, and it sticks", async ({ page }) => {
+    // The honest answer when the sweep is wrong and you have no better number.
+    // `app_set_linkedin_company_id` has always accepted '', and 0016 turned that into
+    // a tombstone the harvest refuses to overwrite — so this is the correction whose
+    // whole value is that the next cron does not undo it.
+    await isolate(page, "engine-id-cleared");
+    await page.goto("/jobs?set=all");
+    await jobsReady(page);
+    await warmChipOn(page, "Databricks").click();
+    await page.getByTestId("warm-change-id").click();
+
+    const form = page.getByTestId("warm-paste-form");
+    await form.getByRole("textbox").fill("");
+    // The button says what pressing it does. "Save" on an empty field is a sentence
+    // that means nothing.
+    await form.getByRole("button", { name: "Clear" }).click();
+    await expect(page.getByText("Cleared the LinkedIn id for Databricks")).toBeVisible();
+
+    await page.reload();
+    await jobsReady(page);
+    // Back to the state before anybody had an id — the chip prompts, and the popover
+    // offers the first-paste form rather than five searches for everybody on LinkedIn.
+    await expect(warmChipOn(page, "Databricks")).toHaveText("Add ID");
+    await warmChipOn(page, "Databricks").click();
+    const pop = page.getByTestId("warm-popover");
+    await expect(pop.getByTestId("warm-paste-form")).toBeVisible();
+    await expect(pop.getByTestId("warm-links")).toHaveCount(0);
+  });
+});
+
 // --------------------------------------------------------------- the pipeline
 
 test.describe("the Warm cell on /pipeline", () => {

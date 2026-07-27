@@ -644,6 +644,7 @@ default (`core/config_defaults.yaml`) and pushes the problem to ops.
 | `filter_seniority_exclude` | Senior, Staff, GPM, Director, VP | comma-separated | same | Seniority tags treated as over-bar when YoE is unknown |
 | `fetch_workers` | 8 | int 1–32 | monitor | Concurrent board fetches in the daily sweep (network only; sheet writes stay serial) |
 | `run_budget_min` | 30 | int 5–120 | monitor | Soft wall-clock budget; a budget-stopped sweep flushes, parks a resume cursor, and continues next run |
+| `linkedin_backfill_budget` | 20 | int 0–50 | linkedin_backfill | Companies the LinkedIn-id backfill probes per run — one request and at most one credit each, so this is also the spend cap. **50 is the ceiling because TheirStack allows 50 requests/hour per key**, and because 400 probes at 6.5 s pacing is 43 min against Lambda's 900 s timeout. 0 = off. The free harvest inside `wide_theirstack` ignores it and costs nothing |
 
 **The `notify_*` knobs refine, they never widen.** `notify_channel` in
 `users/<name>/profile.yaml` is the per-person ceiling (`email` = never an ntfy push, `none`
@@ -658,8 +659,10 @@ no longer a separate checkbox), or `python -m monitor.regate` locally — `--dry
 the would-be counts.
 
 **Machine-maintained Config keys — never edit:** every `heartbeat_*`, `wide_cursor`,
-`wide_theirstack_cursor`, `monitor_sweep_cursor`, `simplify_alert_date`,
-`capture_alert_date`. (Blanking a cursor is harmless — keys re-dedupe — but pointless.)
+`wide_theirstack_cursor`, `monitor_sweep_cursor`, `linkedin_backfill_cursor`,
+`simplify_alert_date`, `capture_alert_date`. (Blanking a cursor is harmless — keys
+re-dedupe — but pointless. Blanking `linkedin_backfill_cursor` restarts that walk from
+the top of the universe, which costs credits re-probing companies already answered.)
 
 **Capture watchdog:** `heartbeat_capture` is written by the Gmail Apps Script on every
 successful capture run; `tracker/join` ops-alerts (once per day) when it is missing or

@@ -147,6 +147,20 @@ export type CompanyView = {
    * and in `lib/referral/linkedin.ts`, at both ends rather than at one.
    */
   linkedinCompanyId: string;
+  /**
+   * `companies.linkedin_id_source` (0016) — who last answered the id above:
+   * `"human"`, `"engine"`, or `""` when nobody has.
+   *
+   * The engine became the second writer of `linkedinCompanyId` when the TheirStack
+   * sweep started harvesting ids off rows it already buys. This says which writer it
+   * was, and it is what `warm-cell.tsx` gates its correction control on: a bot's
+   * answer gets an edit affordance, because otherwise a valid id removes the only
+   * paste surface in the product and nobody can disagree with it.
+   *
+   * Untrusted text, like the id beside it: the column is free-vocab (0008's `source`
+   * precedent), so anything that is not exactly `"human"` reads as not-human.
+   */
+  linkedinIdSource: string;
   /** Optimistic-concurrency token for the per-user subscription row. */
   updatedAt: string | null;
   /**

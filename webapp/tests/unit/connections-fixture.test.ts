@@ -260,6 +260,71 @@ describe("setLinkedinCompanyId", () => {
     });
     expect(next.ok).toBe(true);
   });
+
+  // ---- provenance (0016) -------------------------------------------------
+
+  it("stamps every write as a person's, including a clear", async () => {
+    // The tombstone. `hq_fill_linkedin_company_id` refuses a company whose source is
+    // 'human' EVEN WHEN THE CELL IS BLANK, which is what makes "the sweep's id is
+    // wrong and I have no better one" an answer that survives the next cron. A fake
+    // that cleared the value without stamping the source would show the clear
+    // sticking in the demo and the harvest undoing it in production.
+    const cleared = await src.setLinkedinCompanyId({
+      companyId: DATABRICKS.id,
+      linkedinId: "",
+      idempotencyKey: idem(),
+      expectedUpdatedAt: null,
+    });
+    expect(cleared.ok && cleared.company.linkedinCompanyId).toBe("");
+    expect(cleared.ok && cleared.company.linkedinIdSource).toBe("human");
+  });
+
+  it("re-pasting the id the SWEEP found is a claim, not a no-op", async () => {
+    // MUTATION REASON: drop `&& current.linkedinIdSource === "human"` from the
+    // fixture's no-op branch — the mirror of the SQL's `v_before is distinct from
+    // v_id OR v_row.linkedin_id_source <> 'human'` — and this is the only test that
+    // fails. Every one of the 1391 vitest tests and all 44 referral e2e stay green
+    // without it, which is precisely the shape of "the fake is kinder than the real
+    // thing" this file's own preamble was written about.
+    //
+    // What the divergence would cost: somebody looks at the number the sweep found,
+    // agrees with it, re-pastes it to make it theirs — and the row stays engine-owned,
+    // so the next harvest is still free to overwrite it. The gesture LOOKS like it
+    // worked. Databricks' fixture id came from the sweep, which is what makes this
+    // reachable at all.
+    expect(DATABRICKS.linkedinIdSource).toBe("engine");
+    const claimed = await src.setLinkedinCompanyId({
+      companyId: DATABRICKS.id,
+      linkedinId: DATABRICKS.linkedinCompanyId, // the SAME value
+      idempotencyKey: idem(),
+      expectedUpdatedAt: null,
+    });
+    expect(claimed.ok && claimed.company.linkedinCompanyId).toBe(DATABRICKS.linkedinCompanyId);
+    expect(claimed.ok && claimed.company.linkedinIdSource).toBe("human");
+    // The row really changed, so its token moved — the SQL's `update … returning`
+    // fires on this branch too, and a tab holding the old token conflicts truthfully.
+    expect(claimed.ok && claimed.company.companyUpdatedAt).not.toBe(
+      DATABRICKS.companyUpdatedAt,
+    );
+    const stored = (await src.companies()).find((c) => c.id === DATABRICKS.id);
+    expect(stored!.linkedinIdSource).toBe("human");
+  });
+
+  it("re-pasting your OWN id is still a no-op that leaves the token alone", async () => {
+    // The other half, and the reason the clause is `&&` rather than a replacement:
+    // 0013's no-op rule survives for the case it was written for. Bumping the token
+    // here would invalidate every other tab's token for a row nothing changed —
+    // 0013's own words, and matrix row 96's whole subject.
+    expect(RAMP.linkedinIdSource).toBe("human");
+    const noop = await src.setLinkedinCompanyId({
+      companyId: RAMP.id,
+      linkedinId: RAMP.linkedinCompanyId,
+      idempotencyKey: idem(),
+      expectedUpdatedAt: null,
+    });
+    expect(noop.ok && noop.company.companyUpdatedAt).toBe(RAMP.companyUpdatedAt);
+    expect(noop.ok && noop.company.linkedinIdSource).toBe("human");
+  });
 });
 
 // ------------------------------------------------------------ importConnections

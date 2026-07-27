@@ -106,6 +106,7 @@ CONFIG_DESCRIPTIONS = {
     "fetch_workers": "Concurrent board fetches in the daily sweep (1-32)",
     "wide_location_ids": "TheirStack location IDs for a metro-wide search; blank = only priority companies",
     "wide_credit_budget": "Max jobs TheirStack may return per run (1 API credit each) — hard spend cap",
+    "linkedin_backfill_budget": "Companies the LinkedIn-id backfill may probe per run = API credits it may spend; 0 = off",
     "run_budget_min": "Daily sweep soft time budget in minutes; unfinished boards resume next run",
 }
 

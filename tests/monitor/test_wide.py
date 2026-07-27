@@ -1,6 +1,8 @@
 import json
 from urllib.parse import unquote
 
+import pytest
+
 from core.config import defaults
 from core.fakes import fake_hq
 from monitor import wide
@@ -531,3 +533,117 @@ def test_each_source_writes_its_own_heartbeat():
     assert _beat(("cafe",)) == "cafe"
     assert _beat(("theirstack",)) == "theirstack"
     assert _beat(("cafe", "theirstack")) == "wide"
+
+
+# ------------------------------------------------- LinkedIn ids, riding along free
+
+def _ts_job_with_firmographics(name="Plaid", linkedin_id="1035"):
+    """The probe-verified payload shape: every TheirStack row carries a
+    `company_object` blob, LinkedIn id included (probe #2, 2026-07-26)."""
+    j = ts_job()
+    j["company_object"] = {"name": name, "domain": "plaid.com", "linkedin_id": linkedin_id,
+                           "industry": "Financial Services", "employee_count": 1200}
+    return j
+
+
+def _ts_hq():
+    return _hq(companies=[{"name": "Plaid", "ats": "lever", "slug": "plaid",
+                           "monitor": "TRUE", "seeded": "TRUE", "priority": "TRUE"}],
+               config=[{"key": "wide_cursor", "value": CURSOR},
+                       {"key": "wide_theirstack_cursor", "value": CURSOR}])
+
+
+def _store(monkeypatch, rpc):
+    monkeypatch.setenv("APIFY_TOKEN", "tok")
+    monkeypatch.setenv("THEIRSTACK_API_KEY", "tsk")
+    monkeypatch.setattr("core.pg.enabled", lambda: True)
+    monkeypatch.setattr("core.pgwrites.user_id", lambda: "u-1")
+    monkeypatch.setattr("core.pg.rpc", rpc)
+
+
+def test_the_sweep_keeps_the_linkedin_id_it_was_already_paying_for(monkeypatch):
+    """The whole first increment: the id was in the payload, the sweep was parsing
+    that payload for the Feed, and the id was going in the bin. Zero extra requests —
+    asserted, because a harvest that quietly bought its own page would be a cost
+    regression nobody notices until the free tier runs out."""
+    sent = []
+    _store(monkeypatch, lambda fn, params, session=None: (
+        sent.append((fn, params)) or {"outcome": "filled"}))
+    session = FakeSession(payload={"data": [_ts_job_with_firmographics()]})
+    s = _run(_ts_hq(), FakeApify(items=[]), session=session)
+
+    assert len(session.calls) == 1, "the harvest must not send a request of its own"
+    assert s.linkedin_seen == 1 and s.linkedin_filled == 1
+    fn, params = sent[0]
+    assert fn == "hq_fill_linkedin_company_id"
+    assert params["p_name"] == "Plaid" and params["p_linkedin_id"] == "1035"
+    assert params["p_source"] == "wide-theirstack"
+
+
+def test_a_row_that_fails_the_title_gate_still_donates_its_companys_id(monkeypatch):
+    """The id is a fact about the EMPLOYER and the row is bought either way. Harvest
+    after the Feed mapping instead and a company whose only match this week is a
+    Sales role keeps its empty cell."""
+    _store(monkeypatch, lambda fn, params, session=None: {"outcome": "filled"})
+    job = _ts_job_with_firmographics()
+    job["job_title"] = "Account Executive"          # vetoed by titles_exclude/include
+    s = _run(_ts_hq(), FakeApify(items=[]), session=FakeSession(payload={"data": [job]}))
+    assert s.appended == 0 and s.linkedin_filled == 1
+
+
+def test_a_store_failure_costs_the_id_and_not_the_sweep(monkeypatch):
+    """Deliberate exception to fail-loud, stated in `_harvest_linkedin`: this is an
+    enrichment riding an already-optional lane, and `monitor.linkedin_backfill` picks
+    up whatever it drops. Losing a day of discovery over it is the expensive half."""
+    _store(monkeypatch, lambda *a, **k: (_ for _ in ()).throw(RuntimeError("PostgREST 503")))
+    hq = _ts_hq()
+    s = _run(hq, FakeApify(items=[]),
+             session=FakeSession(payload={"data": [_ts_job_with_firmographics()]}))
+    assert s.ok and s.appended == 1 and s.linkedin_filled == 0
+    assert any(r["action"] == "linkedin_error" for r in hq.tab("log").records())
+
+
+def test_one_malformed_row_in_a_bought_page_still_lands_every_other_posting(monkeypatch):
+    """MAJOR-2, the regression this ordering exists to prevent — and it was a
+    regression against `main`, proven both ways: with the harvest ahead of the Feed
+    loop and its parse outside the envelope, a single `null` element gave
+    `appended=0` where main gave 1, with exit code 0 and the heartbeat written, so
+    nothing anywhere said a day of postings had been dropped.
+
+    MUTATION REASON: move the `_harvest_linkedin` call back above `for job in
+    ts_jobs:`, or lift `harvest_all` out of its `try`, and this goes red while every
+    other test in this file stays green.
+    """
+    _store(monkeypatch, lambda fn, params, session=None: {"outcome": "filled"})
+    hq = _ts_hq()
+    page = {"data": [_ts_job_with_firmographics(), None]}
+    s = _run(hq, FakeApify(items=[]), session=FakeSession(payload=page))
+    assert s.appended == 1, "the sweep's own product must survive a bad row"
+    assert s.ok and hq.tab("feed").records()[0]["company"] == "Plaid"
+    # And the good row's id was still harvested: a malformed neighbour costs one id.
+    assert s.linkedin_filled == 1
+
+
+def test_the_harvest_cannot_reach_the_sweeps_error_list(monkeypatch):
+    """The envelope, from the other side: an exploding harvest must not appear as a
+    TheirStack failure, because that is the signal the ops watchdog reads."""
+    _store(monkeypatch, lambda *a, **k: {"outcome": "filled"})
+    monkeypatch.setattr("monitor.linkedin_backfill.harvest_all",
+                        lambda jobs: (_ for _ in ()).throw(RuntimeError("boom")))
+    hq = _ts_hq()
+    s = _run(hq, FakeApify(items=[]),
+             session=FakeSession(payload={"data": [_ts_job_with_firmographics()]}))
+    assert s.appended == 1 and s.ok
+    assert not any("theirstack" in e for e in s.errors)
+
+
+def test_no_store_configured_is_a_clean_skip(monkeypatch):
+    """Phase A, and any lane whose registry block carries no pg id. The ids are still
+    COUNTED as seen, so the log does not imply the payload never carried them."""
+    monkeypatch.setenv("APIFY_TOKEN", "tok")
+    monkeypatch.setenv("THEIRSTACK_API_KEY", "tsk")
+    monkeypatch.setattr("core.pg.enabled", lambda: False)
+    monkeypatch.setattr("core.pg.rpc", lambda *a, **k: pytest.fail("wrote with no store"))
+    s = _run(_ts_hq(), FakeApify(items=[]),
+             session=FakeSession(payload={"data": [_ts_job_with_firmographics()]}))
+    assert s.ok and s.linkedin_seen == 1 and s.linkedin_filled == 0
