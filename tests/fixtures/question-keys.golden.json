@@ -1,0 +1,168 @@
+[
+  {
+    "why": "real: identity field label",
+    "label": "First Name",
+    "key": "first name"
+  },
+  {
+    "why": "real: the same question asked in caps by another board",
+    "label": "FIRST NAME",
+    "key": "first name"
+  },
+  {
+    "why": "real: trailing question mark falls out",
+    "label": "Are you at least 18 years of age?",
+    "key": "are you at least 18 years of age"
+  },
+  {
+    "why": "real: Coinbase work authorization",
+    "label": "Are you legally authorized to work in the country where this position is located?",
+    "key": "are you legally authorized to work in the country where this position is located"
+  },
+  {
+    "why": "real: Discord asks the same thing about one country",
+    "label": "Are you legally authorized to work in the United States for our Company?",
+    "key": "are you legally authorized to work in the united states for our company"
+  },
+  {
+    "why": "real: Anthropic asks sponsorship twice, short form",
+    "label": "Do you require visa sponsorship? ",
+    "key": "do you require visa sponsorship"
+  },
+  {
+    "why": "real: Anthropic asks sponsorship twice, long form",
+    "label": "Will you now or will you in the future require employment visa sponsorship to work in the country in which the job you're applying for is located? ",
+    "key": "will you now or will you in the future require employment visa sponsorship to work in the country in which the job you re applying for is located"
+  },
+  {
+    "why": "real: an apostrophe becomes a space, so `you're` is two tokens",
+    "label": "the job you're applying for",
+    "key": "the job you re applying for"
+  },
+  {
+    "why": "real: Coinbase ships a U+2011 non-breaking hyphen mid-word",
+    "label": "referred to this position by a senior leader or decision‑maker",
+    "key": "referred to this position by a senior leader or decision maker"
+  },
+  {
+    "why": "real: parentheses and a slash",
+    "label": "(Optional) Personal Preferences",
+    "key": "optional personal preferences"
+  },
+  {
+    "why": "real: Greenhouse's own resume label carries a slash",
+    "label": "Resume/CV",
+    "key": "resume cv"
+  },
+  {
+    "why": "real: a trailing newline in the label text",
+    "label": "I understand that Coinbase may use AI tools to assist in the application and interview process.  \n",
+    "key": "i understand that coinbase may use ai tools to assist in the application and interview process"
+  },
+  {
+    "why": "case folds",
+    "label": "ARE YOU OPEN TO RELOCATION",
+    "key": "are you open to relocation"
+  },
+  {
+    "why": "already normalized is a fixed point",
+    "label": "are you open to relocation",
+    "key": "are you open to relocation"
+  },
+  {
+    "why": "surrounding spaces are trimmed",
+    "label": "   start date   ",
+    "key": "start date"
+  },
+  {
+    "why": "interior runs collapse to one space",
+    "label": "start      date",
+    "key": "start date"
+  },
+  {
+    "why": "tab is whitespace",
+    "label": "start\tdate",
+    "key": "start date"
+  },
+  {
+    "why": "newline is whitespace",
+    "label": "start\ndate",
+    "key": "start date"
+  },
+  {
+    "why": "CRLF is whitespace",
+    "label": "start\r\ndate",
+    "key": "start date"
+  },
+  {
+    "why": "NBSP is the copy-paste artefact bare btrim() does not strip",
+    "label": "start date",
+    "key": "start date"
+  },
+  {
+    "why": "zero-width space is not a character a person typed",
+    "label": "start​date",
+    "key": "start date"
+  },
+  {
+    "why": "digits survive",
+    "label": "Are you 18 or older",
+    "key": "are you 18 or older"
+  },
+  {
+    "why": "punctuation between words becomes a boundary, never a join",
+    "label": "compensation/salary expectations",
+    "key": "compensation salary expectations"
+  },
+  {
+    "why": "a hyphen becomes a space: two spellings of one word do NOT converge",
+    "label": "e-mail",
+    "key": "e mail"
+  },
+  {
+    "why": "...and the unhyphenated spelling is therefore a DIFFERENT key",
+    "label": "email",
+    "key": "email"
+  },
+  {
+    "why": "an em dash is a boundary",
+    "label": "Relocation — are you willing?",
+    "key": "relocation are you willing"
+  },
+  {
+    "why": "smart quotes are boundaries",
+    "label": "What’s your notice period?",
+    "key": "what s your notice period"
+  },
+  {
+    "why": "a label of pure punctuation normalizes to the empty key, which the column refuses",
+    "label": "??? — ???",
+    "key": ""
+  },
+  {
+    "why": "whitespace only is the same nothing",
+    "label": "   \n\t  ",
+    "key": ""
+  },
+  {
+    "why": "a fully non-Latin label normalizes to nothing: the stated English-only limit",
+    "label": "あなたの名前",
+    "key": ""
+  },
+  {
+    "why": "...but Latin text with accents keeps its ASCII letters, losing the accented one",
+    "label": "Peña Nieto",
+    "key": "pe a nieto"
+  },
+  {
+    "why": "THE ONE CROSS-LANGUAGE DIVERGENCE. Postgres lowercases U+0130 (Turkish dotted capital I) to a bare `i`; JavaScript expands it to `i` + U+0307 and the combining mark becomes a space. Found by a full-BMP sweep — every other single codepoint agrees. Recorded with both keys so the limit is a committed fact rather than a sentence in a comment: for such a label the browser would miss the existing row, save `again`, and the generated column would merge it onto the old one, silently overwriting a differently-keyed question. Accepted because English boards are the stated scope.",
+    "label": "İstanbul office preference",
+    "key": "istanbul office preference",
+    "jsKey": "i stanbul office preference"
+  },
+  {
+    "why": "the SAME character, and here the two languages AGREE — the divergence needs the next character to be alphanumeric, otherwise JavaScript's stray combining mark is swallowed by the run beside it. Kept so the limit is not read as `any Turkish label diverges`.",
+    "label": "Have you worked at İş Bankası?",
+    "key": "have you worked at i bankas"
+  }
+]

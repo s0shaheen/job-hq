@@ -1,0 +1,474 @@
+[
+  {
+    "group": "knockout-miss",
+    "why": "no `sponsor` token anywhere; SENSITIVE is what stops layer 3",
+    "label": "Do you now or will you in the future require an employment-based visa to work in the US?",
+    "verdict": "none",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "`work permit` is deliberately absent from PATTERNS — adding it would need its own polarity case",
+    "label": "Do you require a work permit to work in Canada?",
+    "verdict": "none",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "`immigration support` is a phrasing PATTERNS does not read",
+    "label": "Will you require immigration support (H-1B, TN, OPT) now or in the future?",
+    "verdict": "none",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "bare `visa` without `sponsorship`",
+    "label": "Do you require a visa to work in the US?",
+    "verdict": "none",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "now READS: `eligible … to work` is the direct class, and the country resolves",
+    "label": "Are you legally eligible to work in the United States?",
+    "verdict": "work_authorization/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "reads, but no country resolves — prepare gaps it (apply-prepare.test.ts)",
+    "label": "Are you eligible to work without restriction?",
+    "verdict": "work_authorization/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "`right to work` is the direct class",
+    "label": "Do you have the unrestricted right to work in the US?",
+    "verdict": "work_authorization/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "same, another country in the lexicon",
+    "label": "Do you have the right to work in Canada?",
+    "verdict": "work_authorization/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "`minimum` is the direct class of compensation",
+    "label": "What is your minimum acceptable base salary?",
+    "verdict": "compensation/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "CURRENT salary is a different fact than a minimum, and illegal to ask in several US states — refused, not answered",
+    "label": "What is your current salary?",
+    "verdict": "compensation/unanswerable",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "`arrest` is in the criminal pattern",
+    "label": "Have you ever been arrested for or charged with a crime?",
+    "verdict": "criminal_history/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "`nolo contendere` via `pleaded`",
+    "label": "Have you ever pleaded guilty or nolo contendere to a felony?",
+    "verdict": "criminal_history/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "`over 18` is the direct class",
+    "label": "Are you over 18?",
+    "verdict": "age_eligibility/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "`legal working age` is the direct class",
+    "label": "Are you of legal working age?",
+    "verdict": "age_eligibility/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "`name as it appears` is the legal-name pattern",
+    "label": "Name as it appears on your government-issued identification",
+    "verdict": "legal_name/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "bare `comp` plus `expectations`",
+    "label": "Total comp expectations?",
+    "verdict": "compensation/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "`base` alone — which is why SENSITIVE carries `base` too",
+    "label": "Desired annual base (USD)",
+    "verdict": "compensation/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "knockout-miss",
+    "why": "`ote` plus `target`",
+    "label": "What is your target OTE?",
+    "verdict": "compensation/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "polarity-trap",
+    "why": "THE severest finding. `without sponsorship` is the inverted class, so a `needs_sponsorship: false` situation answers YES",
+    "label": "Are you able to work in the US without sponsorship, now or in the future?",
+    "verdict": "visa_sponsorship/inverted",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "polarity-trap",
+    "why": "`authorization` is not `authorized`, so PATTERNS does not read it — SENSITIVE does, and it gaps",
+    "label": "Do you require work authorization to be employed here?",
+    "verdict": "none",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "polarity-trap",
+    "why": "CONSENT, not disclosure. Was answered from a `criminal_history=No` rule as `I refuse a background check`",
+    "label": "Are you willing to submit to a background check?",
+    "verdict": "background_check_consent/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "polarity-trap",
+    "why": "the same, worded as consent",
+    "label": "Do you consent to a background check at the offer stage?",
+    "verdict": "background_check_consent/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "polarity-trap",
+    "why": "ASSISTANCE is a different fact than willingness — refused, not answered from `relocation_open`",
+    "label": "Do you require relocation assistance?",
+    "verdict": "relocation/unanswerable",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "polarity-trap",
+    "why": "both direct and inverted match, so it gaps rather than guessing the reading",
+    "label": "Are you under 18 years of age?",
+    "verdict": "age_eligibility/uncertain",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "polarity-trap",
+    "why": "compound: work authorization AND sponsorship. Ambiguous by topic",
+    "label": "Are you authorized to work in the US without sponsorship, now or in the future?",
+    "verdict": "ambiguous:visa_sponsorship+work_authorization",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "polarity-trap",
+    "why": "two countries in one question — prepare gaps it, because a countries list cannot answer `or`",
+    "label": "Are you authorized to work in the US or Canada?",
+    "verdict": "work_authorization/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Coinbase — defers to the posting's country",
+    "label": "Are you legally authorized to work in the country where this position is located?",
+    "verdict": "work_authorization/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Discord — names its country",
+    "label": "Are you legally authorized to work in the United States for our Company?",
+    "verdict": "work_authorization/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Coinbase",
+    "label": "Will you require sponsorship for employment visa status now or in the future?",
+    "verdict": "visa_sponsorship/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Anthropic, short form",
+    "label": "Do you require visa sponsorship? ",
+    "verdict": "visa_sponsorship/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Anthropic, the lawyer's form of the SAME fact — one situation answers both",
+    "label": "Will you now or will you in the future require employment visa sponsorship to work in the country in which the job you're applying for is located? ",
+    "verdict": "visa_sponsorship/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Coinbase",
+    "label": "Are you at least 18 years of age?",
+    "verdict": "age_eligibility/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Coinbase",
+    "label": "Have you previously been employed by Coinbase in any capacity?",
+    "verdict": "prior_employment/direct",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Coinbase, Discord",
+    "label": "How did you hear about this job?",
+    "verdict": "how_did_you_hear/direct",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Anthropic",
+    "label": "Are you open to relocation for this role? ",
+    "verdict": "relocation/direct",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Anthropic",
+    "label": "When is the earliest you would want to start working with us?",
+    "verdict": "start_date/direct",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Anthropic",
+    "label": "Are you open to working in-person in one of our offices 25% of the time?",
+    "verdict": "onsite_commitment/direct",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Anthropic",
+    "label": "Have you ever interviewed at Anthropic before?",
+    "verdict": "prior_interview/direct",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Discord — the near-miss twin of its work-authorization question",
+    "label": "Are you currently located in the US?",
+    "verdict": "current_location/direct",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Discord — compound: based in OR willing to relocate",
+    "label": "Are you currently based in or willing to relocate to the Bay Area for this position?",
+    "verdict": "ambiguous:current_location+relocation",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "board",
+    "why": "Anthropic — an address question that also says `relocate`",
+    "label": "What is the address from which you plan on working? If you would need to relocate, please type \"relocating\".",
+    "verdict": "ambiguous:current_location+relocation",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "near-miss",
+    "why": "has `relative`, is a conflict-of-interest disclosure — the employment anchor keeps it out",
+    "label": "Are you a close relative of a government official (i.e., child/step-child, spouse/partner, parent/guardian, aunt/uncle, first cousin, in-law)?",
+    "verdict": "none",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "near-miss",
+    "why": "has `referred`, is about vendors — the employee anchor keeps it out",
+    "label": "To your knowledge, were you referred to this position by a senior leader or decision-maker at a current or prospective institutional client, business partner, or vendor of Coinbase?",
+    "verdict": "none",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "consent",
+    "why": "Coinbase's required AI acknowledgement — named so the review surface gets the right affordance, never an answer",
+    "label": "I understand that Coinbase may use AI tools to assist in the application and interview process.",
+    "verdict": "none",
+    "sensitive": false,
+    "consent": true
+  },
+  {
+    "group": "consent",
+    "why": "Anthropic's required AI policy select",
+    "label": "AI Policy for Application",
+    "verdict": "none",
+    "sensitive": false,
+    "consent": true
+  },
+  {
+    "group": "free-text",
+    "why": "a free-response essay, not a policy question",
+    "label": "Why Anthropic?",
+    "verdict": "none",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "free-text",
+    "why": "a plain profile field",
+    "label": "Website",
+    "verdict": "none",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "free-text",
+    "why": "a plain profile field",
+    "label": "LinkedIn Profile",
+    "verdict": "none",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "answers",
+    "why": "the real relative-at-company question still reads",
+    "label": "Do you have any relatives who work at Coinbase?",
+    "verdict": "relative_at_company/direct",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "answers",
+    "why": "the real employee-referral question still reads",
+    "label": "Were you referred by a Coinbase employee?",
+    "verdict": "employee_referral/direct",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "answers",
+    "why": "the ordinary comp phrasing",
+    "label": "What are your salary expectations?",
+    "verdict": "compensation/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "answers",
+    "why": "`desired` is the direct class",
+    "label": "What is your desired base salary?",
+    "verdict": "compensation/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "answers",
+    "why": "the ordinary start-date phrasing",
+    "label": "What is your expected start date?",
+    "verdict": "start_date/direct",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "answers",
+    "why": "a NOTICE PERIOD is not a start date — refused",
+    "label": "What is your notice period?",
+    "verdict": "start_date/unanswerable",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "answers",
+    "why": "`willing` is relocation's direct class",
+    "label": "Are you willing to relocate to New York?",
+    "verdict": "relocation/direct",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "answers",
+    "why": "legal name, asked plainly",
+    "label": "What is your full legal name?",
+    "verdict": "legal_name/direct",
+    "sensitive": true,
+    "consent": false
+  },
+  {
+    "group": "answers",
+    "why": "an address question with no country in it",
+    "label": "Where do you currently live?",
+    "verdict": "current_location/direct",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "answers",
+    "why": "`comfortable` is onsite's direct class",
+    "label": "Are you comfortable working onsite three days a week?",
+    "verdict": "onsite_commitment/direct",
+    "sensitive": false,
+    "consent": false
+  },
+  {
+    "group": "answers",
+    "why": "disclosure, answerable from a `felony_disclosure` situation",
+    "label": "Have you been convicted of a felony? If so, please explain.",
+    "verdict": "criminal_history/direct",
+    "sensitive": true,
+    "consent": false
+  }
+]

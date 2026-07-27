@@ -30,10 +30,47 @@ def test_there_are_migrations():
     assert MIGRATIONS, "no migrations found — wrong path?"
 
 
+#: Migration numbers deliberately skipped on this branch, and by whom.
+#:
+#: The contiguity rule below exists because a gap normally means somebody's
+#: migration never got committed. Parallel branches cut from one commit break
+#: that assumption honestly: two sessions each claim a number up front so they
+#: cannot collide on merge, and until both land the tree has a hole in it.
+#:
+#: Asserted EXACT in both directions, the `KNOWN_UNNAMED_REVOKES` shape: an
+#: UNDECLARED gap still fails, and the day the reserved migration lands this list
+#: goes red until its line is deleted. A reservation nobody has to remove is a
+#: reservation that turns back into the silent hole it was standing in for.
+RESERVED_MIGRATION_NUMBERS: dict[int, str] = {
+    # 13 was reserved for the referral-finder branch; it merged (#81) and the
+    # reservation came out the same hour — the mechanism working as designed.
+}
+
+
 def test_migrations_are_contiguously_numbered():
-    """A gap means someone's migration never got committed."""
+    """A gap means someone's migration never got committed — unless it is reserved."""
     numbers = [int(m.name.split("_", 1)[0]) for m in MIGRATIONS]
-    assert numbers == list(range(1, len(numbers) + 1)), numbers
+    assert numbers == sorted(set(numbers)), f"duplicate or unsorted migration numbers: {numbers}"
+    expected = [n for n in range(1, max(numbers) + 1) if n not in RESERVED_MIGRATION_NUMBERS]
+    assert numbers == expected, {
+        "found": numbers,
+        "expected": expected,
+        "reserved": RESERVED_MIGRATION_NUMBERS,
+    }
+
+
+def test_the_reserved_migration_list_is_exact():
+    """A reserved number that has LANDED must be removed from the list.
+
+    Without this, `RESERVED_MIGRATION_NUMBERS` would grow into a permanent
+    licence to skip numbers, and the next real hole would hide inside it.
+    """
+    present = {int(m.name.split("_", 1)[0]) for m in MIGRATIONS}
+    landed = sorted(present & set(RESERVED_MIGRATION_NUMBERS))
+    assert not landed, (
+        f"migration(s) {landed} exist but are still listed as reserved — "
+        "delete their lines from RESERVED_MIGRATION_NUMBERS"
+    )
 
 
 # ---------------------------------------------------------------- the contract
@@ -448,6 +485,34 @@ def test_definer_revokes_name_the_roles_supabase_grants_to(name):
         assert role in named, (
             f"{name}() is revoked from `{named.strip()}` — `{role}` is not named, and "
             "Supabase grants execute to it by name, so the door is still open"
+        )
+
+
+@pytest.mark.parametrize("name", CALLABLE)
+def test_definer_functions_are_granted_only_to_authenticated(name):
+    """The check above reads the REVOKE. Nothing read the GRANT.
+
+    An adversarial review added `grant execute … to authenticated, anon` on a
+    0014 function and every gate stayed green: `test_definer_revokes_name_the_roles…`
+    is satisfied by the revoke line that precedes it, and a grant on the next line
+    hands the door straight back. That is the same mutant class the
+    `KNOWN_UNNAMED_REVOKES` docstring records surviving on `app_preview_corpus` —
+    found once, guarded on one side only.
+
+    `service_role` is allowed: it bypasses RLS anyway and a token route granting
+    to it is a deliberate act, not an accident. `anon` and `public` are not.
+    """
+    grants = re.findall(
+        rf"grant\s+execute\s+on\s+function\s+public\.{name}\s*\([^)]*\)\s*\n?\s*to\s+([^;]+);",
+        ALL_SQL,
+        re.I | re.S,
+    )
+    assert grants, f"{name}() is never granted to anything — the app cannot call it"
+    for clause in grants:
+        roles = {r.strip().lower() for r in clause.split(",")}
+        assert not (roles & {"anon", "public"}), (
+            f"{name}() is granted to {sorted(roles & {'anon', 'public'})} — "
+            "an anonymous caller can execute a security-definer function"
         )
 
 
