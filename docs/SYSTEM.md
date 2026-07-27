@@ -217,7 +217,7 @@ aws lambda invoke --function-name job-hq-bots \
 <!-- sysmap:begin actions-workflows -->
 | Workflow | File | Trigger |
 |---|---|---|
-| CI | `.github/workflows/ci.yml` | push (branches `**`) · pull_request · dispatch |
+| CI | `.github/workflows/ci.yml` | push (branches `main`) · pull_request · dispatch |
 | Resume render & publish | `.github/workflows/resume.yml` | push (branches `main`; paths `resume/**`, `scripts/render-alt.sh`, `scripts/yaml_to_docx.py`, `scripts/publish_to_drive.py`) · dispatch |
 | Run a bot | `.github/workflows/run-bot.yml` | **dispatch only** |
 | Self-heal and snapshot | `.github/workflows/selfheal.yml` | cron `23 8 * * *` (~03:23 CT) · dispatch |

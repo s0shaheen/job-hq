@@ -3,9 +3,13 @@
 # egress differs from residential — this is the check that matters).
 name: CI
 
+# Push builds MAIN only — a PR branch is already built by the pull_request
+# event, and the old branches:["**"] made every PR commit run the entire
+# matrix TWICE (observed as paired checks on every PR all through 2026-07-26;
+# ~28 runner-minutes a push where 14 do). Stale runs on the same ref cancel.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
     paths-ignore: ["monitor/snapshots/**", "snapshots/**"]
   pull_request: {}
   workflow_dispatch:
@@ -39,12 +43,26 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
 
   webapp:
     name: webapp
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Sharded: the e2e suite is the long pole (11.3m of a 13.7m job at 628
+    # tests x 2 projects on 2 cores) AND the contention that starved the
+    # pipeline write test — 42 import-wizard tests parse workbooks against the
+    # same next-start the rest of the suite is talking to. Two shards halve
+    # both. The build/vitest half is repeated per shard (~2m); wall clock still
+    # drops ~14m -> ~7-8m and the per-shard server load drops with it.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     defaults:
       run:
         working-directory: webapp
@@ -66,18 +84,24 @@ jobs:
         env:
           HQ_DEMO: "1"
       - run: npm test
+        if: matrix.shard == 1   # unit tests are shard-independent; once is enough
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('webapp/package-lock.json') }}
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
       # The layout suite is the guarantee that no page ever scrolls sideways,
       # at six widths on three pages. Visual snapshots are skipped until Linux
       # baselines are recorded (see tests/e2e/visual.spec.ts).
-      - run: npx playwright test
+      - run: npx playwright test --shard=${{ matrix.shard }}/2
         env:
           HQ_DEMO: "1"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-shard-${{ matrix.shard }}
           path: webapp/playwright-report/
           retention-days: 7
 
