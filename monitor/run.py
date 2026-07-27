@@ -22,7 +22,7 @@ import requests
 
 from core import notify, outbox as core_outbox
 from core.profile import Profile
-from monitor import gates, geo, jobcontent, snapshot, tagging, tagworker
+from monitor import companysource, gates, geo, jobcontent, snapshot, tagging, tagworker
 from monitor.config import RuntimeConfig, get_runtime_config, unconfigured_reason
 from monitor.dedup import reconcile_company
 from monitor.fetchers import get_jobs_for
@@ -154,7 +154,9 @@ def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
     started = _time.monotonic()
     deadline = _clamp_deadline(started, started + budget * 60, budget)
 
-    companies = store.read_companies()
+    # SHEET-SUNSET Phase B: which store feeds the list is an env switch, with a
+    # per-sweep sheet-vs-pg delta logged during the soak (monitor/companysource.py).
+    companies = companysource.resolve(store)
     # Resume rotation: a budget-stopped run parks a cursor; the next run
     # starts there and wraps, so tail-of-sheet boards can never starve.
     cursor = store.read_sweep_cursor()
