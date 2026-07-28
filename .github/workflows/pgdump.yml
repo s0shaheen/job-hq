@@ -47,7 +47,11 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get -qq update
           sudo apt-get -qq install -y postgresql-client-17
-          pg_dump --version
+          # /usr/bin/pg_dump is Ubuntu's perl wrapper and it resolves to the
+          # runner's preinstalled 16 cluster even with client-17 installed —
+          # the first live run proved it (server 17.6, wrapper picked 16.14).
+          # Only the versioned path is trustworthy here.
+          /usr/lib/postgresql/17/bin/pg_dump --version
 
       - name: Dump public schema
         env:
@@ -59,7 +63,7 @@ jobs:
           # --schema=public ONLY: auth.users/sessions and storage must never
           # land in git, and a restore into a fresh project must not collide
           # with Supabase's own managed schemas.
-          pg_dump "$SUPABASE_DB_URL" \
+          /usr/lib/postgresql/17/bin/pg_dump "$SUPABASE_DB_URL" \
             --schema=public --no-owner --no-privileges \
             | gzip -9 > snapshots/pg/hq.sql.gz
           # sanity gate: a real dump of this schema is never this small
