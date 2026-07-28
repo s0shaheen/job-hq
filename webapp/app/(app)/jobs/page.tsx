@@ -1,4 +1,5 @@
 import { getDataSource } from "@/lib/data/get-source";
+import { FIXTURE_NOW } from "@/lib/data/fixtures";
 import { clampPerfCount, makePerfJobs } from "@/lib/data/perf-fixtures";
 import { isDemoMode } from "@/lib/data/source";
 import type { JobView, SavedView } from "@/lib/data/view-models";
@@ -68,7 +69,11 @@ export default async function JobsPage({
   // response). `now` is pinned here so the `inlast` date filter evaluates
   // against one instant on both renders of hydration; the client re-deriving
   // it could flip a boundary row between the two and corrupt the hydrate.
-  const now = Date.now();
+  // In demo mode the server clock pins to the fixtures' frozen instant — the
+  // e2e harness can pin the BROWSER clock but not this render, and real time
+  // walking past FIXTURE_NOW ages every fixture out of `inlast` windows (the
+  // grid-views persona spec found this the day the gap crossed 7 days).
+  const now = isDemoMode() ? new Date(FIXTURE_NOW).getTime() : Date.now();
 
   return (
     // h-dvh + flex-col: the grid owns the viewport below the toolbar and

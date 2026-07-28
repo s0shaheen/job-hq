@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
+// Shared-runner noise absorbs into retries, never into the budgets: a genuine
+// regression fails all three attempts identically, while a neighbor tenant
+// stealing the CPU for one 204ms task does not get to loosen a line somebody
+// defended. (First firing: two same-night CI runs, 204ms vs the 200ms budget,
+// both green on re-run.)
+test.describe.configure({ retries: 2 });
+
 /**
  * Matrix row 18 — "perf collapse at 5k rows" — replaced with measured budgets
  * (plan rows 25–27). Every number here is stated and justified, because "feels
