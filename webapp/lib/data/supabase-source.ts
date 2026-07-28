@@ -54,8 +54,31 @@ import type {
   PolicyWriteResult,
   SetPolicyRuleInput,
   UpsertAnswerInput,
+  StartWarmSearchInput,
+  StartWarmSearchResult,
+  AttachWarmRunInput,
+  CompleteWarmSearchInput,
+  FailWarmSearchInput,
+  WarmSearchByIdResult,
+  WarmSearchView,
+  WarmPinView,
+  PinWarmIntroInput,
+  PinWarmIntroResult,
+  UnpinWarmIntroInput,
+  UnpinWarmIntroResult,
+  WarmVendorRun,
 } from "./source";
 import { APPLY_LIBRARY_LIMIT, CONNECTION_LIST_LIMIT, IMPORT_LIST_LIMIT } from "./source";
+import { warmDailyCap, WARM_CAP_SQLSTATE, warmOverCapMessage } from "@/lib/warm/config";
+import { WARM_PERSONAS } from "@/lib/warm/types";
+import type {
+  WarmCandidate,
+  WarmFit,
+  WarmParams,
+  WarmPersona,
+  WarmSignal,
+  WarmStatus,
+} from "@/lib/warm/types";
 import { questionKey } from "@/lib/apply/normalize";
 import {
   toAnswerView,
@@ -133,6 +156,21 @@ const COMPANY_COLS =
  * list out of the literal TYPE, and a concatenation widens it to `string`.
  */
 const CONNECTION_COLS = "id, full_name, company, company_key, title, profile_url, connected_on";
+
+/**
+ * The warm-intro reads. One string literal each (COMPANY_COLS' reason). The RPC
+ * results go through the SAME mappers, so `apify_run_ids`/`results`/`params` are
+ * selected even though only the poll route reads the run ids — a mapper that read
+ * a column the select never asked for would coerce `undefined` silently, which is
+ * exactly what `supabase-select-lists.test.ts` exists to catch.
+ */
+const WARM_SEARCH_COLS =
+  "id, target_kind, posting_key, company, params, overlays, status, vendor_runs, results, error, created_at, updated_at";
+const WARM_PIN_COLS =
+  "id, target_kind, posting_key, company, company_key, full_name, profile_url, headline, source, updated_at";
+
+/** SQLSTATE `app_*_warm_search` raises for "not this user's search" — a 404. */
+const NO_SUCH_WARM_SEARCH = "P0002";
 
 // ---- import row shapes (P9) -------------------------------------------------
 
@@ -365,6 +403,112 @@ export function toConnectionView(r: Record<string, unknown>): ConnectionView {
     title: String(r.title ?? ""),
     profileUrl: String(r.profile_url ?? ""),
     connectedOn: str(r.connected_on),
+  };
+}
+
+// ---- the warm-intro finder (0020) ------------------------------------------
+
+function warmParams(v: unknown): WarmParams {
+  const o = (v ?? {}) as Record<string, unknown>;
+  return {
+    role: String(o.role ?? ""),
+    senior: String(o.senior ?? ""),
+    recruiter: String(o.recruiter ?? ""),
+  };
+}
+
+function warmStatus(v: unknown): WarmStatus {
+  return v === "done" || v === "cancelled" || v === "failed" ? v : "running";
+}
+
+function stringArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
+function warmOverlays(v: unknown): { schools: string[]; pastCompanies: string[] } {
+  const o = (v ?? {}) as Record<string, unknown>;
+  return { schools: stringArray(o.schools), pastCompanies: stringArray(o.pastCompanies) };
+}
+
+/** The persisted [{run_id, persona}] → [{runId, persona}], persona narrowed. */
+function warmVendorRuns(v: unknown): WarmVendorRun[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((r) => (r ?? {}) as Record<string, unknown>)
+    .filter((r) => typeof r.run_id === "string" && WARM_PERSONAS.includes(r.persona as WarmPersona))
+    .map((r) => ({ runId: String(r.run_id), persona: r.persona as WarmPersona }));
+}
+
+function warmFit(v: unknown): WarmFit | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const o = v as Record<string, unknown>;
+  const tier = o.tier === "strong" || o.tier === "medium" || o.tier === "weak" ? o.tier : undefined;
+  if (!tier) return undefined;
+  return { tier, reason: String(o.reason ?? "") };
+}
+
+/**
+ * The stored `results` jsonb → `WarmCandidate[]`. Written camelCase by
+ * `completeWarmSearch` (the ranked list is stored verbatim), read camelCase here,
+ * every field defensive because it crossed a jsonb boundary the compiler cannot see.
+ */
+function warmCandidates(v: unknown): WarmCandidate[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((raw) => {
+    const o = (raw ?? {}) as Record<string, unknown>;
+    const signals = Array.isArray(o.signals)
+      ? o.signals
+          .map((s) => (s ?? {}) as Record<string, unknown>)
+          .map((s) => {
+            const kind =
+              s.kind === "school" ? "school" : s.kind === "past_company" ? "past_company" : "persona";
+            return { kind: kind as WarmSignal["kind"], label: String(s.label ?? "") };
+          })
+      : [];
+    return {
+      fullName: String(o.fullName ?? ""),
+      headline: String(o.headline ?? ""),
+      company: String(o.company ?? ""),
+      location: String(o.location ?? ""),
+      years: String(o.years ?? ""),
+      linkedinUrl: String(o.linkedinUrl ?? ""),
+      isRecruiter: Boolean(o.isRecruiter),
+      signals,
+      score: Number(o.score ?? 0),
+      ...(warmFit(o.fit) ? { fit: warmFit(o.fit) } : {}),
+    };
+  });
+}
+
+export function toWarmSearchView(r: Record<string, unknown>): WarmSearchView {
+  return {
+    id: String(r.id ?? ""),
+    targetKind: r.target_kind === "company" ? "company" : "posting",
+    postingKey: String(r.posting_key ?? ""),
+    company: String(r.company ?? ""),
+    params: warmParams(r.params),
+    overlays: warmOverlays(r.overlays),
+    status: warmStatus(r.status),
+    results: warmCandidates(r.results),
+    error: String(r.error ?? ""),
+    runs: warmVendorRuns(r.vendor_runs),
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+
+export function toWarmPinView(r: Record<string, unknown>): WarmPinView {
+  return {
+    id: Number(r.id ?? 0),
+    targetKind: r.target_kind === "company" ? "company" : "posting",
+    postingKey: String(r.posting_key ?? ""),
+    company: String(r.company ?? ""),
+    companyKey: String(r.company_key ?? ""),
+    fullName: String(r.full_name ?? ""),
+    profileUrl: String(r.profile_url ?? ""),
+    headline: String(r.headline ?? ""),
+    source: String(r.source ?? "warm"),
+    updatedAt: str(r.updated_at),
   };
 }
 
@@ -917,6 +1061,129 @@ export class SupabaseDataSource implements DataSource {
       p_idem: input.idempotencyKey,
     });
     if (error) return { ok: false, kind: "error", message: error.message };
+    const row = (data ?? {}) as Record<string, unknown>;
+    return { ok: true, deleted: Number(row.deleted ?? 0) };
+  }
+
+  // ---- the warm-intro finder (0020) ---------------------------------------
+
+  async startWarmSearch(input: StartWarmSearchInput): Promise<StartWarmSearchResult> {
+    const cap = warmDailyCap();
+    const { data, error } = await this.supabase.rpc("app_start_warm_search", {
+      p_target_kind: input.targetKind,
+      p_posting_key: input.postingKey,
+      p_company: input.company,
+      p_params: input.params,
+      p_overlays: input.overlays,
+      p_daily_cap: cap,
+      p_idem: input.idempotencyKey,
+    });
+    if (error) {
+      if (error.code === "28000") return { ok: false, kind: "auth" };
+      // The one refusal the UI renders as its own state — matched on the SQLSTATE,
+      // not the message, so the copy can change without becoming load-bearing.
+      if (error.code === WARM_CAP_SQLSTATE) {
+        return { ok: false, kind: "over-cap", message: warmOverCapMessage(cap) };
+      }
+      return { ok: false, kind: "error", message: error.message };
+    }
+    return { ok: true, search: toWarmSearchView((data ?? {}) as Record<string, unknown>) };
+  }
+
+  async attachWarmRun(input: AttachWarmRunInput): Promise<WarmSearchByIdResult> {
+    const { data, error } = await this.supabase.rpc("app_attach_warm_run", {
+      p_id: input.id,
+      // Persisted as [{run_id, persona}] — the persona is what poll re-attributes on.
+      p_runs: input.runs.map((r) => ({ run_id: r.runId, persona: r.persona })),
+    });
+    return this.warmByIdResult(data, error);
+  }
+
+  async getWarmSearch(id: string): Promise<WarmSearchView | null> {
+    const { data, error } = await this.supabase
+      .from("warm_searches")
+      .select(WARM_SEARCH_COLS)
+      .eq("id", id)
+      .eq("user_id", this.userId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+    return toWarmSearchView(data as Record<string, unknown>);
+  }
+
+  async completeWarmSearch(input: CompleteWarmSearchInput): Promise<WarmSearchByIdResult> {
+    const { data, error } = await this.supabase.rpc("app_complete_warm_search", {
+      p_id: input.id,
+      p_results: input.results,
+    });
+    return this.warmByIdResult(data, error);
+  }
+
+  async failWarmSearch(input: FailWarmSearchInput): Promise<WarmSearchByIdResult> {
+    const { data, error } = await this.supabase.rpc("app_fail_warm_search", {
+      p_id: input.id,
+      p_error: input.error,
+    });
+    return this.warmByIdResult(data, error);
+  }
+
+  async cancelWarmSearch(id: string): Promise<WarmSearchByIdResult> {
+    const { data, error } = await this.supabase.rpc("app_cancel_warm_search", {
+      p_id: id,
+    });
+    return this.warmByIdResult(data, error);
+  }
+
+  /** Shared mapping for the four id-scoped warm RPCs (P0002 → a 404, not a 500). */
+  private warmByIdResult(
+    data: unknown,
+    error: { code?: string; message: string } | null,
+  ): WarmSearchByIdResult {
+    if (error) {
+      if (error.code === "28000") return { ok: false, kind: "auth" };
+      if (error.code === NO_SUCH_WARM_SEARCH) return { ok: false, kind: "missing" };
+      return { ok: false, kind: "error", message: error.message };
+    }
+    return { ok: true, search: toWarmSearchView((data ?? {}) as Record<string, unknown>) };
+  }
+
+  async warmPins(): Promise<WarmPinView[]> {
+    const { data, error } = await this.supabase
+      .from("warm_pins")
+      .select(WARM_PIN_COLS)
+      .eq("user_id", this.userId)
+      .order("id", { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r) => toWarmPinView(r as Record<string, unknown>));
+  }
+
+  async pinWarmIntro(input: PinWarmIntroInput): Promise<PinWarmIntroResult> {
+    const { data, error } = await this.supabase.rpc("app_pin_warm_intro", {
+      p_target_kind: input.targetKind,
+      p_posting_key: input.postingKey,
+      p_company: input.company,
+      p_full_name: input.fullName,
+      p_profile_url: input.profileUrl,
+      p_headline: input.headline,
+      p_source: input.source,
+      p_idem: input.idempotencyKey,
+    });
+    if (error) {
+      if (error.code === "28000") return { ok: false, kind: "auth" };
+      return { ok: false, kind: "error", message: error.message };
+    }
+    return { ok: true, pin: toWarmPinView((data ?? {}) as Record<string, unknown>) };
+  }
+
+  async unpinWarmIntro(input: UnpinWarmIntroInput): Promise<UnpinWarmIntroResult> {
+    const { data, error } = await this.supabase.rpc("app_unpin_warm_intro", {
+      p_id: input.id,
+      p_idem: input.idempotencyKey,
+    });
+    if (error) {
+      if (error.code === "28000") return { ok: false, kind: "auth" };
+      return { ok: false, kind: "error", message: error.message };
+    }
     const row = (data ?? {}) as Record<string, unknown>;
     return { ok: true, deleted: Number(row.deleted ?? 0) };
   }

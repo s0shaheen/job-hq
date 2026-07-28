@@ -162,6 +162,22 @@ export function extractLinkedinId(input: string): { id: string } | { error: stri
   };
 }
 
+/**
+ * The one shape a profile URL is allowed to have: an `https` linkedin.com address.
+ *
+ * Exported as the SHARED guard rather than re-inlined per caller — `connectionUrl`
+ * below uses it, and the warm-intro manual-add box (`lib/warm/actions.ts`) uses the
+ * SAME predicate to decide "is this pasted text a URL to keep, or a bare name?".
+ * A CSV cell or a hand-typed box is user text, and a `javascript:` string rendered
+ * as an href would make it a script on this origin — so a URL that is not
+ * linkedin.com is refused, and the caller treats it as a name (or an error), never
+ * as a link. Still fetch-free: this is a string test, and `lib/referral/` reaches
+ * nothing outbound (the hard-line test).
+ */
+export function isLinkedinProfileUrl(value: string | null | undefined): boolean {
+  return /^https:\/\/([a-z0-9-]+\.)*linkedin\.com\/[^\s]*$/i.test((value ?? "").trim());
+}
+
 /** `["1035","2077"]` → `["1035","2077"]` as LinkedIn's URL params want it. */
 function jsonList(values: readonly string[]): string {
   return JSON.stringify(values);
@@ -399,7 +415,7 @@ export function connectionUrl(connection: {
   companyId?: string | null;
 }): string {
   const raw = (connection.profileUrl ?? "").trim();
-  if (/^https:\/\/([a-z0-9-]+\.)*linkedin\.com\/[^\s]*$/i.test(raw)) return raw;
+  if (isLinkedinProfileUrl(raw)) return raw;
 
   const companyId = (connection.companyId ?? "").trim();
   return peopleSearchUrl({

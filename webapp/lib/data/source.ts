@@ -33,6 +33,9 @@ import type { Provenance, SituationFact } from "@/lib/apply/types";
 import type { ProfileCriteria } from "@/lib/profile/criteria";
 import type { PreviewResult } from "@/lib/profile/preview";
 import type { RegateEntry } from "@/lib/profile/regate";
+// Type-only: erased at build, so `lib/warm/config`'s process.env read never
+// reaches a client bundle through this widely-imported module.
+import type { WarmCandidate, WarmParams, WarmPersona, WarmStatus } from "@/lib/warm/types";
 import type {
   ImportBatchView,
   ImportColumnReportView,
@@ -268,6 +271,123 @@ export type ImportConnectionsResult =
 export type ClearConnectionsInput = { idempotencyKey: string };
 
 export type ClearConnectionsResult =
+  | { ok: true; deleted: number }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+// ---- the warm-intro finder (0020) ------------------------------------------
+
+/** What a warm search was pointed at. */
+export type WarmTargetKind = "posting" | "company";
+
+/** The user's warm background this search filtered on (the query overlays). */
+export type WarmOverlays = { schools: string[]; pastCompanies: string[] };
+
+/**
+ * One persisted vendor run: the opaque run id AND its persona. The persona is what
+ * lets the stateless poll route re-attribute each candidate correctly (the M1 fix).
+ */
+export type WarmVendorRun = { runId: string; persona: WarmPersona };
+
+/**
+ * One on-demand warm-intro search, as the app reads it.
+ *
+ * `results` is empty until `status` is `done`; `error` carries the vendor's reason
+ * only when `status` is `failed`. The poll route reads this shape and renders the
+ * matching UI state (running spinner / results panel / empty / failed / cancelled).
+ */
+export type WarmSearchView = {
+  id: string;
+  targetKind: WarmTargetKind;
+  postingKey: string;
+  company: string;
+  /** The three persona strings actually used — shown as "Searched for: a · b · c". */
+  params: WarmParams;
+  /** The user's warm background this search filtered on — rebuilt into the poll query. */
+  overlays: WarmOverlays;
+  status: WarmStatus;
+  results: WarmCandidate[];
+  error: string;
+  /**
+   * The persisted per-run persona mapping, read by the poll route to rebuild each
+   * persona's query and advance the run. Server-side only — the routes strip it
+   * before answering the browser, so nothing about the vendor leaks past this app
+   * (the WarmVendor-abstraction rule).
+   */
+  runs: WarmVendorRun[];
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+/** The person pinned as the warm intro for one row. */
+export type WarmPinView = {
+  id: number;
+  targetKind: WarmTargetKind;
+  postingKey: string;
+  company: string;
+  /** Normalized company identity — how the grid matches a pin to a row. */
+  companyKey: string;
+  fullName: string;
+  /** "" when the pin is a bare name (the add box accepts a name OR a URL). */
+  profileUrl: string;
+  headline: string;
+  source: string;
+  updatedAt: string | null;
+};
+
+export type StartWarmSearchInput = {
+  targetKind: WarmTargetKind;
+  postingKey: string;
+  company: string;
+  params: WarmParams;
+  /** The user's warm background (schools / past employers) to filter on. */
+  overlays: WarmOverlays;
+  idempotencyKey: string;
+};
+
+/**
+ * `over-cap` is its own arm rather than a generic error, because it is the one
+ * refusal the UI must render as a plain "you have used your searches for today"
+ * message with the reset horizon — never a silent drop, never a toast that reads
+ * like a bug (the cap is a knob the user is meant to see).
+ */
+export type StartWarmSearchResult =
+  | { ok: true; search: WarmSearchView }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "over-cap"; message: string }
+  | { ok: false; kind: "error"; message: string };
+
+export type AttachWarmRunInput = { id: string; runs: WarmVendorRun[] };
+export type CompleteWarmSearchInput = { id: string; results: WarmCandidate[] };
+export type FailWarmSearchInput = { id: string; error: string };
+
+/** `missing` is a search that is not this user's (or never existed) — a 404, not a 500. */
+export type WarmSearchByIdResult =
+  | { ok: true; search: WarmSearchView }
+  | { ok: false; kind: "missing" }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+export type PinWarmIntroInput = {
+  targetKind: WarmTargetKind;
+  postingKey: string;
+  company: string;
+  fullName: string;
+  /** A linkedin.com URL, or "" for a bare-name pin. Refused if non-linkedin. */
+  profileUrl: string;
+  headline: string;
+  source: "warm" | "manual";
+  idempotencyKey: string;
+};
+
+export type PinWarmIntroResult =
+  | { ok: true; pin: WarmPinView }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+export type UnpinWarmIntroInput = { id: number; idempotencyKey: string };
+
+export type UnpinWarmIntroResult =
   | { ok: true; deleted: number }
   | { ok: false; kind: "auth" }
   | { ok: false; kind: "error"; message: string };
@@ -723,6 +843,27 @@ export interface DataSource {
   importConnections(input: ImportConnectionsInput): Promise<ImportConnectionsResult>;
   /** Bin every connection, so a bad import is recoverable by re-uploading. */
   clearConnections(input: ClearConnectionsInput): Promise<ClearConnectionsResult>;
+
+  // ---- the warm-intro finder (0020) ---------------------------------------
+
+  /** Reserve one warm search (cap-enforced at insert). Returns the running row. */
+  startWarmSearch(input: StartWarmSearchInput): Promise<StartWarmSearchResult>;
+  /** Attach the vendor run handle to a just-started search. */
+  attachWarmRun(input: AttachWarmRunInput): Promise<WarmSearchByIdResult>;
+  /** Read one search by id, for the poll route. Null when it is not yours. */
+  getWarmSearch(id: string): Promise<WarmSearchView | null>;
+  /** Land ranked results and mark done — one-way, a cancel in flight wins. */
+  completeWarmSearch(input: CompleteWarmSearchInput): Promise<WarmSearchByIdResult>;
+  /** Mark a running search failed with the vendor's reason. */
+  failWarmSearch(input: FailWarmSearchInput): Promise<WarmSearchByIdResult>;
+  /** Cancel a running search. Idempotent; a terminal search is a no-op. */
+  cancelWarmSearch(id: string): Promise<WarmSearchByIdResult>;
+  /** Every pinned intro, for the grid to render pinned cells. */
+  warmPins(): Promise<WarmPinView[]>;
+  /** Pin a person (a result, or a hand-typed name/URL) to a row. Replaces. */
+  pinWarmIntro(input: PinWarmIntroInput): Promise<PinWarmIntroResult>;
+  /** Remove a pin. Idempotent. */
+  unpinWarmIntro(input: UnpinWarmIntroInput): Promise<UnpinWarmIntroResult>;
 
   // ---- import (P9) --------------------------------------------------------
 

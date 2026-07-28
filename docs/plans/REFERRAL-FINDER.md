@@ -41,8 +41,26 @@ is sent as him — so account risk is existential, not a dial:
   himself + the official export — zero risk; (1) vendor APIs that never touch
   his session — vendor carries the risk; (∞) anything using his `li_at` cookie,
   a page-reading extension, or automated messaging-as-him — **never built,
-  permanently.** Not a v2. The Apify people-search actors all require the
-  cookie; that entire category is out.
+  permanently.** Not a v2.
+
+  **CORRECTION (2026-07-28, superseding the original claim that "the Apify
+  people-search actors all require the cookie; that entire category is out"):**
+  that premise is false for the **harvestapi** family. `harvestapi/linkedin-
+  profile-search` is a **no-cookie** Apify actor — its title and description say
+  "No cookies or account required" verbatim, and its input schema has no
+  `cookie`/`li_at`/`sessionCookie` field at all (vendor brief, 2026-07-28). The
+  vendor brings its own LinkedIn identities and proxies; the caller supplies only
+  search facets. So Apify is **not** categorically out, and harvestapi is the
+  **primary Layer-2 vendor** — it is the only shortlisted actor that expresses the
+  plan's own warm signals (`schools` and `pastCompanies` are INCLUDE filters =
+  UIUC / ex-Capital One / OTCR). Salman's `li_at` and the layer-∞ line are
+  untouched by construction: there is no code path from the vendor to his session.
+  The one caveat is **vendor continuity** — harvestapi is a scraper, not a
+  licensed DB (same category as Proxycurl, and its marketing domain already
+  redirects to a for-sale page) — which is contained by the `WarmVendor` interface
+  (§ Build shape below): nothing downstream knows the vendor's name, so a swap is
+  one adapter. Connection DEGREE still never comes back (there is no searcher
+  session), so degree stays a Layer-1 concern exactly as this plan assumes.
 
 Competitors (JobRight "Insider Connections" $39.99/mo, Simplify Network) rank
 on exactly our four signals and users still call the results "right company,
@@ -81,17 +99,62 @@ Limit of layer 1: 2nd-degree+ names don't materialize *in the grid* — he
 clicks through. That's acceptable: the click is logged-in normal usage, and
 the grid's job is to make it a 5-second click instead of a 5-minute hunt.
 
-### Layer 2 — vendor enrichment for priority rows only
+### Layer 2 — vendor enrichment for priority rows only  ✅ BUILT (branch `feat/warm-referral-l2`, migration 0020)
 
-For starred/high-priority applications, a nightly job (same shape as every
-other bot) queries a people-data API for `recruiter OR {role} at {company}`,
-scores candidates on the warm signals (UIUC / Capital One / OTCR in education
-+ experience history), and writes the **top 3–5 named contacts + LinkedIn
-URLs** into a per-job contacts panel. His account is never touched; the vendor
-carries the scraping risk — post-Proxycurl, prefer licensed-DB vendors over
-scraper-shaped ones.
+Shipped as an **on-demand** search (a "Find intro" button per row), not a nightly
+job — the owner drives it per priority row, so spend is a deliberate click, gated
+by a per-user daily cap (`HQ_WARM_DAILY_CAP`, default ~20/day). For a row, three
+faceted persona queries — role peer / senior-in-area / recruiter — are merged,
+deduped and ranked to a configurable **top N** (`HQ_WARM_MAX_RESULTS`, default 40),
+each with a LinkedIn URL, warm-signal chips ("UIUC · ex-Capital One"), and an LLM
+**fit** line. The owner multi-selects the ones to keep as intros. His account is
+never touched; the vendor carries the scraping risk.
 
-Vendor shortlist (verified schemas/pricing in the research doc): **People Data
+**Architecture (the parts that matter):**
+- **`WarmVendor` interface** (`webapp/lib/warm/vendor.ts`, server-only) —
+  `start / poll / cancel`. The run handle carries **`{runId, query}` per persona**,
+  persisted on the row as `vendor_runs [{run_id, persona}]`, so the stateless poll
+  route (a fresh request, a fresh vendor) re-attributes each candidate to the
+  persona that found it — WITHOUT this the recruiter guarantee and the persona/
+  school/ex-employer rank weights are all inert (the review's M1). `HarvestApiVendor`
+  calls the Apify run API; `FakeWarmVendor` reconstructs persona the SAME way, so the
+  fake can't be more forgiving than the real path (a parity test pins it). Nothing
+  downstream knows harvestapi exists — the Proxycurl-continuity insurance.
+- **Cap is concurrency-safe:** `app_start_warm_search` takes a `pg_advisory_xact_lock`
+  on the user before the rolling-24h count (the review's C1 — the old check-then-
+  insert was bypassable by racing 8 concurrent starts past a cap of 1).
+- **Async lifecycle = migration 0020** (`warm_searches` + `warm_pins`). `POST
+  /api/warm/start` reserves the row (cap charged at insert), starts the run, returns
+  fast; `GET /api/warm/[id]` polls, ranks, runs fit, lands results; `POST
+  /api/warm/[id]/cancel` **aborts the Apify run AND flips the row** — idempotent.
+  Vercel-safe: each call is one short round trip.
+- **Ranking + fit.** `rankCandidates` is the additive-transparent model (signal
+  chips, never a bare number; recruiter always kept in the top N). After ranking,
+  one **Haiku fit pass** (`lib/warm/fit.ts`, server-only, `ANTHROPIC_API_KEY`) scores
+  each candidate as an intro for THIS role and returns a short transparent reason
+  ("Same function, ex-Capital One") — one batched call per search, cached on the row,
+  and **fail-safe**: any error / no key falls back to the deterministic ranking,
+  never blocking results. `sortByFit` re-orders by fit tier while preserving the set.
+- **Multi-pin.** `warm_pins` is a SET per posting (one row per person, `pin_identity`
+  the profile URL or name); the owner pins several intros to one row, the cell shows
+  the count + names.
+- **Cost math (vendor brief, 2026-07-28).** harvestapi `linkedin-profile-search`
+  Short mode returns **≤25 profiles per search page for a flat $0.10, billed even on
+  zero results** — cost scales with PAGES, not results. The finder fetches **one
+  page per persona** (`WARM_PER_PERSONA_ITEMS=25`, `takePages:1`), so raising the
+  merged cap 10→40 costs the **same ~$0.30/search** (3 personas × 1 page × $0.10):
+  3×25=75 raw candidates dedup down to ≤40. It does NOT multiply the bill — only a
+  2nd page per persona (>25) would add $0.10/persona. The fit pass adds one cheap
+  Haiku call (~a few hundred tokens in, tiny out) per search.
+- **Poke-list:** harvestapi wants the `/company/<slug>` URL but the universe stores
+  the numeric `f_C=` id (0013); today the search passes the company NAME in
+  `searchQuery` (the honest no-slug fallback) — storing the slug URL per company is
+  the follow-up. Warm SIGNALS overlays are per-SEARCH input today (empty by default;
+  the fake bakes them for demo) — a per-user store (and the Settings editor for
+  "Defaults live in Settings") is the future home for both the overlays and the
+  saved persona defaults, which currently derive from the profile role.
+
+Vendor shortlist (superseded by harvestapi above; kept for the reasoning): **People Data
 Labs** (schema carries school, full experience history, `linkedin_url`; free
 100 lookups/mo ≈ 3 priority jobs/day) and **Apollo** (free API tier; search
 doesn't burn credits) — with **Exa** as the NL-search wildcard and **SerpAPI
@@ -162,10 +225,62 @@ outreach → reply → referral → interview conversion by contact type; referr
 per week (currently 0); eventually, interview rate warm vs cold from our own
 events — the number the whole system exists to move.
 
+## Layer-2 UI component contracts (2026-07-28 — provisional build, for the design session)
+
+> **DESIGN UPDATE NEEDED.** The owner's authored "Find intro" design shows a SINGLE
+> pin and 10 results. The build is now AHEAD of that design — multi-select (a set of
+> intros per row), a configurable 30–50 result cap (default 40), and a per-candidate
+> fit line. The provisional UI below implements the expansion with existing
+> primitives; the find-intro surface needs a design pass for **multi-select + fit
+> display + the larger result list** when the owner next authors it.
+
+The provisional `WarmIntroCell` (`webapp/components/warm-intro-cell.tsx`) uses only
+existing primitives (Button, radix Popover, input, Badge) and tokens — swappable for
+the design-system version later. Its contract, so a design session can restyle
+without re-deriving behaviour:
+
+**Props**
+- `company: string`, `title: string` — the row's company (verbatim) and posting title.
+- `targetKind: "posting" | "company"`, `postingKey: string` — the search target.
+- `defaultParams: { role; senior; recruiter }` — three plain persona strings derived
+  from the user's profile role (`deriveWarmParams`); editable per-search.
+- `pins: WarmPinView[]` — the people already pinned to this row (a SET, `pinsForRow`).
+
+**States** (each with a stable `data-testid` for the e2e)
+- **idle** — a "Find intro" button (`warm-intro-find`). If the row has pins, the cell
+  shows the COUNT + names (`warm-intro-pinned`), each with an unpin control
+  (`warm-intro-unpin`).
+- **confirm** (`warm-intro-confirm`) — popover "Find an intro at {company}" with the
+  three default strings; "Edit for this search" (`warm-intro-edit-toggle`) reveals
+  inputs; helper copy "Defaults live in Settings." + "Changes apply to this search
+  only."; primary "Search" (`warm-intro-search`) + ghost "Cancel".
+- **running** (`warm-intro-running`) — "Looking…" spinner + a Cancel X
+  (`warm-intro-cancel`, title "Cancel search") → `POST /api/warm/[id]/cancel`.
+- **results** (`warm-intro-results`) — "People you may know at {company}", count
+  (`warm-intro-count`), close X, "Searched for: a · b · c" (`warm-intro-searched-for`),
+  a list of ≤`HQ_WARM_MAX_RESULTS` candidates (`warm-intro-candidate`: a select
+  checkbox `warm-intro-select`, name / role / years, signal chips, and the LLM **fit**
+  reason `warm-intro-fit`), a **"Pin selected (N)"** action (`warm-intro-pin-selected`),
+  and an add footer ("Add someone you know", `warm-intro-add-input` placeholder
+  "LinkedIn URL or a name", `warm-intro-add`).
+- **empty** (`warm-intro-empty`) — "No matches found." + the add footer.
+- **cancelled** — returns to idle after the cancel round-trips.
+- **over-cap** (`warm-intro-over-cap`) — the 429 body's message, its own state.
+- **failed** (`warm-intro-failed`) — "That search didn't complete." with re-open.
+
+**Data flow** — `start` (body carries `overlays`) → poll `GET /api/warm/[id]` until
+terminal → render. Pin/Add/Unpin call the `lib/warm/actions.ts` server actions; a
+bare name in the add box is a valid pin, a non-LinkedIn URL is the one refusal. Fit
+is a display annotation only (transparent reason, never a bare number); it never
+gates results.
+
 ## Owner decisions (2026-07-27)
 
-1. **Vendor: to be selected by hands-on free-tier testing** (PDL and Apollo both, quotas move;
-   research leans PDL) — a build-time task, not a standing question.
+1. **Vendor: SELECTED — harvestapi `linkedin-profile-search`** (2026-07-28, per the vendor
+   brief), correcting the earlier "no cookie-free Apify actor exists" premise. It is the only
+   shortlisted actor that expresses the plan's own warm signals (`schools`/`pastCompanies`
+   INCLUDE filters). Contained behind the `WarmVendor` interface so the continuity risk is one
+   adapter to swap. PDL/Apollo remain the fallbacks if harvestapi disappears.
 2. **Priority gate: manual star** to start; derive from the measured funnel later.
 3. **Multi-user and ask-order: defaults stand** (profile-driven signals port to other users
    when their lanes mature; referral-before-apply ships as the nudge, the funnel overrules).

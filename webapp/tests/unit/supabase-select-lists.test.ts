@@ -208,6 +208,20 @@ const CASES: Case[] = [
     select: () => constLiteral("CONNECTION_COLS"),
   },
   {
+    // 0020: the RPC results go through the same mapper, so `apify_run_ids`/`results`/
+    // `params` must be selected even though only the poll route reads the run ids.
+    table: "warm_searches",
+    mapper: "toWarmSearchView",
+    variable: "r",
+    select: () => constLiteral("WARM_SEARCH_COLS"),
+  },
+  {
+    table: "warm_pins",
+    mapper: "toWarmPinView",
+    variable: "r",
+    select: () => constLiteral("WARM_PIN_COLS"),
+  },
+  {
     table: "channel_runs",
     mapper: "toHealthView",
     variable: "r",

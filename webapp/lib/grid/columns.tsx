@@ -168,6 +168,23 @@ export const GRID_COLUMNS: ColumnDef<JobView>[] = [
     // and nothing it cannot honour. `grid-columns.test.ts` asserts the absence.
   },
   {
+    id: "warm-intro",
+    header: "Warm intro",
+    size: 120,
+    // The layer-2 sibling of `warm`, and CELL-LESS for the exact same reason:
+    // `jobs-grid.tsx` renders every Warm-intro cell itself, because
+    // `WarmIntroCell` reaches `/api/warm/*` and the warm server actions, and a
+    // module unit-tested by Vitest (`grid-columns.test.ts`) must stay importable
+    // without dragging a client component and its `server-only` transitive
+    // imports in. Placed right after `warm` so both warm surfaces sit left of
+    // the horizontal-scroll fold on the default desktop view — a warm feature
+    // that has to be scrolled to is one nobody uses (the note on `warm` above).
+    //
+    // No `cell` (see `grid-columns.test.ts`, which exempts this column beside
+    // `warm`); no `sortField`, because "which of today's queue has a pinned
+    // intro" is not a field on `JobView`.
+  },
+  {
     id: "comp",
     header: "Comp",
     size: 160,

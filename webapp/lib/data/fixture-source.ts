@@ -67,6 +67,18 @@ import type {
   PolicyWriteResult,
   SetPolicyRuleInput,
   UpsertAnswerInput,
+  StartWarmSearchInput,
+  StartWarmSearchResult,
+  AttachWarmRunInput,
+  CompleteWarmSearchInput,
+  FailWarmSearchInput,
+  WarmSearchByIdResult,
+  WarmSearchView,
+  WarmPinView,
+  PinWarmIntroInput,
+  PinWarmIntroResult,
+  UnpinWarmIntroInput,
+  UnpinWarmIntroResult,
 } from "./source";
 import {
   APPLY_LIBRARY_LIMIT,
@@ -74,6 +86,7 @@ import {
   IMPORT_LIST_LIMIT,
   MAX_CONNECTION_CHUNK,
 } from "./source";
+import { warmDailyCap, warmOverCapMessage } from "@/lib/warm/config";
 import { questionKey } from "@/lib/apply/normalize";
 import { POLICY_TOPICS } from "@/lib/apply/policy";
 import {
@@ -1416,6 +1429,192 @@ export class FixtureDataSource implements DataSource {
     this.connectionsById.clear();
     const result: ClearConnectionsResult = { ok: true, deleted };
     this.seenReferralKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  // ---- the warm-intro finder (0020) ---------------------------------------
+
+  private warmById = new Map<string, WarmSearchView>();
+  private warmPinsByKey = new Map<string, WarmPinView>();
+  private seenWarmKeys = new Map<
+    string,
+    StartWarmSearchResult | PinWarmIntroResult | UnpinWarmIntroResult
+  >();
+  private warmPinSeq = 7000;
+  /**
+   * Armed by `hq_warm_over_cap` (via get-source, `failNextWrite`'s channel), so the
+   * over-cap UI state is reachable in one search rather than twenty. The honest 24h
+   * count is enforced too — this is the E2E's shortcut, not a replacement for it.
+   */
+  private forceOverCapNext = false;
+
+  forceWarmOverCap(): void {
+    this.forceOverCapNext = true;
+  }
+
+  async startWarmSearch(input: StartWarmSearchInput): Promise<StartWarmSearchResult> {
+    const replay = this.seenWarmKeys.get(input.idempotencyKey) as StartWarmSearchResult | undefined;
+    if (replay) return replay;
+
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    // The cap, charged at insert exactly as `app_start_warm_search` does. Rolling
+    // 24h so cancelled/failed runs count — the cap is on SPEND, not success.
+    const cap = warmDailyCap();
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const recent = [...this.warmById.values()].filter(
+      (s) => new Date(s.createdAt ?? 0).getTime() > cutoff,
+    ).length;
+    if (this.forceOverCapNext || recent >= cap) {
+      this.forceOverCapNext = false;
+      return { ok: false, kind: "over-cap", message: warmOverCapMessage(cap) };
+    }
+
+    const now = new Date().toISOString();
+    const search: WarmSearchView = {
+      id: crypto.randomUUID(),
+      targetKind: input.targetKind,
+      postingKey: input.postingKey,
+      company: input.company,
+      params: { ...input.params },
+      overlays: {
+        schools: [...(input.overlays?.schools ?? [])],
+        pastCompanies: [...(input.overlays?.pastCompanies ?? [])],
+      },
+      status: "running",
+      results: [],
+      error: "",
+      runs: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.warmById.set(search.id, search);
+    const result: StartWarmSearchResult = { ok: true, search: { ...search } };
+    this.seenWarmKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  async attachWarmRun(input: AttachWarmRunInput): Promise<WarmSearchByIdResult> {
+    const s = this.warmById.get(input.id);
+    if (!s) return { ok: false, kind: "missing" };
+    // Only a running search takes a handle — a cancel between start and attach keeps
+    // 'cancelled', the same one-way guard the RPC has.
+    if (s.status === "running") s.runs = input.runs.map((r) => ({ ...r }));
+    return { ok: true, search: { ...s } };
+  }
+
+  async getWarmSearch(id: string): Promise<WarmSearchView | null> {
+    const s = this.warmById.get(id);
+    return s ? { ...s } : null;
+  }
+
+  async completeWarmSearch(input: CompleteWarmSearchInput): Promise<WarmSearchByIdResult> {
+    const s = this.warmById.get(input.id);
+    if (!s) return { ok: false, kind: "missing" };
+    // One-way: only 'running' becomes 'done'. A completion that races a cancel finds
+    // 'cancelled' and returns it unchanged — the cancel wins, results dropped.
+    if (s.status === "running") {
+      s.status = "done";
+      s.results = input.results.map((c) => ({ ...c, signals: [...c.signals] }));
+      s.error = "";
+      s.updatedAt = new Date().toISOString();
+    }
+    return { ok: true, search: { ...s } };
+  }
+
+  async failWarmSearch(input: FailWarmSearchInput): Promise<WarmSearchByIdResult> {
+    const s = this.warmById.get(input.id);
+    if (!s) return { ok: false, kind: "missing" };
+    if (s.status === "running") {
+      s.status = "failed";
+      s.error = input.error.slice(0, 500);
+      s.updatedAt = new Date().toISOString();
+    }
+    return { ok: true, search: { ...s } };
+  }
+
+  async cancelWarmSearch(id: string): Promise<WarmSearchByIdResult> {
+    const s = this.warmById.get(id);
+    if (!s) return { ok: false, kind: "missing" };
+    // Idempotent: a terminal search is a no-op, never an error.
+    if (s.status === "running") {
+      s.status = "cancelled";
+      s.updatedAt = new Date().toISOString();
+    }
+    return { ok: true, search: { ...s } };
+  }
+
+  async warmPins(): Promise<WarmPinView[]> {
+    return [...this.warmPinsByKey.values()]
+      .sort((a, b) => a.id - b.id)
+      .map((p) => ({ ...p }));
+  }
+
+  private warmPinKey(targetKind: string, postingKey: string, company: string, identity: string): string {
+    // Per PERSON per target (multi-pin): identity = profile URL, or the name when
+    // there is none — the mirror of the SQL generated column + unique index.
+    return `${targetKind} ${postingKey} ${companyNameKey(company)} ${identity}`;
+  }
+
+  async pinWarmIntro(input: PinWarmIntroInput): Promise<PinWarmIntroResult> {
+    const replay = this.seenWarmKeys.get(input.idempotencyKey) as PinWarmIntroResult | undefined;
+    if (replay) return replay;
+
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    // The migration's guards, verbatim: a pin needs a name; a URL, when present,
+    // must be a LinkedIn address (a bare name is fully legal).
+    const name = blankTrim(input.fullName).slice(0, 200);
+    if (name === "") return { ok: false, kind: "error", message: "a pin needs a name" };
+    const url = blankTrim(input.profileUrl).slice(0, 500);
+    if (url !== "" && !/^https:\/\/([a-z0-9-]+\.)*linkedin\.com\//i.test(url)) {
+      return { ok: false, kind: "error", message: "a profile link must be a LinkedIn address" };
+    }
+    const source = input.source === "manual" ? "manual" : "warm";
+
+    const identity = url !== "" ? url.toLowerCase() : name.toLowerCase();
+    const key = this.warmPinKey(input.targetKind, input.postingKey, input.company, identity);
+    const existing = this.warmPinsByKey.get(key);
+    const pin: WarmPinView = {
+      id: existing?.id ?? ++this.warmPinSeq,
+      targetKind: input.targetKind,
+      postingKey: input.postingKey,
+      company: input.company,
+      companyKey: companyNameKey(input.company),
+      fullName: name,
+      profileUrl: url,
+      headline: blankTrim(input.headline).slice(0, 300),
+      source,
+      updatedAt: new Date().toISOString(),
+    };
+    this.warmPinsByKey.set(key, pin);
+    const result: PinWarmIntroResult = { ok: true, pin: { ...pin } };
+    this.seenWarmKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  async unpinWarmIntro(input: UnpinWarmIntroInput): Promise<UnpinWarmIntroResult> {
+    const replay = this.seenWarmKeys.get(input.idempotencyKey) as UnpinWarmIntroResult | undefined;
+    if (replay) return replay;
+
+    let deleted = 0;
+    for (const [key, pin] of this.warmPinsByKey) {
+      if (pin.id === input.id) {
+        this.warmPinsByKey.delete(key);
+        deleted = 1;
+        break;
+      }
+    }
+    const result: UnpinWarmIntroResult = { ok: true, deleted };
+    this.seenWarmKeys.set(input.idempotencyKey, result);
     return result;
   }
 

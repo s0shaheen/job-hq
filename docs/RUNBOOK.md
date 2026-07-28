@@ -879,7 +879,10 @@ cost cap per monitor run (60; env `MONITOR_INLINE_TAG_MAX`).
 | `ANTHROPIC_API_KEY` | monitor, priority, review, tracker (quickadd), wide | tagging/enrichment skips or degrades; discovery unaffected |
 | `APPSSCRIPT_UPLOAD_URL` / `APPSSCRIPT_UPLOAD_SECRET` | resume publish | publish step skipped/fails; render gates still run |
 | `SIMPLIFY_AUTH_COOKIE` / `SIMPLIFY_CSRF` | **Run a bot** `job = simplify` only (no cron anywhere) | expired = one ops push, clean exit 0; see [Simplify re-auth](#simplify-re-auth). Refresh them right before a dispatch, not on a schedule |
-| `APIFY_TOKEN` | wide | unset = clean skip; the wide layer is off |
+| `APIFY_TOKEN` | wide; **webapp warm-intro finder** (`webapp/lib/warm/vendor.ts`, server-only) | unset = the wide layer is off AND the warm finder's live vendor cannot start a run (demo mode uses a deterministic fake). Same Apify account for both |
+| `HQ_WARM_DAILY_CAP` | webapp warm-intro finder (optional) | unset = 20 searches/user/rolling-24h; a bad value falls back to the default |
+| `HQ_WARM_MAX_RESULTS` | webapp warm-intro finder (optional) | unset = 40 merged results (clamped 10..50); does not change per-search cost (1 page/persona) |
+| `ANTHROPIC_API_KEY` | engine (tagging/classify) AND **webapp warm-intro fit pass** (`webapp/lib/warm/fit.ts`, server-only) | unset = the fit annotation is skipped and the deterministic signal ranking stands (fail-safe); results are never blocked |
 | `THEIRSTACK_API_KEY` | wide (optional) | second wide source off; never fatal |
 | `SUPABASE_DB_URL` | **nothing** — its only reader was `pgdump.yml` | inert since the workflow was deleted ([PG snapshot](#pg-snapshot-deleted-resurrectable)). Leave it or delete it; either way nothing breaks until the workflow is restored |
 | `HQ_NTFY_TOPIC` / `HQ_OPS_NTFY_TOPIC` | all (optional overrides) | unset = defaults from `hq.config.yaml` |

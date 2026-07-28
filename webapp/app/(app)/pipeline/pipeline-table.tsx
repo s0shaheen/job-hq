@@ -16,10 +16,12 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { WarmCell } from "@/components/warm-cell";
+import { WarmIntroCell } from "@/components/warm-intro-cell";
 import type { AppWriteResult } from "@/lib/data/source";
 import type { ApplicationView } from "@/lib/data/view-models";
 import { isDelisted } from "@/lib/data/view-models";
 import { connectionsAt, universeFor, type WarmContext } from "@/lib/referral/match";
+import { pinsForRow, type WarmIntroContext } from "@/lib/warm/intro-context";
 import { groupRank, isReopenable, statusGroup, statusRank } from "@/lib/status";
 import { safeHref } from "@/lib/url/safe-href";
 import {
@@ -95,6 +97,12 @@ type Props = {
    * to match against; the cell is then absent rather than guessing.
    */
   warm?: WarmContext;
+  /**
+   * The layer-2 warm-intro context (pins lookup + the profile's default persona
+   * strings), built server-side once per render. Optional for the same reason as
+   * `warm`.
+   */
+  warmIntro?: WarmIntroContext;
 };
 
 export type ReviewItem = {
@@ -107,7 +115,7 @@ export type ReviewItem = {
   candidates: { id: number; label: string }[];
 };
 
-export default function PipelineTable({ initial, reviewItems = [], warm }: Props) {
+export default function PipelineTable({ initial, reviewItems = [], warm, warmIntro }: Props) {
   const [rows, setRows] = React.useState(initial);
   const [busyId, setBusyId] = React.useState<number | null>(null);
   const router = useRouter();
@@ -539,6 +547,7 @@ export default function PipelineTable({ initial, reviewItems = [], warm }: Props
                     busy={busyId === app.id}
                     anyBusy={busyId !== null}
                     warm={warm}
+                    warmIntro={warmIntro}
                     onStatus={(s) => void changeStatus(app, s)}
                     onReopen={(note) => void changeStatus(app, "Applied", note)}
                     onResolve={(d) => void resolve(app, d)}
@@ -573,6 +582,7 @@ function PipelineRow({
   busy,
   anyBusy,
   warm,
+  warmIntro,
   onStatus,
   onReopen,
   onResolve,
@@ -584,6 +594,8 @@ function PipelineRow({
   anyBusy: boolean;
   /** The warm-path indexes (0013), or absent on a surface without them. */
   warm?: WarmContext;
+  /** The layer-2 warm-intro context, or absent on a surface without it. */
+  warmIntro?: WarmIntroContext;
   onStatus: (status: string) => void;
   onReopen: (note: string) => void;
   onResolve: (decision: "confirm" | "reject") => void;
@@ -689,6 +701,22 @@ function PipelineRow({
                 universeId={warmEntry?.id ?? null}
                 companyUpdatedAt={warmEntry?.companyUpdatedAt ?? null}
                 hasAnyConnections={warm.hasAnyConnections}
+              />
+            ) : null}
+            {/* The layer-2 finder, beside layer 0 for the same placement reason:
+                a stack of cards on a phone, not a column. Applied is where the
+                design brief pairs it — work the referral while the req is fresh. */}
+            {warmIntro ? (
+              <WarmIntroCell
+                targetKind="posting"
+                postingKey={app.postingKey ?? ""}
+                company={app.company}
+                title={app.title}
+                defaultParams={warmIntro.defaultParams}
+                pins={pinsForRow(warmIntro, {
+                  postingKey: app.postingKey ?? "",
+                  company: app.company,
+                })}
               />
             ) : null}
           </div>

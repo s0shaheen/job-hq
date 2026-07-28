@@ -4,6 +4,7 @@ import { clampPerfCount, makePerfJobs } from "@/lib/data/perf-fixtures";
 import { isDemoMode } from "@/lib/data/source";
 import type { JobView, SavedView } from "@/lib/data/view-models";
 import { buildWarmContext, type WarmContext } from "@/lib/referral/match";
+import { buildWarmIntroContext, type WarmIntroContext } from "@/lib/warm/intro-context";
 import JobsGrid from "./jobs-grid";
 
 export const metadata = { title: "Jobs — Job Search HQ" };
@@ -32,6 +33,7 @@ export default async function JobsPage({
   let rows: JobView[];
   let views: SavedView[];
   let warm: WarmContext | undefined;
+  let warmIntro: WarmIntroContext | undefined;
   if (perfN > 0) {
     // The perf harness stays store-free (see above); saved views would only
     // add a store read to a page whose one job is measuring render budgets.
@@ -51,15 +53,22 @@ export default async function JobsPage({
     // and there is no key between them but `company_name_key`. Building the
     // indexes here means one pass over each list per page load instead of a
     // lookup per row.
-    const [jobs, savedViews, companies, connections] = await Promise.all([
+    // Pins and the profile join the same render as the jobs, the universe and
+    // the connections: the Warm-intro cell needs the matched pin and the
+    // profile's default persona strings per row, and one pass here beats a
+    // lookup per row (the same argument the warm context above makes).
+    const [jobs, savedViews, companies, connections, warmPins, profile] = await Promise.all([
       src.jobs(),
       src.savedViews("jobs"),
       src.companies(),
       src.connections(),
+      src.warmPins(),
+      src.profile(),
     ]);
     rows = jobs;
     views = savedViews;
     warm = buildWarmContext(companies, connections);
+    warmIntro = buildWarmIntroContext(warmPins, profile.criteria);
   }
 
   // URL state (filters/sort/set/group/q) reaches the grid through
@@ -88,7 +97,7 @@ export default async function JobsPage({
           Every posting the sweeps have found, in one table.
         </p>
       </header>
-      <JobsGrid rows={rows} now={now} views={views} warm={warm} />
+      <JobsGrid rows={rows} now={now} views={views} warm={warm} warmIntro={warmIntro} />
     </div>
   );
 }

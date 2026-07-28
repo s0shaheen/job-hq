@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/empty";
 import { getDataSource } from "@/lib/data/get-source";
 import { isDemoMode } from "@/lib/data/source";
 import { buildWarmContext } from "@/lib/referral/match";
+import { buildWarmIntroContext } from "@/lib/warm/intro-context";
 import PipelineTable, { type ReviewItem } from "./pipeline-table";
 
 export const metadata = { title: "Pipeline — Job Search HQ" };
@@ -112,13 +113,16 @@ export default async function PipelinePage({
   // The universe and the connections come from the same render as the rows, for
   // /jobs' reason: `applications.company` is a string somebody typed or a board
   // wrote, and there is no key between it and `companies` but `company_name_key`.
-  const [rows, companies, connections] = await Promise.all([
+  const [rows, companies, connections, warmPins, profile] = await Promise.all([
     source.applications(),
     source.companies(),
     source.connections(),
+    source.warmPins(),
+    source.profile(),
   ]);
   applyDemoSeam(source, demo);
   const warm = buildWarmContext(companies, connections);
+  const warmIntro = buildWarmIntroContext(warmPins, profile.criteria);
 
   return (
     <div className="min-w-0">
@@ -159,6 +163,7 @@ export default async function PipelinePage({
           // why there is no production source for these.
           reviewItems={demo === "review" && isDemoMode() ? DEMO_REVIEW_ITEMS : []}
           warm={warm}
+          warmIntro={warmIntro}
         />
       )}
     </div>

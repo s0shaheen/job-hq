@@ -206,10 +206,17 @@ describe("perf fixtures — deterministic and honestly shaped", () => {
     expect(warm, "the Warm column is gone").toBeTruthy();
     expect(warm!.header).toBe("Warm");
     expect("cell" in warm!).toBe(false);
-    // …and every OTHER column does have one, so the assertion above is about
-    // this column rather than about the type.
+    // The layer-2 Warm-intro column is cell-less for the identical reason — the
+    // grid renders it itself because `WarmIntroCell` reaches the warm routes and
+    // server actions, which this unit-test module must not have to import.
+    const warmIntro = GRID_COLUMNS.find((c) => c.id === "warm-intro");
+    expect(warmIntro, "the Warm-intro column is gone").toBeTruthy();
+    expect(warmIntro!.header).toBe("Warm intro");
+    expect("cell" in warmIntro!).toBe(false);
+    // …and every OTHER column does have one, so the assertions above are about
+    // these two columns rather than about the type.
     for (const col of GRID_COLUMNS) {
-      if (col.id === "warm") continue;
+      if (col.id === "warm" || col.id === "warm-intro") continue;
       expect("cell" in col, `${col.id} lost its cell`).toBe(true);
     }
   });

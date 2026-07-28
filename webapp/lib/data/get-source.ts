@@ -82,6 +82,9 @@ type SeedName =
  */
 const FAIL_COOKIE = "hq_demo_fail";
 
+/** Arms the next warm search to refuse with over-cap — the E2E's shortcut to that state. */
+const WARM_OVER_CAP_COOKIE = "hq_warm_over_cap";
+
 function parseSeed(value: string | undefined): SeedName {
   // An unrecognised value falls back to the full set rather than to nothing:
   // a typo should not present as an app with no data in it.
@@ -236,11 +239,13 @@ export async function getDataSource(): Promise<DataSource> {
     let id = "shared";
     let seed: SeedName = "full";
     let fail: string | undefined;
+    let overCap: string | undefined;
     try {
       const jar = await cookies();
       id = jar.get(DEMO_COOKIE)?.value || "shared";
       seed = parseSeed(jar.get(SEED_COOKIE)?.value);
       fail = jar.get(FAIL_COOKIE)?.value;
+      overCap = jar.get(WARM_OVER_CAP_COOKIE)?.value;
     } catch {
       // cookies() is unavailable in some contexts; the shared store is fine
     }
@@ -251,12 +256,21 @@ export async function getDataSource(): Promise<DataSource> {
     // `FixtureDataSource` class object — so a store constructed in the page bundle
     // is not `instanceof` the action bundle's class, and the arming silently never
     // happened. (Found by watching the test fail: the toast never appeared.)
-    const armable = store as { failNextWrite?: (m: string) => void };
+    const armable = store as {
+      failNextWrite?: (m: string) => void;
+      forceWarmOverCap?: () => void;
+    };
     if (fail && typeof armable.failNextWrite === "function") {
       // Armed on every resolve while the cookie is set, and consumed by the first
       // WRITE — reads leave it alone. So a test sets the cookie, makes one
       // gesture, and clears it; there is no ordering to get right.
       armable.failNextWrite(fail.slice(0, 200));
+    }
+    // Same channel for the warm over-cap state: an E2E cannot start 20 searches to
+    // reach it, so a cookie arms the next `startWarmSearch` to refuse. Consumed by
+    // the first start, exactly like `failNextWrite`.
+    if (overCap && typeof armable.forceWarmOverCap === "function") {
+      armable.forceWarmOverCap();
     }
     return store;
   }

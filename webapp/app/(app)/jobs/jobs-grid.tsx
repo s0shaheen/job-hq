@@ -42,7 +42,9 @@ import {
 } from "@/lib/grid/sort";
 import { serializeGridState, type GridUrlState } from "@/lib/grid/url-state";
 import { WarmCell } from "@/components/warm-cell";
+import { WarmIntroCell } from "@/components/warm-intro-cell";
 import { connectionsAt, universeFor, type WarmContext } from "@/lib/referral/match";
+import { pinsForRow, type WarmIntroContext } from "@/lib/warm/intro-context";
 import {
   displayEquals,
   presetUrl,
@@ -117,6 +119,7 @@ export default function JobsGrid({
   now,
   views,
   warm,
+  warmIntro,
 }: {
   rows: JobView[];
   now: number;
@@ -129,6 +132,13 @@ export default function JobsGrid({
    * Warm cell renders a dash rather than guessing when it is absent.
    */
   warm?: WarmContext;
+  /**
+   * The layer-2 warm-intro context (pins lookup + the profile's default persona
+   * strings), built server-side once per render. Absent on the store-free perf
+   * harness for the same reason as `warm`, and the Warm-intro column hides
+   * itself when it is.
+   */
+  warmIntro?: WarmIntroContext;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -348,6 +358,9 @@ export default function JobsGrid({
         // a timer, an observer), that bound stops holding and the harness has to
         // learn to build a warm context.
         warm: warm !== undefined,
+        // The layer-2 column follows the same rule: hidden with no context to
+        // render (the perf harness), shown otherwise.
+        "warm-intro": warmIntro !== undefined,
       },
     },
   });
@@ -1321,6 +1334,22 @@ export default function JobsGrid({
                                   ?.companyUpdatedAt ?? null
                               }
                               hasAnyConnections={warm.hasAnyConnections}
+                            />
+                          ) : cell.column.id === "warm-intro" && warmIntro ? (
+                            // Same split as the Warm cell: rendered HERE, not in
+                            // the column def, because `WarmIntroCell` reaches the
+                            // warm routes + server actions and `columns.tsx` must
+                            // stay unit-test-importable.
+                            <WarmIntroCell
+                              targetKind="posting"
+                              postingKey={row.original.key}
+                              company={row.original.company}
+                              title={row.original.title}
+                              defaultParams={warmIntro.defaultParams}
+                              pins={pinsForRow(warmIntro, {
+                                postingKey: row.original.key,
+                                company: row.original.company,
+                              })}
                             />
                           ) : cell.column.id === "why" &&
                             row.original.disposition !== "qualified" ? (

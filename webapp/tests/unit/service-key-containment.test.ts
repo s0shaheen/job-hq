@@ -133,3 +133,89 @@ describe("the service client module", () => {
     ]);
   });
 });
+
+/**
+ * The Apify vendor token (0020, the warm-intro finder) — the SAME containment,
+ * proven the same way. It is a different secret with the identical failure mode:
+ * `NEXT_PUBLIC_APIFY_TOKEN` would inline a paid people-data credential into every
+ * browser bundle. So the guarantee is threefold, and none of it is discipline:
+ *   1. `APIFY_TOKEN` has no `NEXT_PUBLIC_` prefix, so it is never inlined.
+ *   2. `lib/warm/vendor.ts` — its one reader — carries `import "server-only"`.
+ *   3. the token env name is READ in exactly one file, so a second holder has to
+ *      argue for itself in a diff.
+ * And when a build exists, the literal is canaried out of the client chunks.
+ */
+function walkDir(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = path.join(dir, entry);
+    if (statSync(full).isDirectory()) out.push(...walkDir(full));
+    else out.push(full);
+  }
+  return out;
+}
+
+describe("the Apify vendor token", () => {
+  it("is READ from the environment in exactly one file", () => {
+    const readers = FILES.filter((f) => /process\.env\.APIFY_TOKEN/.test(readFileSync(f, "utf8")))
+      .map(rel)
+      .sort();
+    expect(readers).toEqual(["lib/warm/vendor.ts"]);
+  });
+
+  it("is never a NEXT_PUBLIC_ name anywhere", () => {
+    for (const f of FILES) {
+      expect(readFileSync(f, "utf8"), rel(f)).not.toMatch(/NEXT_PUBLIC_\w*APIFY/);
+    }
+  });
+
+  it("its one reader carries the server-only marker", () => {
+    const vendor = path.join(WEBAPP, "lib", "warm", "vendor.ts");
+    expect(readFileSync(vendor, "utf8")).toMatch(/^import "server-only";/m);
+  });
+
+  it("never appears in a built client bundle", () => {
+    // Proven against the actual build when one is present. A server-only,
+    // non-NEXT_PUBLIC env read cannot be inlined into a client chunk, so the token
+    // env name must be absent from `.next/static`. Skipped (not vacuous — the three
+    // source canaries above stand) when the app has not been built.
+    const staticDir = path.join(WEBAPP, ".next", "static");
+    let built: string[];
+    try {
+      built = walkDir(staticDir).filter((f) => /\.(js|mjs|css)$/.test(f));
+    } catch {
+      return;
+    }
+    for (const f of built) {
+      expect(readFileSync(f, "utf8"), f).not.toContain("APIFY_TOKEN");
+    }
+  });
+});
+
+/**
+ * The Anthropic key for the warm-intro fit-analysis pass (0020) — same containment,
+ * same failure mode: `NEXT_PUBLIC_ANTHROPIC_API_KEY` would inline a billed LLM
+ * credential into every browser bundle. `lib/warm/fit.ts` is its one reader and
+ * carries `import "server-only"`.
+ */
+describe("the Anthropic fit-analysis key", () => {
+  it("is READ from the environment in exactly one file", () => {
+    const readers = FILES.filter((f) =>
+      /process\.env\.ANTHROPIC_API_KEY/.test(readFileSync(f, "utf8")),
+    )
+      .map(rel)
+      .sort();
+    expect(readers).toEqual(["lib/warm/fit.ts"]);
+  });
+
+  it("is never a NEXT_PUBLIC_ name anywhere", () => {
+    for (const f of FILES) {
+      expect(readFileSync(f, "utf8"), rel(f)).not.toMatch(/NEXT_PUBLIC_\w*ANTHROPIC/);
+    }
+  });
+
+  it("its one reader carries the server-only marker", () => {
+    const fit = path.join(WEBAPP, "lib", "warm", "fit.ts");
+    expect(readFileSync(fit, "utf8")).toMatch(/^import "server-only";/m);
+  });
+});
