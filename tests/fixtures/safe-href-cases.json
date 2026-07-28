@@ -1,0 +1,171 @@
+{
+  "_": "The ONE case list every href guard is held to. A URL a person reads out of an email, a Feed row, or an ATS board, about to become a live `href`. Four call sites render these: webapp/lib/url/safe-href.ts (the landing page and the two pipeline/queue cell renderers import it), webapp/lib/capture/schema.ts:safeUrl (after its www. repair), and core/digest_links.py:safe_href (the email). The TS and Python guards are held EQUAL against this file by webapp/tests/unit/safe-href.test.ts and tests/core/test_safe_href_parity.py, because a guard the store trusts and a guard the renderer trusts that disagree by one backslash is exactly the C2 review's M6. The algorithm is pure string work on purpose: new URL() and urlsplit disagree on %40 and on an empty authority, so neither parser is the authority \u2014 the authority is this list.",
+  "reject_reason_note": "expected \"\" means the guard blanks it; a string means the guard returns it unchanged (trimmed). No guard ever REPAIRS here \u2014 the www. repair is capture-only and happens before the guard sees the value.",
+  "cases": [
+    {
+      "in": "https://boards.greenhouse.io/acme/jobs/1",
+      "out": "https://boards.greenhouse.io/acme/jobs/1",
+      "why": "the ordinary case"
+    },
+    {
+      "in": "http://localhost:3000/queue",
+      "out": "http://localhost:3000/queue",
+      "why": "http is allowed; the guard is not an https-only gate"
+    },
+    {
+      "in": "https://www.ramp.com/careers?src=hq",
+      "out": "https://www.ramp.com/careers?src=hq",
+      "why": "query string kept"
+    },
+    {
+      "in": "https://jobs.lever.co/brex/3#apply",
+      "out": "https://jobs.lever.co/brex/3#apply",
+      "why": "fragment kept"
+    },
+    {
+      "in": "https://www.ramp.com/@handle",
+      "out": "https://www.ramp.com/@handle",
+      "why": "an @ in the PATH is not userinfo; the host is www.ramp.com"
+    },
+    {
+      "in": "https://example.com:8443/x",
+      "out": "https://example.com:8443/x",
+      "why": "an explicit port is fine; the host is non-empty"
+    },
+    {
+      "in": "  https://x.co/j  ",
+      "out": "https://x.co/j",
+      "why": "surrounding space is trimmed, not an opinion about the URL"
+    },
+    {
+      "in": "https://a.io/q?x=%40&y=b",
+      "out": "https://a.io/q?x=%40&y=b",
+      "why": "percent-encoding in the QUERY is legitimate; only the authority is fenced"
+    },
+    {
+      "in": "",
+      "out": "",
+      "why": "empty"
+    },
+    {
+      "in": "   ",
+      "out": "",
+      "why": "whitespace only"
+    },
+    {
+      "in": "N/A",
+      "out": "",
+      "why": "prose, not a URL"
+    },
+    {
+      "in": "not specified",
+      "out": "",
+      "why": "prose with a space"
+    },
+    {
+      "in": "/jobs/1234",
+      "out": "",
+      "why": "a bare path invents a host to prepend"
+    },
+    {
+      "in": "//evil.example/x",
+      "out": "",
+      "why": "protocol-relative \u2014 no scheme means no guarantee which one a client picks"
+    },
+    {
+      "in": "mailto:jobs@ramp.com",
+      "out": "",
+      "why": "not http(s)"
+    },
+    {
+      "in": "javascript:alert(1)",
+      "out": "",
+      "why": "the scheme this guard exists for"
+    },
+    {
+      "in": "JavaScript:alert(1)",
+      "out": "",
+      "why": "case does not launder it"
+    },
+    {
+      "in": "data:text/html,<b>hi</b>",
+      "out": "",
+      "why": "a document, not a link"
+    },
+    {
+      "in": "vbscript:msgbox(1)",
+      "out": "",
+      "why": "the other executable scheme"
+    },
+    {
+      "in": "file:///etc/passwd",
+      "out": "",
+      "why": "local file"
+    },
+    {
+      "in": "https://user:pass@evil.example/x",
+      "out": "",
+      "why": "explicit userinfo; the host is evil.example, not the part before the @"
+    },
+    {
+      "in": "https://www.google.com@evil.example",
+      "out": "",
+      "why": "the classic phish: reads as Google, resolves to evil.example"
+    },
+    {
+      "in": "https://www.google.com:80@evil.example",
+      "out": "",
+      "why": "userinfo with a colon still hides the real host"
+    },
+    {
+      "in": "https://evil.com\\@good.com",
+      "out": "",
+      "why": "THE M6 BUG: a browser normalises backslash to /, so this reads as good.com and resolves to evil.com. Rejected by the backslash rule before any parse."
+    },
+    {
+      "in": "https://good.com\\path",
+      "out": "",
+      "why": "any backslash anywhere is refused; the two parsers disagree on what it means"
+    },
+    {
+      "in": "https://good.com%40evil.example/",
+      "out": "",
+      "why": "%40 is an encoded @, i.e. userinfo in disguise. Node's URL throws on it and Python's urlsplit keeps it as the host, so the parsers disagree \u2014 the authority-has-% rule makes both refuse."
+    },
+    {
+      "in": "https:///nohost",
+      "out": "",
+      "why": "empty authority. new URL() reads host 'nohost'; urlsplit reads none. The empty-authority rule makes both refuse the malformed thing."
+    },
+    {
+      "in": "https://:8080/x",
+      "out": "",
+      "why": "a port with no host"
+    },
+    {
+      "in": "https://\tevil.example",
+      "out": "",
+      "why": "a tab inside the URL"
+    },
+    {
+      "in": "https://evil .example",
+      "out": "",
+      "why": "a space inside the URL"
+    },
+    {
+      "in": "https://evil\u0000.example",
+      "out": "",
+      "why": "a NUL byte inside the URL"
+    },
+    {
+      "in": "http:/x",
+      "out": "",
+      "why": "one slash \u2014 not the // authority marker"
+    },
+    {
+      "in": "https://good.com\nSet-Cookie: x",
+      "out": "",
+      "why": "a newline is a control char and a header-injection shape"
+    }
+  ]
+}

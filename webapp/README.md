@@ -50,14 +50,32 @@ npm run build       # succeeds even without env vars (pages fall back to /setup)
 
 ## Required env vars
 
-| Var | Where to find it |
-|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase dashboard → Project Settings → API |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Same page — the **anon public** key |
+| Var | Where to find it | Needed for |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase dashboard → Project Settings → API | every page |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Same page — the **anon public** key | every page |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` | Same page — the **service_role** key | the two sessionless endpoints only |
+| `HQ_DIGEST_KEYS` | the engine's `/job-hq/HQ_DIGEST_KEYS` (SSM) — the **same value** | verifying digest links (`/d/<token>`) |
 
-Both are browser-safe by design: authorization is row-level security under the
-user's own session. **Never** add a `service_role`/secret key to this app —
-there is no code path that needs it, and RLS is the only authorization layer.
+The first two are browser-safe by design: authorization for **every page a
+person drives** is row-level security under the user's own session, so the pages
+never hold a secret key.
+
+**Two sessionless endpoints are the deliberate exception**, and both are argued
+in `lib/env.ts` and confined by `tests/unit/service-key-containment.test.ts`:
+`POST /api/capture` (the Gmail Apps Script, authenticated by a bearer token) and
+`GET|POST /d/<token>` (a signed digest link, no cookie). They authenticate a
+caller with a credential this system minted rather than a session, which anon +
+RLS cannot express, so they hold `SUPABASE_SERVICE_KEY`. Set it only if you use
+either — Capture (Phase C2) or the digest email (Phase C3).
+
+`HQ_DIGEST_KEYS` is the digest links' **signing** key, NOT a database key. The
+engine (Lambda) signs each link with it; the webapp verifies the same signature,
+so the value on Vercel must MATCH the engine's SSM value. Absent or mismatched,
+every digest link renders "Something went wrong on our side." (a 503 — a
+misconfigured deploy must not read to a person as a forged link). A leaked
+signing key lets someone forge a triage link, bounded by the 7-day expiry and
+`kid` rotation; it is not database access. Rotate it on both sides together.
 
 ## Supabase auth setup (one-time)
 
@@ -81,7 +99,10 @@ there is no code path that needs it, and RLS is the only authorization layer.
 4. Project → Settings → Environment Variables: add
    `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    (Production + Preview). They're inlined at build time, so set them **before**
-   the first real deploy, and redeploy after changing them.
+   the first real deploy, and redeploy after changing them. Add
+   `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` and `HQ_DIGEST_KEYS` here too if you
+   run Capture or the digest email (see the env table above and
+   `docs/RUNBOOK.md` § The digest email lane for the flip order).
 5. Add the resulting `https://<app>.vercel.app/auth/callback` to the Supabase
    Redirect URLs (step 2 above).
 

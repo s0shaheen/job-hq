@@ -21,6 +21,7 @@ import type { ApplicationView } from "@/lib/data/view-models";
 import { isDelisted } from "@/lib/data/view-models";
 import { connectionsAt, universeFor, type WarmContext } from "@/lib/referral/match";
 import { groupRank, isReopenable, statusGroup, statusRank } from "@/lib/status";
+import { safeHref } from "@/lib/url/safe-href";
 import {
   addNoteAction,
   resolveSuggestionAction,
@@ -608,9 +609,12 @@ function PipelineRow({
         <div className="min-w-0 grow basis-full sm:basis-64">
           <p className="min-w-0 break-words text-sm font-medium text-text">{app.company}</p>
           <p className="min-w-0 break-words text-xs text-text-2">
-            {app.url ? (
+            {/* `app.url` is a stored value an LLM read out of an email body; it is
+                only ever a live href through the shared guard, never raw. A
+                refused URL renders as plain title text (`lib/url/safe-href.ts`). */}
+            {safeHref(app.url) ? (
               <a
-                href={app.url}
+                href={safeHref(app.url)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-accent"

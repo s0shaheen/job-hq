@@ -82,18 +82,30 @@ files).
    Verify: after the next 15-minute run, the execution log shows
    `capture POST N -> {"received":N,...}`, and
    `select count(*) from public.email_events` has moved.
-7. Editor toolbar → function dropdown → `setupTriggers` → **Run** → the
+7. **Script Property → who mails the digest** (SHEET-SUNSET phase C3). Optional;
+   leave it unset until the engine's SES lane is proven.
+
+   | property | value |
+   |---|---|
+   | `DIGEST_EMAIL_SOURCE` | `script` (default; unset and unrecognised values mean this too) or `engine` |
+
+   Under `engine` this script mails nothing and becomes the WATCHDOG for the
+   handover instead: a newest Digest row with a body and a blank `sent_at` means
+   nobody sent, and it ops-pushes that once a day. Set it LAST — the flip order
+   (and why doing it first produces no digest at all) is `docs/RUNBOOK.md`
+   § The digest email lane. Rollback is setting it back to `script`.
+8. Editor toolbar → function dropdown → `setupTriggers` → **Run** → the
    consent flow appears: pick the account → **"Google hasn't verified this
    app"** → *Advanced* → *Go to HQ Email Capture (unsafe)* → **Allow**. This
    warning is the expected personal-use path for restricted Gmail scopes; no
    CASA review exists or is needed for a self-owned script.
-8. Dry-run per `capture/test-notes.md`, then let the triggers run. Verify
+9. Dry-run per `capture/test-notes.md`, then let the triggers run. Verify
    within an hour: rows in **Email Events**, `heartbeat_capture` in
    **Config**, and both triggers listed under Triggers (clock icon).
-9. Backfill the main account's history: run `backfill90` repeatedly until
-   the execution log says **"backfill complete"** (each run processes ≤80
-   threads to stay inside the 6-minute cap; the `hq/processed` label is the
-   cursor, so re-running is always safe).
+10. Backfill the main account's history: run `backfill90` repeatedly until
+    the execution log says **"backfill complete"** (each run processes ≤80
+    threads to stay inside the 6-minute cap; the `hq/processed` label is the
+    cursor, so re-running is always safe).
 
 Trigger note: time-driven triggers execute the **latest saved code** — after
 editing, just save; no deployment step exists for the capture project.
@@ -221,6 +233,12 @@ Properties — it is a Script Property there, not a GitHub secret.)
   self-heal, and re-pin gids in the CONFIG block if a tab was recreated.
 - **LLM outage**: events still land, classified by deterministic rules at
   confidence 0.5 — the joiner keeps them as suggestions.
+- **Digest handover** (`DIGEST_EMAIL_SOURCE`, phase C3): under `engine` this
+  script stops mailing and watches instead, ops-pushing once a day when the
+  newest Digest row has a body and a blank `sent_at` — nobody sent. Unset,
+  `script`, or an unrecognised value all keep mailing, because a typo must not
+  be a way to turn the email off. Flip order and rollback: `docs/RUNBOOK.md`
+  § The digest email lane.
 - **Store outage / refusal — TWO stores, because they need opposite treatment.**
   The sheet lane is untouched either way and the run succeeds either way.
 

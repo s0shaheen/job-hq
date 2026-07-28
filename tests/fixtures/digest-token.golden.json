@@ -1,0 +1,16 @@
+{
+  "_": "Shared golden for the digest email's one-click action links. One constant, checked against TWO independent implementations of 'the token for this row': core/digest_links.py (hmac/hashlib, what the Lambda digest job mints and puts in the inbox) and webapp/lib/digest/token.ts (node:crypto, what /d/<token> verifies before it writes anything). Neither side derives these values at test time — regenerating them is a deliberate act, and a diff here is a format change that breaks every link already sitting in somebody's mail.",
+  "kid": "k1",
+  "secret": "b2f0a3c9d4e5164778899aabbccddeeff00112233445566778899aabbccddeeff",
+  "keys_env": "k1:b2f0a3c9d4e5164778899aabbccddeeff00112233445566778899aabbccddeeff",
+  "minted_at": "2026-07-27T11:40:00Z",
+  "user_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "posting_key": "greenhouse-4012345",
+  "action": "interested",
+  "jti": "ZGlnZXN0LWdvbGRlbi0xMg",
+  "expires_at": 1785757200,
+  "payload_json": "{\"a\":\"interested\",\"e\":1785757200,\"j\":\"ZGlnZXN0LWdvbGRlbi0xMg\",\"p\":\"greenhouse-4012345\",\"t\":\"digest_action\",\"u\":\"7c9e6679-7425-40de-944b-e07fc1f90ae7\"}",
+  "token": "v1.k1.eyJhIjoiaW50ZXJlc3RlZCIsImUiOjE3ODU3NTcyMDAsImoiOiJaR2xuWlhOMExXZHZiR1JsYmkweE1nIiwicCI6ImdyZWVuaG91c2UtNDAxMjM0NSIsInQiOiJkaWdlc3RfYWN0aW9uIiwidSI6IjdjOWU2Njc5LTc0MjUtNDBkZS05NDRiLWUwN2ZjMWY5MGFlNyJ9.5uEVSNYx2RFnXYj9iNv2qM-WBUKwvMn4Zdz6Rbev1XE",
+  "tampered_action_token": "v1.k1.eyJhIjoiZGlzbWlzc2VkIiwiZSI6MTc4NTc1NzIwMCwiaiI6IlpHbG5aWE4wTFdkdmJHUmxiaTB4TWciLCJwIjoiZ3JlZW5ob3VzZS00MDEyMzQ1IiwidCI6ImRpZ2VzdF9hY3Rpb24iLCJ1IjoiN2M5ZTY2NzktNzQyNS00MGRlLTk0NGItZTA3ZmMxZjkwYWU3In0.5uEVSNYx2RFnXYj9iNv2qM-WBUKwvMn4Zdz6Rbev1XE",
+  "tampered_note": "tampered_action_token is the golden token with `interested` swapped for `dismissed` in the payload and the ORIGINAL signature left in place — matrix row 27. Both implementations must reject it."
+}

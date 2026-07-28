@@ -168,6 +168,35 @@ class Profile:
                 continue          # untouched default — the profile is the truth
             setattr(self, attr, val)
 
+    def notice_email(self, user: str = "") -> str:
+        """Where this person's engine email goes, or `""`.
+
+        `notify_email` has existed on this dataclass since the profile landed
+        and until Phase C3 **nothing in the repo read it** — the digest was
+        mailed by an Apps Script with `shaheensalmant@gmail.com` as a literal.
+        This is the reader, and the fallback chain is deliberately two links
+        long and no longer:
+
+          1. `notify_email` from the profile, when the operator set one;
+          2. the registry's `owner_email` for that instance, which every user
+             block already carries because bootstrap needs it to share the
+             sheet. A user whose mail is simply their account address should
+             not have to state it twice.
+
+        Returns `""` rather than guessing when neither exists. The caller's job
+        is to refuse loudly: mailing a briefing to the wrong person is worse
+        than not mailing it, and mailing it to a blank address just fails at
+        the provider with a less readable message.
+        """
+        mine = str(self.notify_email or "").strip()
+        if mine:
+            return mine
+        try:
+            from core.config import registry
+            return str(registry(user or self.name or None).get("owner_email", "") or "").strip()
+        except Exception:
+            return ""
+
     def gate_config(self):
         """The intake gates for this profile (monitor.gates.GateConfig)."""
         from monitor.gates import GateConfig

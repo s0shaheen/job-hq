@@ -25,7 +25,7 @@ than it found it, and the sheet stays a read-only mirror until the day nothing r
 | Email events (Email Events) | Gmail Apps Script appends rows | an authenticated `/api/capture` endpoint writing pg | **built (C2)**: `public.email_events` + `capture_tokens` (0018), the endpoint, and `Code.gs` dual-writing (sheet first, POST second, local retry queue). Nothing READS the pg copy yet — the joiner still reads the tab |
 | Quick Add (Quick Add) | pasted URLs | webapp add/paste (P7) + import (P9) | built |
 | Scout tabs (Raza-*) | scout's workflow | webapp grid + import + his own user lane | built in pieces; his onboarding = a user onboarding |
-| Digest (Digest tab + Apps Script mailer) | composed row, mailed at 7am | PHASE-DIGEST increments 3–6: the email IS the app (signed links), sent by the engine via an email API | designed, not built |
+| Digest (Digest tab + Apps Script mailer) | composed row, mailed at 7am | PHASE-DIGEST increments 3–6: the email IS the app (signed links), sent by the engine via an email API | **built (C3)**: `tracker.digest` composes HTML + text and sends over AWS SES (sandbox), with signed one-click links verified by the web app. Both mailers are switched (`HQ_DIGEST_EMAIL`, `DIGEST_EMAIL_SOURCE`) and the Digest tab's `sent_at` cell is the interlock. Unsubscribe headers and the preferences page (increment 6) are NOT built |
 | Outbox (Outbox tab) | quiet-hours deferrals | pg table | trivial port once pg is the engine's store |
 | Log/Health (Log, Health) | append-only audit + per-company fetch results | `events` (exists) + a `fetch_health` table | partial |
 | Backups (selfheal CSV + S3 snapshots) | git + S3 copies of tabs | **pg_dump lanes** — resurrect `pgdump.yml` (git lane) + a Lambda pg_dump→S3 (provider-diverse lane) | pgdump.yml deleted-resurrectable by design |
@@ -74,10 +74,19 @@ per-user bearer token — kept as a SHA-256, minted/rotated/revoked from the SQL
 It still appends to the tab FIRST and the tab is still what `join` reads; the pg copy has no
 reader until the join lane flips. Two named remainders: nothing drains an event the queue
 dropped into pg (the sheet has it, so this is a phase-D blocker rather than a live one), and
-the endpoint rejects unknown fields, so the webapp deploys before the script does.* Digest
-increments 3–6 land here: the
-engine composes AND sends the email (Resend or SES — pick at build time), signed one-click
-links back into the webapp. During C the sheet gets a one-way nightly EXPORT (pg→CSV→the same
+the endpoint rejects unknown fields, so the webapp deploys before the script does.*
+*C3 is built: the engine composes AND sends the digest email. **The vendor is AWS SES, in sandbox
+mode** — the account, the IAM role, the Terraform and the CloudWatch/SNS/ntfy alerting all exist
+for the bots Lambda already, so SES costs one resource and one policy statement instead of a
+vendor, a dashboard and a second API key; verified-recipient sandbox is the right shape for a
+two-person system rather than a limitation to escape, and promotion is a later ops step. Signed
+one-click links point back into the webapp, minted by `core/digest_links.py` and verified there,
+pinned across the two languages by `tests/fixtures/digest-token.golden.json`. The merge flips
+nothing: `HQ_DIGEST_EMAIL=engine` turns the engine's send on, `DIGEST_EMAIL_SOURCE=engine` turns
+the Apps Script's off, the Digest tab's `sent_at` cell stops both mailing the same day, and the
+script pages if it is off and nothing stamped. Order and rollback: `docs/RUNBOOK.md` § The digest
+email lane. NOT built: unsubscribe headers and the per-type preferences page (increment 6).*
+During C the sheet gets a one-way nightly EXPORT (pg→CSV→the same
 git/S3 lanes) so the human-readable mirror never dies before its replacement is trusted.
 *Exit test: two weeks of Gmail-capture→pipeline advances with zero sheet involvement.*
 

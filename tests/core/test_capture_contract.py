@@ -348,8 +348,10 @@ def test_each_alert_kind_has_its_own_latch_slot():
     Counting call sites is the exact defect this branch names three tests later
     in its own words: a source-text test has to pin the line that decides.
     """
-    assert "function alertOncePerDay_(slot)" in CODE_GS, (
-        "the latch takes a message again — the parameter name is the tell"
+    assert "function alertOncePerDay_(slot, send)" in CODE_GS, (
+        "the latch takes a message again — the parameter names are the tell. "
+        "`send` is the push itself, because the latch may only be stamped by a "
+        "push that DELIVERED (C2 review P-1)."
     )
     for slot in ("CAPTURE_ALERT_DROPPED_PROP", "CAPTURE_ALERT_PARKED_PROP"):
         assert re.search(rf'const {slot} = "HQ_CAPTURE_ALERT_\w+";', CODE_GS), slot
@@ -359,6 +361,14 @@ def test_each_alert_kind_has_its_own_latch_slot():
     # gets back in.
     assert "props.getProperty(slot) === today" in latch
     assert "props.setProperty(slot, today)" in latch
+    # P-1: `ntfy_` swallowed everything and never read the response, so an ntfy
+    # blip at the moment of the day's only alert set the latch, deleted the
+    # running count, and suppressed every same-day retry. The order below is the
+    # fix: send FIRST, stamp only on a 2xx. `webapp/tests/unit/capture-appsscript.test.ts`
+    # executes it; this pins the line that decides.
+    assert "const code = send();" in latch
+    assert "code >= 200 && code < 300" in latch
+    assert latch.index("const code = send();") < latch.index("props.setProperty(slot, today)")
 
 
 def test_the_backlog_report_cannot_throw_either():

@@ -178,19 +178,20 @@ def _feed_row(**kw):
 
 def test_priority_company_never_exempts_a_geo_violation():
     from core.fakes import fake_hq
-    from tracker.digest import _sec_new_roles
+    from tracker.digest import _md_new_roles, _new_roles
     hq = fake_hq()
     hq.tab("companies").append_records(
         [{"name": "Acme", "ats": "greenhouse", "slug": "a",
           "monitor": "TRUE", "priority": "TRUE"}])
     hq.tab("feed").append_records([_feed_row()])
-    lines, n = _sec_new_roles(hq, {"yoe_push_max": 4}, "2026-07-20")
+    roles, n = _new_roles(hq, {"yoe_push_max": 4}, "2026-07-20")
+    lines = _md_new_roles(roles, n)
     assert n == 0 and lines == []          # handpicked employer, wrong continent
 
 
 def test_priority_company_still_exempts_the_yoe_bar_but_says_so():
     from core.fakes import fake_hq
-    from tracker.digest import _sec_new_roles
+    from tracker.digest import _md_new_roles, _new_roles
     hq = fake_hq()
     hq.tab("companies").append_records(
         [{"name": "Acme", "ats": "greenhouse", "slug": "a",
@@ -198,19 +199,21 @@ def test_priority_company_still_exempts_the_yoe_bar_but_says_so():
     hq.tab("feed").append_records(
         [_feed_row(location="Chicago, IL", min_yoe="9",
                    disposition="filtered", disposition_reason="yoe:9>4")])
-    lines, n = _sec_new_roles(hq, {"yoe_push_max": 4}, "2026-07-20")
+    roles, n = _new_roles(hq, {"yoe_push_max": 4}, "2026-07-20")
+    lines = _md_new_roles(roles, n)
     assert n == 1
     assert "outside your filters" in lines[0]   # visible, not silent
 
 
 def test_qualified_rows_are_unlabelled():
     from core.fakes import fake_hq
-    from tracker.digest import _sec_new_roles
+    from tracker.digest import _md_new_roles, _new_roles
     hq = fake_hq()
     hq.tab("feed").append_records(
         [_feed_row(location="Chicago, IL", disposition="qualified",
                    disposition_reason="")])
-    lines, n = _sec_new_roles(hq, {"yoe_push_max": 4}, "2026-07-20")
+    roles, n = _new_roles(hq, {"yoe_push_max": 4}, "2026-07-20")
+    lines = _md_new_roles(roles, n)
     assert n == 1 and "outside your filters" not in lines[0]
 
 

@@ -44,8 +44,9 @@ CI instead of shipping.
 |---|---|---|
 | **AWS Lambda + EventBridge** | every recurring bot: one container image, one function, one schedule per job | SSM Parameter Store, `/job-hq/*` |
 | **GitHub Actions** | CI, the resume render/publish, the one job whose product is a git commit — plus "Run a bot", the single dispatch that runs any bot by hand | GitHub repo secrets |
-| **Google Apps Script** | Gmail capture + the 7am digest email (in your account); the Drive uploader the resume pipeline publishes through | Script properties |
-| **Vercel** | the phone editor | its own env |
+| **Google Apps Script** | Gmail capture (in your account); the 7am digest mailer, until `DIGEST_EMAIL_SOURCE=engine` hands that to the Lambda; the Drive uploader the resume pipeline publishes through | Script properties |
+| **AWS SES** | the digest email once the engine sends it — sandbox mode, so the From address and every recipient is a verified identity (`infra/terraform/mail.tf`) | the Lambda's own IAM role |
+| **Vercel** | the phone editor; the web app, which is what the digest's one-click links point at | its own env |
 
 **The rule for the split: if a job's product is a git commit, it stays on GitHub Actions.**
 Lambda's filesystem is read-only, so a commit-shaped job there would silently write nothing, and

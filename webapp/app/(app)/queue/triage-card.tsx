@@ -1,6 +1,7 @@
 import { ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { decisionFacts, NOT_LISTED, type JobView } from "@/lib/data/view-models";
+import { safeHref } from "@/lib/url/safe-href";
 import { cn } from "@/lib/utils";
 
 /**
@@ -33,15 +34,24 @@ export function TriageCard({ job, mismatch }: { job: JobView; mismatch?: string 
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <h2 className="min-w-0 break-words text-sm font-semibold">{job.company}</h2>
         {job.industry ? <Badge tone="info">{job.industry}</Badge> : null}
-        <a
-          href={job.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="ml-auto inline-flex items-center gap-1 text-xs text-muted hover:text-accent"
-        >
-          {job.posted ? `Posted ${job.posted}` : "Open posting"}
-          <ExternalLink aria-hidden="true" className="size-3" />
-        </a>
+        {/* `job.url` is stored posting data; it becomes a live href only through
+            the shared guard. A refused URL still shows the "Posted"/date text, as
+            a span, so the card does not silently lose the line. */}
+        {safeHref(job.url) ? (
+          <a
+            href={safeHref(job.url)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-auto inline-flex items-center gap-1 text-xs text-muted hover:text-accent"
+          >
+            {job.posted ? `Posted ${job.posted}` : "Open posting"}
+            <ExternalLink aria-hidden="true" className="size-3" />
+          </a>
+        ) : (
+          <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted">
+            {job.posted ? `Posted ${job.posted}` : "Open posting"}
+          </span>
+        )}
       </div>
 
       <h3 className="mt-1 break-words text-xl font-semibold tracking-tight text-balance">

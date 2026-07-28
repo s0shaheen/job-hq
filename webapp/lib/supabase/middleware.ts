@@ -6,10 +6,38 @@ import { getSupabaseEnv } from "@/lib/env";
 /** Keep in step with get-source.ts, which reads this to key the demo store. */
 const DEMO_COOKIE = "hq_demo_id";
 
-/** Routes reachable without a session. */
-const PUBLIC_PREFIXES = ["/login", "/auth", "/setup"];
+/**
+ * Routes reachable without a session.
+ *
+ * TWO KINDS OF ENTRY LIVE HERE, and the second kind is the one to get right.
+ * `/login`, `/auth` and `/setup` are pages a signed-out person must be able to
+ * see. `/api/capture` and `/d` are endpoints that **authenticate their own
+ * caller with a credential this app minted** — a bearer token kept as a SHA-256
+ * (`lib/capture/token.ts`) and an HMAC-signed link (`lib/digest/token.ts`). For
+ * those two, "no session" is the design: an Apps Script and a mail client's
+ * in-app browser have no cookie and are never going to acquire one.
+ *
+ * `middleware.ts`'s matcher excludes static assets and NOTHING else, so it runs
+ * on `/api/*` too. `/api/capture` was missing from this list from the day it
+ * shipped: every batch the Gmail script POSTed was 307'd to `/login`, the script
+ * saw a non-2xx and parked the rows, and no test caught it because the route
+ * suite drives the handler directly and never crosses the gate. The dual-write
+ * lane C2 shipped had therefore never delivered a single event over HTTP.
+ *
+ * A redirect is a particularly bad answer for both: 307 preserves the method, so
+ * the POST is re-issued at a page that does not want it, and the caller gets a
+ * failure that names the wrong thing. `tests/unit/auth-gate.test.ts` pins every
+ * name on this list and, more importantly, pins that the two token endpoints are
+ * on it.
+ */
+const PUBLIC_PREFIXES = ["/login", "/auth", "/setup", "/api/capture", "/d"];
 
-function isPublicPath(pathname: string): boolean {
+/**
+ * Exact match, or a `/`-delimited prefix. The delimiter is load-bearing: a bare
+ * `startsWith` would let `/d` open `/dashboard`, and `/api/capture` open
+ * `/api/capture-everything`.
+ */
+export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   );

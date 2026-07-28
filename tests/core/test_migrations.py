@@ -235,6 +235,36 @@ def test_the_capture_rpc_the_endpoint_calls_exists_and_takes_what_it_is_passed()
     }
 
 
+def test_the_digest_rpc_the_landing_page_calls_exists_and_takes_what_it_is_passed():
+    """The same contract, for the RPC behind `POST /d/<token>` (SHEET-SUNSET C3).
+
+    `DIGEST_RPC` is a string handed to `supabase.rpc()` from a module the parser
+    above does not read — `RPC_CALLS` comes from `supabase-source.ts`, and this
+    caller deliberately does not go through the session-scoped data source. So the
+    same gap the capture RPC has: the vitest suite drives a fake store, the db
+    suite calls the SQL directly, and the string between them is checked by nothing
+    else. A typo here is a 404 on a link somebody already has in their inbox.
+    """
+    src = (ROOT / "webapp" / "lib" / "supabase" / "service.ts").read_text()
+    m = re.search(r'DIGEST_RPC\s*=\s*"(\w+)"', src)
+    assert m, "no DIGEST_RPC constant in webapp/lib/supabase/service.ts — did it move?"
+    fn = m.group(1)
+
+    declared = set(_sql_function_params(ALL_SQL, fn) or [])
+    assert declared, f"/d/<token> calls {fn}() but no migration defines it"
+    body = src[src.index("async setTriage(") : src.index("if (error)", src.index("async setTriage("))]
+    passed = set(re.findall(r"(p_\w+):", body))
+    assert passed, "no p_* arguments found in setTriage() — parser out of date?"
+    # EQUALITY, the engine-owns-both-ends rule: an undeclared argument fails to
+    # resolve the overload at all, and one the function declares that the caller
+    # stops passing is worse because it is silent — `p_idem` going missing would
+    # turn every replay into a second write.
+    assert passed == declared, {
+        "passed but not declared": sorted(passed - declared),
+        "declared but not passed": sorted(declared - passed),
+    }
+
+
 def test_the_reconcile_rpc_the_engine_calls_exists_in_a_migration():
     """The same contract this file checks for the web app, for the one RPC the ENGINE calls.
 
@@ -299,7 +329,12 @@ def test_the_engine_only_rpcs_are_not_reachable_from_a_browser():
                # MINT AND REVOKE A CREDENTIAL, which is the one thing on this list
                # a browser reaching it could turn into permanent access.
                "hq_capture_email_events", "hq_mint_capture_token",
-               "hq_revoke_capture_tokens", "hq_rotate_capture_token"):
+               "hq_revoke_capture_tokens", "hq_rotate_capture_token",
+               # 0019's. It takes the acting user as an argument because the
+               # caller learned that user from an HMAC signature and not from a
+               # session; reachable from a browser it would let any signed-in
+               # visitor triage anybody's queue.
+               "hq_digest_set_triage"):
         revokes = re.findall(rf"revoke\s+all\s+on\s+function\s+public\.{fn}\s*\([^)]*\)\s*\n?\s*"
                              rf"from\s+([^;]+);", ALL_SQL, re.I)
         assert revokes, f"{fn}() is never revoked"

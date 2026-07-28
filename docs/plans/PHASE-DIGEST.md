@@ -49,6 +49,18 @@ to be replaced.
 
 ## 2. Architecture
 
+> **SUPERSEDED 2026-07-27 by `docs/plans/SHEET-SUNSET.md` §2 Phase C, and by what
+> C3 shipped. THE ENGINE COMPOSES AND SENDS.** `tracker/digest.py` builds the
+> HTML and hands it to SES; the web app only *verifies* a link when somebody taps
+> it. The reasoning below was written before the sunset plan existed and its
+> premises moved: the digest job is the one job guaranteed to run daily and it
+> already holds every row the email describes, while a webapp `/api/digest/send`
+> would need the cron to reach a Vercel origin and re-read from Postgres data the
+> engine had just assembled. The token secret still lives in one place per side
+> of the wire, pinned across languages by `tests/fixtures/digest-token.golden.json`
+> — one constant neither implementation derives at test time. Read §10 for what
+> actually landed before you read this section as instructions.
+
 **The digest is composed and sent by the web app, triggered by the existing
 cron.** Not by `tracker/digest.py`, and not by Apps Script.
 
@@ -458,10 +470,90 @@ unblocks 4. 5 is worthless without 4.
 1. **GET never writes.** Any future "make it one click instead of two" must be
    answered with row 25, not with a UA allowlist.
 2. **One token per action.** Not one token plus a query parameter.
-3. **The digest is composed by the web app.** `tracker/digest.py` keeps serving
-   the sheet era and is not extended with links.
+3. ~~**The digest is composed by the web app.**~~ **Reversed 2026-07-27, see §2
+   and §10.** `tracker/digest.py` composes and sends; the web app verifies. What
+   survives of the original decision is the part that mattered: exactly one
+   process mints, exactly one verifies, and the format between them is pinned by
+   a golden rather than by two people reading the same paragraph.
 4. **Suppressed ≠ dropped.** Quiet hours always writes an outbox row.
 5. **Unsubscribe is per-type.** The provider's one-click POST maps to the type
    of the email it fired from, and nothing wider.
 6. **The channel check lives in `core.notify.push`.** Call-site checks are how
    `wide.py` ended up broken; do not add a second enforcement point.
+
+---
+
+## 10. What increments 3–6 actually landed (C3, 2026-07-27)
+
+Written down in the same spirit as §4.2b: the sections above are the design, and
+the design is larger than what shipped. Verified against the code.
+
+### 10.1 The vendor: AWS SES, sandbox
+
+`docs/plans/SHEET-SUNSET.md` §2 left this open ("Resend or SES — pick at build
+time"). **SES.** The AWS account, the Lambda execution role, the Terraform and
+the CloudWatch → SNS → ntfy alerting all exist already, so SES is one resource
+(`infra/terraform/mail.tf`) and one policy statement rather than a vendor, a
+dashboard and a second API key to rotate. Email-address identities, not a
+domain: nobody owns a sending domain for HQ, and a domain identity whose DKIM
+records cannot be published never verifies and fails every send after a plan
+that looked clean.
+
+**Sandbox is the shape, not a limitation.** Sandbox delivers only to verified
+addresses, at 200/day and 1/s. A two-person system has two recipients and sends
+two messages a day, so verification is the only constraint — and it fails in the
+useful direction, refusing an unverified address at send time instead of
+delivering to a stranger. That refusal is `core.mailer.AddressNotVerified`, its
+own class with its own ops-push title, because it is the first thing that
+happens when a user is added and it must not read as an outage.
+
+### 10.2 Composed by the engine, verified by the web app
+
+§2's architecture is reversed (see the banner there). `tracker/digest.py` gathers
+the day once into a `core.digest_email.DigestData` and renders it twice: the
+markdown Digest-tab row, byte-for-byte what it always was, and the HTML + text
+email. `core/digest_links.py` mints the tokens; `webapp/lib/digest/token.ts`
+verifies them; `tests/fixtures/digest-token.golden.json` is the one constant
+neither side derives at test time.
+
+The token format is §3.1 verbatim, minus `n` (`token_epoch`).
+
+### 10.3 What was designed and deliberately NOT built
+
+| Designed in | Not built | Why, and what stands in |
+|---|---|---|
+| §3.3, §5 | `digest_tokens` table | `command_idempotency` (0003) already gives single-use-for-the-write and replay-safe-for-the-display when the token's `jti` is the idempotency key. A table whose only reader duplicates a guarantee the store already makes is a table that drifts from it. **Lost:** per-link `revoked_at`. **Kept:** `kid` retirement, which kills every token signed with a secret at once, and the 7-day floor. |
+| §3.3 | `profiles.notify.token_epoch` (`n` in the payload) | Reading it would make minting an I/O operation and a pg outage would cost the whole digest its links. **Lost:** the per-user "this wasn't me" bump. |
+| §5 | `digest_sends` table | The Digest tab's `sent_at` cell already is the once-per-day record, and it is what the two mailers hand over on. Row 39 holds without a new table. |
+| §4.3, increment 6 | `/n/unsub/<token>`, `List-Unsubscribe` headers, the preferences page | **Genuinely open, and the largest remaining gap.** Every digest names the Config cell that turns it off, which is honest for two people who own the spreadsheet and is not a substitute for RFC 8058 the day a third person is on it. |
+| §6 | the Playwright email-layout spec and `/dev/digest-preview` | The composer is unit-tested against the same rules (no `<style>`, no flex/grid, tables only, explicit colours, 44px targets, <90 KB). The output *was* rendered and looked at once, by hand, in headless Chromium: **0px horizontal overflow at 320 and 600, action buttons 125×66 with a 12px gutter at 320.** That is a one-off, not a gate — nothing re-checks it on the next edit, and nobody has opened it in a real mail client. The axe pass in both colour schemes has not happened. |
+| §4.2b | the Apps Script's `jobsPush_` still bypasses `core.channels` | Unchanged by this unit and still true for recruiter/offer. |
+
+### 10.4 Two switches, one interlock, and the order that matters
+
+Neither mailer changes behaviour on merge. `HQ_DIGEST_EMAIL=engine` arms the
+engine; `DIGEST_EMAIL_SOURCE=engine` (Script Property) disarms the Apps Script.
+The Digest tab's `sent_at` cell is the interlock: whoever sends stamps it, and
+neither side mails a stamped row, so both-armed is safe and is the observable
+window. Both-disarmed is not, and it is silent — so `engine` mode makes the Apps
+Script a watchdog that pages when the newest row has a body and no stamp.
+Order and rollback: `docs/RUNBOOK.md` § The digest email lane.
+
+### 10.5 Smaller decisions worth not re-deriving
+
+- **Quiet hours do not apply to email.** The window exists so a phone does not
+  buzz at 03:00; an email makes no noise, and deferring the daily briefing into
+  the outbox would deliver yesterday's news tomorrow. `notify_digest` (the
+  channel matrix) does apply, and the email lane is the first thing that ever
+  asked it — the Apps Script mailed unconditionally to a literal address.
+- **`webapp_base` allows `http://localhost` and `http://127.0.0.1`.** A narrow
+  deviation from row 29, so the composer can be driven against `npm run dev`.
+  Every other non-https origin, including a preview deployment, yields a digest
+  with no links and a footer saying so. Compose never throws for this: killing
+  the briefing (and the two watchdogs it carries) over a link is the wrong trade.
+- **A failed send ops-pushes twice.** Once from `tracker.digest` naming the
+  address and the reason, once from `infra/app/handler.py` naming the job, which
+  is what every other job failure already does. The nonzero exit is what makes
+  the second one fire.
+- **`Profile.notify_email` finally has a reader** (`Profile.notice_email`), with
+  the registry's `owner_email` behind it and a loud refusal when neither exists.

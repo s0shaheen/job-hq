@@ -179,6 +179,64 @@ aws cloudwatch describe-alarms --alarm-names $(terraform output -json alarm_name
   --query 'MetricAlarms[].[AlarmName,StateValue]' --output text
 ```
 
+## The mail lane (`terraform/mail.tf`)
+
+The daily digest is sent by the `digest` job itself, over **SES v2** from the bots Lambda (boto3
+`sesv2.send_email`, under the execution role it already has — no API key, no second runtime).
+That replaces the `MailApp.sendEmail` call in the Gmail Apps Script.
+
+Two variables turn it on. Both live in `terraform/variables.tf`, both default to OFF:
+
+| Variable | What it is |
+|---|---|
+| `ses_sender_email` | the From address. Empty (the default) = **no SES resources at all**, and the Lambda's `HQ_MAIL_SENDER` is empty, so the engine composes the digest and sends nothing. |
+| `ses_verified_emails` | the recipients, verified as identities alongside the sender. |
+
+```sh
+cd infra/terraform
+terraform apply \
+  -var 'ses_sender_email=you@gmail.com' \
+  -var 'ses_verified_emails=["you@gmail.com","dad@gmail.com"]'
+# or put both in terraform.tfvars so you never retype them
+```
+
+**Then click the verification email.** Terraform creates the identity; AWS emails each address a
+confirmation link, and until a human taps it that identity is `Pending` and nothing sends.
+Applying is not verifying.
+
+```sh
+terraform output ses_verified_identities        # every address this lane created
+aws sesv2 get-email-identity --email-identity you@gmail.com \
+  --query '[IdentityType,VerifiedForSendingStatus]' --output text     # EMAIL_ADDRESS  True
+```
+
+**Sandbox, and why we stay there.** Every SES account starts in sandbox: the From address *and
+every To address* must be a verified identity, 200 messages/day, 1 message/second. One digest to
+two humans is two messages a day, so the caps are not the constraint — verification is. Leaving
+sandbox is an AWS support request, worth filing the day a recipient appears who can't click a
+verification link. Sandbox also fails in the useful direction: an unverified address is rejected
+at send time instead of delivered to a stranger.
+
+**The failure you will actually hit** is a recipient nobody verified. SES answers with
+`MessageRejected` — *"Email address is not verified. The following identities failed the check in
+region US-EAST-1: dad@gmail.com"* — and the engine gives that its own error class
+(`AddressNotVerified`, `core/mailer.py`), so it lands as a distinct named ops push instead of a
+generic digest failure. The fix is one `terraform apply` plus one click, not a code change. The
+same error appears if the *sender* is unverified, which is why `mail.tf` builds its identity set
+from sender + recipients together: an unverified From plans clean, applies clean, and rejects
+every send.
+
+`HQ_DIGEST_KEYS` (one-click link signing keys, `kid:secret,oldkid:oldsecret`, newest first) and
+`HQ_WEBAPP_URL` (the absolute https origin those links point at) are **not** in Terraform. They
+follow the same out-of-band secret discipline as everything else (step 2), so no signing key ever
+lands in Terraform state:
+
+```sh
+put HQ_DIGEST_KEYS "k1:$(openssl rand -hex 32)"     # SecureString, per step 2's helper
+put HQ_WEBAPP_URL  "https://<your webapp origin>"   # not a secret, kept with the rest for one lookup
+put HQ_DIGEST_EMAIL "engine"                        # the engine-side switch; unset = compose, don't send
+```
+
 ## Known gaps (all documented, none silent)
 
 - **`pgdump` is deleted, not ported.** There is no live Supabase behind it, so there was nothing to
@@ -253,6 +311,7 @@ natural next refactor, not needed yet.
 - `alerter/index.py` — SNS→ntfy bridge for the CloudWatch alarms; stdlib only, no shared code
   with the bots (it has to survive their image being broken).
 - `terraform/` — ECR, the Lambda, a least-privilege execution role (logs + read its own SSM +
-  PutObject to the backup bucket), a scheduler role (invoke only this function), one EventBridge
-  schedule per bot per user, `backups.tf`'s versioned S3 backup bucket, and `alerts.tf`'s alarms
-  + SNS topic + alerter.
+  PutObject to the backup bucket + SendEmail on the verified identities), a scheduler role (invoke
+  only this function), one EventBridge schedule per bot per user, `backups.tf`'s versioned S3
+  backup bucket, `mail.tf`'s SES identities for the digest (off until a sender is set), and
+  `alerts.tf`'s alarms + SNS topic + alerter.

@@ -26,6 +26,11 @@ output "alarm_names" {
     aws_cloudwatch_metric_alarm.bots_silent.alarm_name])
 }
 
+output "ses_verified_identities" {
+  description = "Addresses the mail lane created identities for. Each one must be confirmed by clicking the AWS verification email before SES will send from or deliver to it."
+  value       = sort([for identity in aws_sesv2_email_identity.mail : identity.email_identity])
+}
+
 output "ssm_prefix" {
   description = "Put the bots' secrets under this path as SecureStrings (see the runbook)."
   value       = var.ssm_prefix

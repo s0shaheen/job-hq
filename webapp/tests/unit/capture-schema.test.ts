@@ -376,8 +376,8 @@ describe("the two fields that become an href — content, not identity", () => {
   });
 
   it("only repairs a www. host, never guesses one for a bare path", () => {
-    // `www.` cannot start a scheme and cannot start a path, so there is exactly
-    // one thing it can mean. `/jobs/1234` would need an invented host.
+    // `www.` cannot start a scheme and cannot start a path, so a hostname is
+    // almost the only thing it can be. `/jobs/1234` would need an invented host.
     expect(
       (parseEvent(wireEvent({ job_url: "www.a.co" })) as { row: { job_url: string } }).row.job_url,
     ).toBe("https://www.a.co");
@@ -386,6 +386,64 @@ describe("the two fields that become an href — content, not identity", () => {
       expect(parsed.ok).toBe(true);
       if (!parsed.ok) return;
       expect(parsed.row.job_url, nope).toBe("");
+    }
+    // The documented exception, pinned so a future TLD allowlist is a decision
+    // rather than a drift: a FILENAME is repaired into a link that goes nowhere.
+    // The trade is in `safeUrl`'s comment — a list somebody maintains forever,
+    // against one dead link in a digest row.
+    expect(
+      (parseEvent(wireEvent({ job_url: "www.resume.pdf" })) as { row: { job_url: string } }).row
+        .job_url,
+    ).toBe("https://www.resume.pdf");
+  });
+
+  it("blanks a URL whose userinfo hides the real host, including the backslash form", () => {
+    // `job_url` is what an LLM read out of an attacker-writable email body, and
+    // the digest renders it into an `href`. `https://www.google.com@evil.example`
+    // is a live URL to `evil.example` that reads as Google — and the `www.`
+    // repair MANUFACTURES that shape out of the bare form, so the check runs on
+    // the repaired value. The last row is the C2 review's M6: a browser
+    // normalises `\` to `/`, so it reads as `good.com` and resolves to `evil.com`,
+    // and this file's earlier `new URL()` guard let it through while the two
+    // renderers refused it. The one shared guard now refuses it everywhere.
+    const HIDDEN = [
+      "https://www.google.com@evil.example",
+      "www.google.com@evil.example",
+      "https://user:pass@evil.example/jobs/1",
+      "https://boards.greenhouse.io@127.0.0.1:8080/x",
+      "https://evil.com\\@good.com",
+    ];
+    for (const url of HIDDEN) {
+      const parsed = parseEvent(wireEvent({ event_type: "interview", job_url: url }));
+      expect(parsed.ok, `refused the event for ${url}`).toBe(true); // never the event
+      if (!parsed.ok) return;
+      expect(parsed.row.job_url, url).toBe("");
+      expect(parsed.row.event_type).toBe("interview"); // the status change survives
+      expect(parsed.note, url).toContain("job_url dropped, unsafe to render as a link");
+    }
+  });
+
+  it("leaves an @ in the PATH alone — that one is a real link", () => {
+    // The control the userinfo check must not break. A handle-shaped path is
+    // ordinary; the shared guard fences the authority, not the path.
+    const parsed = parseEvent(wireEvent({ job_url: "https://www.ramp.com/@evil.example" }));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.row.job_url).toBe("https://www.ramp.com/@evil.example");
+    expect(parsed.note).toBeUndefined();
+  });
+
+  it("blanks the encoded-userinfo forms the two URL parsers disagree on", () => {
+    // `%40` is an encoded `@` (userinfo in disguise) and `https://%` is a
+    // percent in the authority; Node's `new URL` throws on both while Python's
+    // urlsplit keeps them, which is exactly why the shared guard decides on the
+    // string and never on a parser (M6). All blank, no throw, batch intact.
+    for (const url of ["https://good.com%40evil.example/", "https://%", "http://%zz"]) {
+      const parsed = parseEvent(wireEvent({ job_url: url }));
+      expect(parsed.ok, url).toBe(true);
+      if (!parsed.ok) return;
+      expect(parsed.row.job_url, url).toBe("");
+      expect(parsed.note, url).toMatch(/job_url dropped, unsafe to render as a link/);
     }
   });
 

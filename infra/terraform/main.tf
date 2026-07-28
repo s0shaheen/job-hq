@@ -118,6 +118,10 @@ resource "aws_lambda_function" "bots" {
       SSM_PREFIX = var.ssm_prefix
       # Presence of this switches the snapshot bots from repo files to the S3 sink (backups.tf).
       HQ_BACKUP_S3_BUCKET = aws_s3_bucket.backups.bucket
+      # The digest's From address, pinned to the identity mail.tf verified — the engine reads it
+      # rather than choosing, so it cannot send from an address SES would reject. Empty = the mail
+      # lane is off and the digest is composed but not sent.
+      HQ_MAIL_SENDER = var.ses_sender_email
     }
   }
   logging_config {

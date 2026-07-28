@@ -50,6 +50,7 @@
  */
 
 import { blankTrim } from "@/lib/data/view-models";
+import { safeHref } from "@/lib/url/safe-href";
 
 /**
  * Every key the wire accepts, in the sheet's own header order.
@@ -245,8 +246,13 @@ export function storable(v: string): string {
  * THE REPAIRS, and they are deliberately two:
  *
  *   * `.trim()`, because a leading space is not an opinion about the URL.
- *   * a bare `www.` host gets `https://`. Unambiguous: `www.` cannot begin a
- *     scheme and cannot begin a path, so there is exactly one thing it can mean.
+ *   * a bare `www.` host gets `https://`. Nearly unambiguous: `www.` cannot begin
+ *     a scheme and cannot begin a path, so a hostname is almost the only thing it
+ *     can be. The exception is a FILENAME — `www.resume.pdf` is repaired into
+ *     `https://www.resume.pdf`, a link that resolves to nothing. Left that way on
+ *     purpose: the only fix is a TLD allowlist, which is a list somebody has to
+ *     keep current forever, and it would blank real hosts whose TLD the list has
+ *     not heard of. One dead link in a digest row is the cheaper failure.
  *
  * Everything else — `N/A`, `/jobs/1234`, prose, `mailto:`, and every dangerous
  * scheme — BLANKS the field and carries a note into the per-row result. Blanking
@@ -254,16 +260,37 @@ export function storable(v: string): string {
  * wrote `javascript:`", which is right: neither is a URL, both must never reach
  * an `href`, and the note is what keeps the second one from being invisible.
  * Guessing a scheme for `/jobs/1234` would mean inventing a host.
+ *
+ * CREDENTIALS IN THE URL BLANK IT TOO, and the decision is the shared
+ * `lib/url/safe-href.ts` — the SAME guard the digest email and the pipeline/queue
+ * cells render through. It refuses userinfo in both the `@` and the `\@` forms
+ * (`https://evil.com\@good.com` reads as `good.com` and a browser resolves it to
+ * `evil.com`), which was the C2 review's M6: this file's own earlier guard used
+ * `new URL()` and let the backslash form through while the two renderers refused
+ * it. `job_url` is what an LLM read out of an attacker-writable email body, so a
+ * stored value that reads as one host and resolves to another is a phish this
+ * endpoint would be stamping for a page to render live.
+ *
+ * The one thing that stays HERE, before the guard, is the `www.` -> `https://`
+ * repair: it is capture-specific (the email and the cells never see a bare host),
+ * and the guard runs on the repaired candidate, so `www.google.com@evil.example`
+ * is refused the same as the explicit form. A path containing `@`
+ * (`https://www.ramp.com/@handle`) is kept: the guard fences the authority, not
+ * the path.
  */
 function safeUrl(v: string): { url: string; note?: string } {
   const trimmed = v.trim();
   if (trimmed === "") return { url: "" };
-  if (/^https?:\/\/[^\s]/i.test(trimmed)) return { url: trimmed };
-  if (/^www\.[^\s/]+\.[^\s/]/i.test(trimmed)) return { url: `https://${trimmed}` };
-  return {
-    url: "",
-    note: `dropped, not an http(s) URL: ${JSON.stringify(trimmed.slice(0, 60))}`,
-  };
+  const seen = JSON.stringify(trimmed.slice(0, 60));
+  let candidate = "";
+  if (/^https?:\/\/[^\s]/i.test(trimmed)) candidate = trimmed;
+  else if (/^www\.[^\s/]+\.[^\s/]/i.test(trimmed)) candidate = `https://${trimmed}`;
+  if (candidate === "") return { url: "", note: `dropped, not an http(s) URL: ${seen}` };
+
+  if (safeHref(candidate) === "") {
+    return { url: "", note: `dropped, unsafe to render as a link: ${seen}` };
+  }
+  return { url: candidate };
 }
 
 /**

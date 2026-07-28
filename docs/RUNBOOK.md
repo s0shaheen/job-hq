@@ -253,7 +253,69 @@ changes the day the registry grows per-user topics.
 **Digest ran but no email arrived:** composing and mailing are separate. The Python job
 writes the Digest tab row; the **Apps Script** `sendDigest` (7–8 am CT trigger) emails the
 newest unsent row and stamps `sent_at`. If the row exists with blank `sent_at`, the script
-side failed → script.google.com → HQ Email Capture → Executions.
+side failed → script.google.com → HQ Email Capture → Executions. Check which mailer is armed
+first (below) — under `DIGEST_EMAIL_SOURCE=engine` the script is not the one sending.
+
+## The digest email lane (`DIGEST_EMAIL_SOURCE`)
+
+Two mailers can send the daily digest and exactly one of them may be armed. The Apps Script
+`sendDigest` is the original (MailApp, 7–8 am CT trigger); the engine's `digest` job is the
+phase-C3 replacement, which sends over SES. The switch is one Script Property on the capture
+project — script.google.com → **HQ Email Capture** → Project Settings → Script Properties.
+
+| `DIGEST_EMAIL_SOURCE` | What the Apps Script does |
+|---|---|
+| unset / `script` / anything unrecognised | mails the newest unsent Digest row and stamps `sent_at`, exactly as it always has |
+| `engine` | mails nothing. If the newest Digest row has a body and a blank `sent_at`, ops-pushes **"HQ digest: the engine did not send …"**, once that day |
+
+An unrecognised value keeps mailing on purpose: a typo in this box must not be a way to stop
+the email.
+
+**The `sent_at` cell is the interlock**, and the contract on it is one line — whoever sends
+stamps it, and neither mailer sends a row that already carries a stamp. That is what keeps two
+armed mailers from both sending today's digest.
+
+### Flip it in this order
+
+1. **Verify the SES identities** in the region the `digest` job runs in: the From address, and
+   (while the account is in the SES sandbox) the recipient too. An unverified identity is a
+   send that fails at the API, not one that bounces later. Setup, the verification click and
+   the `aws sesv2 get-email-identity` check: `infra/README.md` § The mail lane.
+2. **Set the ENGINE's env (SSM), which MINTS the email and its links:**
+   `HQ_DIGEST_EMAIL=engine` (unset = compose only, do not send), `HQ_MAIL_SENDER` = that
+   verified From address (Terraform writes it from `ses_sender_email`), `HQ_DIGEST_KEYS`
+   (`kid:secret`, newest first) and `HQ_WEBAPP_URL` (absolute https origin the links point at).
+   Without the last two the digest still sends, with no buttons and a footer saying which is
+   missing.
+3. **Set the WEBAPP's env (Vercel), which VERIFIES the links — do NOT skip this.** `/d/<token>`
+   runs on Vercel and reads `HQ_DIGEST_KEYS` from `process.env` there. It must be the **same
+   value** as the engine's (the engine signs, the webapp checks the same signature), so set
+   `HQ_DIGEST_KEYS` in the webapp's Vercel project env too. The route also needs `SUPABASE_URL`
+   and `SUPABASE_SERVICE_KEY` to apply the triage. **`HQ_DIGEST_KEYS` is a link-SIGNING key, not
+   a `service_role` key** — a leaked signing key lets someone forge a triage link, which the
+   7-day expiry and `kid` rotation bound; it is not database access. With `HQ_DIGEST_KEYS`
+   absent or mismatched on Vercel, every link renders **"Something went wrong on our side."**
+   (a 503, deliberately — a misconfigured deployment must not read to a person as a forged
+   link). Rotating a key retires every link already in an inbox that was signed with the old
+   one, on both sides at once; that is the only revocation lever this lane has, and it is
+   deliberate (`core/digest_links.py`).
+4. **Confirm an engine-sent email arrived AND a link works** — one morning's digest in the
+   inbox, `sent_at` on that row stamped by the engine rather than the script, and one tap of an
+   Interested link landing on the confirm page (not the 503). Only a real tap proves step 3.
+5. **Only then** set `DIGEST_EMAIL_SOURCE` = `engine`.
+
+Doing (5) before (2) produces **no digest at all**, and nothing anywhere errors: the Lambda
+ran, the trigger ran, the row got written, and the only symptom is an email that does not
+arrive. That is what `engine` mode's watchdog exists to name, and it is why the order runs
+this way round.
+
+The window between (2) and (5), where both mailers are armed, is what makes step 4 observable
+and it costs nothing: the `digest` job runs 06:40 CT and the script trigger fires in the 7–8 am
+window, so the engine stamps `sent_at` first and the script finds the row already sent.
+
+**Rollback:** set `DIGEST_EMAIL_SOURCE` back to `script`. It takes effect on the next 7 am
+trigger with no deploy step (triggers run the latest saved code), and it mails the newest
+unsent row — an older unsent one below it is stale news and stays unsent, as ever.
 
 ## Wide sweep failed
 
@@ -546,9 +608,10 @@ surrogate`). A row that will never be valid stays parked until it is evicted, an
 is its own push.
 
 A **bad `job_url` is not a refusal.** The endpoint repairs what it can (a leading space, a bare
-`www.` host) and blanks what it cannot — `N/A`, `/jobs/1234`, prose, and every dangerous scheme
-— then stores the event and reports a `note` beside its `inserted`. The `repaired` count in the
-response is how many rows lost a link. Losing an interview notification because a classifier
+`www.` host) and blanks what it cannot — `N/A`, `/jobs/1234`, prose, every dangerous scheme, and
+a URL carrying credentials (`https://www.google.com@evil.example` reads as Google and resolves
+to `evil.example`) — then stores the event and reports a `note` beside its `inserted`. The
+`repaired` count in the response is how many rows lost a link. Losing an interview notification because a classifier
 wrote "not specified" in a field nobody reads is the trade that was rejected here.
 
 ### "HQ capture: N event(s) never reached the store"

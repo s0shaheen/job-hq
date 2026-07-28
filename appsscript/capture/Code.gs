@@ -6,7 +6,8 @@
  * message appended to the Email Events tab -> the same rows POSTed to the web
  * app's /api/capture -> thread labeled hq/processed -> ntfy push for actionable
  * events (OA / interview / recruiter / offer).
- * Daily 7am: emails the newest unsent Digest row.
+ * Daily 7am: emails the newest unsent Digest row, or (DIGEST_EMAIL_SOURCE =
+ * engine) watches for the engine having sent it.
  *
  * DUAL-WRITE (SHEET-SUNSET phase C2). The sheet append is FIRST and remains
  * authoritative: the Python joiner reads the tab, and it will keep reading the
@@ -182,21 +183,46 @@ function backfill(daysBack) {
   }
 }
 
+// Which mailer owns the digest. SHEET-SUNSET phase C3 moves the send to the
+// engine (a Lambda job over SES); this Script Property is the ops flip between
+// the two, and the Digest tab's `sent_at` cell is the interlock — whoever sends
+// stamps it, so the two mailers can never both send the same day's digest.
+//
+//   script | unset | anything unrecognised   mail it, exactly as before
+//   engine                                   do not mail; watch the handover
+//
+// Flipping the mailer off and having nothing take over is the failure that is
+// invisible for a week: no email, no error, nobody paged. So `engine` mode is
+// not a no-op — it is the watchdog in `digestHandoverWatch_`. And an
+// unrecognised value resolves to `script`, because the safe direction is "the
+// email still goes out".
+//
+// Flip ORDER and rollback: docs/RUNBOOK.md § The digest email lane.
+const DIGEST_SOURCE_PROP = "DIGEST_EMAIL_SOURCE";
+const DIGEST_ALERT_UNSENT_PROP = "HQ_DIGEST_ALERT_UNSENT";
+
 /** Daily: email the newest unsent Digest row (rows are written by the Python
- * tracker). Older unsent rows are stale news — left alone, never sent. */
+ * tracker). Older unsent rows are stale news — left alone, never sent.
+ * Under DIGEST_EMAIL_SOURCE=engine this mails nothing and watches instead. */
 function sendDigest() {
   try {
     assertConfigured_();
     if (DIGEST_GID < 0) throw new Error("CONFIG: DIGEST_GID placeholder not filled (hq.config.yaml: tabs.digest)");
+    const source = digestEmailSource_();
     const tab = getTabByGid_(SpreadsheetApp.openById(SHEET_ID), DIGEST_GID);
     const hmap = headerMap_(tab, DIGEST_HEADERS);
     const rows = tab.getDataRange().getValues();
     for (let r = rows.length - 1; r >= 1; r--) {
       const body = String(rows[r][hmap.body - 1] || "").trim();
       if (!body) continue; // blank/partial row — keep scanning upward
+      const sent = String(rows[r][hmap.sent_at - 1] || "").trim();
+      if (source === "engine") {
+        digestHandoverWatch_(cellStr_(rows[r][hmap.date - 1]), sent);
+        return;
+      }
       // Only the NEWEST digest is ever a candidate: if it's already sent,
       // stop — an older unsent row below it must never go out late.
-      if (String(rows[r][hmap.sent_at - 1] || "").trim()) break;
+      if (sent) break;
       const date = cellStr_(rows[r][hmap.date - 1]) ||
                    Utilities.formatDate(new Date(), "America/Chicago", "yyyy-MM-dd");
       MailApp.sendEmail(OWNER_EMAIL, "Job Search HQ — " + date, body,
@@ -210,6 +236,37 @@ function sendDigest() {
     opsPush_("HQ digest failed", String((err && err.stack) || err));
     throw err;
   }
+}
+
+/** `script` or `engine`, read fresh every run. A typo is not a reason to stop
+ * mailing, so anything else is `script` and says so in the log. */
+function digestEmailSource_() {
+  const raw = String(PropertiesService.getScriptProperties().getProperty(DIGEST_SOURCE_PROP) || "").trim();
+  const v = raw.toLowerCase();
+  if (v === "engine" || v === "script") return v;
+  if (raw) Logger.log('sendDigest: DIGEST_EMAIL_SOURCE "' + raw + '" is not script|engine — mailing anyway');
+  return "script";
+}
+
+/**
+ * Engine mode's whole job: notice that NOBODY sent.
+ *
+ * The engine stamps `sent_at` when it sends, so a stamped newest row means the
+ * handover worked and there is nothing to say. A row with a body and a blank
+ * `sent_at` means this property was flipped and the engine's own gate was not:
+ * no digest at all, and no error on either side. Latched per day like every
+ * other alert in this file, and the push carries the rollback.
+ */
+function digestHandoverWatch_(date, sent) {
+  const which = date || "today's digest";
+  if (sent) { Logger.log("sendDigest: engine sent " + which + " at " + sent); return; }
+  alertOncePerDay_(DIGEST_ALERT_UNSENT_PROP, function () {
+    return opsPush_("HQ digest: the engine did not send " + which,
+             'DIGEST_EMAIL_SOURCE is "engine", so this script did not mail. The newest ' +
+             "Digest row has a body and a blank sent_at, so the engine did not either. " +
+             'Roll back by setting the DIGEST_EMAIL_SOURCE Script Property to "script" ' +
+             "- the 7am trigger then mails it again (docs/RUNBOOK.md: The digest email lane).");
+  });
 }
 
 // ================================ PIPELINE =================================
@@ -830,24 +887,26 @@ function captureBacklogReport_(stats) {
     const props = PropertiesService.getScriptProperties();
     if (stats.dropped) {
       const total = props.getProperty(CAPTURE_DROPPED_PROP) || String(stats.dropped);
-      if (alertOncePerDay_(CAPTURE_ALERT_DROPPED_PROP)) {
-        props.deleteProperty(CAPTURE_DROPPED_PROP);
-        opsPush_("HQ capture: " + total + " event(s) never reached the store",
+      const said = alertOncePerDay_(CAPTURE_ALERT_DROPPED_PROP, function () {
+        return opsPush_("HQ capture: " + total + " event(s) never reached the store",
                  "The /api/capture retry queue overflowed. The Email Events tab still " +
                  "has every row - the joiner is unaffected - but Postgres does not, and " +
                  "nothing backfills them. Check the endpoint and the HQ_CAPTURE_TOKEN " +
                  "Script Property (docs/RUNBOOK.md: The capture endpoint).");
-      }
+      });
+      // Cleared only once the push carrying `total` has landed. Clearing it
+      // first threw the count away whenever ntfy was the thing that was down.
+      if (said) props.deleteProperty(CAPTURE_DROPPED_PROP);
     }
     if (stats.parked) {
       const reason = safeTruncate_(stats.reason || "no reason given", 160);
-      if (alertOncePerDay_(CAPTURE_ALERT_PARKED_PROP)) {
-        opsPush_("HQ capture: " + stats.parked + " event(s) the store refused",
+      alertOncePerDay_(CAPTURE_ALERT_PARKED_PROP, function () {
+        return opsPush_("HQ capture: " + stats.parked + " event(s) the store refused",
                  "The endpoint accepted the request and declined these rows. First " +
                  "reason: " + reason + ". They are held in HQ_CAPTURE_PARKED and " +
                  "retried after every future run, so a webapp deploy that fixes the " +
                  "disagreement drains them (docs/RUNBOOK.md: The capture endpoint).");
-      }
+      });
     }
   } catch (err) {
     Logger.log("captureBacklogReport_ failed (capture run unaffected): " + err);
@@ -874,35 +933,58 @@ function captureBacklogReport_(stats) {
  *
  * The counts and the reason belong in the message BODY, where a person reads
  * them. They must never reach the key.
+ *
+ * THE THIRD THING IT GOT WRONG: the stamp was written BEFORE the push, and
+ * `ntfy_` swallowed everything and answered nothing. So an unreachable ntfy lost
+ * the day's only alert, latched the day anyway, and let the caller delete the
+ * running counter behind it — the next day's push then understated by that
+ * count. The push is passed IN now and its status decides: latch on a 2xx, stay
+ * silent and try again next run otherwise. `send` answers an HTTP status and
+ * never raises — that is `ntfy_`'s contract, and the callers here use it.
  */
-function alertOncePerDay_(slot) {
+function alertOncePerDay_(slot, send) {
   const props = PropertiesService.getScriptProperties();
   const today = Utilities.formatDate(new Date(), "Etc/UTC", "yyyy-MM-dd");
   if (props.getProperty(slot) === today) return false;
+  const code = send();
+  if (!(code >= 200 && code < 300)) {
+    Logger.log(slot + ": push did not deliver (" + code + "); not latching, retrying next run");
+    return false;
+  }
   props.setProperty(slot, today);
   return true;
 }
 
 // ============================== NOTIFICATIONS ==============================
 // Never raises — a notification failure must never fail the pipeline
-// (core/notify.py posture).
+// (core/notify.py posture). It does REPORT, though, and that is the half that
+// was missing: every push answers the HTTP status ntfy gave it, or 0 when the
+// fetch threw or there is no topic. `alertOncePerDay_` needs that answer.
+// Measured in review: with ntfy unreachable the day's one alert was lost, the
+// latch was stamped anyway, the caller deleted the running counter behind it,
+// and the next day's push understated by exactly that many events.
 
 function jobsPush_(title, body, click) {
-  ntfy_(NTFY_JOBS_TOPIC, title, body, { Priority: "high", Tags: "calendar", Click: click || "" });
+  return ntfy_(NTFY_JOBS_TOPIC, title, body, { Priority: "high", Tags: "calendar", Click: click || "" });
 }
 
 function opsPush_(title, body) {
-  ntfy_(NTFY_OPS_TOPIC, title, body, { Priority: "high", Tags: "warning" });
+  return ntfy_(NTFY_OPS_TOPIC, title, body, { Priority: "high", Tags: "warning" });
 }
 
+/** The HTTP status ntfy answered, or 0 when nothing went out (no topic, or the
+ * fetch itself threw). NEVER throws: 0 is how it says so. */
 function ntfy_(topic, title, body, extra) {
-  if (!topic) return;
+  if (!topic) return 0;
   try {
     const headers = { Title: latin1_(title) };
     Object.keys(extra || {}).forEach(function (k) { if (extra[k]) headers[k] = latin1_(extra[k]); });
-    UrlFetchApp.fetch("https://ntfy.sh/" + topic,
-                      { method: "post", payload: body || "", headers: headers, muteHttpExceptions: true });
-  } catch (err) { /* swallowed by design */ }
+    const resp = UrlFetchApp.fetch("https://ntfy.sh/" + topic,
+      { method: "post", payload: body || "", headers: headers, muteHttpExceptions: true });
+    return resp.getResponseCode();
+  } catch (err) {
+    return 0; // swallowed by design; the caller learns it did not go out
+  }
 }
 
 /** HTTP header values must be latin-1; a stray emoji must never kill a push.

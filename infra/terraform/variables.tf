@@ -55,6 +55,29 @@ variable "alert_email" {
   default     = ""
 }
 
+variable "ses_sender_email" {
+  description = <<-EOT
+    From address for the digest the `digest` job sends over SES v2 (mail.tf). Empty = the mail
+    lane is OFF: no SES identities, no send permission, and the Lambda gets an empty
+    HQ_MAIL_SENDER so the engine composes the digest and sends nothing. Terraform pins that env
+    var to this exact value, so the engine can never send from an address nobody verified.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "ses_verified_emails" {
+  description = <<-EOT
+    Digest recipients, verified as SES identities alongside the sender. SES sandbox rejects a send
+    to any address that is not a verified identity (MessageRejected, "Email address is not
+    verified"), so every human who should receive the digest belongs in this list. Each address
+    gets one AWS confirmation email that must be clicked before delivery works — applying is not
+    verifying.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 # job name (matches JOBS in infra/lambda/handler.py) -> EventBridge cron.
 # Ported 1:1 from .github/workflows/*.yml (UTC). EventBridge cron is 6-field:
 #   cron(minute hour day-of-month month day-of-week year); one of DoM/DoW must be '?'.

@@ -9,10 +9,13 @@ import { describe, expect, it } from "vitest";
  *
  * `lib/supabase/server.ts` has said since 0001 that "this app never holds a
  * service_role/secret key, so a bug here can never read another family member's
- * rows". `/api/capture` is the first and only exception (argued in `lib/env.ts`:
- * the caller is an Apps Script with a bearer token and no session, which anon +
- * RLS cannot express). An exception that nothing bounds is not an exception, it
- * is the new default — so this file is the boundary.
+ * rows". `/api/capture` is the first exception (argued in `lib/env.ts`: the caller
+ * is an Apps Script with a bearer token and no session, which anon + RLS cannot
+ * express), and `/d/<token>` is the second one of the same shape — a person who
+ * tapped a signed link in an email, with no session and no cookie. An exception
+ * that nothing bounds is not an exception, it is the new default — so this file is
+ * the boundary, and both callers reach the store through the SAME module rather
+ * than each building a client of their own.
  *
  * Matrix row 245's shape, applied to a secret: "nothing forbade a `fetch`
  * appearing in `lib/referral/` — and one added two phases from now" is the same
@@ -100,12 +103,17 @@ describe("the service client module", () => {
     expect(readFileSync(SERVICE, "utf8")).toMatch(/^import "server-only";/m);
   });
 
-  it("is imported by the capture route and by nothing else", () => {
+  it("is imported by the two token handlers and by nothing else", () => {
+    // Both are sessionless endpoints authenticating a caller with a credential
+    // this app minted. A THIRD name appearing here is the thing to argue about in
+    // a diff: a page component or a server action importing this reopens the
+    // client-bundle question that `server-only` and the missing `NEXT_PUBLIC_`
+    // prefix exist to close.
     const importers = FILES.filter((f) => f !== SERVICE)
       .filter((f) => /from "@\/lib\/supabase\/service"/.test(readFileSync(f, "utf8")))
       .map(rel)
       .sort();
-    expect(importers).toEqual(["lib/capture/handler.ts"]);
+    expect(importers).toEqual(["lib/capture/handler.ts", "lib/digest/handler.ts"]);
   });
 
   it("is the only module that constructs a supabase client with a non-anon key", () => {
@@ -114,8 +122,14 @@ describe("the service client module", () => {
     const users = FILES.filter((f) => /getServiceEnv\(/.test(readFileSync(f, "utf8")))
       .map(rel)
       .sort();
-    // The handler calls it to decide 503 before building anything; the client
-    // module calls it to build. Both are intended and both are listed.
-    expect(users).toEqual(["lib/capture/handler.ts", "lib/env.ts", "lib/supabase/service.ts"]);
+    // Each handler calls it to decide its own unconfigured answer before building
+    // anything; the client module calls it to build. All three are intended and
+    // all three are listed.
+    expect(users).toEqual([
+      "lib/capture/handler.ts",
+      "lib/digest/handler.ts",
+      "lib/env.ts",
+      "lib/supabase/service.ts",
+    ]);
   });
 });
