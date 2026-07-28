@@ -1,0 +1,7 @@
+{
+  "_": "Shared golden for the /api/capture bearer credential. One constant, checked against THREE independent implementations of 'the digest of this token': webapp/tests/unit/capture-token.test.ts (node:crypto, what the route computes), tests/db/test_capture.py (Postgres's own encode(sha256(convert_to(...,'UTF8')),'hex'), what hq_mint_capture_token stores), and tests/core/test_capture_contract.py (the token SHAPE the migration mints and the route parses). Regenerating these values is a deliberate act — the point is that nothing here is derived at test time by the code under test.",
+  "selector": "24f46447f64f4ba8",
+  "secret": "b11cf792c9064596a9ef4b564a096974868c48d5e89f472cbf63d1811d4255fa",
+  "token": "hqc_24f46447f64f4ba8_b11cf792c9064596a9ef4b564a096974868c48d5e89f472cbf63d1811d4255fa",
+  "sha256": "a77d2d802ba5a372350f71a8b428fb5c3b4c68518f74fbbfaeb3ebc4c8b32c05"
+}

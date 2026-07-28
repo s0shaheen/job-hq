@@ -199,6 +199,42 @@ def test_rpc_arguments_match_the_function_signature(fn):
     )
 
 
+def test_the_capture_rpc_the_endpoint_calls_exists_and_takes_what_it_is_passed():
+    """The same contract, for the RPC that lives OUTSIDE `supabase-source.ts`.
+
+    `RPC_CALLS` is parsed from the data source, and `/api/capture` deliberately
+    does not go through it — the data source is session-scoped and RLS-bound, and
+    this caller is a bearer token with the service role
+    (`webapp/lib/supabase/service.ts` argues it). Which means the one guard that
+    would have caught a typo in the function name does not look at this call at
+    all: the vitest suite drives a fake store, the db suite calls the SQL directly,
+    and the string between them is checked by nothing. Exactly the gap
+    `test_the_join_rpc_…` was written for, on a new caller.
+    """
+    src = (ROOT / "webapp" / "lib" / "supabase" / "service.ts").read_text()
+    m = re.search(r'CAPTURE_RPC\s*=\s*"(\w+)"', src)
+    assert m, "no CAPTURE_RPC constant in webapp/lib/supabase/service.ts — did it move?"
+    fn = m.group(1)
+
+    declared = set(_sql_function_params(ALL_SQL, fn) or [])
+    assert declared, (
+        f"/api/capture calls {fn}() but no migration defines it — every POSTed "
+        f"batch would 404 into the script's retry queue and pile up there"
+    )
+    body = src[src.index("async storeEvents(") : src.index("if (error)", src.index("async storeEvents("))]
+    passed = set(re.findall(r"(p_\w+):", body))
+    assert passed, "no p_* arguments found in storeEvents() — parser out of date?"
+    # EQUALITY for the engine's own RPCs (this app owns both ends): an argument
+    # the function does not declare fails to resolve the overload at all, and one
+    # the function declares that the caller stops passing is worse because it is
+    # silent — `p_token_id` going missing loses the credential's proof of life
+    # with every test still green.
+    assert passed == declared, {
+        "passed but not declared": sorted(passed - declared),
+        "declared but not passed": sorted(declared - passed),
+    }
+
+
 def test_the_reconcile_rpc_the_engine_calls_exists_in_a_migration():
     """The same contract this file checks for the web app, for the one RPC the ENGINE calls.
 
@@ -257,7 +293,13 @@ def test_the_engine_only_rpcs_are_not_reachable_from_a_browser():
     prove it for a role it can `set role` to, and this is cheap and total."""
     for fn in ("reconcile_grounded_company", "note_grounding_blocked",
                "hq_apply_email_event", "hq_upsert_sheet_application",
-               "hq_note_unapplied_event", "hq_fill_linkedin_company_id"):
+               "hq_note_unapplied_event", "hq_fill_linkedin_company_id",
+               # 0018's four. `hq_capture_email_events` takes the acting user as an
+               # argument the same way the join RPC does; the three token functions
+               # MINT AND REVOKE A CREDENTIAL, which is the one thing on this list
+               # a browser reaching it could turn into permanent access.
+               "hq_capture_email_events", "hq_mint_capture_token",
+               "hq_revoke_capture_tokens", "hq_rotate_capture_token"):
         revokes = re.findall(rf"revoke\s+all\s+on\s+function\s+public\.{fn}\s*\([^)]*\)\s*\n?\s*"
                              rf"from\s+([^;]+);", ALL_SQL, re.I)
         assert revokes, f"{fn}() is never revoked"

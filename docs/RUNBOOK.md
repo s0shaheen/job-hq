@@ -448,6 +448,139 @@ The Health tab is a full snapshot per daily monitor run — one row per monitore
 5. Dead company / don't care: set `monitor` = `FALSE` on its Companies row. Never delete
    the row — history stays.
 
+## The capture endpoint (`/api/capture`) — mint, rotate, revoke
+
+The Gmail Apps Script dual-writes: the **Email Events** tab first (still authoritative — the
+joiner reads it until phase D) and then a POST to the web app's `/api/capture`, which stores
+the same rows in Postgres (`public.email_events`, migration 0018). The POST authenticates with
+a per-script **bearer token**: `hqc_<16 hex selector>_<64 hex secret>`, of which the store keeps
+only the selector and a SHA-256 of the secret.
+
+**The plaintext is shown once and is not recoverable.** Lose it and you rotate; there is no
+"show me the token" query, by construction.
+
+**Why the SQL editor and not a `Run a bot` job.** Both dispatch lanes print to a log —
+CloudWatch for Lambda, the run log for Actions — and a bearer token in either is a credential
+published somewhere nobody treats as a secret store. Provisioning the allowlist already works
+this way (`db/README.md` step 3).
+
+### Mint a token (first time, or a second mailbox)
+
+Supabase → SQL editor. `label` is which script instance holds it (`main`, `alt`); rotation is
+scoped to the label, so rotating one mailbox's token cannot silently stop the other's.
+
+```sql
+select public.hq_mint_capture_token(
+  (select id from public.users where email = '<the user''s gmail>'),
+  'main');
+-- {"token_id": 3, "label": "main", "selector": "24f4…",
+--  "token": "hqc_24f4…_b11c…"}   <- paste `token` into Script Properties, then close this tab
+```
+
+Then: script.google.com → **HQ Email Capture** → Project Settings → Script Properties →
+`HQ_CAPTURE_TOKEN` = that `token`, `HQ_CAPTURE_URL` = `https://<host>/api/capture`
+(`appsscript/README.md` §1 step 6). Both absent = the lane is off and silent, which is correct
+before the endpoint is deployed.
+
+### Rotate
+
+```sql
+select public.hq_rotate_capture_token(
+  (select id from public.users where email = '<gmail>'), 'main');
+-- {"revoked": 1, "token": "hqc_…", …}
+```
+
+The old token stops working immediately and the new one works before it has been pasted. That
+window is covered by the script's retry queue: the POSTs in between get 401, park locally, and
+flush on the next run after the paste. **The sheet lane never notices**, so nothing is lost —
+but paste it promptly, because the queue is bounded (40 events / 8 KB) and drops oldest when
+it overflows.
+
+### Revoke
+
+```sql
+select public.hq_revoke_capture_tokens(
+  (select id from public.users where email = '<gmail>'), null);   -- null = every label
+```
+
+A stamp, never a DELETE: `revoked_at` and `last_used_at` stay on the row, because "which
+credential was live when that batch landed" is a question an incident asks.
+
+### Is it working?
+
+```sql
+select label, created_at, last_used_at, revoked_at from public.capture_tokens
+ where user_id = (select id from public.users where email = '<gmail>')
+ order by created_at desc;
+
+select count(*), max(captured_at) from public.email_events
+ where user_id = (select id from public.users where email = '<gmail>');
+```
+
+`last_used_at` moves whenever the credential AUTHENTICATED and reached the store — including a
+batch whose every row was refused, deliberately: the question before revoking is "is anything
+still using this", and a misconfigured sender is still using it. `captured_at` minus
+`processed_at` on the newest rows is how long the POST lane was down before they got through.
+
+### The two Script Properties the script parks work in
+
+| Property | What lands here | Retried |
+|---|---|---|
+| `HQ_CAPTURE_QUEUE` | the endpoint never ACCEPTED the request — network, 5xx, 408/429, 401/403 | first, next run, in capture order |
+| `HQ_CAPTURE_PARKED` | the endpoint accepted and REFUSED the row — a per-row `rejected` in a 200, or any other 4xx | last, and only when the transport is up |
+
+Both are bounded (40 events / 8 KB and 20 / 6 KB; Google caps a property value at 9 KB) and
+evict oldest, counting every eviction. Read them from the script editor:
+`PropertiesService.getScriptProperties().getProperty("HQ_CAPTURE_PARKED")`.
+
+### "HQ capture: N event(s) the store refused"
+
+The endpoint accepted the request and declined those rows; the push carries the first reason.
+This is **never normal traffic** — it means the script and the endpoint disagree about the row
+shape, which is the deploy-order hazard: a `Code.gs` sending a field the deployed webapp does
+not know. Deploy the webapp, and the pen drains itself on the next run.
+
+If the reason is not an unknown field, read it literally — the endpoint's refusals are
+sentences (`event_type "maybe" is not one of …`, `event_id carries a NUL or an unpaired
+surrogate`). A row that will never be valid stays parked until it is evicted, and the eviction
+is its own push.
+
+A **bad `job_url` is not a refusal.** The endpoint repairs what it can (a leading space, a bare
+`www.` host) and blanks what it cannot — `N/A`, `/jobs/1234`, prose, and every dangerous scheme
+— then stores the event and reports a `note` beside its `inserted`. The `repaired` count in the
+response is how many rows lost a link. Losing an interview notification because a classifier
+wrote "not specified" in a field nobody reads is the trade that was rejected here.
+
+### "HQ capture: N event(s) never reached the store"
+
+An ops push from the Apps Script. One of the two stores above overflowed and evicted its
+oldest events.
+
+**Nothing was lost that matters right now** — the sheet append happens first, so the Email
+Events tab has every one of those rows and `tracker.join` is unaffected. What is missing is
+Postgres's copy, and **there is no backfill for it yet**: `tracker.pgseed` drains the pipeline,
+and the equivalent drain for `email_events` has to exist before phase D. Until then, treat a
+push here as "fix the endpoint, and note that pg's event history has a hole".
+
+There is deliberately **no push for a failed POST**, only for an eviction or a refusal — and
+each is latched once per day in its OWN Script Property (`HQ_CAPTURE_ALERT_DROPPED`,
+`HQ_CAPTURE_ALERT_PARKED`), keyed on the date alone. A Vercel deploy makes the endpoint unreachable for a
+minute or two, and an alert every 15 minutes through that is the cry-wolf traffic that teaches
+somebody to swipe alerts away.
+
+Order of checks:
+
+1. `curl -s https://<host>/api/capture` — a GET answers 405 with the contract. Anything else
+   (404, a Vercel error page) means the deploy, not the token.
+2. `curl -s -X POST https://<host>/api/capture -H 'authorization: Bearer <token>'
+   -H 'content-type: application/json' -d '{"events":[]}'` — a 400 saying `"events" is empty`
+   means the credential is good. A 401 means it is not: check `revoked_at` above, then re-paste
+   or rotate.
+3. Script editor → **Executions** → the newest `runCapture`: the log line is
+   `capture POST N -> {...}` on success, or `capture POST N -> HTTP 401 …`.
+4. Every 401 is the same sentence on purpose (no user enumeration), so the store is where you
+   find out *which* failure it was.
+
 ## Gmail capture went silent
 
 **Symptom:** ops push "Gmail capture silent — heartbeat_capture older than 3h" (the digest

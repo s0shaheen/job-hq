@@ -6,7 +6,7 @@ resume-editing research reports):
 
 | project | lives in | job |
 |---|---|---|
-| `capture/` | **main** Gmail (`shaheensalmant@gmail.com`) | every 15 min: gate ATS/status mail → Haiku classify → append to **Email Events** → label `hq/processed` → instant ntfy push for OA/interview/recruiter/offer. Daily 7am CT: email the newest unsent **Digest** row. |
+| `capture/` | **main** Gmail (`shaheensalmant@gmail.com`) | every 15 min: gate ATS/status mail → Haiku classify → append to **Email Events** → **POST the same rows to `/api/capture`** (dual-write, sheet first) → label `hq/processed` → instant ntfy push for OA/interview/recruiter/offer. Daily 7am CT: email the newest unsent **Digest** row. |
 | `drive-upload/` | same account (owns the Drive tree) | `doPost` web app the resume CI calls to drop rendered PDFs/DOCX into `Job Search & Recruiting/Resume/…` — service accounts have **zero storage quota** in consumer My Drive, so uploads must run as the owner. |
 
 Why Apps Script and not Gmail API from CI: no OAuth client, no refresh
@@ -56,15 +56,41 @@ files).
    key as the repo secret). Optional but recommended: without it every event
    is classified by the deterministic subject rules at confidence 0.5
    (`evidence: "rule"`), which the joiner treats as suggestion-only.
-6. Editor toolbar → function dropdown → `setupTriggers` → **Run** → the
+6. **Script Properties → the Postgres lane** (SHEET-SUNSET phase C2). Two more
+   properties turn on the dual-write to the web app's capture endpoint:
+
+   | property | value |
+   |---|---|
+   | `HQ_CAPTURE_URL` | `https://<the web app host>/api/capture` |
+   | `HQ_CAPTURE_TOKEN` | the `token` returned by `hq_mint_capture_token` — see `docs/RUNBOOK.md` § The capture endpoint |
+
+   **Both absent = the lane is off, silently**, which is the right state until
+   the endpoint is deployed and a token exists. Neither ever goes in `Code.gs`:
+   that file is committed to a public repo and readable by anybody with edit
+   access to the Google account.
+
+   **Deploy the webapp BEFORE pasting a script that sends a new field.** The
+   endpoint rejects unknown fields on purpose (so a rename cannot silently drop a
+   column), which means a script ahead of the endpoint has every event rejected
+   until the deploy lands. Those rows are held in `HQ_CAPTURE_PARKED` and retried
+   after every future run, so the deploy drains them by itself — and one ops push
+   names the count and the first reason, so you find out the same day rather than
+   from a row count months later. (Until review, a rejected row arrived inside a
+   200, the script counted it delivered, and it was dropped with no trace but a
+   Logger line. The pen and the push are that fix.)
+
+   Verify: after the next 15-minute run, the execution log shows
+   `capture POST N -> {"received":N,...}`, and
+   `select count(*) from public.email_events` has moved.
+7. Editor toolbar → function dropdown → `setupTriggers` → **Run** → the
    consent flow appears: pick the account → **"Google hasn't verified this
    app"** → *Advanced* → *Go to HQ Email Capture (unsafe)* → **Allow**. This
    warning is the expected personal-use path for restricted Gmail scopes; no
    CASA review exists or is needed for a self-owned script.
-7. Dry-run per `capture/test-notes.md`, then let the triggers run. Verify
+8. Dry-run per `capture/test-notes.md`, then let the triggers run. Verify
    within an hour: rows in **Email Events**, `heartbeat_capture` in
    **Config**, and both triggers listed under Triggers (clock icon).
-8. Backfill the main account's history: run `backfill90` repeatedly until
+9. Backfill the main account's history: run `backfill90` repeatedly until
    the execution log says **"backfill complete"** (each run processes ≤80
    threads to stay inside the 6-minute cap; the `hq/processed` label is the
    cursor, so re-running is always safe).
@@ -195,5 +221,37 @@ Properties — it is a Script Property there, not a GitHub secret.)
   self-heal, and re-pin gids in the CONFIG block if a tab was recreated.
 - **LLM outage**: events still land, classified by deterministic rules at
   confidence 0.5 — the joiner keeps them as suggestions.
+- **Store outage / refusal — TWO stores, because they need opposite treatment.**
+  The sheet lane is untouched either way and the run succeeds either way.
+
+  | Script Property | What lands here | Retried |
+  |---|---|---|
+  | `HQ_CAPTURE_QUEUE` | the endpoint never ACCEPTED the request: network, 5xx, 408/429, or 401/403 (a token mid-rotation) | FIRST, next run, so a backlog drains in capture order |
+  | `HQ_CAPTURE_PARKED` | the endpoint accepted and REFUSED the row — a per-row `rejected` in a 200, or any other 4xx | LAST, and only when the transport is up, so a permanently-bad row can never sit in front of today's mail |
+
+  Bounds and eviction are the same for both: keep the newest (40 events / 8 KB
+  for the queue, 20 / 6 KB for the pen — Google caps a property value at 9 KB),
+  drop oldest, count every eviction. Dropping the oldest is right because the
+  sheet holds every one of these rows; what is lost is Postgres's copy.
+
+  **Pushes are latched once a day, PER KIND — one Script Property each
+  (`HQ_CAPTURE_ALERT_DROPPED`, `HQ_CAPTURE_ALERT_PARKED`), holding a bare date.**
+  No push for a failed POST — a Vercel deploy would otherwise alert every 15
+  minutes, which is how an ops channel gets ignored. There IS one for an eviction
+  ("N event(s) never reached the store") and one for a refusal ("N event(s) the
+  store refused", with the first reason), because both mean rows are only in the
+  sheet. The counts live in the message, never in the latch key: the first
+  version keyed on a running total and shared one slot between the two kinds, so
+  it pushed about six times an hour through the exact outage it was written to
+  quieten.
+
+  **There is no pg backfill for an evicted row** — during dual-write nothing is
+  lost, because `tracker/join.py` reads the tab; before phase D that gap needs a
+  drain the way `tracker.pgseed` drains the pipeline's.
+- **A redirecting `HQ_CAPTURE_URL` fails silently forever.** `postChunk_` sets
+  `followRedirects: false` on purpose — `UrlFetchApp` forwards headers across a
+  redirect, so an apex→www hop would hand the bearer token to whatever answers.
+  The cost is that a URL needing a redirect never succeeds and never says why
+  beyond a Logger line: use the final URL, not the pretty one.
 - **Quotas**: ~96 trigger runs/day at seconds each ≈ <5% of the consumer
   90 min/day budget; UrlFetch tens/day vs 20,000; MailApp 1/day vs 100.

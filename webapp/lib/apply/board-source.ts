@@ -1,6 +1,7 @@
 import "server-only";
 
 import { isDemoMode } from "@/lib/data/source";
+import { readBoundedBody } from "@/lib/http/bounded";
 import { greenhouseFormUrl, type BoardRef } from "./board";
 import { DEMO_BOARDS } from "./demo-boards";
 import type { GreenhouseJobPayload } from "./greenhouse";
@@ -67,46 +68,15 @@ const FETCH_TIMEOUT_MS = 10_000;
  */
 const MAX_PAYLOAD_BYTES = 2_000_000;
 
-type BodyRead =
-  | { ok: true; text: string }
-  | { ok: false; why: "too-large" | "no-body" };
-
 /**
- * The body, read chunk by chunk, cancelled the moment it goes past the cap.
+ * The reader itself now lives in `lib/http/bounded.ts`, unchanged in behaviour.
  *
- * `res.arrayBuffer()` would be shorter and allocates the whole thing before
- * anything can check its size, which is the bug. `no-body` is distinguished from
- * `too-large` because they are different sentences: a runtime that hands back no
- * stream is not a board sending 20 MB.
+ * `/api/capture` needs the identical guard on the inbound half — `Request` and
+ * `Response` both carry the stream on `.body` — and the alternative was a second
+ * copy of the loop this row-265 lesson is written on. Two copies is two chances
+ * for one of them to be relaxed by somebody who only read the other.
  */
-async function readBounded(res: Response, max: number): Promise<BodyRead> {
-  const body = res.body;
-  if (!body) return { ok: false, why: "no-body" };
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > max) {
-        await reader.cancel();
-        return { ok: false, why: "too-large" };
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const joined = new Uint8Array(total);
-  let at = 0;
-  for (const c of chunks) {
-    joined.set(c, at);
-    at += c.byteLength;
-  }
-  return { ok: true, text: new TextDecoder().decode(joined) };
-}
+const readBounded = readBoundedBody;
 
 class GreenhouseBoardSource implements BoardSource {
   async form(ref: BoardRef): Promise<FormFetchResult> {

@@ -3,9 +3,19 @@
  *
  * Every 15 min: deterministic sender/subject gate -> Claude Haiku
  * classification (deterministic fallback on any hiccup) -> one row per new
- * message appended to the Email Events tab -> thread labeled hq/processed ->
- * ntfy push for actionable events (OA / interview / recruiter / offer).
+ * message appended to the Email Events tab -> the same rows POSTed to the web
+ * app's /api/capture -> thread labeled hq/processed -> ntfy push for actionable
+ * events (OA / interview / recruiter / offer).
  * Daily 7am: emails the newest unsent Digest row.
+ *
+ * DUAL-WRITE (SHEET-SUNSET phase C2). The sheet append is FIRST and remains
+ * authoritative: the Python joiner reads the tab, and it will keep reading the
+ * tab until phase D. The POST is a second lane filling Postgres alongside it, and
+ * it is written so it cannot hurt the first one — it never throws, a failure
+ * parks the batch in a local retry queue (Script Properties) that flushes on the
+ * next run, and the heartbeat fires whatever the endpoint did. With no
+ * HQ_CAPTURE_URL / HQ_CAPTURE_TOKEN in Script Properties the lane is simply off,
+ * silently, which is the correct state before the endpoint is provisioned.
  *
  * Why Apps Script and not the Gmail API from CI: no OAuth client, no refresh
  * tokens, grants survive password changes, and the personal-use exemption
@@ -47,6 +57,18 @@ const EMAIL_EVENTS_HEADERS = [
 ];
 const CONFIG_HEADERS = ["key", "value", "description"];
 const DIGEST_HEADERS = ["date", "body", "sent_at"];
+
+// The keys of one event in the /api/capture body: the header row above minus the
+// two cells the joiner owns. The endpoint REJECTS anything else, so this list and
+// `webapp/lib/capture/schema.ts:EVENT_FIELDS` have to be the same list —
+// tests/core/test_capture_contract.py compares them (and both of them against
+// core/schema.py and migration 0018) so a rename here fails CI instead of
+// failing every POST at 2am.
+const CAPTURE_POST_FIELDS = [
+  "event_id", "account", "received_at", "from", "subject", "snippet",
+  "event_type", "company", "title", "ats", "job_url", "confidence",
+  "evidence", "thread_link", "processed_at",
+];
 
 // core/schema.py EMAIL_EVENT_TYPES, verbatim.
 const EVENT_TYPES = ["received", "rejection", "oa_invite", "interview",
@@ -101,7 +123,9 @@ function runCapture() {
     // event_id dedupe makes the overlap harmless.
     const relabeled = GmailApp.search("newer_than:1d label:" + PROCESSED_LABEL + " " + gate_(), 0, 20);
     const stats = capturePass_(fresh.concat(relabeled), daysAgo_(4), false);
-    heartbeat_();
+    heartbeat_();   // BEFORE the store report: the sheet lane succeeded, and the
+                    // watchdog it feeds is about Gmail capture, not about pg
+    captureBacklogReport_(stats);
     Logger.log("runCapture: " + JSON.stringify(stats));
   } catch (err) {
     opsPush_("HQ capture failed", String((err && err.stack) || err));
@@ -145,8 +169,11 @@ function backfill(daysBack) {
     const stats = capturePass_(threads, cutoff, true);
     const total = Number(props.getProperty("BACKFILL_TOTAL") || 0) + stats.appended;
     props.setProperty("BACKFILL_TOTAL", String(total));
+    captureBacklogReport_(stats);   // a 90-day import against a dead endpoint
+                                    // overflows the queue fast; say so once
     Logger.log("backfill: " + stats.threads + " threads, +" + stats.appended +
-               " events (" + total + " total) — RUN AGAIN until it reports complete");
+               " events (" + total + " total, " + stats.posted + " to the store)" +
+               " — RUN AGAIN until it reports complete");
   } catch (err) {
     opsPush_("HQ backfill failed", String((err && err.stack) || err));
     throw err;
@@ -197,7 +224,10 @@ function capturePass_(threads, cutoff, quiet) {
   const hmap = headerMap_(events, EMAIL_EVENTS_HEADERS);
   const seen = recentEventIds_(events, hmap.event_id);
   const label = ensureLabel_(PROCESSED_LABEL);
-  const stats = { threads: threads.length, appended: 0, skipped: 0, pushes: 0 };
+  const stats = { threads: threads.length, appended: 0, skipped: 0, pushes: 0,
+                  posted: 0, queued: 0, parked: 0, recovered: 0, dropped: 0,
+                  reason: "" };
+  const fresh = [];   // the pg lane's copy; the sheet has already taken these
   threads.forEach(function (thread) {
     thread.getMessages().forEach(function (msg) {
       if (msg.getDate() < cutoff) return;
@@ -208,7 +238,8 @@ function capturePass_(threads, cutoff, quiet) {
       ["event_type", "company", "title", "ats", "job_url", "confidence", "evidence"]
         .forEach(function (k) { ev[k] = cls[k]; });
       ev.processed_at = nowStamp_();
-      appendAligned_(events, hmap, ev);
+      appendAligned_(events, hmap, ev);   // the sheet FIRST: it is still the truth
+      fresh.push(wireEvent_(ev));
       seen[ev.event_id] = true;
       stats.appended++;
       if (!quiet && PUSH_TYPES[ev.event_type] && stats.pushes < MAX_PUSHES_PER_RUN) {
@@ -218,6 +249,9 @@ function capturePass_(threads, cutoff, quiet) {
     });
     thread.addLabel(label); // the "label line" — comment out for a dry run (test-notes.md)
   });
+  // Last, and outside the loop: one HTTP round trip per batch rather than per
+  // message, and nothing above it can be affected by what it returns.
+  deliverToStore_(fresh, stats);
   return stats;
 }
 
@@ -228,7 +262,7 @@ function buildEvent_(msg, thread, body) {
     received_at: Utilities.formatDate(msg.getDate(), "Etc/UTC", "yyyy-MM-dd'T'HH:mm:ss'Z'"),
     from: msg.getFrom(),
     subject: msg.getSubject() || "",
-    snippet: squish_(body).slice(0, 300),
+    snippet: safeTruncate_(squish_(body), 300),
     thread_link: "https://mail.google.com/mail/u/0/#all/" + thread.getId(),
   };
 }
@@ -271,12 +305,12 @@ function llmClassify_(from, subject, body) {
     const conf = Number(obj.confidence);
     return {
       event_type: obj.event_type,
-      company: String(obj.company || "").slice(0, 80),
-      title: String(obj.title || "").slice(0, 120),
-      ats: String(obj.ats || "").slice(0, 30),
-      job_url: String(obj.job_url || "").slice(0, 500),
+      company: safeTruncate_(obj.company, 80),
+      title: safeTruncate_(obj.title, 120),
+      ats: safeTruncate_(obj.ats, 30),
+      job_url: safeTruncate_(obj.job_url, 500),
       confidence: isFinite(conf) ? Math.min(1, Math.max(0, conf)) : 0.5,
-      evidence: String(obj.evidence || "").slice(0, 200),
+      evidence: safeTruncate_(obj.evidence, 200),
     };
   } catch (err) {
     return null;
@@ -303,7 +337,7 @@ function prompt_(from, subject, body) {
     "",
     "From: " + from,
     "Subject: " + subject,
-    "Body (truncated): " + squish_(body).slice(0, 4000),
+    "Body (truncated): " + safeTruncate_(squish_(body), 4000),
   ].join("\n");
 }
 
@@ -462,6 +496,393 @@ function ensureLabel_(name) {
   return GmailApp.getUserLabelByName(name) || GmailApp.createLabel(name);
 }
 
+// ========================= POSTGRES LANE (dual-write) ======================
+// SHEET-SUNSET phase C2. Everything below is SECOND: the sheet append has
+// already happened and the joiner still reads the tab. Nothing here may throw,
+// because a store outage must not stop Gmail capture, block the heartbeat, or
+// leave a thread unlabeled and reprocessed forever.
+//
+// Provisioning is two Script Properties (appsscript/README.md §1 step 6):
+//
+//   HQ_CAPTURE_URL    https://<the web app>/api/capture
+//   HQ_CAPTURE_TOKEN  hqc_… , minted with hq_mint_capture_token (RUNBOOK)
+//
+// Both absent = the lane is off and silent, which is the correct state before
+// the endpoint exists. Never put either in this file: it is pasted into a Google
+// project whose source anybody with the sheet can read.
+
+const CAPTURE_URL_PROP = "HQ_CAPTURE_URL";
+const CAPTURE_TOKEN_PROP = "HQ_CAPTURE_TOKEN";
+const CAPTURE_QUEUE_PROP = "HQ_CAPTURE_QUEUE";
+const CAPTURE_PARKED_PROP = "HQ_CAPTURE_PARKED";
+const CAPTURE_DROPPED_PROP = "HQ_CAPTURE_DROPPED";
+// ONE LATCH SLOT PER ALERT KIND. A single shared slot meant the two branches
+// invalidated each other every run — see `alertOncePerDay_`.
+const CAPTURE_ALERT_DROPPED_PROP = "HQ_CAPTURE_ALERT_DROPPED";
+const CAPTURE_ALERT_PARKED_PROP = "HQ_CAPTURE_ALERT_PARKED";
+
+// One POST per 50 events. Well under the endpoint's 200 and far under its byte
+// cap, and small enough that a partial failure re-sends little.
+const CAPTURE_CHUNK = 50;
+// The retry queue's bounds. A Script Property value is capped at 9 KB by Google,
+// so the byte bound is the real one and the count is a readability guard.
+const CAPTURE_QUEUE_MAX_EVENTS = 40;
+const CAPTURE_QUEUE_MAX_CHARS = 8000;
+// The PARKED pen's bounds — smaller, because a parked row is an anomaly and a
+// pen big enough to hide a hundred of them is a pen nobody reads. Same
+// drop-oldest eviction, same counter.
+const CAPTURE_PARKED_MAX_EVENTS = 20;
+const CAPTURE_PARKED_MAX_CHARS = 6000;
+
+/**
+ * The endpoint's copy of one event: exactly CAPTURE_POST_FIELDS, nothing else.
+ *
+ * Picked rather than passed whole — the endpoint REJECTS unknown fields, so a
+ * field added to `ev` for the sheet's benefit would otherwise start failing every
+ * event in every batch.
+ *
+ * NOT `cellSafe_`'d, and that divergence is deliberate. The sheet copy gets a
+ * leading apostrophe on a value starting `=` or `+`, because `setValues` would
+ * otherwise read hostile email content as a formula. Postgres has no formulas and
+ * a prefixed apostrophe there would be a character the sender never wrote — so
+ * the two lanes hold the same row with one documented difference rather than an
+ * accidental one.
+ */
+function wireEvent_(ev) {
+  const out = {};
+  CAPTURE_POST_FIELDS.forEach(function (k) {
+    out[k] = ev[k] === undefined || ev[k] === null ? "" : ev[k];
+  });
+  return out;
+}
+
+function captureConfig_() {
+  const props = PropertiesService.getScriptProperties();
+  const url = (props.getProperty(CAPTURE_URL_PROP) || "").trim();
+  const token = (props.getProperty(CAPTURE_TOKEN_PROP) || "").trim();
+  return url && token ? { url: url, token: token } : null;
+}
+
+/**
+ * Send this run's events and account for every one of them.
+ *
+ * TWO STORES, because there are two reasons an event does not land and they need
+ * opposite treatment:
+ *
+ *   HQ_CAPTURE_QUEUE   the endpoint never ACCEPTED the request — it is down, the
+ *                      token is wrong, the network failed. Retried at the FRONT
+ *                      of the next run, so a backlog drains in capture order.
+ *   HQ_CAPTURE_PARKED  the endpoint accepted the request and REFUSED the row
+ *                      (a 200 carrying `rejected`), or answered a 4xx that no
+ *                      amount of resending will change. Retried LAST, and only
+ *                      when the transport is up, so a permanently-bad row can
+ *                      never sit in front of today's mail.
+ *
+ * Before review these were one store and rejected rows were in neither: a 200 is
+ * a success, so `postChunk_` returned true, `stats.dropped` stayed 0, and the
+ * rows were gone with nothing said. Three documents claimed the queue held them.
+ * It does now.
+ *
+ * The parked pen is retried rather than merely retained because the case it
+ * exists for is RECOVERABLE: the deploy-order hazard the README warns about is a
+ * webapp that does not yet know a field, and the deploy that fixes it should
+ * drain the pen by itself.
+ *
+ * The first transport failure stops the run's remaining chunks. When the endpoint
+ * is down it is down for all of them, and eight more 30-second timeouts inside a
+ * 6-minute execution budget is how a transient outage becomes a missed pass.
+ */
+function deliverToStore_(fresh, stats) {
+  try {
+    const cfg = captureConfig_();
+    if (!cfg) return;                       // lane not provisioned; nothing to say
+    const pending = queueLoad_().concat(fresh || []);
+    const parked = parkedLoad_();
+    if (!pending.length && !parked.length) return;
+
+    const failed = [];
+    const refused = [];
+    let down = false;
+    for (let i = 0; i < pending.length; i += CAPTURE_CHUNK) {
+      const chunk = pending.slice(i, i + CAPTURE_CHUNK);
+      if (down) { Array.prototype.push.apply(failed, chunk); continue; }
+      const res = postChunk_(cfg, chunk);
+      if (res.retry) {
+        down = true;
+        Array.prototype.push.apply(failed, chunk);
+      } else {
+        Array.prototype.push.apply(refused, res.refused);
+        if (stats) stats.posted += chunk.length - res.refused.length;
+      }
+    }
+
+    // The pen, last, and only while the transport is up. A parked row that is
+    // accepted this time simply does not come back.
+    if (!down && parked.length) {
+      for (let i = 0; i < parked.length; i += CAPTURE_CHUNK) {
+        const chunk = parked.slice(i, i + CAPTURE_CHUNK);
+        const res = postChunk_(cfg, chunk.map(function (p) { return p.event; }));
+        if (res.retry) {
+          // Transport died mid-drain: keep them parked, not queued — they are
+          // still refusals, and promoting them would put them in front of mail.
+          Array.prototype.push.apply(refused, chunk);
+          down = true;
+        } else {
+          Array.prototype.push.apply(refused, res.refused);
+          if (stats) stats.recovered += chunk.length - res.refused.length;
+        }
+      }
+    }
+
+    const dropped = queueSave_(failed);
+    const evicted = parkedSave_(refused);
+    if (stats) {
+      stats.queued = failed.length;
+      stats.parked = refused.length;
+      stats.dropped = dropped + evicted;
+      stats.reason = refused.length ? String(refused[0].reason || "") : "";
+    }
+  } catch (err) {
+    // Swallowed on purpose, `ntfy_`'s posture: the sheet lane has already
+    // succeeded and this one is not allowed to take the run down with it.
+    Logger.log("deliverToStore_ failed (sheet lane unaffected): " + err);
+  }
+}
+
+/**
+ * One chunk. `{retry, refused}` — never a bare boolean, because "the endpoint
+ * did not take these" has two meanings and collapsing them lost rows.
+ *
+ *   retry:true   send this chunk again later. Transport, credential, or the
+ *                server's own fault: network, 401/403 (a rotation the operator
+ *                is mid-way through pasting), 408/429, any 5xx.
+ *   refused:[]   {event, reason} for each row the endpoint accepted the request
+ *                for and declined to store — the per-row `rejected` outcomes in
+ *                a 200, plus every other 4xx, where the whole chunk is refused
+ *                because a request shaped like this will never be accepted.
+ *
+ * A 4xx that is not 401/403 parks rather than queues, which is also what makes
+ * the documented 413/400 split mean something: `413` used to be requeued at the
+ * identical size forever.
+ */
+function postChunk_(cfg, chunk) {
+  let resp;
+  try {
+    resp = UrlFetchApp.fetch(cfg.url, {
+      method: "post",
+      contentType: "application/json",
+      headers: { Authorization: "Bearer " + cfg.token },
+      payload: JSON.stringify({ events: chunk }),
+      muteHttpExceptions: true,
+      followRedirects: false,
+    });
+  } catch (err) {
+    Logger.log("capture POST failed: " + err);
+    return { retry: true, refused: [] };
+  }
+  const code = resp.getResponseCode();
+  const text = String(resp.getContentText() || "");
+  if (code >= 200 && code < 300) {
+    Logger.log("capture POST " + chunk.length + " -> " + safeTruncate_(text, 300));
+    return { retry: false, refused: rejectedFrom_(chunk, text) };
+  }
+  Logger.log("capture POST " + chunk.length + " -> HTTP " + code + " " +
+             safeTruncate_(text, 200));
+  if (code === 401 || code === 403 || code === 408 || code === 429 || code >= 500) {
+    return { retry: true, refused: [] };
+  }
+  // Any other 4xx: the request itself is wrong (a field the endpoint does not
+  // know, a body it cannot parse, a batch it will not take at this size). Resend
+  // it and it fails identically forever.
+  return {
+    retry: false,
+    refused: chunk.map(function (ev) {
+      return { event: ev, reason: "HTTP " + code + " " + safeTruncate_(text, 120) };
+    }),
+  };
+}
+
+/** The rows a 200 named as `rejected`, matched back to what was sent.
+ * `index` in the response is the caller's own index within this chunk. */
+function rejectedFrom_(chunk, text) {
+  const out = [];
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch (err) {
+    // A 2xx whose body we cannot read means we do not know what happened to
+    // these rows. Treating that as total success is the assumption that lost
+    // them the first time; park the lot and say so.
+    return chunk.map(function (ev) {
+      return { event: ev, reason: "unreadable 2xx body" };
+    });
+  }
+  const results = (body && body.results) || [];
+  for (let i = 0; i < results.length; i++) {
+    if (results[i] && results[i].outcome === "rejected") {
+      const at = typeof results[i].index === "number" ? results[i].index : i;
+      if (chunk[at]) out.push({ event: chunk[at], reason: String(results[i].reason || "rejected") });
+    }
+  }
+  return out;
+}
+
+/** A bounded JSON array out of a Script Property. A corrupt one is discarded
+ * rather than failing the run: the SHEET still holds every row it names, which
+ * is the whole reason dual-write is the phase we are in. */
+function propArray_(name) {
+  const raw = PropertiesService.getScriptProperties().getProperty(name);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Object.prototype.toString.call(parsed) === "[object Array]" ? parsed : [];
+  } catch (err) {
+    Logger.log(name + " unreadable; discarding: " + err);
+    return [];
+  }
+}
+
+function queueLoad_() { return propArray_(CAPTURE_QUEUE_PROP); }
+function parkedLoad_() { return propArray_(CAPTURE_PARKED_PROP); }
+
+/**
+ * Persist a bounded list into a Script Property; answer how many fell off.
+ *
+ * DROP-OLDEST, and the eviction rule is the same for both stores: keep the last
+ * `maxEvents`, then keep dropping from the front until the serialized value fits
+ * `maxChars`. Google caps a property value at 9 KB and a `setProperty` that
+ * throws would be a failure in the lane that is not allowed to fail, so the byte
+ * bound is the real one and the count is the readable one.
+ *
+ * Dropping the OLDEST is the right trade because the sheet holds every one of
+ * these rows: what is lost is Postgres's copy, not the event, and the freshest
+ * events are the ones somebody may still act on. Everything evicted is counted
+ * into `CAPTURE_DROPPED_PROP` and said out loud rather than absorbed.
+ */
+function boundedSave_(name, items, maxEvents, maxChars) {
+  const props = PropertiesService.getScriptProperties();
+  if (!items || !items.length) {
+    props.deleteProperty(name);
+    return 0;
+  }
+  let kept = items.slice(-maxEvents);
+  let dropped = items.length - kept.length;
+  while (kept.length > 1 && JSON.stringify(kept).length > maxChars) {
+    kept = kept.slice(1);
+    dropped++;
+  }
+  try {
+    props.setProperty(name, JSON.stringify(kept));
+  } catch (err) {
+    Logger.log(name + " could not be stored: " + err);
+    dropped = items.length;
+    props.deleteProperty(name);
+  }
+  if (dropped) {
+    const total = Number(props.getProperty(CAPTURE_DROPPED_PROP) || 0) + dropped;
+    props.setProperty(CAPTURE_DROPPED_PROP, String(total));
+  }
+  return dropped;
+}
+
+function queueSave_(events) {
+  return boundedSave_(CAPTURE_QUEUE_PROP, events,
+                      CAPTURE_QUEUE_MAX_EVENTS, CAPTURE_QUEUE_MAX_CHARS);
+}
+
+/** The refusals pen. Same eviction, tighter bounds — a parked row is an anomaly,
+ * and a pen big enough to hide a hundred of them is a pen nobody reads. */
+function parkedSave_(refusals) {
+  return boundedSave_(CAPTURE_PARKED_PROP, refusals,
+                      CAPTURE_PARKED_MAX_EVENTS, CAPTURE_PARKED_MAX_CHARS);
+}
+
+/**
+ * The store lane's ops voice: two things worth a push, each latched once a day.
+ *
+ * WHAT IS NOT PUSHED: a failed POST. The endpoint being briefly unreachable is
+ * what the queue is for, and a push every 15 minutes through a Vercel deploy is
+ * the cry-wolf traffic that teaches somebody to swipe alerts away
+ * (tests/conftest.py's whole argument).
+ *
+ * WHAT IS:
+ *   dropped  events evicted from a full store. Those rows are in the sheet and
+ *            will not be in Postgres — a real, permanent hole.
+ *   parked   rows the endpoint REFUSED. Never normal traffic: it means the
+ *            script and the endpoint disagree about the row shape, which is the
+ *            deploy-order hazard the README warns about, and before review it
+ *            produced no signal at all.
+ *
+ * LATCHED PER DAY, per message, the way `tracker/join.py:check_capture_liveness`
+ * latches its own. The previous version pushed on EVERY run with a drop, and once
+ * a 40-event queue is full every run with fresh mail drops something — the exact
+ * cry-wolf the paragraph above argues against, in the function arguing it.
+ *
+ * WRAPPED, because this function sits in the section whose first line is "nothing
+ * here may throw" and was the one thing in it called from `runCapture` outside any
+ * try: a PropertiesService hiccup here rethrew, ops-pushed "HQ capture failed",
+ * and fired Google's trigger-failure mail — the "Gmail capture itself died" alarm
+ * this section exists to prevent.
+ */
+function captureBacklogReport_(stats) {
+  try {
+    if (!stats) return;
+    const props = PropertiesService.getScriptProperties();
+    if (stats.dropped) {
+      const total = props.getProperty(CAPTURE_DROPPED_PROP) || String(stats.dropped);
+      if (alertOncePerDay_(CAPTURE_ALERT_DROPPED_PROP)) {
+        props.deleteProperty(CAPTURE_DROPPED_PROP);
+        opsPush_("HQ capture: " + total + " event(s) never reached the store",
+                 "The /api/capture retry queue overflowed. The Email Events tab still " +
+                 "has every row - the joiner is unaffected - but Postgres does not, and " +
+                 "nothing backfills them. Check the endpoint and the HQ_CAPTURE_TOKEN " +
+                 "Script Property (docs/RUNBOOK.md: The capture endpoint).");
+      }
+    }
+    if (stats.parked) {
+      const reason = safeTruncate_(stats.reason || "no reason given", 160);
+      if (alertOncePerDay_(CAPTURE_ALERT_PARKED_PROP)) {
+        opsPush_("HQ capture: " + stats.parked + " event(s) the store refused",
+                 "The endpoint accepted the request and declined these rows. First " +
+                 "reason: " + reason + ". They are held in HQ_CAPTURE_PARKED and " +
+                 "retried after every future run, so a webapp deploy that fixes the " +
+                 "disagreement drains them (docs/RUNBOOK.md: The capture endpoint).");
+      }
+    }
+  } catch (err) {
+    Logger.log("captureBacklogReport_ failed (capture run unaffected): " + err);
+  }
+}
+
+/**
+ * True at most once per calendar day, for ONE alert kind.
+ *
+ * THE KEY IS THE DAY AND NOTHING ELSE, and the slot is per kind. The first
+ * version got both wrong and the result was worse than the cry-wolf it was
+ * written to fix — measured over real runs:
+ *
+ *   * the key was `"dropped:" + total`, and `total` is a RUNNING COUNT. It
+ *     changes precisely when the situation persists, so a steady outage pushed
+ *     6 times across 8 same-day runs instead of once. A latch keyed on a value
+ *     that grows is not a latch; it is a change detector.
+ *   * both kinds shared one property, so each overwrote the other's stamp. In
+ *     the deploy-order refusal storm — THE case the parked pen exists for —
+ *     evictions and refusals both fire, each clears the other's latch, and the
+ *     result was 9 pushes over 6 same-day runs. On a 15-minute trigger that is
+ *     about six ntfy pushes an hour, all day, from the function whose own
+ *     comment argues against exactly that.
+ *
+ * The counts and the reason belong in the message BODY, where a person reads
+ * them. They must never reach the key.
+ */
+function alertOncePerDay_(slot) {
+  const props = PropertiesService.getScriptProperties();
+  const today = Utilities.formatDate(new Date(), "Etc/UTC", "yyyy-MM-dd");
+  if (props.getProperty(slot) === today) return false;
+  props.setProperty(slot, today);
+  return true;
+}
+
 // ============================== NOTIFICATIONS ==============================
 // Never raises — a notification failure must never fail the pipeline
 // (core/notify.py posture).
@@ -533,6 +954,46 @@ function assertConfigured_() {
   }
 }
 
+/**
+ * Truncate to `n` UTF-16 units WITHOUT cutting an emoji in half, and drop NULs.
+ *
+ * Every truncation in this file used to be a bare `.slice(0, n)`, and a `.slice`
+ * counts UTF-16 units: an emoji is two of them, so a slice landing between the
+ * halves leaves an unpaired surrogate on the end of the string. Recruiter mail is
+ * full of emoji and `snippet` is cut at exactly 300 units of the plaintext body.
+ *
+ * WHAT THAT COSTS, measured against postgres:16 during review: a lone surrogate
+ * (or a NUL — `\s` does not match U+0000, so `squish_` keeps it) makes the POST
+ * body invalid at the store's jsonb cast, which is ABOVE the per-row exception
+ * block, so the whole batch is refused. The chunk then goes back into the retry
+ * queue, replays at the front of the next run, and takes every event behind it
+ * with it — for weeks, reported as "the endpoint was unreachable".
+ *
+ * The endpoint repairs these too (`storable()` in lib/capture/schema.ts) and that
+ * is the backstop. This is the half that stops MANUFACTURING them: the endpoint
+ * cannot know that the character it replaced with U+FFFD was the second half of
+ * somebody's 🎯, and it should not have to.
+ *
+ * `String.prototype.toWellFormed()` would be shorter and is deliberately not used
+ * — the Apps Script V8 runtime's exact version is not something this repo can pin
+ * or test, and the boundary split is the only shape truncation can produce.
+ */
+function safeTruncate_(s, n) {
+  // Spelled as an escape, never as the character: an invisible codepoint in a
+  // source line is a rule nobody can read or review (core/sheets.py's lesson,
+  // and 0010's).
+  let out = String(s == null ? "" : s).replace(/\u0000/g, "");
+  if (out.length > n) {
+    out = out.slice(0, n);
+    const last = out.charCodeAt(out.length - 1);
+    // A HIGH surrogate (U+D800-DBFF) at the end has lost its partner. A low one
+    // cannot appear there from a left-anchored slice, because its partner sits
+    // before it and is therefore also included.
+    if (last >= 0xD800 && last <= 0xDBFF) out = out.slice(0, -1);
+  }
+  return out;
+}
+
 function daysAgo_(n) { return new Date(Date.now() - n * 864e5); }
 
 /** Same shape as core/sheets._now() so every bot timestamp in the sheet
@@ -572,7 +1033,14 @@ function onFeedEdit(e) {
     const checked = e.range.getValue() === true ||
       String(e.range.getValue()).trim().toUpperCase() === "TRUE";
 
-    const pipe = getTabByGid_(PIPELINE_GID);
+    // `getTabByGid_(ss, gid)` — the second argument was missing since this
+    // handler was written, so `ss` was the number 0, `ss.getSheets()` threw into
+    // the catch below, and the instant Feed->Pipeline promote has never once
+    // run. Silent because an edit trigger must not throw; carried by the
+    // 2-hourly Python `promote` the whole time. Pre-existing on main, fixed here
+    // because it is four lines from the code this branch touches and the same
+    // class of bug the rest of the branch is about.
+    const pipe = getTabByGid_(sh.getParent(), PIPELINE_GID);
     const ph = sheetHeaderMap_(pipe);
     const last = pipe.getLastRow();
     const keys = last > 1

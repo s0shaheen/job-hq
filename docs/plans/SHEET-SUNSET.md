@@ -22,7 +22,7 @@ than it found it, and the sheet stays a read-only mirror until the day nothing r
 | Company universe (Companies) | sweep reads; humans edit | `companies`/`user_companies` + review states (0008/0009) | built; `swept_companies` written, uncalled — **the decided bridge cutover** |
 | Config knobs (Config) | phone-editable behavior | per-user settings (P10 Profile groundwork + a `settings` read for the engine) | partial — the engine half needs a read path |
 | Heartbeats/watchdogs (Config rows) | digest flags stale beats | `channel_runs` — the health ledger 0001 already shaped for it, one appended row per lane per run (`core/beats.py`) | built (C1): snapshot/digest/pgdump beat there under the flag, and the digest holds each store to its cadence **separately** — neither may vouch for the other |
-| Email events (Email Events) | Gmail Apps Script appends rows | an authenticated `/api/capture` endpoint writing pg | not built — the ONE component that must change outside this repo |
+| Email events (Email Events) | Gmail Apps Script appends rows | an authenticated `/api/capture` endpoint writing pg | **built (C2)**: `public.email_events` + `capture_tokens` (0018), the endpoint, and `Code.gs` dual-writing (sheet first, POST second, local retry queue). Nothing READS the pg copy yet — the joiner still reads the tab |
 | Quick Add (Quick Add) | pasted URLs | webapp add/paste (P7) + import (P9) | built |
 | Scout tabs (Raza-*) | scout's workflow | webapp grid + import + his own user lane | built in pieces; his onboarding = a user onboarding |
 | Digest (Digest tab + Apps Script mailer) | composed row, mailed at 7am | PHASE-DIGEST increments 3–6: the email IS the app (signed links), sent by the engine via an email API | designed, not built |
@@ -67,13 +67,27 @@ separately, and `tracker.pgseed` seeds the sheet's Pipeline into `applications` 
 applications older than the flag; events it cannot apply are recorded as `email.unapplied`).*
 Engine writes pg first-class: discovery upserts
 postings (mirror becomes the write, not the echo); `join` matches email events to
-`applications` under the 0010 status lock; outbox/heartbeats/log move to their tables. The
-Gmail Apps Script stops appending to a tab and POSTs to `/api/capture` (bearer token; the
-script keeps a local retry queue — it already batches). Digest increments 3–6 land here: the
+`applications` under the 0010 status lock; outbox/heartbeats/log move to their tables. *C2 is
+built (migration 0018): the Gmail Apps Script POSTs each batch to `/api/capture` under a
+per-user bearer token — kept as a SHA-256, minted/rotated/revoked from the SQL editor per
+`docs/RUNBOOK.md` § The capture endpoint — and keeps a local retry queue in Script Properties.
+It still appends to the tab FIRST and the tab is still what `join` reads; the pg copy has no
+reader until the join lane flips. Two named remainders: nothing drains an event the queue
+dropped into pg (the sheet has it, so this is a phase-D blocker rather than a live one), and
+the endpoint rejects unknown fields, so the webapp deploys before the script does.* Digest
+increments 3–6 land here: the
 engine composes AND sends the email (Resend or SES — pick at build time), signed one-click
 links back into the webapp. During C the sheet gets a one-way nightly EXPORT (pg→CSV→the same
 git/S3 lanes) so the human-readable mirror never dies before its replacement is trusted.
 *Exit test: two weeks of Gmail-capture→pipeline advances with zero sheet involvement.*
+
+**Carried into D, from the C2 review:** `email_events`' text columns are bounded in
+TypeScript (`webapp/lib/capture/schema.ts:TEXT_LIMITS`) and not in SQL, which is correct while
+`hq_capture_email_events` is granted to `service_role` alone and `/api/capture` is its only
+caller. **The day a second caller exists, the bounds move into the migration — and they belong
+in `tests/unit/capture-parity.test.ts` at the same time**, at a multiple of the route's own
+numbers. A store stricter than its route is the failure C-1 and m-2 both were: a row that
+validates, travels, and comes back as a raw constraint name nobody reads.
 
 **D — Decommission.** Freeze the sheet (final export archived in git + S3), retire the
 sheet-writing halves of selfheal/snapshot and the `core/sheets` write path (the read path
