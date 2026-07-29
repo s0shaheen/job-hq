@@ -1,5 +1,8 @@
 # Release operations and pilot support
 
+Scope authority: `full-product-pilot-v2`. Cohort-size, conditional-feature, Gmail, and
+Sheet-fallback language from the earlier narrow plan is superseded below.
+
 ## 1. Operating model
 
 The pilot is a managed service with named users, named operators, declared coverage
@@ -127,9 +130,14 @@ The owner:
 
 - completes every critical journey through the pilot UI;
 - uses an independent second account for isolation;
-- connects/disconnects email if in scope;
+- verifies Google authentication without Gmail mail scope and verifies Gmail status
+  processing remains disabled;
 - imports and exports;
-- triggers a recoverable conflict and offline retry;
+- triggers a recoverable conflict, true-offline disabled-write state, and server command
+  timeout reconciliation;
+- creates/renders/selects a resume and attachment;
+- prepares, reviews, and submits one supported ATS application plus one manual handoff;
+- completes warm-introduction search, multi-pin, and a human outreach-funnel update;
 - rehearses notification preference and unsubscribe;
 - completes a support-assisted account close in staging;
 - records every operator fallback.
@@ -155,11 +163,11 @@ Rules:
 - explicit canary consent to rapid contact;
 - complete export and preference-control rehearsal.
 
-### Stage C — 3–5 users
+### Stage C — Invited cohort waves
 
 - Invite in waves, not all at once.
 - Expand only after prior wave passes.
-- Hard cap at the approved number.
+- The owner approves each wave; no automatic cohort expansion.
 - Evaluate stop conditions daily.
 - Release changes through the same canary path; do not patch production manually.
 
@@ -179,14 +187,15 @@ At minimum, operations MUST be able to disable independently:
 - new invitations/provisioning;
 - all user writes while retaining safe reads/export;
 - discovery jobs;
-- Gmail capture acceptance;
-- Gmail event processing/status mutation;
+- Gmail capture acceptance and status mutation, which remain disabled for this launch;
 - product emails/digests;
 - email action links;
 - imports;
-- resume uploads/renders if included;
-- application preparation if included;
-- any future external submission;
+- resume uploads/renders;
+- application preparation/review;
+- submission globally, per user, and per ATS provider;
+- execution hosts/agents;
+- Stripe checkout and billing webhooks;
 - third-party enrichment/logo requests if needed.
 
 Kill switches MUST:
@@ -220,8 +229,8 @@ Rules:
 - Never resolve dual-write divergence by guessing.
 - Never declare rollback complete because pages load.
 - A failed migration is repaired forward unless a proven non-destructive reversal exists.
-- The Sheet remains operator fallback during the pilot only if reconciliation proves it
-  is complete enough for the promised recovery. Its existence alone is not a rollback.
+- Google Sheets are never a rollback or recovery path. Rollback uses compatible
+  Postgres/object-storage code, flags, backups, and restored infrastructure.
 
 ## 8. Backup and restore runbook requirements
 
@@ -245,7 +254,8 @@ Rules:
 6. Verify migration ledger and schema.
 7. Verify row counts and sampled relations.
 8. Verify RLS/privileges with two users.
-9. Complete Decide, Track, Export, and support lookup journeys.
+9. Complete auth, Today, Jobs, Applications, Coverage, resume, Autopilot, referral,
+   export, deletion-safe restore, and support lookup journeys.
 10. Reconcile deletions that occurred after the backup according to the deletion ledger.
 11. Measure RPO and RTO.
 12. Destroy the isolated recovery environment securely.
@@ -261,11 +271,15 @@ The drill report MUST not include personal content.
 - command success/conflict/rejection/unknown;
 - database latency/errors/connections;
 - scheduled invocation and per-user useful completion;
-- Gmail capture and processing lag;
+- proof that Gmail capture/status lanes remain disabled;
 - discovery freshness;
+- Autopilot executor/provider health, unknown outcomes, drift, duplicates, and pauses;
+- resume render/storage health;
+- warm-introduction provider/funnel health;
 - outbound acceptance/bounce/complaint/suppression;
 - backup freshness and restore-test age;
-- Sheet/Postgres divergence while dual-write exists;
+- attempted runtime Sheet access after cutover;
+- Stripe webhook/entitlement consistency;
 - feature-flag/config drift;
 - support volume and open incident age.
 
@@ -346,8 +360,8 @@ Incident communication MUST distinguish:
 - what the user should do;
 - when the next update will arrive.
 
-No public status page is required for a 3–5 person pilot; direct cohort communication and
-an internal incident log are.
+A public status page is optional for the invited pilot; direct cohort communication,
+hosted uptime monitoring, and an internal incident log are required.
 
 ## 12. Privacy and data-request operations
 
@@ -370,16 +384,16 @@ Deletion procedure MUST inventory:
 - profile/preferences;
 - jobs/decisions;
 - applications/notes/evidence;
-- email events/tokens;
+- disabled/future email events/tokens, if any remain;
 - connections/warm data;
 - answers/policies;
 - imports;
 - saved views;
-- staged applications/resumes if included;
+- staged applications, submission receipts, executor commands, resumes, and artifacts;
 - scheduled lanes;
 - digests/action links;
 - logs/audit;
-- Sheet mirror;
+- deletion-ledger entries and any archived legacy import source;
 - live database;
 - backups and their expiry/reconciliation.
 
@@ -399,7 +413,9 @@ a documented obligation requires otherwise.
 - feedback expectations;
 - duration;
 - export/delete path;
-- no automatic application submission.
+- supported ATS submission behavior, explicit approval and irreversibility, receipt
+  evidence, unknown/manual outcomes, and global/provider/user pause controls;
+- Gmail automatic status is excluded.
 
 ### Release note must state
 
@@ -437,8 +453,8 @@ Recommended cadence:
 - weekly 15-minute check-in;
 - exit interview and export rehearsal.
 
-Do not turn a feature request into pilot scope during support. Route it to an explicit
-product decision.
+Do not turn a feature request into a production behavior during support. Route it to an
+explicit product decision and design/contract update.
 
 ## 15. Pilot dashboard
 
@@ -447,9 +463,10 @@ The owner needs a privacy-minimal operational view:
 - active/invited/suspended users;
 - last successful critical lane per user;
 - command success/conflict/error/unknown;
-- automatic statuses and user corrections;
-- email capture/process lag;
+- confirmed/unknown/failed/manual submission outcomes and duplicate/drift guards;
+- proof that Gmail capture/status lanes are disabled;
 - discovery freshness/failures;
+- resume render/storage and warm-introduction provider health;
 - notification outcomes;
 - backup freshness and last successful restore drill;
 - open incidents/support cases;

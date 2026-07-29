@@ -1,392 +1,124 @@
-# Decisions, assumptions, and risks
-
-## 1. Decision rule
-
-The recommendations below allow planning to continue without silently deciding product
-policy. The owner MUST accept or replace the launch-blocking decisions before external
-invitations.
-
-Status values:
-
-- **Open:** owner answer required.
-- **Recommended:** working default, not yet owner-approved.
-- **Accepted:** owner approved with date.
-- **Superseded:** replaced by a later decision.
-
-## 2. Launch-blocking owner decisions
-
-### D-001 — Pilot cohort
-
-Status: Recommended
-Question: Who exactly is in the first cohort, and may they invite others?
-
-Recommended decision:
-
-- 3–5 known users;
-- hard cap 10;
-- named email allowlist;
-- no invite forwarding or self-service invitation.
-
-Why: current operations and per-user setup are concierge-scale. Opening signup expands
-abuse, entitlement, support, privacy, and scheduling requirements.
-
-### D-002 — Pilot promise
-
-Status: Recommended
-Question: Is the first pilot promise strictly Decide + Track + Leave?
-
-Recommended wording:
-
-> Find relevant jobs, make daily decisions, track applications from evidence, and take
-> your data with you.
-
-Explicit exclusions: exhaustive discovery, automatic submission, recruiter outreach,
-and guaranteed email interpretation.
-
-### D-003 — Autopilot
-
-Status: Recommended
-Question: Should Autopilot be hidden, an honest unavailable destination, or include
-Prepare/Review?
-
-Recommended decision: keep the nav destination with an honest unavailable state for the
-first external wave. Add Prepare/Review only after `0024` is implemented and accepted.
-No submission.
-
-Impact:
-
-- Unavailable: smaller critical path.
-- Prepare/Review: adds WP-014 and possibly resume decisions.
-- Submit: creates a separate high-risk program and is not recommended for this pilot.
-
-### D-004 — Gmail auto-status
-
-Status: Open
-Question: Is email-derived application tracking part of the core pilot promise?
-
-Recommended decision: include only if every pilot user accepts concierge setup and the
-OAuth/Apps Script, revocation, heartbeat, ambiguity, and reconciliation gates pass.
-Otherwise launch a complete manual status path and enable Gmail later.
-
-Owner must choose:
-
-- current per-user Apps Script installation;
-- product-managed OAuth after required verification; or
-- manual tracking for the first wave.
-
-### D-005 — Digest and notifications
-
-Status: Recommended
-Question: Must digest email launch with the pilot?
-
-Recommended decision: off by default. Enable per user only after explicit opt-in,
-preferences/unsubscribe, quiet hours, bounce/suppression handling, and action-link gates
-pass.
-
-### D-006 — Warm introductions
-
-Status: Recommended
-Question: Is provider-backed warm-introduction enrichment in the pilot?
-
-Recommended decision: keep existing safe user-owned connection hints; treat external
-enrichment as a separately consented, cost-capped experiment. No LinkedIn scraping or
-outreach automation.
-
-### D-007 — Sheet authority
-
-Status: Recommended
-Question: Does the Sheet remain an operator-only fallback through the pilot?
-
-Recommended decision: yes, through a defined dual-write soak and reconciliation period.
-Pilot users use only the web app. Sheet sunset occurs only after Postgres, backups,
-restore, and scheduled jobs meet exit criteria.
-
-### D-008 — Database dump incident
-
-Status: Open, urgent
-Questions:
-
-1. Approve immediately disabling the Git-committed full database dump?
-2. Approve replacing it with encrypted, versioned, access-controlled backup storage?
-3. After restore proof, approve a coordinated repository-history purge plan?
-4. Who will make the legal/privacy notification determination?
-
-Recommended decision: yes to 1 and 2 immediately. Treat 3 as a coordinated incident
-action after access scope and restoration are understood. Obtain appropriate advice for
-4.
-
-### D-009 — Data retention and deletion
-
-Status: Open
-Question: What retention applies to each data class?
-
-Owner must fill:
-
-| Data class | Active retention | After account deletion | Backup expiry |
-|---|---:|---:|---:|
-| Auth and entitlement |  |  |  |
-| Search profile/preferences |  |  |  |
-| Jobs/decisions |  |  |  |
-| Applications/notes |  |  |  |
-| Email events/evidence |  |  |  |
-| Connections/referral data |  |  |  |
-| Answers/policies |  |  |  |
-| Imports |  |  |  |
-| Activity/audit |  |  |  |
-| Staged applications |  |  |  |
-| Resume files/versions |  |  |  |
-| Operational logs |  |  |  |
-| Sheet mirror |  |  |  |
-
-Recommended starting points, subject to legal/product review:
-
-- staged preparation: 30 days;
-- detailed operational activity: 90 days;
-- debug logs: shortest period that supports incidents;
-- user content: while active, then deletion under the declared request workflow;
-- backups: bounded lifecycle with deletion reconciliation.
-
-### D-010 — Suspended/removed user rights
-
-Status: Recommended
-Question: What can a suspended user still do?
-
-Recommended decision: narrow account-management access only: sign out, support,
-privacy/terms, export, and deletion. Revoke application access, sessions as necessary,
-capture tokens, scheduled lanes, and product email immediately.
-
-### D-011 — Support
-
-Status: Open
-Questions:
-
-- What single support channel will pilots use?
-- Which days/hours are actually covered?
-- Who is backup?
-- Are the proposed S0/S1/S2 acknowledgement targets sustainable?
-
-Do not publish an unstaffed 24/7 promise.
-
-### D-012 — Pilot duration and success
-
-Status: Recommended
-Question: What duration and outcome constitute a meaningful pilot?
-
-Recommended decision:
-
-- seven-day owner soak;
-- 48-hour one-user canary;
-- four-week external pilot;
-- weekly review;
-- explicit end decision.
-
-Two weeks is enough to find setup failures but may not capture meaningful application
-status changes. Four weeks is the recommended product-learning window.
-
-### D-013 — Geography and job-search segment
-
-Status: Open
-Question: Which geographies, role families, seniority levels, and work models are in
-scope?
-
-Why: discovery recall, provider coverage, salary copy, location gates, and support
-expectations cannot be evaluated without a defined search segment.
-
-### D-014 — Supported devices
-
-Status: Recommended
-Question: Which devices/browsers are promised?
-
-Recommended pilot baseline: current/previous Chrome, current Safari macOS/iOS, and
-current Firefox for regression; widths 320–1440; mouse/touch/keyboard. If this is too
-broad, narrow it before invitations rather than accepting unknown defects.
-
-### D-015 — Recovery objectives
-
-Status: Recommended
-Question: What data loss and recovery delay can the owner accept?
-
-Recommended pilot targets:
-
-- RPO no worse than 24 hours;
-- RTO no worse than 4 hours during declared support coverage.
-
-These targets are not accepted until an actual restore meets them.
-
-### D-016 — Identity and customer-facing details
-
-Status: Open
-Owner must provide:
-
-- production product name;
-- production domain;
-- sender identity/domain;
-- reply-to/support address;
-- operator/legal identity used in pilot notice;
-- timezone used for default schedules;
-- monthly total and per-user cost cap.
-
-### D-017 — Third-party logo requests
-
-Status: Open
-Question: May the browser send company domains to logo.dev and Google favicon, or must
-logos be proxied/cached?
-
-Impact:
-
-- direct requests are simpler but disclose viewed company domains and user IP to
-  providers;
-- proxy/cache reduces disclosure and repeated calls but introduces SSRF, storage,
-  retention, and operations work.
-
-No-domain monograms work under either decision.
-
-### D-018 — Analytics
-
-Status: Recommended
-Question: What pilot analytics are acceptable?
-
-Recommended decision: privacy-minimal first-party semantic events only. Do not capture
-email bodies, application notes, answers, resumes, job descriptions, or free-response
-text. Add a third-party analytics processor only after purpose, retention, consent, and
-data transfer are approved.
-
-### D-019 — SES delivery mode
-
-Status: Open if digest is in scope
-Question: Is a verified-recipient concierge workflow acceptable, or must SES production
-access be approved before invitations?
-
-### D-020 — Design exceptions
-
-Status: Recommended
-Question: Who has final authority to approve a documented deviation from the supplied
-design?
-
-Recommended decision: product owner. Accessibility/security fixes are implemented as
-the smallest safe deviation and still require an explicit record.
-
-### D-021 — Coverage and company-monitoring authority
-
-Status: Open, core
-Question: Which store is authoritative for each pilot user's company-monitoring
-decisions and scan inputs?
-
-Recommended decision: Postgres is authoritative for webapp pilot users;
-`monitor/run.py` consumes the same owner-scoped approved state; the Sheet is an
-operator-only mirror/fallback until the signed transition contract's sunset criteria
-pass.
-
-The answer MUST populate `10-data-authority-and-transition.md` before Coverage is
-accepted.
-
-## 3. Current planning assumptions
-
-These are not promises:
-
-| ID | Assumption | If false |
+# Current decisions, blocking ADRs, and design addenda
+
+Contract: `full-product-pilot-v2`
+
+## 1. Locked decisions
+
+| ID | Decision |
+|---|---|
+| DEC-001 | Activated pilot users receive the complete product, not a slice |
+| DEC-002 | Gmail automatic status and mailbox ingestion are excluded |
+| DEC-003 | Autopilot includes real provider-qualified submission and receipts |
+| DEC-004 | Postgres/object storage are authoritative; Google Sheets have no runtime role |
+| DEC-005 | Founding users are owner-assigned, free forever, and exempt from commercial quotas/charges |
+| DEC-006 | Commercial exemption does not remove abuse, security, concurrency, provider, or infrastructure safety limits |
+| DEC-007 | United States, any job family/seniority/work model |
+| DEC-008 | Laptop and phone are supported; hosted product work cannot depend on the owner laptop |
+| DEC-009 | Warm introductions use provider search without user LinkedIn session/cookie; outreach remains human-sent |
+| DEC-010 | Resume/application/interview content specific to Salman leaves the product boundary |
+| DEC-011 | True offline disables writes; no browser mutation queue |
+| DEC-012 | Strict parity uses the owner’s read-only design bundle; agents do not invent UI |
+
+## 2. Launch-blocking ADRs
+
+Each ADR MUST record owner, options, recommendation, decision, date, affected interfaces,
+security/privacy analysis, rollout, reversibility, and evidence.
+
+| ADR | Decision required | Must precede |
 |---|---|---|
-| A-001 | Pilot is free | Billing, tax, refunds, quotas, entitlements, support promise enter critical path |
-| A-002 | Cohort is known and manually provisioned | Signup abuse, invitations, activation UX, and self-service support enter critical path |
-| A-003 | No automatic submission | Executor, credentials, receipts, duplicate prevention, legal/provider risk enter critical path |
-| A-004 | Sheet remains operator fallback | Postgres cutover and every scheduled lane must complete before pilot |
-| A-005 | Owner can provide concierge setup | Self-service Gmail/onboarding/support must complete first |
-| A-006 | Pilot users are in an owner-supported jurisdiction | Privacy/terms/transfer requirements may expand |
-| A-007 | Current product name/domain/sender can be finalized before invites | Auth/email/consent cannot be production-ready |
-| A-008 | The design bundle is the final visual authority | Changed designs invalidate parity evidence |
-| A-009 | Existing production data may be used only in production | Staging requires synthetic production-shape data |
-| A-010 | Prepare/Review can be excluded initially | Otherwise `0024` and related design enter P0/P1 |
+| ADR-001 | Autopilot execution host: hosted, user-owned agent, hybrid, or another architecture | Executor protocol/adapters |
+| ADR-002 | Autopilot autonomy: review every application versus policy-authorized unattended execution; eligibility and trust reset | Rules/consent/release claim |
+| ADR-003 | Per-ATS launch support and provider policy/terms approval | Each adapter implementation/live test |
+| ADR-004 | One-time legacy owner data: clean start or explicit one-time import with no continuing correlation | Sheet decommission |
+| ADR-005 | Shared versus tenant-owned catalog: companies/postings, provenance, corrections, deletion effects, fetch-once/fan-out | Discovery/Postgres schema |
+| ADR-006 | Object storage, encrypted backup, and KMS/key provider | Resume, receipts, restore |
+| ADR-007 | Upload malware/quarantine/fail-closed policy | Resume upload |
+| ADR-008 | Hosted uptime and application observability vendors | Production qualification |
+| ADR-009 | Logo privacy: direct browser request or proxy/cache | Logo production release |
+| ADR-010 | Named physical test devices and ownership for the browser policy in the contract | UI release qualification |
+| ADR-011 | Notification sender/domain, support identity, deliverability provider, and staffed hours | Auth recovery/product email |
+| ADR-012 | Privacy/terms, processor list, AI no-training/data-use posture, consent versioning | Invitations |
+| ADR-013 | Submission receipt evidence classes, screenshot prohibition/redaction, access, retention | Receipt storage/classification |
+| ADR-014 | Resume feature matrix: imports, RenderCV schema/themes/fonts, job-specific AI tailoring, lossy behavior | Resume design/build |
+| ADR-015 | Stripe test ownership and later commercialization policy | Billing integration |
+| ADR-016 | Update root `AGENTS.md`/`CLAUDE.md` operating doctrine from Sheet cockpit to Postgres-only web product while preserving historical-tool safety rules | Any Postgres-only implementation packet |
 
-Every assumption MUST have an owner and review date before release.
+Unattended Autopilot is not silently deferred or silently included. Until ADR-002 is
+signed, implementation may build exact Prepare/Review and explicit-approval submission
+contracts, but the launch scope decision remains blocked.
 
-## 4. Risk register
+## 3. Required design addenda
 
-Probability and impact are qualitative until the owner accepts a scoring model.
+Visible implementation is blocked until every state maps to an owner artifact:
 
-| ID | Risk | Probability | Impact | Control / response | Residual decision |
-|---|---|---|---|---|---|
-| R-001 | Full user-data dump persists in Git history/clones | Confirmed | Critical | WP-000 incident containment, encrypted replacement, coordinated purge/rotation review | Owner/legal |
-| R-002 | Pending/suspended user bypasses UI entitlement gate via direct data API | High | Critical | Database/RPC/storage default deny; direct auth-matrix tests | None accepted |
-| R-003 | Ambiguous email resolution updates wrong application under race | High | Critical | Locked server-derived candidates, uniqueness, CAS, human-wins | Disable email review until fixed |
-| R-004 | Cross-user data exposure through RLS, service role, export, jobs, or cache | Medium | Critical | Two-user direct tests at every boundary, least privilege, canary | None accepted |
-| R-005 | Acknowledged write is lost or duplicated after timeout/retry | Medium | High | Idempotency, result lookup, CAS, audit, failure injection | None for critical commands |
-| R-006 | Git dump excludes Storage and creates false recovery confidence | High if resumes ship | High | Separate object backup and restore | Exclude resume files until ready |
-| R-007 | Sheet and Postgres diverge during dual-write | Medium | High | Directional reconciliation, human-wins, defined authority, stop threshold | Owner accepts limited window |
-| R-008 | Shared job heartbeat masks one user’s dead lane | High | High | Per-user success heartbeat and stale alerts | None |
-| R-009 | Gmail setup/scopes fail for external pilot users | Medium | High | Decide setup model, verify OAuth requirements, manual fallback | Narrow pilot or disable |
-| R-010 | User believes application was submitted | Medium | Critical trust | No fake submit states/copy; Autopilot unavailable; audit-based claims | None |
-| R-011 | External logo/enrichment provider leaks browsing context | Medium | Medium | Owner decision, privacy notice, proxy/cache option, monogram fallback | Owner |
-| R-012 | Provider rate/cost overrun | Medium | Medium | Per-user/global caps, circuit breaker, alerts, feature flag | Owner sets cap |
-| R-013 | Discovery misses jobs but Coverage implies completeness | High | High trust | Explicit scope/freshness/failures; segment-defined evaluation | Accepted limitation if honest |
-| R-014 | User status overwritten by automation | Medium | Critical | Database human-wins lock, concurrent tests, review | None |
-| R-015 | Backup file exists but restore fails | Medium | Critical | Scheduled restore drills and RPO/RTO proof | None |
-| R-016 | Account deletion leaves scheduled work/tokens/mirrors | High without runbook | High | Full-system deletion inventory and rehearsal | Retention exceptions disclosed |
-| R-017 | Fixture passes while production mapping differs | Medium | High | Shared conformance suite and production-equivalent staging | None |
-| R-018 | Design is visually close but state/copy/behavior diverges | High | Medium/High | Strict manifest and multi-layer parity evidence | Approved exceptions only |
-| R-019 | Accessibility blocks a pilot user | Medium | High | WCAG 2.2 AA, manual keyboard/screen-reader/zoom | None for critical journey |
-| R-020 | Unsupported long data hides actions or corrupts layout | Medium | Medium | Boundary fixtures, contained overflow, wrap policy | None |
-| R-021 | Support volume exceeds owner capacity | Medium | High | Hard cap, declared hours, pause condition | Owner |
-| R-022 | Open S2 defect becomes recurrent journey blocker | Medium | High | Workaround, expiry, wave review, automatic pause | Owner exception |
-| R-023 | Migration branches conflict or run out of order | High | High | One serial integrator, ledger/checksum/lock, staging upgrade | None |
-| R-024 | Old/new app version skew breaks deploy | Medium | High | Expand/migrate/contract and compatibility window | None |
-| R-025 | Logs/analytics capture sensitive content | Medium | High | Data inventory, structured allowlist, redaction mutants | None |
-| R-026 | User revokes Gmail but processing continues | Medium | Critical privacy | Revocation propagation, token stop, queued-work cancellation/test | None |
-| R-027 | Digest link scanner or forwarding mutates data | Medium | High | GET is inert; confirmation POST; expiry/replay/revocation | Disable actions until fixed |
-| R-028 | Wrong domain/logo association presented as fact | Medium | Medium | provenance, human-wins, fallback, correction path | Accepted if clearly uncertain |
-| R-029 | Pilot result is inconclusive due cohort/duration | Medium | Medium | Define segment, four weeks, baseline/exit questions | Owner |
-| R-030 | User data is copied into tests/support during debugging | Medium | High | synthetic-only lower env, support minimization, access audit | None |
+| ADD | Missing/changed design | Dependency |
+|---|---|---|
+| ADD-001 | Warm-intro multi-select, deterministic 40-total default across three searches, result shortfall, fit explanation | PKT-08B–D |
+| ADD-002 | Full generic resume editor/import/render/version/attachment flows | PKT-05D–F |
+| ADD-003 | Executor health/offline/update, provider manual handoff, outcome unknown, receipt redaction | PKT-07B–I |
+| ADD-004 | Operator activation/suspension/consented support access/kill switches | identity/operator packets |
+| ADD-005 | Responsive phone behavior for every template, including file upload/download/preview | UI qualification |
+| ADD-006 | Billing lifecycle states beyond founding-free view | PKT-09A/B |
+| ADD-007 | Account deletion irreversibility: already submitted employer applications cannot be recalled | PKT-09F |
 
-## 5. Open technical questions
+No implementation worker may fill these gaps from taste.
 
-These should be answered during work-package specification, not guessed:
+## 4. Discovery and general-market validity decision
 
-1. What exact store is authoritative for company monitoring per user during the pilot?
-2. Which existing users/data are in the Git dump, and who has ever had repository
-   access?
-3. Which provider/region/retention will hold replacement encrypted backups and Storage
-   objects?
-4. Does the current migration runner record checksums and enforce exactly-once
-   application? If not, what is the migration-ledger transition?
-5. Which subset of `0021`–`0027` is truly required under the accepted pilot scope?
-6. If `0024` is deferred, how will every Prepare/Review entry point and Today section be
-   removed or honestly disabled?
-7. What is the direct database predicate for active pilot access?
-8. How quickly must suspension invalidate existing sessions and queued work?
-9. Is Gmail capture manual Apps Script or product OAuth, and what external-user
-   verification is required?
-10. How are email capture and joiner freshness reconciled per user?
-11. What constitutes a complete account archive across Postgres, Sheet, files, and
-    provider data?
-12. How are deletions reconciled when restoring an older backup?
-13. What are the data/query limits for the largest pilot user?
-14. Which route owns status evidence and review when Gmail is disabled?
-15. What production build/config identifier is shown to support?
+The architecture packet MUST define:
 
-## 6. Owner response template
+- shared canonical companies/postings and tenant-owned subscriptions/decisions/apps;
+- user/agent/provider provenance and correction semantics;
+- fetch-once/fan-out where it preserves isolation;
+- canonical job dedupe and provider-native identity;
+- expiry/delisting/reopen rules;
+- arbitrary company/board intake and grounding;
+- general job-family taxonomy without hard-coded PM/finance defaults;
+- deterministic profile gates versus learned ranking;
+- salary/location/work-model normalization;
+- a human-reviewed golden corpus across engineering, healthcare, sales, operations,
+  finance, education, skilled trades, creative, entry-level, executive, remote, hybrid,
+  and on-site roles.
 
-The owner can answer concisely:
+Acceptance needs relevance/freshness/normalization measures and explicit “not enough
+data,” never claims of exhaustive US coverage.
 
-```text
-D-001 cohort:
-D-002 promise:
-D-003 Autopilot:
-D-004 Gmail:
-D-005 digest:
-D-006 warm intros:
-D-007 Sheet fallback:
-D-008 dump containment/history:
-D-009 retention:
-D-011 support channel/hours:
-D-012 duration:
-D-013 geography/roles:
-D-014 devices:
-D-015 RPO/RTO:
-D-016 product/domain/sender/cost:
-D-017 logo providers:
-D-018 analytics:
-D-019 SES:
-D-020 design authority:
-```
+## 5. AI behavior contract
 
-Unanswered decisions retain their recommended planning default but remain release
-blockers where marked Open.
+Any model-assisted answer draft, profile compilation, relevance explanation, or
+candidate-fit analysis MUST:
+
+- use versioned structured inputs/outputs;
+- validate schema and reject extra/untrusted instructions from job/provider content;
+- cite source facts/evidence where a factual claim appears;
+- never convert missing evidence into a fact;
+- degrade to a gap/manual review on timeout, refusal, malformed output, or low confidence;
+- record model/prompt/evaluation versions without private content in telemetry;
+- have adversarial prompt-injection, hallucination, polarity, job-family, latency, and
+  provider-outage cases;
+- comply with the approved no-training/data-use processor posture.
+
+## 6. Current risks
+
+| Risk | Stop/mitigation |
+|---|---|
+| Git contains a Postgres dump | Stop writer, incident inventory, encrypted restore, coordinated history decision |
+| `0021` address validation misses link-local/alternate forms | Table-driven SSRF corpus and mutation proof |
+| `0022` unsafe Gmail review enters launch | Exclude branch/migration from launch unless a hard dependency and complete unreachable proof exist |
+| `0027` defaults allow below middleware | Database/RPC/storage/worker default-deny mutation |
+| Executor causes duplicate/false application | At-most-once controls, unknown outcome, provider pause, receipt proof |
+| Provider terms or anti-abuse controls conflict | ADR-003; no bypass; manual handoff |
+| Design missing for promised behavior | ADD register blocks visible packet |
+| Existing PM/finance bias survives generic copy | Discovery golden corpus and diverse-user canary |
+| Root repository instructions still call Sheets the cockpit | ADR-016 blocks Postgres-only build delegation; baseline/design/containment audits may proceed |
+| Third-party people data is inaccurate/unlawful | Vendor/processor terms/privacy review, provenance, correction/removal, minimal retention |
+| Account deletion appears to retract employer application | Explicit irreversibility before submit/deletion |
+
+## 7. Owner inputs before invitation
+
+- resolve ADR-001 through ADR-015;
+- approve the SLO revision/digest;
+- name primary/backup support operators and define out-of-hours S0 paging;
+- approve design addenda;
+- provide public product/operator/support/legal identities;
+- sign the provider/processors/privacy register and accepted residual risks.

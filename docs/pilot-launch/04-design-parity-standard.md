@@ -1,5 +1,9 @@
 # Strict design-parity standard
 
+Scope authority: `full-product-pilot-v2`. Any conditional/unavailable Autopilot or
+offline-queue language retained from the earlier narrow pilot is superseded by the
+full-product rules below.
+
 ## 1. Objective
 
 The pilot UI MUST reproduce the supplied Job HQ design system exactly for every
@@ -48,6 +52,17 @@ contracts.
 Before release, the source set MUST be copied or published as a versioned,
 access-controlled design-bundle artifact with a SHA-256 digest. Machine-local absolute
 paths are discovery locations, not a reproducible release reference.
+
+Downloaded reference digests observed 2026-07-28:
+
+- `_ds_manifest.json`:
+  `1934e04038c9654f6d3aab5863f266dd44577aa7e9927284609a411a6022c350`
+- `_ds_bundle.js`:
+  `baefa8270fc1f9dedb16da0194c4dd5241002e19b8fa36381df33e39e2bccc91`
+- `_ds_bundle.css`:
+  `47c8e3132b842182d8b51cd4896cd47759a319f6e59781e91cb034c37df9adb4`
+- `styles.css`:
+  `e28cb90814637581f6afbcf901abf4ac06c1d976084c662c46cd603d0ccfdb83`
 
 ### 2.2 Conflict order
 
@@ -156,11 +171,10 @@ Required:
 - section labels/counts and top-divider row structure;
 - selection bar centered against the content area with the 224px rail offset;
 - all-clear and first-run states exactly mapped;
-- badge equals actionable items across all three sections;
-- no overnight-submission message unless a real, auditable submission occurred.
-
-When automatic submission is out of pilot scope, its overnight line MUST be absent. Do
-not replace it with simulated success.
+- badge equals actionable items across all rendered sections;
+- no overnight-submission message unless a real, auditable submission occurred; and
+- Suggested updates may contain only product-derived manual follow-ups at launch, not
+  Gmail-derived status suggestions.
 
 ### 4.2 Jobs
 
@@ -225,20 +239,22 @@ Required:
 
 ### 4.6 Autopilot
 
-If excluded from the pilot:
+Autopilot is required. Use the downloaded Autopilot template after the durable
+Prepare/Review state machine and submission contracts pass. Every visible staged item,
+answer, rule, receipt, count, and throughput statement MUST map to owner-scoped durable
+state. The surface MUST include:
 
-- the nav destination MAY remain to preserve the five-destination frame;
-- the route MUST be an honest unavailable state;
-- it MUST NOT show fake staged applications, readiness, submission, receipts, or
-  throughput;
-- the copy MUST state what exists today and what action is available.
+- Review, Answers, and Rules;
+- exact reviewed payload and attachment version;
+- explicit approval before the first production submission mode;
+- provider capability and paused/manual states;
+- confirmed, outcome-unknown, retryable, terminal, and cancelled outcomes;
+- immutable receipt/activity access; and
+- user, provider, and global pause/kill controls.
 
-This is an explicit exception to the general rule that out-of-scope capabilities are
-not linked from navigation, and is valid only when D-003 and the signed pilot contract
-choose the unavailable-destination treatment.
-
-If Prepare/Review is included, use the Autopilot template only after WP-014 and its
-state-machine acceptance pass.
+No fixture/demo submission may appear in production. An unsupported provider receives
+the approved complete manual handoff, not an unavailable product room or a false submit
+control.
 
 ## 5. Required state inventory
 
@@ -255,7 +271,7 @@ and evidence.
 | Partial/degraded | available facts remain; missing dependency named safely |
 | Validation error | field association, summary on submit, focus movement |
 | Write pending | stable optimistic state |
-| Write queued offline | clear queue state and cancellation/retry contract |
+| Offline write disabled | approved reconnecting copy, disabled controls, preserved safe draft where applicable; no local mutation queue |
 | Conflict | no overwrite; current state and next action |
 | Permission/holding | no data leak and exact support path |
 | Session expired | draft preservation and re-authentication |

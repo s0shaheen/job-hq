@@ -33,9 +33,10 @@ Missing any edge means the requirement is not verified.
 ## 3. Requirement record
 
 Use a portable YAML, JSON, CSV, database, or requirements-management equivalent. The
-following fields are mandatory. They MAY live in one record or in a normalized register
-joined by the stable requirement ID, but every field MUST have one unambiguous value
-and link:
+atomic register MAY begin with ID, normative statement, and acceptance oracle. Before
+any mutating implementation packet is dispatched, the packet/normalized records MUST
+complete every field below for its referenced requirements. Before release, every
+requirement MUST have one unambiguous value and link for every field:
 
 ```yaml
 id: PILOT-AREA-###
@@ -385,7 +386,8 @@ Each release candidate MUST produce an immutable bundle or equivalent record con
 
 - [ ] Production-equivalent migration passed
 - [ ] Encrypted backup and isolated restore passed
-- [ ] Dual-write reconciliation passed where applicable
+- [ ] One-time import reconciliation passed if ADR-004 chose import
+- [ ] Zero-runtime-Sheet tripwire passed
 - [ ] Alerts, recovery alerts, and kill switches rehearsed
 - [ ] RPO/RTO accepted
 - [ ] On-call/support coverage active
@@ -405,7 +407,7 @@ For owner soak, one-user canary, and each cohort wave, record:
 
 ```yaml
 wave: canary-1
-contract_version: pilot-contract-v1
+contract_version: full-product-pilot-v2
 release_artifact: "<commit/build digest>"
 configuration_manifest: "<artifact>"
 cohort_count: 1

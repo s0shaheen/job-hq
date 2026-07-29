@@ -142,12 +142,10 @@ The following are release invariants:
   and resource version.
 - Sensitive drafts and cached content MUST have an explicit storage location, expiry,
   encryption/platform-protection assumption, and purge event.
-- The user MUST be able to see and cancel a queued command before dispatch where the
-  command remains reversible.
-- A queued command whose authorization, owner, resource, or precondition changed MUST
-  fail closed and retain a safe explanation; it MUST NOT be rewritten for the new state.
+- Commands already dispatched to the server MUST expose deterministic result lookup.
+- The browser MUST NOT persist or later dispatch an offline mutation queue.
 - Two-user, one-device-profile tests MUST cover sign-out, session expiry, suspension,
-  reconnect, and replay.
+  reconnect, stale drafts, and replay of server-dispatched commands.
 
 ## 6. Frontend standard
 
@@ -157,15 +155,16 @@ The following are release invariants:
 - URL-addressable state MUST round-trip through parse → serialize → parse.
 - Back, forward, reload, deep link, and duplicate-tab behavior MUST be defined.
 - A control MUST have one complete outcome or be absent/honestly unavailable.
-- Optimistic UI MUST distinguish pending, queued offline, accepted, conflicted, rejected,
-  undone, and superseded.
+- Optimistic UI MUST distinguish pending, accepted, outcome unknown, conflicted,
+  rejected, undone, and superseded. While actually offline, writes are disabled.
 - A component MUST not infer permission from visibility.
 - Lists and tables MUST use stable semantic identifiers, not array position.
 
 ### 6.2 State coverage
 
 Every surface MUST cover the experience-state contract in
-`01-pilot-scope-and-journeys.md`. Add:
+`09-full-product-contract-v2.md`, `15-full-product-requirements-register.md`, and the
+strict design manifest. Add:
 
 - long company/role/user strings;
 - Unicode and bidirectional text safety;
@@ -377,7 +376,10 @@ Each release candidate MUST update a data-flow threat model covering:
 - web server and RPCs;
 - database and RLS;
 - scheduled workers;
-- Gmail capture;
+- Gmail capture as an explicitly disabled launch boundary and future threat surface;
+- resume upload/render/object storage;
+- Autopilot execution host and ATS submission;
+- Stripe checkout/portal/webhooks;
 - email delivery and action links;
 - ATS/provider fetches;
 - logo providers;
@@ -445,7 +447,8 @@ Required properties:
 - at-most-once logical effect under retries;
 - human-wins status protection;
 - deterministic deduplication;
-- reconciliation for dual writes;
+- reconciliation only for an explicitly approved one-time migration or transitional
+  non-launch system; the final product invariant is zero dual write;
 - explicit source/provenance;
 - monotonically meaningful version tokens;
 - restoration preserves owner and integrity constraints.

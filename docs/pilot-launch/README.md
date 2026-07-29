@@ -1,172 +1,193 @@
-# Pilot launch control
+# Full-product pilot launch control
 
-Status: proposed launch standard
-Audience: product owner, engineering, design, operations, and any implementation agent
+Status: owner direction accepted; first execution packets ready; blocking ADRs identified
+Audience: product owner, engineering, design, security, operations, support, and implementation agents
 Normative vocabulary: RFC 2119 and RFC 8174 (`MUST`, `MUST NOT`, `SHOULD`, `MAY`)
 
-This directory is the control plane for moving Job Search HQ from an owner-operated
-system to an invite-only pilot. It distinguishes work that blocks a responsible pilot
-from work that belongs to the broader product roadmap.
+## 1. Launch definition
 
-The documents are deliberately model- and harness-agnostic. They specify observable
-outcomes, evidence, and release decisions. An implementation can use any language,
-test runner, CI provider, hosting platform, or agent as long as it produces the required
-evidence.
+The pilot is the complete Job Search HQ product for its first invited users. It is not a
+feature slice, an MVP subset, or an owner-only demo. A feature that the product promises
+MUST be complete, reachable, truthful, secure, and supportable for every active pilot
+user.
 
-## Recommended pilot promise
+The only owner-approved product exclusion is Gmail-derived automatic application status.
+Users MUST still have a complete manual application-status workflow. Gmail sign-in MAY
+be used for authentication without requesting mail scopes. Gmail ingestion, email
+classification, and automatic status transitions MUST be disabled and absent from the
+launch promise.
 
-Launch a closed pilot to 3–5 known users, with a hard cap of 10, around three complete
-verbs:
+The web app is the sole user surface and Postgres is the sole operational system of
+record. Google Sheets has no synchronization, fallback, control-plane, or user-facing
+role after cutover. Spreadsheet-compatible import and export remain file capabilities,
+not synchronization.
 
-1. **Decide** — discover and review relevant roles in Today and Jobs.
-2. **Track** — manage Applications and understand Coverage.
-3. **Leave** — export data, stop notifications, and request account deletion without
-   losing control of personal information.
+## 2. Locked owner decisions
 
-The core pilot SHOULD include Profile and Settings because those surfaces make the
-other three verbs truthful. It SHOULD include human-reviewed application preparation
-only if the stage/review persistence gap is closed. It MUST NOT imply that the product
-submits applications automatically when it does not.
+| Area | Launch decision |
+|---|---|
+| Product scope | All designed and promised product features; no placeholder destinations |
+| Cohort | Invited/activated users receive the complete product |
+| Signup | Email/password and Google sign-in MAY be open; non-activated accounts receive a holding state with no product data |
+| Commercial access | First users are free forever and uncapped; no cost cap |
+| Billing | Build the complete plan/usage/checkout/portal shape and enforcement seam; activated first users receive an all-access free-forever entitlement |
+| Autopilot | Full prepare, review, submit, receipt, rules, activity, and failure/recovery scope |
+| Gmail status | Excluded from launch; manual status is authoritative |
+| Data authority | Postgres only; no Google Sheets correlation or synchronization |
+| Market | United States, any job family or seniority |
+| Devices | Laptop and phone; responsive and touch/keyboard accessible |
+| Warm introductions | Provider-backed discovery, candidate fit, multi-pin, manual add, and human-run outreach funnel |
+| Resume | Productized in-app resume system with user-owned content; no Salman-specific defaults |
+| Reliability | Hosted, unattended operation; users do not babysit jobs or keep the owner's laptop online |
+| Design | Strict parity with the downloaded owner design system; no invented design |
 
-The initial pilot SHOULD NOT include open signup, billing, automated application
-submission, unsupported ATS automation, or referral outreach automation. Gmail
-auto-status MAY be included only after the per-user OAuth, revocation, freshness, and
-reconciliation gates in this package pass.
+## 3. Complete product promise
 
-## What is already real
+An activated user can:
 
-The following foundations exist on `main` or on active feature branches. Their
-existence is not the same as release acceptance.
+1. create an account, be activated, onboard, and configure a general US job search;
+2. discover and monitor companies and roles without using a spreadsheet;
+3. review Today, search Jobs, inspect details, filter, save views, decide, and export;
+4. add, import, track, annotate, and update Applications manually;
+5. create, import, edit, version, render, select, and export resumes and attachments;
+6. configure Autopilot policies and answer facts, prepare an application, review its
+   exact payload and attachments, authorize submission, submit on supported ATS paths,
+   and receive durable receipt evidence;
+7. see an honest unsupported/manual handoff when an ATS cannot be safely automated;
+8. manage Coverage, sources, company monitoring, blind spots, and activity;
+9. find potential warm introductions, pin candidates, record human outreach and outcomes;
+10. use Settings for profile, display, notifications, connections, plan, data, privacy,
+    export, and account deletion;
+11. use every critical workflow on supported laptop and phone layouts;
+12. receive truthful notification and operational status without requiring Gmail
+    ingestion; and
+13. leave with a complete archive and an enforceable deletion workflow.
 
-- Durable sheet operations, AWS-scheduled discovery and tracker jobs, alerting, and
-  nightly backups exist.
-- The web app has an injectable data layer, fixture mode, authenticated server reads,
-  RPC-only writes, idempotency keys, optimistic updates, undo, offline handling, and
-  broad automated coverage.
-- The database has user-scoped jobs, applications, profiles, saved views, answers,
-  company review, warm-introduction data, email capture foundations, and append-only
-  events through migrations `0001`–`0020` on `main`.
-- Jobs redesign and the display dictionary / anti-slop checks have been implemented on
-  separate pushed branches.
-- Active branches cover company domains (`0021`), email review (`0022`), bot activity
-  (`0023`), display preferences (`0025`), resume productization (`0026`), and
-  entitlements (`0027`).
-- Application preparation and review logic exists, but its durable stage/review queue
-  and migration `0024` do not.
+“All features” does not mean pretending every ATS permits safe automation. Coverage and
+execution support MUST be explicit per provider. Where automation is technically or
+contractually unavailable, the full product behavior is a complete manual handoff with
+preserved preparation, attachments, answers, deep link, and outcome recording. It MUST
+never show a false submitted state.
 
-## What blocks the pilot
+## 4. Current reality
 
-These are launch blockers, not optional polish:
+The repository contains a strong but fragmented foundation:
 
-1. **Freeze the pilot contract.** Decide who is invited, which promises are in scope,
-   whether Gmail auto-status is included, what support is offered, and what happens to
-   pilot data at exit.
-2. **Integrate the migration spine.** Rebase and land `0021`–`0027` in one serial,
-   conflict-free order; resolve `0024` by implementation, an immutable no-op
-   reservation, or one-time renumbering of still-unreleased migrations; run forward
-   migration and restoration rehearsals against production-like data.
-3. **Fix security boundaries.** The email-review status lock MUST NOT accept a
-   user-supplied identifier across the lock boundary. Entitlements MUST default-deny in
-   the database and RPC layer, not only in routes.
-4. **Complete multi-user isolation.** Every read, write, job, export, email event,
-   notification, and support tool MUST be proven owner-scoped with a two-user negative
-   test.
-5. **Make the core journeys complete.** Today, Jobs, Applications, Coverage, Profile,
-   Settings, import, export, notification controls, and account exit MUST have honest
-   loading, empty, error, degraded, and permission states.
-6. **Prove design parity.** All visible pilot routes MUST match the supplied design
-   system and copy dictionary under the deterministic parity standard in
-   `04-design-parity-standard.md`.
-7. **Prove operations.** Production deployment, configuration, backups, restore,
-   alerting, auditability, rollback / feature disablement, pilot provisioning, support,
-   and incident response MUST be rehearsed.
-8. **Run a staged release.** Owner dogfood, one external pilot user, then 3–5 users.
-   Expansion MUST stop automatically when a stop condition is met.
+- discovery adapters, scheduled AWS jobs, Postgres migrations, RLS foundations, imports,
+  pipeline status rules, profile gating, notifications, and fixture-backed web data;
+- a completed Jobs redesign branch and completed display-dictionary/anti-slop branch;
+- active migrations for company domains (`0021`), activity (`0023`), display
+  preferences (`0025`), resume productization (`0026`), and entitlements (`0027`);
+- a Gmail-review branch (`0022`) that is unsafe and excluded from the launch artifact;
+- a missing durable Autopilot staging migration (`0024`);
+- application Prepare/Review logic without a production submission executor;
+- warm-introduction Layer 2 foundations, with the outreach funnel still incomplete;
+- owner-specific resume/application content that must move to a private personal vault;
+- remaining engine paths that still read or write Google Sheets; and
+- a GitHub workflow that commits a database dump to Git and must be contained.
 
-## Launch gates at a glance
+Branch-local completion is not release completion. Every concern MUST be replayed into
+one integration line, upgraded from production-like data, verified after integration,
+and deployed from the exact tested artifact.
 
-| Gate | Exit evidence | Owner sign-off |
-|---|---|---|
-| G0 Pilot contract | Approved scope, cohort, consent, support, data-exit decisions | Required |
-| G1 Integrated build | One release candidate, contiguous migrations, no critical branch drift | Engineering |
-| G2 Security and privacy | Threat model, tenant-isolation proof, auth/entitlement matrix, deletion/export drill | Owner + engineering |
-| G3 Product completeness | Every launch-critical journey passes acceptance and degraded-state tests | Product + engineering |
-| G4 Design and accessibility | Strict parity manifest, state matrix, keyboard/manual accessibility evidence | Design owner |
-| G5 Data and operations | Migration, backup/restore, alert, kill-switch, and reconciliation rehearsals | Operations |
-| G6 Release candidate | Full traceability matrix; zero unresolved launch blockers | Cross-functional |
-| G7 Staged pilot | Owner soak, one-user canary, then cohort; metrics and support running | Owner |
+The current root `AGENTS.md` and `CLAUDE.md` still describe the Sheet-era operating
+model. ADR-016 MUST update that repository doctrine before any cheaper model receives a
+Postgres-only implementation packet. Until then, only the instantiated read-only
+baseline/design packets and supervised containment planning are safe to dispatch.
 
-## Release rule
+## 5. Required path before invitations
 
-A pilot release is allowed only when all of the following are true:
+```text
+Contain data incident and establish encrypted restore
+  → freeze full-product contract and provider support matrix
+  → integrate migrations and security boundaries
+  → complete Postgres-only engine and remove Sheet dependencies
+  → complete shared design system, auth, entitlement, and system states
+  → complete every user surface
+  → productize resumes and attachments
+  → complete Autopilot prepare/review/submit/receipt
+  → complete warm-introduction discovery and human outreach funnel
+  → complete notifications, billing shape, data exit, and account lifecycle
+  → prove multi-user isolation, design parity, mobile, security, and recovery
+  → owner soak
+  → one external-user canary
+  → invited cohort
+```
 
-- 100% of launch-critical requirements have passing evidence.
-- There are zero open severity 0 or severity 1 defects.
-- Any accepted severity 2 defect has an owner, a user-visible workaround, a bounded
-  blast radius, and written owner acceptance.
-- Every state-changing operation is retry-safe, owner-scoped, auditable, and recoverable
-  or explicitly irreversible with confirmation.
-- Backup restoration and account export/deletion have been exercised, not merely
-  documented.
-- The exact release artifact and configuration tested are the ones deployed.
-- The owner has approved the remaining assumptions and accepted risks in
-  `07-decisions-assumptions-risks.md`.
+No launch milestone may skip a predecessor by hiding the unfinished feature. A
+technically unsupported ATS route may use the specified manual handoff because that is
+the product’s honest supported behavior, not a placeholder.
 
-## Document map
+## 6. Launch gates
 
-1. [`01-pilot-scope-and-journeys.md`](01-pilot-scope-and-journeys.md) — pilot promise,
-   actors, journeys, scope, and product acceptance.
-2. [`02-critical-path-and-work-packages.md`](02-critical-path-and-work-packages.md) —
-   dependency-ordered work packages and the broader roadmap.
-3. [`03-engineering-quality-standard.md`](03-engineering-quality-standard.md) —
-   deterministic standards across frontend, backend, database, API, security,
-   reliability, accessibility, performance, and operations.
-4. [`04-design-parity-standard.md`](04-design-parity-standard.md) — authoritative design
-   inputs, exact parity protocol, and state inventory.
-5. [`05-verification-and-traceability.md`](05-verification-and-traceability.md) —
-   evidence model, acceptance templates, release checklist, and traceability rules.
-6. [`06-release-operations-and-pilot-support.md`](06-release-operations-and-pilot-support.md)
-   — environment promotion, rollout, rollback, incidents, support, feedback, and pilot
-   measurement.
-7. [`07-decisions-assumptions-risks.md`](07-decisions-assumptions-risks.md) — owner
-   decisions, recommended defaults, assumptions, risk register, and open questions.
-8. [`08-roadmap-ledger.md`](08-roadmap-ledger.md) — reconciled current status, pilot
-   critical path, and the full outlined roadmap beyond the pilot.
-9. [`09-pilot-contract-v1.md`](09-pilot-contract-v1.md) — single proposed first-wave
-   scope matrix and sign-off artifact.
-10. [`10-data-authority-and-transition.md`](10-data-authority-and-transition.md) —
-    per-data-class authority, reconciliation, rollback, deletion, and sunset contract.
-11. [`11-metric-dictionary-and-slos.md`](11-metric-dictionary-and-slos.md) — measurable
-    reliability, safety, email, performance, product, alert, and stop definitions.
-12. [`12-requirements-register.md`](12-requirements-register.md) — atomic pilot
-    requirements, acceptance oracles, owners, status, and evidence placeholders.
+| Gate | Required exit evidence |
+|---|---|
+| G0 Contract | This full-product contract, provider support matrix, privacy/retention terms, support identity, and owner approval |
+| G1 Containment | Git dump stopped; access scope assessed; encrypted backup and isolated restore proven; history-remediation decision recorded |
+| G2 Integrated schema | Unique contiguous migrations, empty install, production-like upgrade, RLS/grant audit, restore compatibility |
+| G3 Data cutover | All production reads/writes/schedules use Postgres; no Sheet credential required; no reconciliation lane remains |
+| G4 Security | Default-deny entitlements, two-user isolation, service-role containment, secrets review, abuse controls, deletion propagation |
+| G5 Product | Every promised journey and degraded state passes against production-shaped data |
+| G6 Autopilot safety | Exact-payload review, explicit authorization, idempotent submit, unknown-outcome recovery, receipts, provider matrix, kill switches |
+| G7 Design/accessibility | Strict parity manifest for every route/state/viewport; WCAG 2.2 AA evidence; no unexplained exceptions |
+| G8 Reliability | SLOs, hosted monitoring, alerts, backup/restore, job recovery, rollback, and incident drills |
+| G9 Release candidate | Requirements traceability complete; zero severity 0/1; exact commit/config/environment recorded |
+| G10 Staged launch | Owner soak, external canary, stop-condition review, then invitations |
 
-## Source precedence
+## 7. Release rule
 
-Where sources disagree, use this order:
+Launch is allowed only when:
 
-1. Security, privacy, data-integrity, and repository durability invariants.
-2. Owner decisions recorded in this package.
-3. The current implementation and migrations.
-4. The downloaded design system and design mirror for visible behavior and copy.
-5. Current build plans and handoffs.
-6. Older roadmap prose.
+- every `MUST` requirement in the signed scope has passing evidence;
+- no promised surface is a placeholder or dead control;
+- Gmail automatic status is disabled at route, scheduler, token, and product-copy layers;
+- no product operation depends on Google Sheets or the owner’s laptop;
+- every state-changing command is authenticated, owner-derived, idempotent, auditable,
+  and either undoable or explicitly irreversible;
+- every automated submission is attributable to an immutable reviewed payload and has
+  a receipt or an honest unknown/manual state;
+- an isolated restore, full export, and account deletion have been exercised;
+- the tested artifact and production artifact are identical; and
+- the owner signs the remaining accepted risks.
 
-No document may declare a feature built merely because an older plan predicted it.
-Release evidence MUST identify the commit and deployed configuration actually verified.
+## 8. Document map and precedence
 
-## External standards
+1. [`09-full-product-contract-v2.md`](09-full-product-contract-v2.md) is the scope authority.
+2. [`13-full-product-roadmap.md`](13-full-product-roadmap.md) is the dependency graph and
+   total remaining work.
+3. [`14-work-packet-standard.md`](14-work-packet-standard.md) defines cheaper-model
+   handoffs.
+4. [`packets/`](packets/) contains coordinator packet families;
+   [`instances/`](instances/) contains dispatchable packet instances.
+5. [`15-full-product-requirements-register.md`](15-full-product-requirements-register.md)
+   is the current atomic normative ledger.
+6. [`03-engineering-quality-standard.md`](03-engineering-quality-standard.md),
+   [`04-design-parity-standard.md`](04-design-parity-standard.md), and
+   [`05-verification-and-traceability.md`](05-verification-and-traceability.md) define
+   implementation-neutral quality and evidence.
+7. [`10-data-authority-and-transition.md`](10-data-authority-and-transition.md) governs
+   Postgres authority and Sheet removal.
+8. [`11-metric-dictionary-and-slos.md`](11-metric-dictionary-and-slos.md) governs
+   measurable safety and reliability.
+9. [`07-decisions-assumptions-risks.md`](07-decisions-assumptions-risks.md) records
+   locked decisions, blocking ADRs, design addenda, and current risks.
+10. [`16-source-manifest.md`](16-source-manifest.md) records content-addressed design and
+    repository planning sources.
+11. [`archive/`](archive/) preserves historical narrow-pilot analysis. It is not an
+    execution source.
 
-This package adapts established, implementation-neutral standards:
+Any older sentence in this directory that recommends a narrow pilot, a placeholder
+Autopilot, a Google Sheet fallback, a small hard cohort cap, or deferring billing/resume/
+referral/product capabilities is superseded by this file and
+`09-full-product-contract-v2.md`.
 
-- RFC 2119 and RFC 8174 for normative requirements.
-- Given/When/Then examples for observable acceptance behavior.
-- OpenAPI and JSON Schema for interface and payload contracts.
-- RFC 9457 for machine-readable API errors.
-- WCAG 2.2 Level AA for accessibility.
-- OWASP ASVS 5.0 for application security verification.
-- NIST Secure Software Development Framework for release-process controls.
-- OpenTelemetry semantic conventions for portable telemetry meaning.
+For visible behavior, the source order is:
 
-The exact standard references and required application are defined in
-`03-engineering-quality-standard.md`.
+1. `/Users/s0shaheen/Downloads/job-hq-design-system`;
+2. `/Users/s0shaheen/job-hq-design-context/design-mirror/README.md`;
+3. the relevant `*-handoff.md` and `gap-*.md`;
+4. the copy dictionary in `02-terminology-and-copy.md`; and
+5. existing implementation only where the design is silent.
+
+The design source is read-only. Missing states become owner questions or explicit
+design-addendum requirements, not agent invention.

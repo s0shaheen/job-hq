@@ -1,4 +1,9 @@
-# Reconciled roadmap ledger
+# Archived narrow-pilot roadmap ledger
+
+> **Superseded roadmap notice (2026-07-28):** Historical status evidence remains useful,
+> but the narrow-pilot priority and scope classifications are replaced by
+> [`13-full-product-roadmap.md`](13-full-product-roadmap.md) and the execution
+> [`packets/`](packets/).
 
 ## 1. Purpose
 

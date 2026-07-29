@@ -1,4 +1,10 @@
-# Critical path and work packages
+# Archived narrow-pilot critical path and work packages
+
+> **Superseded execution notice (2026-07-28):** The priority model and conditional/
+> post-pilot classifications below were written for a narrow product slice. They are not
+> the current roadmap. Use [`13-full-product-roadmap.md`](13-full-product-roadmap.md) and
+> [`packets/`](packets/) for execution. The containment and security findings below
+> remain valid unless a newer packet explicitly replaces them.
 
 ## 1. How to use this plan
 

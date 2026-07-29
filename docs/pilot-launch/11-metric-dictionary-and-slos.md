@@ -1,4 +1,4 @@
-# Metric dictionary and pilot SLOs
+# Metric dictionary and full-product pilot SLOs
 
 Status: proposed; thresholds require owner acceptance
 
@@ -27,13 +27,15 @@ Status: proposed; thresholds require owner acceptance
 | M-REL-002 | Unknown command outcomes | timeout/disconnect after possible commit not reconciled within 5 min / dispatched commands | rolling 24h; any count reported | 0 unresolved after 5 min | idempotency/result lookup | S1 if high-value; engineering |
 | M-REL-003 | Critical web availability | successful synthetic completion of sign-in/read plus health / scheduled probes | rolling 30d; min 100 probes | >=99.5% | external synthetic probe | pause on sustained breach; ops |
 | M-REL-004 | Critical lane freshness | now minus last useful successful completion for each user/lane | each cadence | <= cadence + 50% grace unless lane-specific row overrides | channel runs/heartbeats | warn at grace, S1 after 2 cadences; ops |
-| M-REL-005 | Sheet/Postgres divergence | unresolved canonical value/key conflicts / authoritative records in window | per reconciliation; min 1 | 0 human/status conflicts; <=0.1% noncritical for <=24h only | reconciliation report | stop class writer on critical; data |
+| M-REL-005 | Runtime Sheet dependency | successful or attempted production Sheet read/write/sync/reconciliation after cutover | continuous, any | 0 | dependency audit + runtime telemetry | S1, stop affected lane; data |
 | M-BKP-001 | Backup RPO | newest successfully restored recoverable point vs incident/check time | each daily drill/report | <=24h | backup/restore manifest | S1 if all lanes fail; data |
 | M-BKP-002 | Restore RTO | approval to start drill until critical invariants pass | each drill | <=4 support-hours | drill record | block launch/expansion; data |
 
 ## 3. Gmail and notification dictionary
 
-These apply only if the capability is in the signed contract.
+Gmail automatic status metrics are retained for future work but are not launch
+acceptance metrics. Launch requires zero enabled mail-scope/capture/status lanes. Product
+notification metrics still apply.
 
 | ID | Metric | Definition | Window/minimum | Proposed threshold | Response |
 |---|---|---|---|---|---|
@@ -44,6 +46,21 @@ These apply only if the capability is in the signed contract.
 | M-NOT-001 | Duplicate product sends | duplicate provider-accepted sends for same user/template/window/idempotency scope | rolling 24h; any | 0 | stop product email lane |
 | M-NOT-002 | Eligible send acceptance | provider-accepted unique sends / eligible send attempts; excludes opted-out/suppressed | rolling 7d; min 20 | >=99% | investigate/disable if repeated |
 | M-NOT-003 | Unsubscribe propagation | preference effective time minus confirmed request time | each request | <=5 min and before next send | S1 privacy if violated |
+
+## 3A. Autopilot and referral safety dictionary
+
+| ID | Metric | Definition | Window/minimum | Launch threshold | Response |
+|---|---|---|---|---|---|
+| M-AUTO-001 | Reviewed-payload integrity | confirmed submissions whose payload/attachments hash exactly matches the immutable approved version / confirmed submissions | continuous | 100% | S0, global pause |
+| M-AUTO-002 | Duplicate external submissions | more than one provider-side application for one user/provider/job idempotency scope | continuous, any | 0 | S0/S1, provider/global pause |
+| M-AUTO-003 | Unresolved unknown outcomes | `outcome_unknown` not reconciled or handed to the user within the provider-specific window | rolling 24h | 0 beyond window | pause provider; support |
+| M-AUTO-004 | Provider confirmation precision | receipts classified confirmed that independent review verifies / reviewed confirmed receipts | rolling release/provider; min 20, counts below | 100% required for launch sample | pause provider |
+| M-AUTO-005 | Schema-drift escapes | submissions attempted after material live form schema differs from approved schema | continuous, any | 0 | pause adapter/version |
+| M-AUTO-006 | Sensitive-answer inference | sensitive/legal fact submitted without explicit current user fact/review | continuous, any | 0 | S0, global pause |
+| M-AUTO-007 | Executor replay/forgery | accepted expired, reused, wrong-owner, wrong-hash, or unsigned executor command/receipt | continuous, any | 0 | S0 security incident |
+| M-REF-001 | Referral provider success | completed searches / eligible started searches, excluding user cancel | rolling 7d; min 20 | >=95% | degrade provider, keep manual path |
+| M-REF-002 | Pin consistency | jobs whose pinned people disagree across Jobs/Applications/Coverage reads | continuous, any | 0 | stop affected writer |
+| M-REF-003 | Automated outreach sends | provider/social messages sent by product as user | continuous, any | 0 | S0, disable integration |
 
 ## 4. Performance dictionary
 
@@ -85,6 +102,8 @@ These inform continue/expand; they do not override safety stops.
 | Condition | Action |
 |---|---|
 | Any M-SAFE-001/004/005 event | immediate stop affected system and new invitations |
+| Any M-AUTO-001/002/006/007 or M-REF-003 event | global submission/referral stop and incident |
+| M-AUTO-003/004/005 breach | pause affected provider; preserve manual handoff |
 | M-SAFE-002/003 nonzero | stop affected writer, reconcile, incident |
 | M-REL-001 below 95% with >=20 eligible commands | pause new invitations and investigate |
 | One user critical lane exceeds 2 cadences | disable affected promise for that user; support/incident |

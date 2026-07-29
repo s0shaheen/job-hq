@@ -1,4 +1,12 @@
-# Pilot scope and journeys
+# Archived narrow-pilot scope and journeys
+
+> **Superseded scope notice (2026-07-28):** This file preserves the earlier narrow-pilot
+> journey analysis, but its scope recommendations, cohort limits, offline-queue
+> scenarios, conditional Autopilot, Sheet fallback, and Gmail questions are not current.
+> Do not execute from this file alone. The binding scope is
+> [`09-full-product-contract-v2.md`](09-full-product-contract-v2.md); the complete journeys and work are
+> in [`13-full-product-roadmap.md`](13-full-product-roadmap.md) and [`packets/`](packets/).
+> Reusable safety statements apply only where they do not conflict with those sources.
 
 ## 1. Purpose
 

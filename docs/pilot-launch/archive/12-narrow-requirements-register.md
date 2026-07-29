@@ -1,4 +1,11 @@
-# Pilot requirements register
+# Archived narrow-pilot requirements register
+
+> **Register status (2026-07-28):** This is the earlier narrow-pilot register and is not a
+> complete release ledger for `full-product-pilot-v2`. Safety requirements remain
+> reusable, but entries that defer or disable Autopilot, resume, billing, referrals,
+> Sheet sunset, or full multi-user behavior are superseded. FP-00A MUST generate the
+> current atomic register from [`09-full-product-contract-v2.md`](09-full-product-contract-v2.md),
+> [`13-full-product-roadmap.md`](13-full-product-roadmap.md), and the instantiated packet.
 
 Status: proposed
 Contract: `pilot-contract-v1`
