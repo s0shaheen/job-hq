@@ -41,13 +41,18 @@ security/privacy analysis, rollout, reversibility, and evidence.
 | ADR-013 | Submission receipt evidence classes, screenshot prohibition/redaction, access, retention | Receipt storage/classification |
 | ADR-014 | Resume feature matrix: imports, RenderCV schema/themes/fonts, job-specific AI tailoring, lossy behavior | Resume design/build |
 | ADR-015 | Stripe test ownership and later commercialization policy | Billing integration |
-| ADR-016 | Update root `AGENTS.md`/`CLAUDE.md` operating doctrine from Sheet cockpit to Postgres-only web product while preserving historical-tool safety rules | Any Postgres-only implementation packet |
 
 Unattended Autopilot is not silently deferred or silently included. Until ADR-002 is
 signed, implementation may build exact Prepare/Review and explicit-approval submission
 contracts, but the launch scope decision remains blocked.
 
-## 3. Required design addenda
+## 3. Resolved ADRs
+
+| ADR | Resolution |
+|---|---|
+| ADR-016 | Resolved 2026-07-29. Root `AGENTS.md` and `CLAUDE.md` now define the Postgres-only product model and retain narrowly scoped safety rules for historical Sheet code. |
+
+## 4. Required design addenda
 
 Visible implementation is blocked until every state maps to an owner artifact:
 
@@ -63,7 +68,7 @@ Visible implementation is blocked until every state maps to an owner artifact:
 
 No implementation worker may fill these gaps from taste.
 
-## 4. Discovery and general-market validity decision
+## 5. Discovery and general-market validity decision
 
 The architecture packet MUST define:
 
@@ -83,7 +88,7 @@ The architecture packet MUST define:
 Acceptance needs relevance/freshness/normalization measures and explicit “not enough
 data,” never claims of exhaustive US coverage.
 
-## 5. AI behavior contract
+## 6. AI behavior contract
 
 Any model-assisted answer draft, profile compilation, relevance explanation, or
 candidate-fit analysis MUST:
@@ -98,7 +103,7 @@ candidate-fit analysis MUST:
   provider-outage cases;
 - comply with the approved no-training/data-use processor posture.
 
-## 6. Current risks
+## 7. Current risks
 
 | Risk | Stop/mitigation |
 |---|---|
@@ -110,11 +115,10 @@ candidate-fit analysis MUST:
 | Provider terms or anti-abuse controls conflict | ADR-003; no bypass; manual handoff |
 | Design missing for promised behavior | ADD register blocks visible packet |
 | Existing PM/finance bias survives generic copy | Discovery golden corpus and diverse-user canary |
-| Root repository instructions still call Sheets the cockpit | ADR-016 blocks Postgres-only build delegation; baseline/design/containment audits may proceed |
 | Third-party people data is inaccurate/unlawful | Vendor/processor terms/privacy review, provenance, correction/removal, minimal retention |
 | Account deletion appears to retract employer application | Explicit irreversibility before submit/deletion |
 
-## 7. Owner inputs before invitation
+## 8. Owner inputs before invitation
 
 - resolve ADR-001 through ADR-015;
 - approve the SLO revision/digest;

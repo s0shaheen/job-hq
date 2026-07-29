@@ -90,10 +90,10 @@ Branch-local completion is not release completion. Every concern MUST be replaye
 one integration line, upgraded from production-like data, verified after integration,
 and deployed from the exact tested artifact.
 
-The current root `AGENTS.md` and `CLAUDE.md` still describe the Sheet-era operating
-model. ADR-016 MUST update that repository doctrine before any cheaper model receives a
-Postgres-only implementation packet. Until then, only the instantiated read-only
-baseline/design packets and supervised containment planning are safe to dispatch.
+The root `AGENTS.md` and `CLAUDE.md` were updated on 2026-07-29 to describe the
+Postgres-only product, launch safety boundaries, design authority, and delegation
+rules. Dispatchers MUST still provide an instantiated packet and current source hashes;
+the root doctrine is orientation, not a substitute for packet-specific requirements.
 
 ## 5. Required path before invitations
 

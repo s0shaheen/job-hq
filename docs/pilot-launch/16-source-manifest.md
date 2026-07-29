@@ -1,6 +1,6 @@
 # Source manifest
 
-Observed: 2026-07-28
+Observed: 2026-07-29
 
 This manifest makes source identity explicit. Local paths are discovery locations.
 Remote workers MUST receive a content-addressed archive containing the required source
@@ -11,8 +11,8 @@ memory.
 
 | Source | SHA-256 |
 |---|---|
-| `AGENTS.md` | `e390296c1c7f122bfbd33e1d81eed86cb851eb355ffd5d363f8344a10121a7b6` |
-| `CLAUDE.md` | `a5063e30c83ca5b88eafde132648903c400da6c619c2a433d5681ac6d9f636f6` |
+| `AGENTS.md` | `aff5095c97abfe2b55afdf67318bb9526af382c868823cf7c480554bebb6cf61` |
+| `CLAUDE.md` | `aff5095c97abfe2b55afdf67318bb9526af382c868823cf7c480554bebb6cf61` |
 | `docs/WEBAPP-BUILD.md` | `a30dc94566491b75b41e936e66fd7a673ccdbcd0c3f1c4f1ec3bcd9d23437f5f` |
 | `docs/plans/SHEET-SUNSET.md` | `7b7cd45782495a8fb6f595a0150a282d335af41921dc70c7333c0f74d811c713` |
 | `docs/plans/AUTO-APPLY.md` | `8359c8ad727dd69d8e697ae977bfcf2f3b14dca3d66c0149f60b61d1b585845a` |
