@@ -1,0 +1,3689 @@
+{
+  "addenda": {
+    "ADD-001": {
+      "id": "ADD-001",
+      "packets": "PKT-08B-D",
+      "status": "not_approved",
+      "summary": "Warm-intro multi-select, deterministic 40-total default across three searches, result shortfall, fit explanation"
+    },
+    "ADD-002": {
+      "id": "ADD-002",
+      "packets": "PKT-05D-F",
+      "status": "not_approved",
+      "summary": "Full generic resume editor/import/render/version/attachment flows"
+    },
+    "ADD-003": {
+      "id": "ADD-003",
+      "packets": "PKT-07B-I",
+      "status": "not_approved",
+      "summary": "Executor health/offline/update, provider manual handoff, outcome unknown, receipt redaction"
+    },
+    "ADD-004": {
+      "id": "ADD-004",
+      "packets": "identity/operator packets",
+      "status": "not_approved",
+      "summary": "Operator activation/suspension/consented support access/kill switches"
+    },
+    "ADD-005": {
+      "id": "ADD-005",
+      "packets": "UI qualification",
+      "status": "not_approved",
+      "summary": "Responsive phone behavior for every template, including file upload/download/preview"
+    },
+    "ADD-006": {
+      "id": "ADD-006",
+      "packets": "PKT-09A/B",
+      "status": "not_approved",
+      "summary": "Billing lifecycle states beyond founding-free view"
+    },
+    "ADD-007": {
+      "id": "ADD-007",
+      "packets": "PKT-09F",
+      "status": "not_approved",
+      "summary": "Account deletion irreversibility: already submitted employer applications cannot be recalled"
+    }
+  },
+  "completeness_oracle": {
+    "checks": [
+      "C1 every path referenced by _ds_manifest.json (component sourcePath, card path, template entryPath, template thumbnail path, globalCssPaths) has an entry with a sha256",
+      "C2 every declared component has all four files: .jsx, .html, .d.ts, .prompt.md",
+      "C3 every file in the precedence source set of 04-design-parity-standard.md section 2.1 has an entry",
+      "C4 every surface has either exact inputs present or a named blocking addendum",
+      "C5 the filesystem scan of the two roots equals the manifest entry set exactly (no extra, no missing)",
+      "C6 every entry's sha256 and bytes match the file on disk"
+    ],
+    "counterexample": {
+      "expected": "oracle rejects the manifest",
+      "method": "A temporary copy of this manifest was written to a scratchpad path with one component contract omitted and the totals adjusted to stay self-consistent. The owner design source was not modified and the temporary file was not committed.",
+      "observed": "FAIL, exit status 1, two findings: C2 component file missing from manifest; C5 file on disk not in manifest",
+      "omitted_entry": "design-system/project/components/general/DetailPane/DetailPane.prompt.md",
+      "result": "oracle correctly failed the incomplete manifest"
+    },
+    "determinism": {
+      "method": "regenerated against unchanged input and byte-compared to this file",
+      "note": "entries and object keys are sorted; observed_at_utc is the only time-varying field and is top-level",
+      "result": "identical"
+    },
+    "digest_cross_check": {
+      "reference": "docs/pilot-launch/04-design-parity-standard.md section 2.1 and docs/pilot-launch/16-source-manifest.md",
+      "result": "_ds_manifest.json, _ds_bundle.js, _ds_bundle.css, and styles.css digests match the previously recorded values; no drift"
+    },
+    "missing_component_files": [],
+    "missing_referenced_paths": [],
+    "referenced_paths_checked": 69,
+    "result": "pass"
+  },
+  "components_declared": [
+    "AppNav",
+    "AppShell",
+    "Badge",
+    "Button",
+    "DecisionRow",
+    "DetailPane",
+    "DisplayPopover",
+    "EmptyState",
+    "FilterChip",
+    "FilterChipRow",
+    "Kbd",
+    "LogoAvatar",
+    "PageHeader",
+    "SavedViewTabs",
+    "SelectionBar",
+    "StatusSelect",
+    "TableToolbar",
+    "Toast",
+    "Toaster"
+  ],
+  "cross_cutting_context": [
+    "design-context/04-surface-prompt-packs.md",
+    "design-context/05-system-reconciliation.md",
+    "design-context/06-surface-prompt-packs-2.md",
+    "design-context/07-implementation-migration.md",
+    "design-context/DESIGN-GAP-ANALYSIS.md",
+    "design-context/gap-crosscutting.md"
+  ],
+  "files": [
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 16917,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/01-design-foundations.md",
+      "precedence_rank": 9,
+      "required": true,
+      "role": "design context specification",
+      "sha256": "df976116d426f6ecabeb25773510001db32e3a24f4d9f9e93fdf922ca257b780",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 15650,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/02-terminology-and-copy.md",
+      "precedence_rank": 10,
+      "required": true,
+      "role": "design context specification",
+      "sha256": "b97e38a8c98153a76363abcfb65a9e57325efe7a5cb2b04efd86cac096efbcc4",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 11450,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/03-ia-and-surfaces.md",
+      "precedence_rank": 11,
+      "required": true,
+      "role": "design context specification",
+      "sha256": "89a9aef7d9cd3574f700c14f937206b3b37f6e18ebfab1695140e6d6d33711cf",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 32494,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/04-surface-prompt-packs.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "design context specification",
+      "sha256": "6139ae8c2ec15efa895bb72de25a55270591e5d4b01b228ad5e053647b30d1b8",
+      "surfaces": [
+        "cross-cutting"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 8728,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/05-system-reconciliation.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "design context specification",
+      "sha256": "dfc76da0a8b3f7e38966c26dea3ba110215af6745a22eea7579dbdd3eaf6f3d3",
+      "surfaces": [
+        "cross-cutting"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 25055,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/06-surface-prompt-packs-2.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "design context specification",
+      "sha256": "30f49e55234a1e323846227d09eda53fedfdc82a70aa32481170b0f90e690ac7",
+      "surfaces": [
+        "cross-cutting"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 9484,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/07-implementation-migration.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "design context specification",
+      "sha256": "0231c78ec9b5fc728d1852da521f5d9252e84e82835a9fbb9bf957d5c2673c06",
+      "surfaces": [
+        "cross-cutting"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 7234,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/DESIGN-GAP-ANALYSIS.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "design context specification",
+      "sha256": "6b23a28bcd1cb5df40ac62cb1408de4dbc48b2d467d1a4a917aa05ac5c90ba2b",
+      "surfaces": [
+        "cross-cutting"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 20430,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/applications-handoff.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "surface handoff prose",
+      "sha256": "8c70f75d9366b6116842f64947500a89866644a88392a095d276b3ecb33f2022",
+      "surfaces": [
+        "applications"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-003"
+      ],
+      "bytes": 22237,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/autopilot-handoff.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "surface handoff prose",
+      "sha256": "e5f3f1f60505cab40b66da959fe49b1db82aa98f34762ed1b267d28c1d70e7cf",
+      "surfaces": [
+        "autopilot"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 25037,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/coverage-handoff.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "surface handoff prose",
+      "sha256": "fd54e103ca5083b33c226cbe064d188facb71acd326fca35bb1a4ce41635a273",
+      "surfaces": [
+        "coverage"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 17928,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/design-mirror/README.md",
+      "precedence_rank": 8,
+      "required": true,
+      "role": "design mirror recovery notes",
+      "sha256": "f87ffee18c2e1d20ca37d9ab07f8fa77fd66c6b8ea6e34746d59a5612a3c643f",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-003"
+      ],
+      "bytes": 23700,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/gap-apps-autopilot.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "surface gap analysis",
+      "sha256": "e9b846c843fc781b4b388aed2f195a8fb82d11b050b308506a24f27cd1e0c4d5",
+      "surfaces": [
+        "applications",
+        "autopilot"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 25207,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/gap-billing-landing-email.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "surface gap analysis",
+      "sha256": "309af9ce3c3dd978ba64124382e2be3a9deba8a4284b6176fbabde6bea56107d",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-001"
+      ],
+      "bytes": 25677,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/gap-coverage-intro.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "surface gap analysis",
+      "sha256": "696006215fa45a9f2bf9f5e2eabb1b6c6ef31cac45efcc50cd11cf5bb48b242e",
+      "surfaces": [
+        "coverage",
+        "find-intro"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-005"
+      ],
+      "bytes": 19436,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/gap-crosscutting.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "surface gap analysis",
+      "sha256": "9781995135fd781e3c685090251331f7f10a4cda2963937ee44fecd383b22d04",
+      "surfaces": [
+        "system-and-mobile"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 25852,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/gap-settings-onboarding-auth.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "surface gap analysis",
+      "sha256": "38fa4cd3a67db4f2e25ed161aa1d46dd024e3879768c6404263770a23584317b",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 20362,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/gap-today-jobs.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "surface gap analysis",
+      "sha256": "c390320c453b8229d6720f43cae8d14f5fdccb2457c5425d18ad1efe2bc6bf5b",
+      "surfaces": [
+        "jobs",
+        "today"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 31024,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/jobs-handoff.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "surface handoff prose",
+      "sha256": "f9641d9e24b17584b11598524391c78e0e0cefd10f3b0424ed0c1abe92e09d56",
+      "surfaces": [
+        "jobs"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 26963,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/settings-auth-handoff.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "surface handoff prose",
+      "sha256": "026e404f4195d2c32c834242a264a5170fa188cb8e5298859562d72b7994dc1f",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 20599,
+      "category": "surface-spec",
+      "component": null,
+      "logical_name": "design-context/today-handoff.md",
+      "precedence_rank": 12,
+      "required": true,
+      "role": "surface handoff prose",
+      "sha256": "5a4d28e74bbc4ecc2e0d3085efa9e3c4c0589057b2bd43e60137142d7eca93ca",
+      "surfaces": [
+        "today"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 8196,
+      "category": "os-artifact",
+      "component": null,
+      "logical_name": "design-system/.DS_Store",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "macOS directory metadata; not design content",
+      "sha256": "5e331b6a87b4c6aa90bed2601a306095dbfd684c3bcf07d1443a6a0c33bedcd7",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 1518,
+      "category": "bundle-doc",
+      "component": null,
+      "logical_name": "design-system/README.md",
+      "precedence_rank": 1,
+      "required": true,
+      "role": "handoff bundle instructions",
+      "sha256": "bf2f2f19315e32864113400e44798b8715e945f1923f9f3e152e8ca16fd83054",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 5939,
+      "category": "bundle-doc",
+      "component": null,
+      "logical_name": "design-system/project/README.md",
+      "precedence_rank": 2,
+      "required": true,
+      "role": "build conventions seed doc",
+      "sha256": "fb39a0877850abbffd6e75dabc0e121665e2c2a3d3e9a2a9ee3ff22709d5d100",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 15211,
+      "category": "lint-config",
+      "component": null,
+      "logical_name": "design-system/project/_adherence.oxlintrc.json",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "adherence lint configuration",
+      "sha256": "ffcc9b73ce59f1b06d4ef5bbddb52c44d6051b329413a8acd66f4ad7edb168f0",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 28283,
+      "category": "token-source",
+      "component": null,
+      "logical_name": "design-system/project/_ds_bundle.css",
+      "precedence_rank": 4,
+      "required": true,
+      "role": "compiled tokens and utilities",
+      "sha256": "47c8e3132b842182d8b51cd4896cd47759a319f6e59781e91cb034c37df9adb4",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 41394,
+      "category": "component-implementation",
+      "component": null,
+      "logical_name": "design-system/project/_ds_bundle.js",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "compiled component implementations (window.JobHQ)",
+      "sha256": "baefa8270fc1f9dedb16da0194c4dd5241002e19b8fa36381df33e39e2bccc91",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 20982,
+      "category": "index",
+      "component": null,
+      "logical_name": "design-system/project/_ds_manifest.json",
+      "precedence_rank": 5,
+      "required": true,
+      "role": "owner component/template/token index",
+      "sha256": "1934e04038c9654f6d3aab5863f266dd44577aa7e9927284609a411a6022c350",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 5645,
+      "category": "integrity",
+      "component": null,
+      "logical_name": "design-system/project/_ds_sync.json",
+      "precedence_rank": 99,
+      "required": true,
+      "role": "sync render/source hashes for drift detection",
+      "sha256": "992a1fe977ed2a346175edacf5e64fb819be4e0464e98997a817362d1988858b",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4612,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/AppNav.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "63173e6d2b91745a67d1ae06d438c3e4348a90230ed0152501d795e328e4d651",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4684,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/AppShell.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "d87003bee46b5aed886d3daadefa4d127596b482da9762f52abd868535a988a8",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 5118,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/Badge.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "dd3fd21c1c268bcf2393f7bba943dcf2b91e1ba404b777deae77db4f22317817",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4608,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/Button.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "1a616a0695778ead6306ab4afc9cdc9293ab8c24bebcc95dc617cfb5604d1851",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 6260,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/DecisionRow.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "904f4e1f0f7ad837ae1bec5e4553f90c86afb462397f04a4e046f5ac3a2df61a",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 5200,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/DetailPane.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "b778249ee9179792f3f84e0cd7fb4b4652fb06b96856546ebaa54b1268d0b1c2",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4912,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/DisplayPopover.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "007dd1f3210464fcf99943b52ef12d40bda05d6ceb3ab06b10d131191558a5d7",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 9366,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/EmptyState.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "e339d24cb6107bc664eddfb3e0eb95145b7aff9439cd794284af6101c73f4bc1",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4366,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/FilterChip.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "9bd805afc717735ffdd6b8d7023a95578414859197f3db677dc4c5261cd91845",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4450,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/FilterChipRow.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "b166bd250b107b3b0d8a12f1ac4b53cf9fdeb296b011c25f979bee8277572a5d",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4647,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/Kbd.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "85f359b57e479101d86dde968f1aeb0cc9bd6aefd55081572edcb7692359fd48",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 5989,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/LogoAvatar.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "be0146101d6b5a66aa2d3f97d7c337608ad775ca03c254dd4381f5446b91d42b",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4540,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/PageHeader.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "6c7aa65eedc4334d2581383d1218e16d99678a777925d96a8719fe809b39b23e",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4487,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/SavedViewTabs.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "0205d01cf7db5903fe87d22558d7e7201ab959047d23905d7f0053ad6f1d6894",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4376,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/SelectionBar.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "c3ae28ba754db26ff68d30ed562df07595b45d140d8d2575f5fd0acf57af8372",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4633,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/StatusSelect.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "6552c4d226be9016f1421331327ef38754b09cd44b6eb7ab66c86058a588348e",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4604,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/TableToolbar.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "023879a56b749b38b560b7fbcb8891f860829f4ada99e2d627468ebc5a99f877",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4418,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/Toast.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "d1074a681070eb8d41657dbb7482fd7e22e6cf41ee8c77bdf2cabc66218a28a1",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 4383,
+      "category": "preview-harness",
+      "component": null,
+      "logical_name": "design-system/project/_preview/Toaster.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "local preview harness; not authoritative",
+      "sha256": "1e1692159bdb46df7282a91b641a8ed69477ece17bf341958fa5c9f6fe1988ac",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 26,
+      "category": "vendor",
+      "component": null,
+      "logical_name": "design-system/project/_vendor/react-dom.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "third-party runtime; not design content",
+      "sha256": "4f90394a7579bb9bb836e721e2a437da5c1be2286c764b579ac95a29c75d3803",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 1111845,
+      "category": "vendor",
+      "component": null,
+      "logical_name": "design-system/project/_vendor/react.js",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "third-party runtime; not design content",
+      "sha256": "70be0c89883123a18885e11e9eede3f04e0cbee66fa747042102ca0746d0cb6d",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 319,
+      "category": "component",
+      "component": "AppNav",
+      "logical_name": "design-system/project/components/general/AppNav/AppNav.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "aa5e94d5747578c349c608fb064f399b4be4c66661d1a61d216423727835be37",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3288,
+      "category": "component",
+      "component": "AppNav",
+      "logical_name": "design-system/project/components/general/AppNav/AppNav.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "6629da1bd99f2a26b337f5198e270a5dcc9707e4989c5272087a12230db379a8",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 165,
+      "category": "component",
+      "component": "AppNav",
+      "logical_name": "design-system/project/components/general/AppNav/AppNav.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "f13252e20f593dedf5dd8ff1bfbc4aa443e24e4ce1fbea85d9a735109fa04da5",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 781,
+      "category": "component",
+      "component": "AppNav",
+      "logical_name": "design-system/project/components/general/AppNav/AppNav.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "287754b5f33069dcb5b63695d465900e0eb106d0c89982fb98ead188c6d74854",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 311,
+      "category": "component",
+      "component": "AppShell",
+      "logical_name": "design-system/project/components/general/AppShell/AppShell.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "0be13667f0098a3241b550fc072c0dbd65d60f6dee660e9cdf460745fc16b5c9",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3293,
+      "category": "component",
+      "component": "AppShell",
+      "logical_name": "design-system/project/components/general/AppShell/AppShell.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "13ff6e18cef23b098f2cb75994443055cc75594e861d399d984aac46fdbbc9d9",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 171,
+      "category": "component",
+      "component": "AppShell",
+      "logical_name": "design-system/project/components/general/AppShell/AppShell.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "354c4d62b85ceb9284407039469f35bee5c3f8a46f889491b54b0dc402893482",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 756,
+      "category": "component",
+      "component": "AppShell",
+      "logical_name": "design-system/project/components/general/AppShell/AppShell.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "84066778a211caae0be2997c1249549b3782f0790f41a12491f65af6c42b773d",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 240,
+      "category": "component",
+      "component": "Badge",
+      "logical_name": "design-system/project/components/general/Badge/Badge.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "45d783e77d5e13baaab5c3bb45cf087debc5e179937470efd3b44ffaafc28919",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3286,
+      "category": "component",
+      "component": "Badge",
+      "logical_name": "design-system/project/components/general/Badge/Badge.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "5dcc02b1633fe66228f33a105f8d38b22cc1058f5c865e4472b4724860c1f2bf",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 162,
+      "category": "component",
+      "component": "Badge",
+      "logical_name": "design-system/project/components/general/Badge/Badge.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "58e5ab9dd54bde346e2e820d3fba965c0f8ec9d724cae92cc8d070c1647e0493",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 870,
+      "category": "component",
+      "component": "Badge",
+      "logical_name": "design-system/project/components/general/Badge/Badge.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "232b2c454d7d737970f5f018d8bc9cbbfcd97bb04a4ad5ac54841e1786333c67",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 321,
+      "category": "component",
+      "component": "Button",
+      "logical_name": "design-system/project/components/general/Button/Button.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "34bef4de3da72e35156553bd1b2faaa6c00b09f81961ebf962994c6307c6b201",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3267,
+      "category": "component",
+      "component": "Button",
+      "logical_name": "design-system/project/components/general/Button/Button.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "e9b1c069f2b2d117e7c11fee2959e63947d40abad8b2b750719b9c2e72df7f70",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 165,
+      "category": "component",
+      "component": "Button",
+      "logical_name": "design-system/project/components/general/Button/Button.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "0b56b49009daf0f03c128c9c044320004d3523e35899fbe35c969b606ddbe4c6",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 679,
+      "category": "component",
+      "component": "Button",
+      "logical_name": "design-system/project/components/general/Button/Button.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "0d14c6ac7b5eec9b7839f9859262e59011f2c688180c3ef965e0979e4fa0d243",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 313,
+      "category": "component",
+      "component": "DecisionRow",
+      "logical_name": "design-system/project/components/general/DecisionRow/DecisionRow.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "f85ebe122f153f146097a20ea41939b1d82af3f4beb3ff4200387e5252b25218",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3298,
+      "category": "component",
+      "component": "DecisionRow",
+      "logical_name": "design-system/project/components/general/DecisionRow/DecisionRow.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "86426055e3014fdf8c8a61e4f6f27f99e40905ba0549de43772a538adf56b785",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 180,
+      "category": "component",
+      "component": "DecisionRow",
+      "logical_name": "design-system/project/components/general/DecisionRow/DecisionRow.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "9db0452fd2ce937746d01a1c72008d0c3eafd3b76bb005874fd96cd4bdd8eff8",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 1129,
+      "category": "component",
+      "component": "DecisionRow",
+      "logical_name": "design-system/project/components/general/DecisionRow/DecisionRow.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "07be1924cbcb2cb9859b7627184f8f306292be5bd4cddd931951867b6a546b71",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 393,
+      "category": "component",
+      "component": "DetailPane",
+      "logical_name": "design-system/project/components/general/DetailPane/DetailPane.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "30c1ada965881c23f064289874b9e4e33e17f4ab7cb32b5fe4a1bccc92dba79b",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3297,
+      "category": "component",
+      "component": "DetailPane",
+      "logical_name": "design-system/project/components/general/DetailPane/DetailPane.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "473598b6278ca7baa14a90c35cdca41fb9e70bd048c42fe8335185bced1df8a1",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 177,
+      "category": "component",
+      "component": "DetailPane",
+      "logical_name": "design-system/project/components/general/DetailPane/DetailPane.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "8b51eb801528f0a7fc5f53fcf0e9ecedb0dce65f05ed04ca3a4cbbd4ccf8e477",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 517,
+      "category": "component",
+      "component": "DetailPane",
+      "logical_name": "design-system/project/components/general/DetailPane/DetailPane.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "42d0bdc83f6378f4e2d4b6c7d297202b719567b95a42d225f9a09b80a3643983",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 357,
+      "category": "component",
+      "component": "DisplayPopover",
+      "logical_name": "design-system/project/components/general/DisplayPopover/DisplayPopover.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "e84f7c2dc714abb525d153ccf3e8a9ddced5fcfec5ffc159817a0f0f7a0a7756",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3283,
+      "category": "component",
+      "component": "DisplayPopover",
+      "logical_name": "design-system/project/components/general/DisplayPopover/DisplayPopover.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "382250430f65fc3a27571dd08d0330a5e66665824ad03d79f38265a4b902e7c1",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 189,
+      "category": "component",
+      "component": "DisplayPopover",
+      "logical_name": "design-system/project/components/general/DisplayPopover/DisplayPopover.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "496bd9e5b920bce4fe4dac4ba87ccd0e00c448eb392a026ceddfc33df18b4789",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 809,
+      "category": "component",
+      "component": "DisplayPopover",
+      "logical_name": "design-system/project/components/general/DisplayPopover/DisplayPopover.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "d5f9e25c7ccf92b7ad31883e5aa281d4c4a1184836f531b1b60db0461b1d029b",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 291,
+      "category": "component",
+      "component": "EmptyState",
+      "logical_name": "design-system/project/components/general/EmptyState/EmptyState.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "17a18cc4b4053ee56ef87f5ae6c25cb2d4b0fc2d384e162d1b34dc6e33d223f5",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3275,
+      "category": "component",
+      "component": "EmptyState",
+      "logical_name": "design-system/project/components/general/EmptyState/EmptyState.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "658c4370f4a98716b9f95afcf3bdedb2b8ef5f4c5f136b422201cfc3465dd220",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 177,
+      "category": "component",
+      "component": "EmptyState",
+      "logical_name": "design-system/project/components/general/EmptyState/EmptyState.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "90dc868b4e84a22468243e74cc4180faa3ac615aec2525e25b5c41fde060fe7d",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 1324,
+      "category": "component",
+      "component": "EmptyState",
+      "logical_name": "design-system/project/components/general/EmptyState/EmptyState.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "f7e5acd74453a9b81966f00cdcde1d1be493f867c4bfed422e0d833b6a37d2d4",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 216,
+      "category": "component",
+      "component": "FilterChip",
+      "logical_name": "design-system/project/components/general/FilterChip/FilterChip.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "7299036148573bca6f20ffce0142a3a3195583ee58848cb5885a045573d736f7",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3275,
+      "category": "component",
+      "component": "FilterChip",
+      "logical_name": "design-system/project/components/general/FilterChip/FilterChip.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "5a9fa5eecb08b2c3edb6c616bbf830ab38224867293070086d0909016f495fba",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 177,
+      "category": "component",
+      "component": "FilterChip",
+      "logical_name": "design-system/project/components/general/FilterChip/FilterChip.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "6a631eb228e8f31d09d59da8544a4baf953ea96adcdf2c1f2cbd11cfa04d7654",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 525,
+      "category": "component",
+      "component": "FilterChip",
+      "logical_name": "design-system/project/components/general/FilterChip/FilterChip.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "6440649ef052254059939427b9e3a9de00e5446e3cb1ce0647704ad9164c8799",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 232,
+      "category": "component",
+      "component": "FilterChipRow",
+      "logical_name": "design-system/project/components/general/FilterChipRow/FilterChipRow.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "b120d25f7c6d64189b2fa56e31d4caa91c059ba60528538da1f2dd3ae354c321",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3281,
+      "category": "component",
+      "component": "FilterChipRow",
+      "logical_name": "design-system/project/components/general/FilterChipRow/FilterChipRow.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "49e84d15900c7432a36961bf3fad8d85090ebf2aaa743d57f570563490da500a",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 186,
+      "category": "component",
+      "component": "FilterChipRow",
+      "logical_name": "design-system/project/components/general/FilterChipRow/FilterChipRow.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "0c794441d9911df9e420ef2762eea8c6f5531b823aa077491535a1b3adba02c0",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 558,
+      "category": "component",
+      "component": "FilterChipRow",
+      "logical_name": "design-system/project/components/general/FilterChipRow/FilterChipRow.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "5f0ac3153ddbfc2237dd9326b571de24a3fc0accc344319984a68ca9580463a7",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 200,
+      "category": "component",
+      "component": "Kbd",
+      "logical_name": "design-system/project/components/general/Kbd/Kbd.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "0c06b2672408056f8783a63ff130894d11054473f488a450abdd16c15c4d7969",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3261,
+      "category": "component",
+      "component": "Kbd",
+      "logical_name": "design-system/project/components/general/Kbd/Kbd.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "7bddaf9d2edf4db6573f47e909e05df0f36580ce8b635860a8f91ebc32164b04",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 156,
+      "category": "component",
+      "component": "Kbd",
+      "logical_name": "design-system/project/components/general/Kbd/Kbd.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "a2b80fd33038faf22264da58ef0992e788190ab2cddfbd32969d685c7c2d05cc",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 549,
+      "category": "component",
+      "component": "Kbd",
+      "logical_name": "design-system/project/components/general/Kbd/Kbd.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "d6bbf25fc80347cf12c3003cf7a00ef2f531b5b30e16f752e6f96b51e0796591",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 254,
+      "category": "component",
+      "component": "LogoAvatar",
+      "logical_name": "design-system/project/components/general/LogoAvatar/LogoAvatar.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "9979c69b6576d3ded7733befba92b81bd16715dea18912f379745b5c8123a6a4",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3275,
+      "category": "component",
+      "component": "LogoAvatar",
+      "logical_name": "design-system/project/components/general/LogoAvatar/LogoAvatar.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "93028172e3c2ac1db363d1aabfa736dc0e382d68396e1ff07ffa581670e2d4dc",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 177,
+      "category": "component",
+      "component": "LogoAvatar",
+      "logical_name": "design-system/project/components/general/LogoAvatar/LogoAvatar.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "0872e7a616387c9fccfe98f6375cb99b801f471cf053c523f3ed70d4b115be00",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 1355,
+      "category": "component",
+      "component": "LogoAvatar",
+      "logical_name": "design-system/project/components/general/LogoAvatar/LogoAvatar.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "ec868b2dc40a9aa5bdf8c8a0cbb1f4cf7bccf6cc97dd21e6f1ce9f5a55570679",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 265,
+      "category": "component",
+      "component": "PageHeader",
+      "logical_name": "design-system/project/components/general/PageHeader/PageHeader.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "8d1a092a47916bce4afa422196ef970858efe2306857d2e276860e29c3c0db06",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3275,
+      "category": "component",
+      "component": "PageHeader",
+      "logical_name": "design-system/project/components/general/PageHeader/PageHeader.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "891aee4e5cc173e954feac00e078433bbe383061854027e82ee2114044eeb58b",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 177,
+      "category": "component",
+      "component": "PageHeader",
+      "logical_name": "design-system/project/components/general/PageHeader/PageHeader.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "0b8d3265f0affa7190735083f031ee6d96a76883220a8468f05bddb1f1d8a7cf",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 626,
+      "category": "component",
+      "component": "PageHeader",
+      "logical_name": "design-system/project/components/general/PageHeader/PageHeader.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "461bd4401c8a03322804ba50088c0ba0334d8301c1dbe50394d5df7efe5df3e7",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 267,
+      "category": "component",
+      "component": "SavedViewTabs",
+      "logical_name": "design-system/project/components/general/SavedViewTabs/SavedViewTabs.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "9255ce5fb20a6269d00b145188f5eb46b22192d1cc4f37acec9a05accf9c1d5c",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3302,
+      "category": "component",
+      "component": "SavedViewTabs",
+      "logical_name": "design-system/project/components/general/SavedViewTabs/SavedViewTabs.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "08bb05e4d4605c043eaea0f6e84ba59d75009a2e081aa19b828ba635eca317c5",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 186,
+      "category": "component",
+      "component": "SavedViewTabs",
+      "logical_name": "design-system/project/components/general/SavedViewTabs/SavedViewTabs.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "c2943ef37e599f70b552a38d4352d658fe288223457ce806ef23dbabdf324ca9",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 574,
+      "category": "component",
+      "component": "SavedViewTabs",
+      "logical_name": "design-system/project/components/general/SavedViewTabs/SavedViewTabs.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "ad3cef94d7b7afda0a1a3eda3eda2ee331d484c2e35804d3d1e3dac48299120d",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 224,
+      "category": "component",
+      "component": "SelectionBar",
+      "logical_name": "design-system/project/components/general/SelectionBar/SelectionBar.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "5d420b23749cd929b94cf1f0c0fbfcecd95bb52e7e24596c88aa9e3c46bfee57",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3300,
+      "category": "component",
+      "component": "SelectionBar",
+      "logical_name": "design-system/project/components/general/SelectionBar/SelectionBar.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "531ca6840286f6b043f8d62551d9b19e342ba4b776f161842e8866716f30f39a",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 183,
+      "category": "component",
+      "component": "SelectionBar",
+      "logical_name": "design-system/project/components/general/SelectionBar/SelectionBar.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "ed4d0a5ebb9ec388eb396c2138fe1e789e05177eb5327782c045a9cd907c061e",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 488,
+      "category": "component",
+      "component": "SelectionBar",
+      "logical_name": "design-system/project/components/general/SelectionBar/SelectionBar.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "31a53c50475e8ef4e2195632e50ab9eb08d39903ae7328fe006ad7f5b411b160",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 260,
+      "category": "component",
+      "component": "StatusSelect",
+      "logical_name": "design-system/project/components/general/StatusSelect/StatusSelect.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "375cfe3bd57ef59bf7a7597e968bd7ee27f3f4bb4fc14d73e001e3b55a9c6d97",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3279,
+      "category": "component",
+      "component": "StatusSelect",
+      "logical_name": "design-system/project/components/general/StatusSelect/StatusSelect.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "9f68f04432a12c687eb57ec5bfab6dd83a76d7382ff280a816dd6f7b60e0e63d",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 183,
+      "category": "component",
+      "component": "StatusSelect",
+      "logical_name": "design-system/project/components/general/StatusSelect/StatusSelect.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "b05975479be66c840f7d60c39cabd2e1f48114de88dce4060fc58fa95a64be61",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 674,
+      "category": "component",
+      "component": "StatusSelect",
+      "logical_name": "design-system/project/components/general/StatusSelect/StatusSelect.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "fddd3476ed5e1afe621a7c2ef3518ecec0eb11b80b823ab585a9b52701fd0adb",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 335,
+      "category": "component",
+      "component": "TableToolbar",
+      "logical_name": "design-system/project/components/general/TableToolbar/TableToolbar.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "e2e42d044c8d54517895ea1c953a41a213004db229f2909456440a3bb37d829b",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3300,
+      "category": "component",
+      "component": "TableToolbar",
+      "logical_name": "design-system/project/components/general/TableToolbar/TableToolbar.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "b68491e463ccbb3d7b4b988f026132c34e8a07889f92f264a6eb8b92d88192dd",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 183,
+      "category": "component",
+      "component": "TableToolbar",
+      "logical_name": "design-system/project/components/general/TableToolbar/TableToolbar.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "3cfa86ed2c4c147fd1fa17344a9d2a31c9b6fc4d11676c962ab28c7db50bc46b",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 757,
+      "category": "component",
+      "component": "TableToolbar",
+      "logical_name": "design-system/project/components/general/TableToolbar/TableToolbar.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "25705b4d7eab0cb98b106b7fba4317dd56cb0e995c25d87f761eb16afc297ada",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 217,
+      "category": "component",
+      "component": "Toast",
+      "logical_name": "design-system/project/components/general/Toast/Toast.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "a9a84207db7f7a5fd0ffe05212b3eebde58bce75b398fc9dffb467445bf244bf",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3265,
+      "category": "component",
+      "component": "Toast",
+      "logical_name": "design-system/project/components/general/Toast/Toast.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "7b802ac55989ae1079b369bd354d856d58c80d0e7b76b6dce6fedc24139a4b50",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 162,
+      "category": "component",
+      "component": "Toast",
+      "logical_name": "design-system/project/components/general/Toast/Toast.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "b638f5ca59cb63af1d9ed159dfb0cf44d6eeea04abe4f5cedb907b2600400480",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 567,
+      "category": "component",
+      "component": "Toast",
+      "logical_name": "design-system/project/components/general/Toast/Toast.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "0c7aad12c0b94163295d80d534f6505b9d9c31e532d8f94d1ec03fbcb4269306",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 216,
+      "category": "component",
+      "component": "Toaster",
+      "logical_name": "design-system/project/components/general/Toaster/Toaster.d.ts",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prop contract (.d.ts)",
+      "sha256": "701f90c6a66951ce48a2bf212ae937278408811fec1e9b75cba4c82179baca28",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3290,
+      "category": "component",
+      "component": "Toaster",
+      "logical_name": "design-system/project/components/general/Toaster/Toaster.html",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component card / rendered reference",
+      "sha256": "40480f2bb5da877851c6948eddc8d4f8eb05c34b488f5315ade0aa7f8518ef7b",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 168,
+      "category": "component",
+      "component": "Toaster",
+      "logical_name": "design-system/project/components/general/Toaster/Toaster.jsx",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "re-export stub; implementation lives in _ds_bundle.js",
+      "sha256": "8e819a9b83ab87dfc00b3e39e31659238db17a2a21b2590895f44a7ae9c1605b",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 515,
+      "category": "component",
+      "component": "Toaster",
+      "logical_name": "design-system/project/components/general/Toaster/Toaster.prompt.md",
+      "precedence_rank": 6,
+      "required": true,
+      "role": "component prompt contract",
+      "sha256": "c6dd66b4963ac33b380401b64bf8f4c1c190226c0672629f79fbb5b35f0d0e35",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 64,
+      "category": "token-source",
+      "component": null,
+      "logical_name": "design-system/project/styles.css",
+      "precedence_rank": 3,
+      "required": true,
+      "role": "entry stylesheet importing the bundle",
+      "sha256": "e28cb90814637581f6afbcf901abf4ac06c1d976084c662c46cd603d0ccfdb83",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 15416,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/applications/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "ee21b6b6d45317b69c2267af95fb96d429e343e82aff1ab87250953c31e187b8",
+      "surfaces": [
+        "applications"
+      ],
+      "template": "templates/applications"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 15994,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/applications/Applications.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "00428a3f77e61a9e9af64a7e26c54be34548738ad325017df3903735fd2fdac3",
+      "surfaces": [
+        "applications"
+      ],
+      "template": "templates/applications"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 946,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/applications/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "cb3eeb8d88207f19d801e7be11c791204353ecfc816e95d54bd4ce00ae765d32",
+      "surfaces": [
+        "applications"
+      ],
+      "template": "templates/applications"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/applications/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "applications"
+      ],
+      "template": "templates/applications"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 3048,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/auth/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "d479abf971f11fe7449645a18809024e4e463d5fd945af59a8167e39bb8219eb",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": "templates/auth"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 18524,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/auth/Auth.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "2a08f830dcffe936aa0193197169901e65e917dd24b70edcbd7d3406e2621248",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": "templates/auth"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 946,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/auth/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "cb3eeb8d88207f19d801e7be11c791204353ecfc816e95d54bd4ce00ae765d32",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": "templates/auth"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/auth/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": "templates/auth"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-003"
+      ],
+      "bytes": 11666,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/autopilot/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "d7dd526db4ce6526cbca5cb4bd65201c857527f9ad8651498408f52d45fd744f",
+      "surfaces": [
+        "autopilot"
+      ],
+      "template": "templates/autopilot"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-003"
+      ],
+      "bytes": 29502,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/autopilot/Autopilot.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "22a7ba0525236c03bdf6e49368a55eea773b44eaa6613011482a3d1c0ac6405a",
+      "surfaces": [
+        "autopilot"
+      ],
+      "template": "templates/autopilot"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-003"
+      ],
+      "bytes": 946,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/autopilot/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "cb3eeb8d88207f19d801e7be11c791204353ecfc816e95d54bd4ce00ae765d32",
+      "surfaces": [
+        "autopilot"
+      ],
+      "template": "templates/autopilot"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-003"
+      ],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/autopilot/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "autopilot"
+      ],
+      "template": "templates/autopilot"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 12964,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/coverage/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "edf39c8d413944e34b9671505b8d183541447aab2006f02a7aab0a063d2de56f",
+      "surfaces": [
+        "coverage"
+      ],
+      "template": "templates/coverage"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 35791,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/coverage/Coverage.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "665546e7b625b348eca5078d0be51741f3a920c14ec575349f1ae89a7f619607",
+      "surfaces": [
+        "coverage"
+      ],
+      "template": "templates/coverage"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 946,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/coverage/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "cb3eeb8d88207f19d801e7be11c791204353ecfc816e95d54bd4ce00ae765d32",
+      "surfaces": [
+        "coverage"
+      ],
+      "template": "templates/coverage"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/coverage/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "coverage"
+      ],
+      "template": "templates/coverage"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 4490,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/emails/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "db20c7cf09f185cc6b0381ecd576d8a9429f718970a3af3f6178ef5b1f207c24",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/emails"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 9229,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/emails/Emails.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "424a0cd891f2230a4db61a77d5fb4bb48428936ed2bc70c5ac6b28e1764c1b0c",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/emails"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 946,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/emails/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "cb3eeb8d88207f19d801e7be11c791204353ecfc816e95d54bd4ce00ae765d32",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/emails"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/emails/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/emails"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-001"
+      ],
+      "bytes": 13280,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/find-intro/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "575456d026b05990869058ebfa52128c51d430736e6bfbe264668c7ae80a89bd",
+      "surfaces": [
+        "find-intro"
+      ],
+      "template": "templates/find-intro"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-001"
+      ],
+      "bytes": 18149,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/find-intro/FindIntro.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "4d4f640d56ff6546022fdca051dc317f2f1f8b039cda2be7e0f620cfd1e4d62b",
+      "surfaces": [
+        "find-intro"
+      ],
+      "template": "templates/find-intro"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-001"
+      ],
+      "bytes": 3261,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/find-intro/IntroResults.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "2a2599ba8a1ee5c0857c5645fdb3b6daab0534045edc3122c7369c746eb55de7",
+      "surfaces": [
+        "find-intro"
+      ],
+      "template": "templates/find-intro"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-001"
+      ],
+      "bytes": 946,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/find-intro/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "cb3eeb8d88207f19d801e7be11c791204353ecfc816e95d54bd4ce00ae765d32",
+      "surfaces": [
+        "find-intro"
+      ],
+      "template": "templates/find-intro"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-001"
+      ],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/find-intro/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "find-intro"
+      ],
+      "template": "templates/find-intro"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 13215,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/import-export/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "67370ecd284b146256b249b97b75bbe9f87caaa0ecffe922b85b1c1e22412a29",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/import-export"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 20502,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/import-export/ImportExport.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "6982f793c061d4d1ebd1ee6c1a152bf25183306d5d7832f422e4105f5bb41d6f",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/import-export"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 946,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/import-export/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "cb3eeb8d88207f19d801e7be11c791204353ecfc816e95d54bd4ce00ae765d32",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/import-export"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/import-export/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/import-export"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 18266,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/jobs-table/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "7548b2d0ac2099809de8892db95c89f41b9df5669e85f8b4f506c2caa5f96147",
+      "surfaces": [
+        "jobs"
+      ],
+      "template": "templates/jobs-table"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 3261,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/jobs-table/IntroResults.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "2a2599ba8a1ee5c0857c5645fdb3b6daab0534045edc3122c7369c746eb55de7",
+      "surfaces": [
+        "jobs"
+      ],
+      "template": "templates/jobs-table"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 20543,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/jobs-table/JobsTable.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "b5f595fcef8093ac159fb69533c387cb76ccd2183dbb99f1572f77cedd0449fb",
+      "surfaces": [
+        "jobs"
+      ],
+      "template": "templates/jobs-table"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 831,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/jobs-table/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "a877241e26023270180fc3c58dcc69deeacecbe1c175e3c08478df03dc7593b9",
+      "surfaces": [
+        "jobs"
+      ],
+      "template": "templates/jobs-table"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/jobs-table/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "jobs"
+      ],
+      "template": "templates/jobs-table"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 13178,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/landing/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "b3dac9a7eac617bec69b4c15d8a866e9fee91ff780e447a4232349adcd6a4e1b",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/landing"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 19028,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/landing/Landing.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "c0e7ed474529a11332f6c071a249e1d0f4893a22b962c40b25c7723a5725fe20",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/landing"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 946,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/landing/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "cb3eeb8d88207f19d801e7be11c791204353ecfc816e95d54bd4ce00ae765d32",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/landing"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/landing/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/landing"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 6950,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/onboarding/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "85f5d8cf262b1b20404066c919729e1d8fc39b726e21ea9b31f7622e433a50d6",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": "templates/onboarding"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 18975,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/onboarding/Onboarding.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "91c8fda5a529302b5dc55ab6bd35367fbb30d4522d3ef87cf1d8ea51171baff2",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": "templates/onboarding"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 946,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/onboarding/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "cb3eeb8d88207f19d801e7be11c791204353ecfc816e95d54bd4ce00ae765d32",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": "templates/onboarding"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/onboarding/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": "templates/onboarding"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 5696,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/plan-billing/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "ac8cf65e0b328c785fa855a2b8eb6865040a948bc2c6ed6db10dcda659ea8c99",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/plan-billing"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 16687,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/plan-billing/PlanBilling.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "8b373ab7bbb258cab5bac7ae5d7a905b67fbc4b482f94be7a549524840a787da",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/plan-billing"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 946,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/plan-billing/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "cb3eeb8d88207f19d801e7be11c791204353ecfc816e95d54bd4ce00ae765d32",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/plan-billing"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/plan-billing/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "billing-landing-email-import-export"
+      ],
+      "template": "templates/plan-billing"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 12168,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/settings/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "83a056d9db4719d6c1cf6373c9c115b2db3924430b32bf35fcf96c13ef8e7aad",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": "templates/settings"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 42242,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/settings/Settings.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "d1255e4d6ed7748bfcba44ba54b56b86d08bc7ecd6a7b5111754f33a76f23358",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": "templates/settings"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 946,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/settings/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "cb3eeb8d88207f19d801e7be11c791204353ecfc816e95d54bd4ce00ae765d32",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": "templates/settings"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/settings/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "settings-auth-onboarding"
+      ],
+      "template": "templates/settings"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-005"
+      ],
+      "bytes": 6574,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/system-surfaces/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "c47c35abff5a8433e6ad00aea8b2e687860e3d0f22f128e450ce2083123fa430",
+      "surfaces": [
+        "system-and-mobile"
+      ],
+      "template": "templates/system-surfaces"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-005"
+      ],
+      "bytes": 31039,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/system-surfaces/SystemSurfaces.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "b1d8dfcbb5e45577a4e9b4650b63a36fb292b791f9384387ffc000ce82245351",
+      "surfaces": [
+        "system-and-mobile"
+      ],
+      "template": "templates/system-surfaces"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-005"
+      ],
+      "bytes": 946,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/system-surfaces/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "cb3eeb8d88207f19d801e7be11c791204353ecfc816e95d54bd4ce00ae765d32",
+      "surfaces": [
+        "system-and-mobile"
+      ],
+      "template": "templates/system-surfaces"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [
+        "ADD-005"
+      ],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/system-surfaces/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "system-and-mobile"
+      ],
+      "template": "templates/system-surfaces"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 7576,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/today-triage/.thumbnail",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "captured WebP thumbnail referenced by _ds_manifest.json",
+      "sha256": "9165ac17e21d0d863177c4ce8251df648836a80cd7a97989d35d0b6fa9580890",
+      "surfaces": [
+        "today"
+      ],
+      "template": "templates/today-triage"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 8505,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/today-triage/TodayTriage.dc.html",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "template composition (entry or auxiliary view)",
+      "sha256": "5ec55c6afdda317fd5c3039e55fe0547267d665c4c385a1609f487e660275378",
+      "surfaces": [
+        "today"
+      ],
+      "template": "templates/today-triage"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 831,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/today-triage/ds-base.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "design-system loader for the template",
+      "sha256": "a877241e26023270180fc3c58dcc69deeacecbe1c175e3c08478df03dc7593b9",
+      "surfaces": [
+        "today"
+      ],
+      "template": "templates/today-triage"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 69150,
+      "category": "template",
+      "component": null,
+      "logical_name": "design-system/project/templates/today-triage/support.js",
+      "precedence_rank": 7,
+      "required": true,
+      "role": "generated dc-runtime support script",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "surfaces": [
+        "today"
+      ],
+      "template": "templates/today-triage"
+    },
+    {
+      "authoritative": true,
+      "blocking_addenda": [],
+      "bytes": 335,
+      "category": "token-source",
+      "component": null,
+      "logical_name": "design-system/project/tokens-annotations.css",
+      "precedence_rank": 99,
+      "required": true,
+      "role": "token annotations stylesheet",
+      "sha256": "edee89f614bba89abf9e20e51819bca5b495b0c1c45b6a5353c3e45941a528d2",
+      "surfaces": [
+        "shared-shell-and-components"
+      ],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 16917,
+      "category": "upload-copy",
+      "component": null,
+      "logical_name": "design-system/project/uploads/01-design-foundations-df976116.md",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "non-authoritative copy of a design-context document; the design-context original wins",
+      "sha256": "df976116d426f6ecabeb25773510001db32e3a24f4d9f9e93fdf922ca257b780",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 16917,
+      "category": "upload-copy",
+      "component": null,
+      "logical_name": "design-system/project/uploads/01-design-foundations.md",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "non-authoritative copy of a design-context document; the design-context original wins",
+      "sha256": "df976116d426f6ecabeb25773510001db32e3a24f4d9f9e93fdf922ca257b780",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 15650,
+      "category": "upload-copy",
+      "component": null,
+      "logical_name": "design-system/project/uploads/02-terminology-and-copy-b97e38a8.md",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "non-authoritative copy of a design-context document; the design-context original wins",
+      "sha256": "b97e38a8c98153a76363abcfb65a9e57325efe7a5cb2b04efd86cac096efbcc4",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 15496,
+      "category": "upload-copy",
+      "component": null,
+      "logical_name": "design-system/project/uploads/02-terminology-and-copy-ef1693e6.md",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "non-authoritative copy of a design-context document; the design-context original wins",
+      "sha256": "ef1693e6a1ba973b2f856f930cbaf71ce5e1e062c87369c074b5243e0c5a9213",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 15496,
+      "category": "upload-copy",
+      "component": null,
+      "logical_name": "design-system/project/uploads/02-terminology-and-copy.md",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "non-authoritative copy of a design-context document; the design-context original wins",
+      "sha256": "ef1693e6a1ba973b2f856f930cbaf71ce5e1e062c87369c074b5243e0c5a9213",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 11450,
+      "category": "upload-copy",
+      "component": null,
+      "logical_name": "design-system/project/uploads/03-ia-and-surfaces-89a9aef7.md",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "non-authoritative copy of a design-context document; the design-context original wins",
+      "sha256": "89a9aef7d9cd3574f700c14f937206b3b37f6e18ebfab1695140e6d6d33711cf",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 11450,
+      "category": "upload-copy",
+      "component": null,
+      "logical_name": "design-system/project/uploads/03-ia-and-surfaces.md",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "non-authoritative copy of a design-context document; the design-context original wins",
+      "sha256": "89a9aef7d9cd3574f700c14f937206b3b37f6e18ebfab1695140e6d6d33711cf",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 32494,
+      "category": "upload-copy",
+      "component": null,
+      "logical_name": "design-system/project/uploads/04-surface-prompt-packs-6139ae8c.md",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "non-authoritative copy of a design-context document; the design-context original wins",
+      "sha256": "6139ae8c2ec15efa895bb72de25a55270591e5d4b01b228ad5e053647b30d1b8",
+      "surfaces": [],
+      "template": null
+    },
+    {
+      "authoritative": false,
+      "blocking_addenda": [],
+      "bytes": 32494,
+      "category": "upload-copy",
+      "component": null,
+      "logical_name": "design-system/project/uploads/04-surface-prompt-packs.md",
+      "precedence_rank": 99,
+      "required": false,
+      "role": "non-authoritative copy of a design-context document; the design-context original wins",
+      "sha256": "6139ae8c2ec15efa895bb72de25a55270591e5d4b01b228ad5e053647b30d1b8",
+      "surfaces": [],
+      "template": null
+    }
+  ],
+  "observed_at_utc": "2026-08-02T00:00:00Z",
+  "packet": "PKT-DESIGN-MANIFEST",
+  "precedence": {
+    "conflict_order": [
+      "owner decision recorded in an approved decision record",
+      "accessibility, security, data-integrity, and RPC-write invariants",
+      "01-design-foundations.md and 02-terminology-and-copy.md",
+      "latest .dc.html surface composition and downloaded component contract",
+      "design mirror recovery notes",
+      "older handoff prose"
+    ],
+    "reference": "docs/pilot-launch/04-design-parity-standard.md sections 2.1-2.2",
+    "source_set_order": [
+      "design-system/README.md",
+      "design-system/project/README.md",
+      "design-system/project/styles.css",
+      "design-system/project/_ds_bundle.css",
+      "design-system/project/_ds_manifest.json",
+      "COMPONENT_CONTRACTS",
+      "TEMPLATE_COMPOSITIONS",
+      "design-context/design-mirror/README.md",
+      "design-context/01-design-foundations.md",
+      "design-context/02-terminology-and-copy.md",
+      "design-context/03-ia-and-surfaces.md",
+      "PROMPT_PACK_AND_HANDOFF"
+    ]
+  },
+  "repository_base_commit": "58bbfed98b1df24d7b9a8aad6eb123240841c8f9",
+  "requirements": [
+    "FP-DES-001",
+    "FP-DES-005",
+    "FP-DES-008"
+  ],
+  "root_note": "Local absolute paths are discovery locations only. A downstream packet receives the content-addressed archive or coordinator-approved excerpts keyed by logical_name and sha256; no absolute local path is required.",
+  "roots": {
+    "design-context": "/Users/s0shaheen/job-hq-design-context",
+    "design-system": "/Users/s0shaheen/Downloads/job-hq-design-system"
+  },
+  "schema": "job-hq/design-source-manifest/v1",
+  "surfaces": [
+    {
+      "advisory_addenda": [
+        "ADD-005"
+      ],
+      "blocking_addenda": [],
+      "missing_inputs": [],
+      "required_inputs": [
+        "design-context/applications-handoff.md",
+        "design-context/gap-apps-autopilot.md",
+        "design-system/project/templates/applications/.thumbnail",
+        "design-system/project/templates/applications/Applications.dc.html",
+        "design-system/project/templates/applications/ds-base.js",
+        "design-system/project/templates/applications/support.js"
+      ],
+      "status": "exact_inputs_present",
+      "surface": "applications"
+    },
+    {
+      "advisory_addenda": [
+        "ADD-005"
+      ],
+      "blocking_addenda": [
+        "ADD-003"
+      ],
+      "missing_inputs": [],
+      "required_inputs": [
+        "design-context/autopilot-handoff.md",
+        "design-context/gap-apps-autopilot.md",
+        "design-system/project/templates/autopilot/.thumbnail",
+        "design-system/project/templates/autopilot/Autopilot.dc.html",
+        "design-system/project/templates/autopilot/ds-base.js",
+        "design-system/project/templates/autopilot/support.js"
+      ],
+      "status": "inputs_present_addendum_blocked",
+      "surface": "autopilot"
+    },
+    {
+      "advisory_addenda": [
+        "ADD-005"
+      ],
+      "blocking_addenda": [
+        "ADD-006"
+      ],
+      "missing_inputs": [],
+      "required_inputs": [
+        "design-context/gap-billing-landing-email.md",
+        "design-system/project/templates/emails/.thumbnail",
+        "design-system/project/templates/emails/Emails.dc.html",
+        "design-system/project/templates/emails/ds-base.js",
+        "design-system/project/templates/emails/support.js",
+        "design-system/project/templates/import-export/.thumbnail",
+        "design-system/project/templates/import-export/ImportExport.dc.html",
+        "design-system/project/templates/import-export/ds-base.js",
+        "design-system/project/templates/import-export/support.js",
+        "design-system/project/templates/landing/.thumbnail",
+        "design-system/project/templates/landing/Landing.dc.html",
+        "design-system/project/templates/landing/ds-base.js",
+        "design-system/project/templates/landing/support.js",
+        "design-system/project/templates/plan-billing/.thumbnail",
+        "design-system/project/templates/plan-billing/PlanBilling.dc.html",
+        "design-system/project/templates/plan-billing/ds-base.js",
+        "design-system/project/templates/plan-billing/support.js"
+      ],
+      "status": "inputs_present_addendum_blocked",
+      "surface": "billing-landing-email-import-export"
+    },
+    {
+      "advisory_addenda": [
+        "ADD-005"
+      ],
+      "blocking_addenda": [],
+      "missing_inputs": [],
+      "required_inputs": [
+        "design-context/coverage-handoff.md",
+        "design-context/gap-coverage-intro.md",
+        "design-system/project/templates/coverage/.thumbnail",
+        "design-system/project/templates/coverage/Coverage.dc.html",
+        "design-system/project/templates/coverage/ds-base.js",
+        "design-system/project/templates/coverage/support.js"
+      ],
+      "status": "exact_inputs_present",
+      "surface": "coverage"
+    },
+    {
+      "advisory_addenda": [
+        "ADD-005"
+      ],
+      "blocking_addenda": [
+        "ADD-001"
+      ],
+      "missing_inputs": [],
+      "required_inputs": [
+        "design-context/gap-coverage-intro.md",
+        "design-system/project/templates/find-intro/.thumbnail",
+        "design-system/project/templates/find-intro/FindIntro.dc.html",
+        "design-system/project/templates/find-intro/IntroResults.dc.html",
+        "design-system/project/templates/find-intro/ds-base.js",
+        "design-system/project/templates/find-intro/support.js"
+      ],
+      "status": "inputs_present_addendum_blocked",
+      "surface": "find-intro"
+    },
+    {
+      "advisory_addenda": [
+        "ADD-005"
+      ],
+      "blocking_addenda": [],
+      "missing_inputs": [],
+      "required_inputs": [
+        "design-context/gap-today-jobs.md",
+        "design-context/jobs-handoff.md",
+        "design-system/project/templates/jobs-table/.thumbnail",
+        "design-system/project/templates/jobs-table/IntroResults.dc.html",
+        "design-system/project/templates/jobs-table/JobsTable.dc.html",
+        "design-system/project/templates/jobs-table/ds-base.js",
+        "design-system/project/templates/jobs-table/support.js"
+      ],
+      "status": "exact_inputs_present",
+      "surface": "jobs"
+    },
+    {
+      "advisory_addenda": [
+        "ADD-005"
+      ],
+      "blocking_addenda": [
+        "ADD-004"
+      ],
+      "missing_inputs": [],
+      "note": "Operator activation/suspension/support-access/kill-switch surfaces are absent from the owner bundle.",
+      "required_inputs": [],
+      "status": "blocked_no_design_input",
+      "surface": "operator-admin"
+    },
+    {
+      "advisory_addenda": [],
+      "blocking_addenda": [
+        "ADD-002",
+        "ADD-005"
+      ],
+      "missing_inputs": [],
+      "note": "No owner template is sufficient; no exact design input exists.",
+      "required_inputs": [],
+      "status": "blocked_no_design_input",
+      "surface": "resume"
+    },
+    {
+      "advisory_addenda": [
+        "ADD-005"
+      ],
+      "blocking_addenda": [
+        "ADD-007"
+      ],
+      "missing_inputs": [],
+      "required_inputs": [
+        "design-context/gap-settings-onboarding-auth.md",
+        "design-context/settings-auth-handoff.md",
+        "design-system/project/templates/auth/.thumbnail",
+        "design-system/project/templates/auth/Auth.dc.html",
+        "design-system/project/templates/auth/ds-base.js",
+        "design-system/project/templates/auth/support.js",
+        "design-system/project/templates/onboarding/.thumbnail",
+        "design-system/project/templates/onboarding/Onboarding.dc.html",
+        "design-system/project/templates/onboarding/ds-base.js",
+        "design-system/project/templates/onboarding/support.js",
+        "design-system/project/templates/settings/.thumbnail",
+        "design-system/project/templates/settings/Settings.dc.html",
+        "design-system/project/templates/settings/ds-base.js",
+        "design-system/project/templates/settings/support.js"
+      ],
+      "status": "inputs_present_addendum_blocked",
+      "surface": "settings-auth-onboarding"
+    },
+    {
+      "advisory_addenda": [
+        "ADD-005"
+      ],
+      "blocking_addenda": [],
+      "missing_inputs": [],
+      "required_inputs": [
+        "design-context/01-design-foundations.md",
+        "design-context/02-terminology-and-copy.md",
+        "design-context/03-ia-and-surfaces.md",
+        "design-context/design-mirror/README.md",
+        "design-system/README.md",
+        "design-system/project/README.md",
+        "design-system/project/_ds_bundle.css",
+        "design-system/project/_ds_bundle.js",
+        "design-system/project/_ds_manifest.json",
+        "design-system/project/components/general/AppNav/AppNav.d.ts",
+        "design-system/project/components/general/AppNav/AppNav.html",
+        "design-system/project/components/general/AppNav/AppNav.jsx",
+        "design-system/project/components/general/AppNav/AppNav.prompt.md",
+        "design-system/project/components/general/AppShell/AppShell.d.ts",
+        "design-system/project/components/general/AppShell/AppShell.html",
+        "design-system/project/components/general/AppShell/AppShell.jsx",
+        "design-system/project/components/general/AppShell/AppShell.prompt.md",
+        "design-system/project/components/general/Badge/Badge.d.ts",
+        "design-system/project/components/general/Badge/Badge.html",
+        "design-system/project/components/general/Badge/Badge.jsx",
+        "design-system/project/components/general/Badge/Badge.prompt.md",
+        "design-system/project/components/general/Button/Button.d.ts",
+        "design-system/project/components/general/Button/Button.html",
+        "design-system/project/components/general/Button/Button.jsx",
+        "design-system/project/components/general/Button/Button.prompt.md",
+        "design-system/project/components/general/DecisionRow/DecisionRow.d.ts",
+        "design-system/project/components/general/DecisionRow/DecisionRow.html",
+        "design-system/project/components/general/DecisionRow/DecisionRow.jsx",
+        "design-system/project/components/general/DecisionRow/DecisionRow.prompt.md",
+        "design-system/project/components/general/DetailPane/DetailPane.d.ts",
+        "design-system/project/components/general/DetailPane/DetailPane.html",
+        "design-system/project/components/general/DetailPane/DetailPane.jsx",
+        "design-system/project/components/general/DetailPane/DetailPane.prompt.md",
+        "design-system/project/components/general/DisplayPopover/DisplayPopover.d.ts",
+        "design-system/project/components/general/DisplayPopover/DisplayPopover.html",
+        "design-system/project/components/general/DisplayPopover/DisplayPopover.jsx",
+        "design-system/project/components/general/DisplayPopover/DisplayPopover.prompt.md",
+        "design-system/project/components/general/EmptyState/EmptyState.d.ts",
+        "design-system/project/components/general/EmptyState/EmptyState.html",
+        "design-system/project/components/general/EmptyState/EmptyState.jsx",
+        "design-system/project/components/general/EmptyState/EmptyState.prompt.md",
+        "design-system/project/components/general/FilterChip/FilterChip.d.ts",
+        "design-system/project/components/general/FilterChip/FilterChip.html",
+        "design-system/project/components/general/FilterChip/FilterChip.jsx",
+        "design-system/project/components/general/FilterChip/FilterChip.prompt.md",
+        "design-system/project/components/general/FilterChipRow/FilterChipRow.d.ts",
+        "design-system/project/components/general/FilterChipRow/FilterChipRow.html",
+        "design-system/project/components/general/FilterChipRow/FilterChipRow.jsx",
+        "design-system/project/components/general/FilterChipRow/FilterChipRow.prompt.md",
+        "design-system/project/components/general/Kbd/Kbd.d.ts",
+        "design-system/project/components/general/Kbd/Kbd.html",
+        "design-system/project/components/general/Kbd/Kbd.jsx",
+        "design-system/project/components/general/Kbd/Kbd.prompt.md",
+        "design-system/project/components/general/LogoAvatar/LogoAvatar.d.ts",
+        "design-system/project/components/general/LogoAvatar/LogoAvatar.html",
+        "design-system/project/components/general/LogoAvatar/LogoAvatar.jsx",
+        "design-system/project/components/general/LogoAvatar/LogoAvatar.prompt.md",
+        "design-system/project/components/general/PageHeader/PageHeader.d.ts",
+        "design-system/project/components/general/PageHeader/PageHeader.html",
+        "design-system/project/components/general/PageHeader/PageHeader.jsx",
+        "design-system/project/components/general/PageHeader/PageHeader.prompt.md",
+        "design-system/project/components/general/SavedViewTabs/SavedViewTabs.d.ts",
+        "design-system/project/components/general/SavedViewTabs/SavedViewTabs.html",
+        "design-system/project/components/general/SavedViewTabs/SavedViewTabs.jsx",
+        "design-system/project/components/general/SavedViewTabs/SavedViewTabs.prompt.md",
+        "design-system/project/components/general/SelectionBar/SelectionBar.d.ts",
+        "design-system/project/components/general/SelectionBar/SelectionBar.html",
+        "design-system/project/components/general/SelectionBar/SelectionBar.jsx",
+        "design-system/project/components/general/SelectionBar/SelectionBar.prompt.md",
+        "design-system/project/components/general/StatusSelect/StatusSelect.d.ts",
+        "design-system/project/components/general/StatusSelect/StatusSelect.html",
+        "design-system/project/components/general/StatusSelect/StatusSelect.jsx",
+        "design-system/project/components/general/StatusSelect/StatusSelect.prompt.md",
+        "design-system/project/components/general/TableToolbar/TableToolbar.d.ts",
+        "design-system/project/components/general/TableToolbar/TableToolbar.html",
+        "design-system/project/components/general/TableToolbar/TableToolbar.jsx",
+        "design-system/project/components/general/TableToolbar/TableToolbar.prompt.md",
+        "design-system/project/components/general/Toast/Toast.d.ts",
+        "design-system/project/components/general/Toast/Toast.html",
+        "design-system/project/components/general/Toast/Toast.jsx",
+        "design-system/project/components/general/Toast/Toast.prompt.md",
+        "design-system/project/components/general/Toaster/Toaster.d.ts",
+        "design-system/project/components/general/Toaster/Toaster.html",
+        "design-system/project/components/general/Toaster/Toaster.jsx",
+        "design-system/project/components/general/Toaster/Toaster.prompt.md",
+        "design-system/project/styles.css",
+        "design-system/project/tokens-annotations.css"
+      ],
+      "status": "exact_inputs_present",
+      "surface": "shared-shell-and-components"
+    },
+    {
+      "advisory_addenda": [],
+      "blocking_addenda": [
+        "ADD-005"
+      ],
+      "missing_inputs": [],
+      "required_inputs": [
+        "design-context/gap-crosscutting.md",
+        "design-system/project/templates/system-surfaces/.thumbnail",
+        "design-system/project/templates/system-surfaces/SystemSurfaces.dc.html",
+        "design-system/project/templates/system-surfaces/ds-base.js",
+        "design-system/project/templates/system-surfaces/support.js"
+      ],
+      "status": "inputs_present_addendum_blocked",
+      "surface": "system-and-mobile"
+    },
+    {
+      "advisory_addenda": [
+        "ADD-005"
+      ],
+      "blocking_addenda": [],
+      "missing_inputs": [],
+      "required_inputs": [
+        "design-context/gap-today-jobs.md",
+        "design-context/today-handoff.md",
+        "design-system/project/templates/today-triage/.thumbnail",
+        "design-system/project/templates/today-triage/TodayTriage.dc.html",
+        "design-system/project/templates/today-triage/ds-base.js",
+        "design-system/project/templates/today-triage/support.js"
+      ],
+      "status": "exact_inputs_present",
+      "surface": "today"
+    }
+  ],
+  "templates_declared": [
+    {
+      "entry": "design-system/project/templates/applications/Applications.dc.html",
+      "folder": "design-system/project/templates/applications",
+      "name": "Applications"
+    },
+    {
+      "entry": "design-system/project/templates/auth/Auth.dc.html",
+      "folder": "design-system/project/templates/auth",
+      "name": "Auth"
+    },
+    {
+      "entry": "design-system/project/templates/autopilot/Autopilot.dc.html",
+      "folder": "design-system/project/templates/autopilot",
+      "name": "Autopilot"
+    },
+    {
+      "entry": "design-system/project/templates/coverage/Coverage.dc.html",
+      "folder": "design-system/project/templates/coverage",
+      "name": "Coverage"
+    },
+    {
+      "entry": "design-system/project/templates/emails/Emails.dc.html",
+      "folder": "design-system/project/templates/emails",
+      "name": "Emails"
+    },
+    {
+      "entry": "design-system/project/templates/find-intro/FindIntro.dc.html",
+      "folder": "design-system/project/templates/find-intro",
+      "name": "Find intro"
+    },
+    {
+      "entry": "design-system/project/templates/import-export/ImportExport.dc.html",
+      "folder": "design-system/project/templates/import-export",
+      "name": "Import and export"
+    },
+    {
+      "entry": "design-system/project/templates/jobs-table/JobsTable.dc.html",
+      "folder": "design-system/project/templates/jobs-table",
+      "name": "Jobs"
+    },
+    {
+      "entry": "design-system/project/templates/landing/Landing.dc.html",
+      "folder": "design-system/project/templates/landing",
+      "name": "Landing page"
+    },
+    {
+      "entry": "design-system/project/templates/onboarding/Onboarding.dc.html",
+      "folder": "design-system/project/templates/onboarding",
+      "name": "Onboarding"
+    },
+    {
+      "entry": "design-system/project/templates/plan-billing/PlanBilling.dc.html",
+      "folder": "design-system/project/templates/plan-billing",
+      "name": "Plan and billing"
+    },
+    {
+      "entry": "design-system/project/templates/settings/Settings.dc.html",
+      "folder": "design-system/project/templates/settings",
+      "name": "Settings"
+    },
+    {
+      "entry": "design-system/project/templates/system-surfaces/SystemSurfaces.dc.html",
+      "folder": "design-system/project/templates/system-surfaces",
+      "name": "System surfaces"
+    },
+    {
+      "entry": "design-system/project/templates/today-triage/TodayTriage.dc.html",
+      "folder": "design-system/project/templates/today-triage",
+      "name": "Today"
+    }
+  ],
+  "totals": {
+    "authoritative_files": 164,
+    "components": 19,
+    "files_hashed": 195,
+    "required_files": 163,
+    "surfaces": 12,
+    "templates": 14,
+    "total_bytes": 3456750
+  }
+}

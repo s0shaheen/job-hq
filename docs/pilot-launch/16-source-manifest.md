@@ -1,6 +1,6 @@
 # Source manifest
 
-Observed: 2026-07-29
+Observed: 2026-08-02
 
 This manifest makes source identity explicit. Local paths are discovery locations.
 Remote workers MUST receive a content-addressed archive containing the required source
@@ -32,10 +32,18 @@ Root discovery path:
 | `_ds_bundle.js` | `baefa8270fc1f9dedb16da0194c4dd5241002e19b8fa36381df33e39e2bccc91` |
 | `_ds_bundle.css` | `47c8e3132b842182d8b51cd4896cd47759a319f6e59781e91cb034c37df9adb4` |
 | `styles.css` | `e28cb90814637581f6afbcf901abf4ac06c1d976084c662c46cd603d0ccfdb83` |
+| `tokens-annotations.css` | `edee89f614bba89abf9e20e51819bca5b495b0c1c45b6a5353c3e45941a528d2` |
 
 The manifest lists 19 components and these templates: Applications, Auth, Autopilot,
 Coverage, Emails, Find intro, Import and export, Jobs, Landing page, Onboarding, Plan and
 billing, Settings, System surfaces, and Today.
+
+The complete per-file index — logical name, SHA-256, byte size, component/template/
+surface classification, precedence rank, and required design addendum — is published at
+`docs/pilot-launch/evidence/design-source-manifest.json`. Observed 2026-08-02: 195 files
+across the two discovery roots, 3,456,750 bytes, 19 components, 14 templates, 12 product
+surfaces. That file, not this table, is the machine-readable authority for source
+identity.
 
 Known missing/insufficient visible contracts are tracked in
 `07-decisions-assumptions-risks.md` as design addenda. The bundle does not authorize an
