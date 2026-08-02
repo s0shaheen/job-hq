@@ -1,0 +1,63 @@
+# Apply db/migrations to the production database — the CI lane for schema changes.
+#
+# db/apply.sh replays the ENTIRE migrations directory in filename order; every
+# migration is written idempotent-or-guarded, so re-running the directory is the
+# provisioning step (see apply.sh's header). This workflow is how a migration
+# reaches prod without a human ever handling the connection string: the secret
+# stays in GitHub, same SUPABASE_DB_URL that pgdump.yml has dumped with nightly.
+#
+# Manual-dispatch only, and gated on an explicit confirm input: an accidental
+# dispatch replays idempotent DDL (harmless), but the gate keeps "I clicked the
+# wrong workflow" from touching prod at all.
+name: DB apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "apply" to run db/apply.sh against production'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-apply          # never two apply runs interleaving DDL
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: inputs.confirm == 'apply'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install psql 17 (must match/exceed the Supabase server major)
+        run: |
+          set -euo pipefail
+          # Same reasoning as pgdump.yml: Ubuntu's default client is 16 and the
+          # unversioned wrapper resolves to it even with client-17 installed.
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y postgresql-client-17
+          /usr/lib/postgresql/17/bin/psql --version
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          PATH="/usr/lib/postgresql/17/bin:$PATH" db/apply.sh
+
+      - name: Ops alert on failure
+        if: failure() || cancelled()
+        run: |
+          curl -s -H "Title: DB apply failed" -H "Priority: high" -H "Tags: warning" \
+            -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "https://ntfy.sh/${{ secrets.HQ_OPS_NTFY_TOPIC || 'REDACTED-NTFY-TOPIC' }}" || true
