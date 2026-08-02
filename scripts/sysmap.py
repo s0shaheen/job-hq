@@ -228,6 +228,17 @@ def workflows() -> list[tuple[str, str, str]]:
                 parts.append("pull_request")
             elif key == "workflow_dispatch":
                 parts.append("dispatch")
+            elif key == "workflow_run":
+                # A listener workflow (red-main.yml). Without this branch the map
+                # would print "—" — an alarm that looks like it has no trigger.
+                watched = _list_values(nested, "workflows")
+                types = _list_values(nested, "types")
+                bits = []
+                if watched:
+                    bits.append("after " + ", ".join(f"`{w}`" for w in watched))
+                if types:
+                    bits.append(", ".join(types))
+                parts.append("workflow_run" + (" (" + "; ".join(bits) + ")" if bits else ""))
         if parts == ["dispatch"]:
             parts = ["**dispatch only**"]
         out.append((name, path.name, " · ".join(parts) or "—"))

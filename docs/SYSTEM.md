@@ -225,6 +225,7 @@ aws lambda invoke --function-name job-hq-bots \
 | DB apply | `.github/workflows/db-apply.yml` | **dispatch only** |
 | Deploy webapp | `.github/workflows/deploy.yml` | **dispatch only** |
 | PG snapshot | `.github/workflows/pgdump.yml` | **dispatch only** |
+| Red main pages | `.github/workflows/red-main.yml` | workflow_run (after `CI`; completed) |
 | Resume render & publish | `.github/workflows/resume.yml` | push (branches `main`; paths `resume/**`, `scripts/render-alt.sh`, `scripts/yaml_to_docx.py`, `scripts/publish_to_drive.py`) · dispatch |
 | Run a bot | `.github/workflows/run-bot.yml` | **dispatch only** |
 | Self-heal and snapshot | `.github/workflows/selfheal.yml` | cron `23 8 * * *` (~03:23 CT) · dispatch |

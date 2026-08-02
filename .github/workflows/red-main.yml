@@ -1,0 +1,61 @@
+# A red main pages. Nothing else in this repo announces one.
+#
+# Every other lane that can fail on main already carries its own "Ops alert on
+# failure" step: Deploy webapp, Self-heal and snapshot, Run a bot, DB apply,
+# Resume render & publish. CI was the exception, deliberately — CI also runs on
+# every pull request, and a red PR is normal and must never page. So CI had no
+# pager at all, which meant a broken main was announced by nobody.
+#
+# On 2026-08-01 that combined with a merge path that could merge over red
+# (PRs #108 and #109, see scripts/land.sh): main went red and was noticed by
+# accident, much later.
+#
+# This workflow closes the second half. It listens for CI *runs* rather than
+# living inside CI, so it can filter on the branch the run belongs to and page
+# only for main. A `workflow_run` listener also survives the case an in-job
+# `if: failure()` step cannot cover: a run that dies before its steps execute.
+#
+# Note: `workflow_run` always executes the copy of this file on the default
+# branch. Edits here take effect only once landed.
+name: Red main pages
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  page:
+    # Failures on main only. A pull_request run's head_branch is the PR's own
+    # branch, so PRs are excluded by the branch test alone; the event test is
+    # belt-and-braces so a future trigger cannot quietly widen this.
+    if: >-
+      github.event.workflow_run.head_branch == 'main'
+      && github.event.workflow_run.event != 'pull_request'
+      && contains(fromJSON('["failure","timed_out"]'), github.event.workflow_run.conclusion)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ops alert on failure
+        env:
+          # No hardcoded topic fallback. A literal here would keep paging a
+          # topic nobody reads after a rotation; the fallbacks that used to
+          # live in these workflows were removed on purpose.
+          HQ_OPS_NTFY_TOPIC: ${{ secrets.HQ_OPS_NTFY_TOPIC }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_NAME: ${{ github.event.workflow_run.name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -uo pipefail
+          if [ -z "${HQ_OPS_NTFY_TOPIC}" ]; then
+            echo "::error title=Cannot page::HQ_OPS_NTFY_TOPIC is unset, so a red main is silent"
+            exit 1
+          fi
+          echo "main is ${CONCLUSION} at ${HEAD_SHA} (${RUN_NAME})"
+          curl -s -H "Title: main is red: ${RUN_NAME}" -H "Priority: high" -H "Tags: rotating_light" \
+            -d "${CONCLUSION} on main at ${HEAD_SHA} — ${RUN_URL}" \
+            "https://ntfy.sh/${HQ_OPS_NTFY_TOPIC}" || true

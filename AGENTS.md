@@ -38,6 +38,16 @@ stale plan. “Implemented on a branch” does not mean integrated, deployed, or
 - Never push directly to `main`. Use a branch and follow the task-specific review and
   handoff rule; do not merge or deploy without authorization. A `main` change touching
   `resume/**` can publish the owner’s resume.
+- `scripts/land.sh` is the only sanctioned way to merge to `main`. Do not run
+  `gh pr merge` by hand, and never chain a merge after `gh pr checks --watch`: this
+  repository is private on a plan without branch protection, so GitHub itself will merge
+  over red. That is not hypothetical — PRs #108 and #109 landed on a broken main on
+  2026-08-01 when a backgrounded watch died with its parent shell and its non-zero exit
+  never reached the `&&`. The script is the enforcement the plan does not provide, so
+  routing around it removes the only gate. It refuses on a dirty worktree, on `main`, on
+  failing or pending checks, and on an empty or unreadable check set, and it verifies
+  `origin/main` actually moved before claiming a landing. A refusal is a finding: fix the
+  cause, then re-run it.
 - Preserve unrelated worktree changes. Never hand-edit `hq.config.yaml`.
 - Migrations are append-only and integrated serially by one integrator. Create the file
   with `scripts/new-migration.sh <name>`, which stamps `YYYYMMDD_HHMMSS_name.sql` in UTC;
@@ -151,6 +161,12 @@ changing the expected behavior without an approved contract change.
 
 Run `python scripts/sysmap.py` after an infrastructure, schedule, alert, or schema
 change when required by CI.
+
+A `main` that concludes red pages the ops topic (`.github/workflows/red-main.yml`); a red
+pull request does not, and must not. If that page fires, main is broken for everyone —
+fixing it precedes whatever you were doing. Any workflow that pages reads its topic from
+`secrets.HQ_OPS_NTFY_TOPIC`; a hardcoded topic or a `|| 'literal'` fallback is a test
+failure, not a convenience.
 
 ## Durability of in-flight work
 
