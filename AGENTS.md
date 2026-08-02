@@ -130,8 +130,43 @@ the fix ships with the mutation that proves it. Rejection is for design-level pr
 Three rounds on one branch, each finding the same defect class, is a process failure as
 much as a code one.
 
-Run the gates affected by the change. Before declaring implementation or a release
-candidate complete, run the full gates:
+Two lanes. Use the fast one while iterating, the full one before declaring anything
+done. Both run inside the prebuilt image, which already has Postgres 16, Python 3.11
+and 3.12 with both dependency sets resolved, Node 22 with the webapp lockfile
+installed, and the Playwright browsers. Build it once:
+
+```sh
+infra/test-image/build.sh          # see infra/test-image/README.md
+```
+
+While iterating, run only the gates your change can have broken — this is the
+change-scoped lane the T0–T2 rows above refer to:
+
+```sh
+scripts/verify.sh --image             # change-scoped
+scripts/verify.sh --image --dry-run   # show the selection, run nothing
+```
+
+It maps changed paths to suites, prints exactly which ones ran and which did not
+and why, and will not describe itself as a full gate. A changed path that matches
+no rule selects EVERY suite: an unknown path is not evidence of a small blast
+radius. Adding a new top-level area means adding its rule, or every change to it
+pays for the full lane.
+
+Before declaring implementation or a release candidate complete, run the full gates:
+
+```sh
+scripts/verify.sh --full --image
+```
+
+That is every registered suite in one run — typecheck, vitest, the copy lint and
+coverage ledger, the production build, the whole Playwright suite including the
+anti-slop sweep and the linux visual baselines, every Python package, the render
+suite on 3.12 with rendercv actually installed, and `tests/db` against a real
+Postgres. `--full` FAILS rather than skipping when a gate cannot run, so a full-gate
+pass cannot be claimed without the database or without the baselines' environment.
+
+The underlying commands, if you are running them by hand:
 
 ```sh
 cd webapp
@@ -145,7 +180,7 @@ uv run --python 3.11 --with-requirements requirements.txt --no-project -- pytest
 
 That pytest line SKIPS `tests/db/**` — several hundred cases covering RLS, entitlement,
 idempotency, and every migration's real behaviour — and still reports success. The run
-now says so loudly at the end. A full gate claim requires the database too:
+says so loudly at the end. A full gate claim requires the database too:
 
 ```sh
 docker run --rm -e POSTGRES_PASSWORD=pw -p 55432:5432 -d postgres:16
@@ -153,6 +188,9 @@ DATABASE_URL=postgresql://postgres:pw@127.0.0.1:55432/postgres HQ_REQUIRE_DB=1 \
   uv run --python 3.11 --with-requirements requirements.txt \
     --with 'psycopg[binary]' --no-project -- pytest
 ```
+
+CI is unchanged and still runs everything on every PR; the lane speeds up the loop
+before the PR, it does not replace the gate.
 
 Database, migration, provider, restore, accessibility, and design work also requires the
 authoritative-boundary evidence in its packet. A test must be proven capable of failing
