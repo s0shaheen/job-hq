@@ -127,6 +127,31 @@ changing the expected behavior without an approved contract change.
 Run `python scripts/sysmap.py` after an infrastructure, schedule, alert, or schema
 change when required by CI.
 
+## Durability of in-flight work
+
+An agent can die at any moment — API error, stream stall, spend interrupt. On 2026-08-02
+five did. The ones that lost everything were the ones holding uncommitted work; the ones
+that lost minutes had pushed.
+
+- **Commit and push after every logical unit, not at the end.** A WIP commit you amend
+  later costs nothing. An unpushed branch is a coin flip.
+- A resumed agent should re-read the branch state before continuing: `main` moves under
+  long tasks, and what you rebased onto an hour ago is probably stale.
+- The coordinator restarts nothing that can be resumed. A stalled agent resumed from its
+  transcript keeps its context; a fresh one re-derives it at full cost.
+
+## What gets enforced by a machine
+
+Every defect class that stopped recurring in this repo stopped when it moved from prose
+into an executable check: the dump-containment test, the display-dictionary sweep, the
+coverage ledger, the pg_catalog-derived default-deny cross-check, the loud database-skip
+banner. Every recurring problem that remains is one where a person or an agent is still
+the enforcement mechanism.
+
+So when a rule is worth keeping, the question is not "is it written down" but "what fails
+when it is broken, and has that failure been observed." A rule nobody has watched fail is
+a rule that passes because it looks at nothing.
+
 ## Coordination
 
 Parallelize bounded work only after interfaces and packet boundaries are frozen.
