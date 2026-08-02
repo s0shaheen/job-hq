@@ -30,7 +30,10 @@ The same inventory found the two real holes, and they were not the ones volume s
    `/setup`, and `/auth/*` have zero e2e coverage, and e2e exercises only the `active`
    entitlement state. Pending and suspended live in unit and database tests only — which
    is precisely where the 0027 review found a pending account could still reach 37
-   security-definer RPCs.
+   security-definer RPCs. Seeding the ledger established that **no design addendum
+   excuses this**: ADD-007 covers deletion irreversibility, not the entry path. The
+   `Permission/holding` state is `missing` on all nine routed surfaces with no reason
+   available except that nobody wrote the test.
 
 A surface can be exhaustively tested in fixtures and still be broken for every real user.
 
@@ -43,8 +46,10 @@ surface × state × mode
 ```
 
 - **surface** — the twelve in `evidence/design-source-manifest.json`.
-- **state** — the 22 required states in `04-design-parity-standard.md §5`. That list is
-  authoritative; this file does not redefine it.
+- **state** — the required states in `04-design-parity-standard.md §5` (21 rows as
+  written). That list is authoritative and the ledger DERIVES from it rather than
+  restating it, so adding a row there opens a hole here instead of being silently
+  ignored. Do not hardcode the count anywhere, including in this sentence's spirit.
 - **mode** — `fixture` or `live`. A capability that works in only one mode is a defect,
   not a coverage detail.
 
