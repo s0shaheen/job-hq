@@ -41,7 +41,11 @@ RUN fc-list | sort > /opt/fonts.base && wc -l < /opt/fonts.base
 # Ubuntu 24.04 (noble) ships postgresql-16 in its own archive, so no PGDG repo and
 # no extra keyring. 16 is the version .github/workflows/ci.yml's `db` job uses.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends postgresql-16 postgresql-client-16 ca-certificates curl gnupg \
+ # jq is not decoration: scripts/land.sh parses `gh pr checks --json` with it,
+ # so without jq the land.sh scenario tests SKIP inside this image — the lane
+ # most work is verified in — while passing in CI. A test that is absent
+ # exactly where people look is worse than one that is simply missing.
+ && apt-get install -y --no-install-recommends postgresql-16 postgresql-client-16 ca-certificates curl gnupg jq \
  && rm -rf /var/lib/apt/lists/*
 
 # ── Node 22 ───────────────────────────────────────────────────────────────────
