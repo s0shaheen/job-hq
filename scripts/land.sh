@@ -143,14 +143,29 @@ ok "on branch ${BRANCH}"
 # ------------------------------------------------ refusal: dirty worktree
 
 step "Checking the worktree is clean"
-DIRTY="$(git status --porcelain --untracked-files=normal)"
+# TRACKED changes only. The property this protects is "the commits under test are
+# the commits being merged", and an untracked file cannot break it — it is not in
+# either. Refusing on untracked files made land.sh unusable in the real
+# repository, which carries the owner's own unversioned directories and personal
+# files that no branch has any business committing.
+#
+# Untracked files still get named, because the one way they DO matter is a new
+# source file the author forgot to `git add`: gates pass locally against the
+# working tree and CI then fails against the commit. Naming them is enough —
+# that failure is loud, attributable, and caught before the merge either way.
+DIRTY="$(git status --porcelain --untracked-files=no)"
 if [ -n "$DIRTY" ]; then
-  refuse 2 "The worktree is dirty." \
+  refuse 2 "The worktree has uncommitted TRACKED changes." \
     "Landing an unclean tree means the commits under test are not the commits" \
     "you are merging. Commit or stash first. Offending paths:" \
     "$(printf '%s' "$DIRTY" | head -20 | sed 's/^/    /')"
 fi
-ok "worktree clean"
+UNTRACKED="$(git ls-files --others --exclude-standard | head -10)"
+if [ -n "$UNTRACKED" ]; then
+  warn "untracked files present — not blocking, but check none of them belong in this branch:"
+  printf '%s\n' "$UNTRACKED" | sed 's/^/      /' >&2
+fi
+ok "no uncommitted tracked changes"
 
 # --------------------------------------------------------------- rebase
 
