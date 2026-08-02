@@ -30,67 +30,221 @@ def test_there_are_migrations():
     assert MIGRATIONS, "no migrations found — wrong path?"
 
 
-#: Migration numbers deliberately skipped on this branch, and by whom.
-#:
-#: The contiguity rule below exists because a gap normally means somebody's
-#: migration never got committed. Parallel branches cut from one commit break
-#: that assumption honestly: two sessions each claim a number up front so they
-#: cannot collide on merge, and until both land the tree has a hole in it.
-#:
-#: Asserted EXACT in both directions, the `KNOWN_UNNAMED_REVOKES` shape: an
-#: UNDECLARED gap still fails, and the day the reserved migration lands this list
-#: goes red until its line is deleted. A reservation nobody has to remove is a
-#: reservation that turns back into the silent hole it was standing in for.
-RESERVED_MIGRATION_NUMBERS: dict[int, str] = {
-    # 13 was reserved for the referral-finder branch; it merged (#81) and the
-    # reservation came out the same hour — the mechanism working as designed.
-    #
-    # 20–24 were the redesign's prerequisite spine (docs 07 §4), five branches cut
-    # from the same commit. E5 claimed 25 rather than 20 so that the four ahead of
-    # it keep the numbers they were planned with; a reservation is cheap and
-    # renumbering four branches mid-flight is not. 20 (#94), 23 (#102), and this
-    # branch's 21 came out as each landed — the mechanism working as designed.
-    22: "E1 — email events into Postgres",
-    24: "phase 0, if the owner takes that fork",
-    # 26 has to be DECLARED here rather than merely left empty, and only
-    # `feat/entitlement-model` can do it: contiguity is checked up to the highest
-    # migration that exists, so main — whose highest is 0025 — never had to name
-    # it. 0027 raises that ceiling, and the number under it turns from "nobody has
-    # got there yet" into a hole somebody has to account for.
-    #
-    # 25 was E5's own; `0025_display_prefs.sql` landed on main and the line came
-    # out on the rebase that pulled it in, the same way 20 did.
-    #
-    # 26 was declared by `feat/entitlement-model` because 0027 raised the
-    # contiguity ceiling over a number nobody had filed yet. `0026_resume.sql`
-    # landed with this branch and the line came out on the rebase that pulled it
-    # in, the same way 20, 21, 23 and 25 did — the mechanism working as designed.
-}
+# ────────────────────────────────────────────────────────── migration filenames
+#
+# Migrations used to be serially numbered, and a `RESERVED_MIGRATION_NUMBERS`
+# dict declared every gap so that a hole meant "somebody claimed it" rather than
+# "somebody's file never got committed". The mechanism worked, and it cost more
+# than it caught: the list is GLOBAL, so every parallel branch had to edit the
+# same lines, and every merge invalidated the next branch's copy. It was
+# hand-resolved four times in one session (0023, 0021, 0027, and again on 0026's
+# rebase) and never once caught a real defect.
+#
+# It is gone because the thing it was standing in for now exists for real.
+# `public.schema_migrations` (db/apply.sh) records what ACTUALLY applied, by
+# filename. A file that never got committed is not a gap in a number line any
+# more — it is a ledger row with no file, which `tests/db/test_apply.py` checks
+# against a live database, where the question can actually be answered.
+#
+# New migrations are stamped `YYYYMMDD_HHMMSS_name.sql` in UTC
+# (`scripts/new-migration.sh`), which is unique without coordination.
+#
+# `0001`–`0028` are NOT renamed, ever. They are in the production ledger by
+# filename; renaming one would present apply.sh with an unrecognised file and
+# re-run a migration against a live database. So both shapes are accepted
+# forever, and they sort correctly together because every serial name begins
+# `0` and every stamped name begins `2` — see `test_the_two_schemes_sort_together`.
+
+SERIAL_RE = re.compile(r"^\d{4}_[a-z0-9]+(?:_[a-z0-9]+)*\.sql$")
+STAMPED_RE = re.compile(r"^(\d{8})_(\d{6})_[a-z0-9]+(?:_[a-z0-9]+)*\.sql$")
+
+#: The serial migrations that exist. Frozen: this scheme is closed to new files,
+#: so anything matching `SERIAL_RE` that is not in here is somebody hand-writing
+#: a number in 2026 instead of running `scripts/new-migration.sh`.
+LEGACY_SERIAL_MIGRATIONS = frozenset(
+    f"{n:04d}" for n in list(range(1, 22)) + [23, 25, 26, 27, 28]
+)
 
 
-def test_migrations_are_contiguously_numbered():
-    """A gap means someone's migration never got committed — unless it is reserved."""
-    numbers = [int(m.name.split("_", 1)[0]) for m in MIGRATIONS]
-    assert numbers == sorted(set(numbers)), f"duplicate or unsorted migration numbers: {numbers}"
-    expected = [n for n in range(1, max(numbers) + 1) if n not in RESERVED_MIGRATION_NUMBERS]
-    assert numbers == expected, {
-        "found": numbers,
-        "expected": expected,
-        "reserved": RESERVED_MIGRATION_NUMBERS,
+def _classify(name: str) -> str:
+    if STAMPED_RE.match(name):
+        return "stamped"
+    if SERIAL_RE.match(name):
+        return "serial"
+    return "unrecognised"
+
+
+def test_every_migration_filename_has_an_accepted_shape():
+    """`NNNN_name.sql` (legacy, frozen) or `YYYYMMDD_HHMMSS_name.sql` (new).
+
+    Replaces the contiguity check. A name outside both shapes is a file apply.sh
+    will still happily run in whatever position `sort` puts it, which is exactly
+    the class of surprise the old numbering rule was defending against.
+    """
+    bad = [m.name for m in MIGRATIONS if _classify(m.name) == "unrecognised"]
+    assert not bad, (
+        f"migration filename(s) match neither accepted shape: {bad} — "
+        "new migrations are created with scripts/new-migration.sh"
+    )
+
+
+def test_no_new_serial_numbers_are_added():
+    """The serial scheme is closed. New work is timestamped, not numbered.
+
+    Without this, the whole change is advisory: somebody reads `0028` in the
+    directory listing, writes `0029`, and the collision problem is back with a
+    test that no longer notices.
+    """
+    serial = {m.name.split("_", 1)[0] for m in MIGRATIONS if _classify(m.name) == "serial"}
+    added = sorted(serial - LEGACY_SERIAL_MIGRATIONS)
+    assert not added, (
+        f"new serially numbered migration(s) {added} — that scheme is closed because "
+        "two branches always want the same number. Use scripts/new-migration.sh."
+    )
+
+
+def test_migration_filenames_are_unique_and_stamps_do_not_collide():
+    """Two migrations may not share a prefix.
+
+    `db/apply.sh` keys the ledger on the FILENAME, and orders by `sort`. Two files
+    stamped the same second are applied in an order decided by their trailing
+    names — a schema that depends on which description sorted first.
+    """
+    names = [m.name for m in MIGRATIONS]
+    assert len(names) == len(set(names)), f"duplicate migration filenames: {names}"
+
+    prefixes: dict[str, list[str]] = {}
+    for m in MIGRATIONS:
+        match = STAMPED_RE.match(m.name)
+        key = f"{match.group(1)}_{match.group(2)}" if match else m.name.split("_", 1)[0]
+        prefixes.setdefault(key, []).append(m.name)
+    collisions = {k: v for k, v in prefixes.items() if len(v) > 1}
+    assert not collisions, (
+        f"migrations share a prefix, so their apply order is decided by the name after it: "
+        f"{collisions}"
+    )
+
+
+def test_timestamp_prefixes_are_real_utc_datetimes():
+    """`20260231_051200_x.sql` matches the regexp and is not a date.
+
+    A prefix that is not a datetime sorts fine and lies about when the migration
+    was written, which is the only thing the prefix is for.
+    """
+    import datetime as dt
+
+    bad = []
+    for m in MIGRATIONS:
+        match = STAMPED_RE.match(m.name)
+        if not match:
+            continue
+        try:
+            stamp = dt.datetime.strptime(
+                f"{match.group(1)}{match.group(2)}", "%Y%m%d%H%M%S"
+            ).replace(tzinfo=dt.timezone.utc)
+        except ValueError as exc:
+            bad.append((m.name, str(exc)))
+            continue
+        # A stamp far in the future is a mistyped year, not a migration.
+        if stamp.year < 2026 or stamp.year > 2100:
+            bad.append((m.name, f"implausible year {stamp.year}"))
+    assert not bad, f"timestamp prefix is not a real UTC datetime: {bad}"
+
+
+# ──────────────────────────────────────────── the check that replaces the holes
+#
+# The contiguity rule answered one real question: "did somebody's migration fail
+# to get committed?" A number line could only guess at it. `schema_migrations`
+# knows: it lists what a database ACTUALLY ran, by filename.
+#
+# So the question becomes exact. Sort both sides. Every file on disk must either
+# be IN the ledger, or be NEWER than the newest thing the ledger has — i.e. it is
+# pending, not missing. A file that sorts BELOW the ledger high-water mark and is
+# not recorded is the real defect: a migration that was skipped, or one whose
+# file was deleted or renamed after it applied. That is the case renaming
+# `0001`–`0028` would manufacture on every single one of them.
+#
+# The function is pure so it can be proven against synthetic ledgers here;
+# `tests/db/test_migration_ledger.py` runs it against a real one.
+
+
+def ledger_gaps(disk: list[str], ledger: list[str]) -> dict[str, list[str]]:
+    """Migrations the ledger and the directory disagree about.
+
+    `skipped`  — on disk, not in the ledger, and older than the newest applied
+                 migration. Something ran past it.
+    `orphaned` — in the ledger with no file on disk. Deleted or renamed after it
+                 applied; the database has schema nobody can account for.
+    """
+    disk_set, ledger_set = set(disk), set(ledger)
+    high_water = max(ledger_set) if ledger_set else ""
+    return {
+        "skipped": sorted(n for n in disk_set - ledger_set if n < high_water),
+        "orphaned": sorted(ledger_set - disk_set),
     }
 
 
-def test_the_reserved_migration_list_is_exact():
-    """A reserved number that has LANDED must be removed from the list.
+def test_ledger_gaps_flags_a_skipped_migration():
+    """The defect the contiguity rule was really guarding against."""
+    disk = ["0001_init.sql", "0002_invariants.sql", "20260802_051200_c.sql"]
+    ledger = ["0001_init.sql", "20260802_051200_c.sql"]
+    assert ledger_gaps(disk, ledger)["skipped"] == ["0002_invariants.sql"]
 
-    Without this, `RESERVED_MIGRATION_NUMBERS` would grow into a permanent
-    licence to skip numbers, and the next real hole would hide inside it.
+
+def test_ledger_gaps_flags_a_renamed_migration():
+    """Renaming an applied migration is what requirement 1 forbids, seen from the db."""
+    applied = ["0001_init.sql", "0002_invariants.sql"]
+    renamed = ["0001_init.sql", "20260802_051200_invariants.sql"]
+    gaps = ledger_gaps(renamed, applied)
+    assert gaps["orphaned"] == ["0002_invariants.sql"]
+    # …and apply.sh would re-run the renamed file, because it is above high water.
+    assert gaps["skipped"] == []
+
+
+def test_ledger_gaps_allows_a_pending_new_migration():
+    """A branch's unapplied migration is newer than high water, and is NOT a defect."""
+    disk = ["0001_init.sql", "0028_x.sql", "20260802_051200_new.sql"]
+    ledger = ["0001_init.sql", "0028_x.sql"]
+    assert ledger_gaps(disk, ledger) == {"skipped": [], "orphaned": []}
+
+
+def test_ledger_gaps_is_clean_when_they_agree():
+    both = ["0001_init.sql", "0028_x.sql", "20260802_051200_new.sql"]
+    assert ledger_gaps(both, list(both)) == {"skipped": [], "orphaned": []}
+
+
+def test_the_two_schemes_sort_together():
+    """`0028_x.sql` must sort before `20260802_051200_x.sql`, stably.
+
+    This is the load-bearing property of the whole change: `db/apply.sh` applies
+    files in `ls *.sql | sort` order, so if a stamped file ever sorted BEFORE a
+    serial one it would be applied before the tables it depends on. It holds
+    because every serial name starts `0` and every stamped one starts `2`.
+
+    Python's `sorted` is bytewise; `sort(1)` is locale-dependent, so the shell
+    side of this claim is proven in the PR body across C/POSIX/en_US.UTF-8.
     """
-    present = {int(m.name.split("_", 1)[0]) for m in MIGRATIONS}
-    landed = sorted(present & set(RESERVED_MIGRATION_NUMBERS))
-    assert not landed, (
-        f"migration(s) {landed} exist but are still listed as reserved — "
-        "delete their lines from RESERVED_MIGRATION_NUMBERS"
+    mixed = [
+        "20260802_051200_a.sql",
+        "0001_init.sql",
+        "20270101_000000_next.sql",
+        "0028_resume_entitlement.sql",
+        "20260802_051201_b.sql",
+        "0002_invariants.sql",
+    ]
+    assert sorted(mixed) == [
+        "0001_init.sql",
+        "0002_invariants.sql",
+        "0028_resume_entitlement.sql",
+        "20260802_051200_a.sql",
+        "20260802_051201_b.sql",
+        "20270101_000000_next.sql",
+    ]
+    # And the real directory: every serial file precedes every stamped one.
+    kinds = [_classify(m.name) for m in MIGRATIONS]
+    assert kinds == sorted(kinds, key=lambda k: 0 if k == "serial" else 1), (
+        "a stamped migration sorts before a serial one — apply order is no longer "
+        f"legacy-then-new: {[m.name for m in MIGRATIONS]}"
     )
 
 

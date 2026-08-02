@@ -86,7 +86,9 @@ Deliver:
 - owner-decision ledger and design-bundle digest;
 - dirty-worktree exclusion list.
 
-Blocker rule: no build packet starts from a guessed base or planned migration number.
+Blocker rule: no build packet starts from a guessed base commit. Migration filenames are
+no longer planned or guessed at all — `scripts/new-migration.sh` stamps them
+(`YYYYMMDD_HHMMSS_name.sql`, UTC), so parallel packets cannot collide on one.
 
 #### RM-01 Git database-dump containment
 

@@ -34,6 +34,38 @@ sheet stays the system of record until stage 3 flips triage writes to the app.
    - `0004_audit_hardening.sql` — revokes the privileges RLS does not reach.
      Without it a signed-in browser session can `truncate public.events` and
      empty the append-only trail, for every user, in one statement.
+   Adding a migration: run **`scripts/new-migration.sh <name>`**. It creates
+   `db/migrations/YYYYMMDD_HHMMSS_<name>.sql` stamped in UTC. Do not hand-format
+   the filename, and do not add a new serial number — see below.
+
+   ### Filenames: `0001`–`0028` are serial, everything after is a timestamp
+
+   Migrations used to be numbered `0001`, `0002`, … assigned serially at build
+   time. That made the filename a **shared resource**: two branches cut from the
+   same commit both wanted the next number, so every parallel branch had to edit
+   one global `RESERVED_MIGRATION_NUMBERS` list in `tests/core/test_migrations.py`
+   declaring which number it had claimed — and every merge invalidated the next
+   branch's copy of that list. It was hand-resolved four times in one session
+   and never caught a real defect, because the defect it was designed to catch
+   (a migration that never got committed) is now recorded for real in
+   `public.schema_migrations`.
+
+   So new migrations are stamped `YYYYMMDD_HHMMSS_name.sql` in UTC, which is
+   unique without anyone coordinating. **The serial-integrator rule is
+   unchanged** — one person still integrates and reviews migrations, in order.
+   What went away is the mechanical renumbering, not the review.
+
+   **`0001`–`0028` are never renamed.** They are recorded in the production
+   ledger by filename. Rename one and `apply.sh` sees a file it has no row for
+   and runs it again — against a live database, where `0001_init.sql` alone is
+   an unguarded `create table allowed_emails`.
+
+   The two schemes sort correctly together, which matters because `apply.sh`
+   applies in `ls *.sql | sort` order: every serial name begins with `0` and
+   every stamped name begins with `2`, so the legacy files always apply first.
+   Verified in C, POSIX and en_US.UTF-8 collations, and asserted in
+   `tests/core/test_migrations.py` and `tests/db/test_migration_ledger.py`.
+
 3. **Allowlist the family** — SQL editor:
    ```sql
    insert into allowed_emails (email, name, is_operator) values

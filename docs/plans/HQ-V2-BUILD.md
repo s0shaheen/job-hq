@@ -75,7 +75,9 @@ fork). Salman authorized autonomous build + merge (2026-07-23).
 **Landmines (from the repo audit — honor these):**
 - Durability contract is **single-threaded**: `sheets.py` is the only sheet write path;
   new columns go through `schema.py` + bootstrap/self-heal, never positional; migrations are
-  **append-only, serially numbered** (five plans once all collided on `0003`).
+  **append-only** (five plans once all collided on `0003`). Serial NUMBERING is superseded:
+  the scheme closed at `0028` and new files are stamped `YYYYMMDD_HHMMSS_name.sql` by
+  `scripts/new-migration.sh` — see `db/README.md`. Collisions were the reason.
 - Webapp "don't re-litigate": no `revalidatePath("/queue")`; demo stores keyed by cookie;
   **`npm install` not `npm ci`** (Tailwind v4 oxide binary); visual snapshots are
   **linux-only / opt-in** (separate CI job); undeliverable notifications are *kept* not
@@ -220,9 +222,12 @@ all migrations, anything touching `core/schema.py` / `core/sheets.py` / the grid
   chunks, reports per column, and undoes the whole batch in one gesture. Matrix rows
   **140-163** in `docs/WEBAPP-BUILD.md`.
 
-  **Numbering note for the next session:** this is migration **0011**, not the 0003 the plan
+  **Numbering note (HISTORICAL — the serial scheme closed at `0028`; new migrations are
+  timestamp-stamped by `scripts/new-migration.sh` and cannot collide, so none of the
+  advice in this paragraph applies to new work):** this is migration **0011**, not the
+  0003 the plan
   pencilled or the 0009/0010 the phase list above guesses. Migrations are assigned serially AT
-  BUILD TIME and `test_migrations_are_contiguously_numbered` is the tripwire. The phase list's
+  BUILD TIME and `test_migrations_are_contiguously_numbered` (since deleted) is the tripwire. The phase list's
   parenthesised numbers are aspirations, not reservations — **P9 Profile takes 0012.** Also
   worth knowing: the phase list calls Import "P10" and this log calls it P9, because the
   Profile wizard was ordered ahead of it and then was not built first. The number is not the

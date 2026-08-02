@@ -39,8 +39,11 @@ stale plan. “Implemented on a branch” does not mean integrated, deployed, or
   handoff rule; do not merge or deploy without authorization. A `main` change touching
   `resume/**` can publish the owner’s resume.
 - Preserve unrelated worktree changes. Never hand-edit `hq.config.yaml`.
-- Migrations are append-only, uniquely and serially numbered by one integrator. Do not
-  guess or reserve a number in parallel. Audit ownership, grants, RLS, constraints, and
+- Migrations are append-only and integrated serially by one integrator. Create the file
+  with `scripts/new-migration.sh <name>`, which stamps `YYYYMMDD_HHMMSS_name.sql` in UTC;
+  never hand-format a filename and never add a new serial number. `0001`–`0028` keep
+  their numbers forever — the production `schema_migrations` ledger records them by
+  filename, so renaming one re-runs it. Audit ownership, grants, RLS, constraints, and
   security-definer search paths.
 - User ownership is derived from authentication at the database/RPC boundary. Unknown,
   pending, suspended, removed, or wrong-owner access defaults to deny.

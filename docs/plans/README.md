@@ -171,6 +171,11 @@ resolutions here override the individual plans where they conflict.
 > once and only `test_migrations_are_contiguously_numbered` caught it. The
 > reservation worked in both directions: the guard refused an undeclared gap while
 > 0013 was in flight, and went red on the reserved line the day it landed.
+> **Superseded.** Reservations kept working and kept costing: the list was global, so
+> every parallel branch edited it and every merge invalidated the next branch's copy —
+> four hand-resolved conflicts in one session. The serial scheme closed at `0028`;
+> new migrations are stamped by `scripts/new-migration.sh` and the guard is now a
+> filename-shape and `schema_migrations` ledger check. See `db/README.md`.
 >
 > Two places this build **deviated from REFERRAL-FINDER.md on purpose**:
 >

@@ -11,8 +11,10 @@ wrong-owner identity is denied at all authoritative boundaries.
 
 Map base commits, diffs, migrations, shared files, tests, known defects, and merge order
 for dictionary/anti-slop, Jobs, `0021`, `0023`, missing `0024`, `0025`, `0026`, and
-`0027`. Record `0022` as explicitly excluded future work. Reserve migration numbers
-serially.
+`0027`. Record `0022` as explicitly excluded future work. Do not reserve migration
+numbers: the serial scheme is closed at `0028` and new migrations are stamped by
+`scripts/new-migration.sh`. Integration ORDER is still decided serially by the
+integrator; only the filename stopped being a shared resource.
 
 ### PKT-01B Empty/install and upgrade harness
 

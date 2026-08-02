@@ -307,7 +307,9 @@ Every packet inherits:
 - never touch owner/private resume content unless the packet is the approved vault split;
 - never write Google Sheets in the final product;
 - while transitional code exists, no Sheet write may bypass `core.sheets.Tab`;
-- never invent a migration number before the serial integrator reserves it;
+- never hand-format a migration filename or add a new serial number — run
+  `scripts/new-migration.sh <name>`, and leave integration order to the serial
+  integrator;
 - never expose service credentials to browser bundles;
 - never change visible design without the owner design source or an approved addendum;
 - every new data-source method includes fixture behavior; and
