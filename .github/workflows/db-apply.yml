@@ -17,6 +17,10 @@ on:
       confirm:
         description: 'Type "apply" to run db/apply.sh against production'
         required: true
+      seed_through:
+        description: 'One-time ledger adoption: mark files up to and including this filename as already applied (see db/apply.sh header). Leave empty for a normal run.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -51,6 +55,7 @@ jobs:
       - name: Apply migrations
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SEED_THROUGH: ${{ inputs.seed_through }}
         run: |
           set -euo pipefail
           PATH="/usr/lib/postgresql/17/bin:$PATH" db/apply.sh

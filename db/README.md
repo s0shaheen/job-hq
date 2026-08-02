@@ -12,8 +12,11 @@ sheet stays the system of record until stage 3 flips triage writes to the app.
    whole workload is well under 500 MB; daily engine writes keep the free
    project from pausing). Region: us-central.
 2. **Run every file in `db/migrations/`, in filename order** — from a laptop:
-   `DATABASE_URL='postgresql://…' db/apply.sh` (applies the whole directory in
-   order, fails loud, prints the app_* function count as a sanity check). The
+   `DATABASE_URL='postgresql://…' db/apply.sh` (applies each file exactly once,
+   recorded in `public.schema_migrations`; fails loud, prints the ledger and
+   app_* function counts as a sanity check — see the script header for the
+   one-time `SEED_THROUGH` adoption of a database provisioned before the
+   ledger existed). In CI this is the dispatch-only `DB apply` workflow. The
    browser-only fallback is the SQL editor → paste one, run, next. The rule is the directory listing, not the list
    below: this step used to name 0001 and 0002 and stayed that way after 0003
    shipped, so an operator who followed it provisioned a database with no
