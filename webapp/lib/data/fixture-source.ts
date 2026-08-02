@@ -447,28 +447,74 @@ export class FixtureDataSource implements DataSource {
     this.failNext = message;
   }
 
+  /**
+   * `companyNameKey` → domain, out of the COMPANY universe — the fixture half of
+   * `SupabaseDataSource.companyDomains()`, and the reason it exists at all.
+   *
+   * A posting carries a company NAME and no FK to `companies`, so in production a
+   * job's `companyDomain` is RESOLVED from the user's company universe by name key
+   * and is null for every company outside it. The fixture set used to hard-code
+   * `companyDomain` on the job seeds instead, which made the fake strictly more
+   * generous than the real client in the way this project has now been bitten five
+   * times: `Plaid`, `Mercury`, `Modern Treasury` and `Stripe` all carried a domain in
+   * the demo and would render a monogram in production, because none of them is in
+   * the company universe — and the LogoAvatar is being built against that demo. A
+   * component tuned on a fixture where most rows have a logo would ship for a product
+   * where most rows do not.
+   *
+   * Derived per call rather than cached: `setCompanyDomain`-shaped writes do not
+   * exist yet, but `resolveCompany`/`setCompanyReview` mutate `companiesById`, and a
+   * map built in the constructor would answer from before the write.
+   */
+  private companyDomains(): Map<string, string> {
+    const map = new Map<string, string>();
+    for (const c of this.companiesById.values()) {
+      const key = companyNameKey(c.name);
+      if (key && c.domain) map.set(key, c.domain);
+    }
+    return map;
+  }
+
+  /**
+   * Fold the company-domain map onto a batch of jobs — `SupabaseDataSource`'s
+   * `applyDomains`, with the same "missing → null" ending. Not `?? j.companyDomain`:
+   * on the Supabase side that fallback reads a field `toJobView` always sets to null,
+   * so keeping a seeded value here would be the divergence, not the parity.
+   */
+  private applyDomains(jobs: JobView[]): JobView[] {
+    const domains = this.companyDomains();
+    return jobs.map((j) => ({
+      ...j,
+      companyDomain: domains.get(companyNameKey(j.company)) ?? null,
+    }));
+  }
+
   async queue(opts: QueueOptions = {}): Promise<JobView[]> {
     const limit = opts.limit ?? DEFAULT_QUEUE_LIMIT;
-    return [...this.jobsByKey.values()]
-      // The third clause is acceptance criterion 16 and it was missing here
-      // while `SupabaseDataSource.queue()` has always had it
-      // (`.neq("postings.status", "Closed")`). A fake more permissive than the
-      // real client is how this project has been bitten four times now: the
-      // fixture would have served a delisted role as decidable work, and no
-      // test could have caught it because no fixture was Closed.
-      .filter(
-        (j) =>
-          j.disposition === "qualified" &&
-          j.triage === "" &&
-          (j.status ?? "").trim().toLowerCase() !== "closed",
-      )
-      .sort(byFreshness)
-      .slice(0, limit)
-      .map((j) => ({ ...j }));
+    return this.applyDomains(
+      [...this.jobsByKey.values()]
+        // The third clause is acceptance criterion 16 and it was missing here
+        // while `SupabaseDataSource.queue()` has always had it
+        // (`.neq("postings.status", "Closed")`). A fake more permissive than the
+        // real client is how this project has been bitten four times now: the
+        // fixture would have served a delisted role as decidable work, and no
+        // test could have caught it because no fixture was Closed.
+        .filter(
+          (j) =>
+            j.disposition === "qualified" &&
+            j.triage === "" &&
+            (j.status ?? "").trim().toLowerCase() !== "closed",
+        )
+        .sort(byFreshness)
+        .slice(0, limit)
+        .map((j) => ({ ...j })),
+    );
   }
 
   async jobs(): Promise<JobView[]> {
-    return [...this.jobsByKey.values()].sort(byFreshness).map((j) => ({ ...j }));
+    return this.applyDomains(
+      [...this.jobsByKey.values()].sort(byFreshness).map((j) => ({ ...j })),
+    );
   }
 
   async applications(): Promise<ApplicationView[]> {
@@ -1178,6 +1224,8 @@ export class FixtureDataSource implements DataSource {
         // company nobody has looked up.
         linkedinCompanyId: "",
         linkedinIdSource: "",
+        // And no domain: nothing has harvested one for a name pasted this instant.
+        domain: null,
         updatedAt: new Date(
           new Date(FIXTURE_NOW).getTime() + this.companySeq * 1000,
         ).toISOString(),

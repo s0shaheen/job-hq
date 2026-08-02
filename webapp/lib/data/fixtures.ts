@@ -81,6 +81,22 @@ function job(seed: Seed): JobView {
     dispositionReason: "",
     triage: "",
     snoozeUntil: null,
+    // NOT SETTABLE ON A JOB SEED, and that is the point. In production a job's
+    // domain is not a posting column at all: `SupabaseDataSource` resolves it from
+    // the user's COMPANY universe by name key, so a posting whose employer is not in
+    // that universe has no domain and renders a monogram. `FixtureDataSource` now
+    // derives it the same way (`applyDomains`), which is why the seeds below no
+    // longer carry one.
+    //
+    // The seeds used to hard-code `companyDomain: "plaid.com"`, `"mercury.com"`,
+    // `"stripe.com"` and `"moderntreasury.com"` — none of those four companies is in
+    // FIXTURE_COMPANIES, so the demo showed logos where production shows initials,
+    // and the LogoAvatar is being built against the demo. Both branches stay
+    // reachable through companies that exist on BOTH sides: `Ramp` and `Databricks`
+    // carry a domain in the company universe (the logo.dev branch), `Fifth Third
+    // Bank` is in the universe with no domain harvested yet, and everything else is
+    // outside it — the three states, honestly (matrix row 15).
+    companyDomain: null,
     updatedAt: stampAgo(5),
     ...seed,
   };

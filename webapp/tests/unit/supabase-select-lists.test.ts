@@ -158,6 +158,12 @@ type Case = {
 
 const CASES: Case[] = [
   {
+    table: "companies (domain embed in user_companies)",
+    mapper: "toCompanyDomainEntry",
+    variable: "c",
+    select: () => constLiteral("COMPANY_DOMAIN_COLS"),
+  },
+  {
     // THE case this file was written for.
     table: "companies (embedded in user_companies)",
     mapper: "toCompanyView",
@@ -275,6 +281,12 @@ describe("every column a mapper reads is a column the query selects", () => {
     // Guards every case below from passing vacuously on a parse failure — the same
     // guard tests/core/test_migrations.py carries for its SQL parser.
     expect(selectColumns(constLiteral("COMPANY_COLS")).size).toBeGreaterThan(5);
+    expect(selectColumns(constLiteral("COMPANY_DOMAIN_COLS"))).toEqual(
+      new Set(["name", "domain"]),
+    );
+    expect(readsOf(functionSource("toCompanyDomainEntry"), "c")).toEqual(
+      new Set(["domain", "name"]),
+    );
     expect(readsOf(functionSource("toCompanyView"), "c").size).toBeGreaterThan(5);
     expect(functionSource("toJobView")).toContain("parseCompRange");
   });
@@ -323,5 +335,14 @@ describe("the column that started this", () => {
     const cols = selectColumns(constLiteral("COMPANY_COLS"));
     expect(cols).toContain("linkedin_company_id");
     expect(cols).toContain("linkedin_id_source");
+  });
+
+  it("COMPANY_COLS asks for domain (the LogoAvatar's key)", () => {
+    // MUTATION REASON: drop `domain` from COMPANY_COLS and `toCompanyView` reads a key
+    // the select never requested — `str(undefined)` → null — so every company logo
+    // renders the monogram against a real database while the fixtures show logos,
+    // exactly the 0016 `linkedin_id_source` regression this file was written for, one
+    // column over. The generic case above also goes red; this one NAMES the field.
+    expect(selectColumns(constLiteral("COMPANY_COLS"))).toContain("domain");
   });
 });

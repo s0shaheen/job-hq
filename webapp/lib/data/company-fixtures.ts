@@ -43,11 +43,12 @@ function at(offsetSeconds: number): string {
  */
 type Seed = Omit<
   CompanyView,
-  "key" | "linkedinCompanyId" | "linkedinIdSource" | "companyUpdatedAt"
+  "key" | "linkedinCompanyId" | "linkedinIdSource" | "domain" | "companyUpdatedAt"
 > & {
   key?: string;
   linkedinCompanyId?: string;
   linkedinIdSource?: string;
+  domain?: string | null;
   companyUpdatedAt?: string;
 };
 
@@ -58,6 +59,10 @@ function company(seed: Seed): CompanyView {
     // has to say who set it — the two are one fact and the demo would otherwise
     // render every id as bot-written.
     linkedinIdSource: "",
+    // No domain harvested yet — the LogoAvatar's monogram branch, which is the
+    // state MOST rows start in. The few rows below that set one give the logo.dev
+    // branch a company to render, so neither ships unlooked-at (matrix row 15).
+    domain: null,
     // The SHARED row's token. Deliberately a DIFFERENT value from `updatedAt`:
     // if the fixture made them equal, a caller sending the wrong one would work
     // in the demo and conflict in production — the fake being kinder than the
@@ -91,6 +96,8 @@ export const FIXTURE_COMPANIES: CompanyView[] = [
     // This is also the row `visual.spec.ts` screenshots, so it is the row that must
     // keep rendering exactly what it rendered before 0016.
     linkedinIdSource: "human",
+    // A harvested domain, so the LogoAvatar's logo.dev branch has a company to render.
+    domain: "ramp.com",
   }),
   company({
     id: 102,
@@ -114,6 +121,7 @@ export const FIXTURE_COMPANIES: CompanyView[] = [
     // no popover baseline opens, so the control is covered by the functional e2e
     // project and no screenshot has to be re-recorded to see it.
     linkedinIdSource: "engine",
+    domain: "databricks.com",
   }),
   // Workday via the careers-page redirect, confirmed by a CXS jobs POST — the
   // grounded keystone of the Dad universe (research: 12/32 fingerprinted here).
@@ -130,6 +138,7 @@ export const FIXTURE_COMPANIES: CompanyView[] = [
     priority: false,
     seeded: false,
     updatedAt: at(2),
+    domain: "northerntrust.com",
   }),
   // Two states in one row, both of which a comfortable fixture set would hide:
   //

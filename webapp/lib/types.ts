@@ -183,6 +183,20 @@ export type Company = {
    * exactly 'human' reads as not-human.
    */
   linkedin_id_source: string;
+  /**
+   * The company's domain as a bare host — the LogoAvatar's key (0021), '' until the
+   * engine harvests it off a TheirStack `company_object`. NOT NULL with a '' default,
+   * so it arrives as an empty string, never null (the mirror inserts name/ats/slug
+   * only). Free-vocab and canonicalized at the door (`hq_normalize_domain`), like
+   * `linkedin_company_id` beside it.
+   */
+  domain: string;
+  /**
+   * Who last answered `domain` (0021): 'human' | 'engine' | ''. `linkedin_id_source`'s
+   * twin, for the day a domain-correction control exists; anything not exactly 'human'
+   * reads as not-human.
+   */
+  domain_source: string;
   updated_at: string;
 };
 

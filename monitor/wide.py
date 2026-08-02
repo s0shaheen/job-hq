@@ -41,11 +41,13 @@ date or company identifier — see theirstack_body. TheirStack failure logs and
 continues; it is never fatal.
 
 Each TheirStack row also carries `company_object` firmographics, LinkedIn company
-id included (probe #2, 2026-07-26). `_harvest_linkedin` copies that id into the pg
-universe's blank cells on rows this sweep has ALREADY bought — zero extra requests
-and zero extra credits — which is what stops the referral finder's deep links
-depending on somebody pasting 640 numbers by hand. `monitor/linkedin_backfill.py`
-owns the write path and the bounded probe for companies this sweep never fences to.
+id AND `domain` included (probe #2, 2026-07-26; both fields measured 2026-07-27).
+`_harvest_linkedin` copies BOTH into the pg universe's blank cells on rows this sweep
+has ALREADY bought — zero extra requests and zero extra credits — which is what stops
+the referral finder's deep links depending on somebody pasting 640 numbers by hand,
+and gives the LogoAvatar (0021) a domain to key on. `monitor/linkedin_backfill.py`
+owns both write paths (`fill`, `fill_domains`) and the bounded id probe for companies
+this sweep never fences to.
 """
 from __future__ import annotations
 
@@ -317,66 +319,90 @@ def _default_client_factory(token: str):
     return ApifyClient(token)
 
 
-def _harvest_linkedin(hq, jobs: list[dict], *, session=None) -> tuple[int, int]:
-    """Copy the LinkedIn company ids off rows this run ALREADY bought.
+def _harvest_linkedin(hq, jobs: list[dict], *,
+                      session=None) -> tuple[int, int, int, int]:
+    """Copy the LinkedIn company id AND the DOMAIN off rows this run ALREADY bought.
 
-    Every TheirStack job carries a `company_object` with firmographics, LinkedIn id
-    included — measured 2026-07-27: `linkedin_id` is a NUMERIC STRING ("1304385"
-    AbbVie, "10135152" Commonwealth of KY), while `linkedin_url` carries the slug
-    form. So the id-field-first read below is the one that pays, and the URL
-    fallback is the rare path rather than the expected one.
+    Every TheirStack job carries a `company_object` with firmographics — measured
+    2026-07-27: `linkedin_id` is a NUMERIC STRING ("1304385" AbbVie), `linkedin_url`
+    the slug form, and `domain` a bare host ("abbvie.com"). Both facts ride the SAME
+    payload the sweep already parses for the Feed, and both were going in the bin: the
+    id was the referral finder's only-a-paste-box column (0016), the domain is the
+    LogoAvatar's key (0021). Harvested here, they are **zero extra requests, zero
+    extra credits** — one pass over the page this run already paid for.
 
-    The sweep was already parsing this payload for the Feed and dropping the id,
-    while the referral finder's only source for it was a per-company paste box.
-    This is the same data, kept: **zero extra requests, zero extra credits.**
+    The two are INDEPENDENT: a row can carry a domain and no id, or an id and no
+    domain, so neither short-circuits the other — the early return fires only when the
+    page yields neither, and each half is filled through its own door
+    (`hq_fill_linkedin_company_id`, `hq_fill_domain`).
 
-    EVERY LINE IS INSIDE THE ENVELOPE, including the import and the parse. The
-    first version put both outside, so a single `null` element in a TheirStack page
-    raised `AttributeError` out of the harvest, into wide's TheirStack handler, and
-    threw away the whole bought page — 0 postings appended where `main` appended 1,
-    exit code 0, heartbeat written, watchdog quiet. An enrichment that can eat the
-    sweep's primary product is not best-effort, whatever its docstring says.
+    EVERY LINE IS INSIDE THE ENVELOPE, including the imports and both parses. The
+    first version put the id parse outside, so a single `null` element in a TheirStack
+    page raised out of the harvest, into wide's TheirStack handler, and threw away the
+    whole bought page — 0 postings where `main` appended 1, exit code 0, heartbeat
+    written, watchdog quiet. An enrichment that can eat the sweep's primary product is
+    not best-effort, whatever its docstring says.
 
-    Best-effort is still the posture, and it is a deliberate exception to
-    "fail loud": this rides a lane that is itself optional, writes to a column whose
-    emptiness is the normal pre-feature state, and `monitor.linkedin_backfill` picks
-    up anything dropped. The failure is logged to the Log tab and counted in the
-    summary, so it is visible rather than swallowed.
+    Best-effort is still the posture, and it is a deliberate exception to "fail loud":
+    this rides a lane that is itself optional, writes to columns whose emptiness is the
+    normal pre-feature state, and `monitor.linkedin_backfill` (ids) / the next sweep
+    (domains) pick up anything dropped. Both failures are logged and counted, so they
+    are visible rather than swallowed.
 
-    Returns (ids the payload carried, blanks actually filled).
+    Returns (ids seen, ids filled, domains seen, domains filled).
     """
     pairs: list[tuple[str, str]] = []
+    domain_pairs: list[tuple[str, str]] = []
     try:
         from monitor import linkedin_backfill   # local: keeps pg off cafe-only runs
 
         pairs = linkedin_backfill.harvest_all(jobs)
-        if not pairs:
-            return 0, 0
+        domain_pairs = linkedin_backfill.harvest_all_domains(jobs)
+        if not pairs and not domain_pairs:
+            return 0, 0, 0, 0
         from core import pg, pgwrites
         user_id = pgwrites.user_id() if pg.enabled() else ""
         if not user_id:
             # Pre-provisioning, or a lane with no pg block. Not a failure, and not
-            # silent either: the ids were there and went nowhere.
-            print(f"[wide] linkedin: {len(pairs)} id(s) harvested but the v2 store is "
-                  f"not configured for this lane — not stored", file=sys.stderr)
-            return len(pairs), 0
-        out = linkedin_backfill.fill(pairs, user_id, source="wide-theirstack",
-                                     session=session)
-        filled = out["counts"]["filled"]
-        print(f"[wide] linkedin: harvested={len(pairs)} filled={filled} "
-              f"already_set={out['counts']['already_set']} "
-              f"human_owned={out['counts']['human_owned']} "
-              f"no_company={out['counts']['no_company']} errors={len(out['errors'])}",
-              file=sys.stderr)
-        if out["errors"]:
-            hq.log("wide", "linkedin_error", detail="; ".join(out["errors"])[:450])
-        return len(pairs), filled
+            # silent either: the facts were there and went nowhere.
+            print(f"[wide] linkedin/domain: {len(pairs)} id(s) + {len(domain_pairs)} "
+                  f"domain(s) harvested but the v2 store is not configured for this "
+                  f"lane — not stored", file=sys.stderr)
+            return len(pairs), 0, len(domain_pairs), 0
+
+        filled = 0
+        if pairs:
+            out = linkedin_backfill.fill(pairs, user_id, source="wide-theirstack",
+                                         session=session)
+            filled = out["counts"]["filled"]
+            print(f"[wide] linkedin: harvested={len(pairs)} filled={filled} "
+                  f"already_set={out['counts']['already_set']} "
+                  f"human_owned={out['counts']['human_owned']} "
+                  f"no_company={out['counts']['no_company']} errors={len(out['errors'])}",
+                  file=sys.stderr)
+            if out["errors"]:
+                hq.log("wide", "linkedin_error", detail="; ".join(out["errors"])[:450])
+
+        domain_filled = 0
+        if domain_pairs:
+            dout = linkedin_backfill.fill_domains(domain_pairs, user_id,
+                                                  source="wide-theirstack", session=session)
+            domain_filled = dout["counts"]["filled"]
+            print(f"[wide] domain: harvested={len(domain_pairs)} filled={domain_filled} "
+                  f"already_set={dout['counts']['already_set']} "
+                  f"human_owned={dout['counts']['human_owned']} "
+                  f"no_company={dout['counts']['no_company']} errors={len(dout['errors'])}",
+                  file=sys.stderr)
+            if dout["errors"]:
+                hq.log("wide", "domain_error", detail="; ".join(dout["errors"])[:450])
+
+        return len(pairs), filled, len(domain_pairs), domain_filled
     except Exception as e:
         hq.log("wide", "linkedin_error", detail=f"{type(e).__name__}: {e}"[:450])
-        print(f"::warning title=wide linkedin harvest failed::{type(e).__name__}: "
+        print(f"::warning title=wide harvest failed::{type(e).__name__}: "
               f"{str(e)[:200]} — the sweep's postings are unaffected; "
-              f"monitor.linkedin_backfill picks these up")
-        return len(pairs), 0
+              f"monitor.linkedin_backfill and the next sweep pick these up")
+        return len(pairs), 0, len(domain_pairs), 0
 
 
 @dataclass
@@ -390,11 +416,13 @@ class WideSummary:
     appended: int = 0
     pushed: int = 0
     cursor: str = ""
-    # LinkedIn company ids riding free on the TheirStack rows this run already
-    # bought — see _harvest_linkedin. `seen` counts what the payload carried,
-    # `filled` what was actually still blank in the store.
+    # LinkedIn company ids AND company domains riding free on the TheirStack rows
+    # this run already bought — see _harvest_linkedin. `seen` counts what the payload
+    # carried, `filled` what was actually still blank in the store.
     linkedin_seen: int = 0
     linkedin_filled: int = 0
+    domain_seen: int = 0
+    domain_filled: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -610,10 +638,12 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
     # that unreachable, and this ordering makes it unreachable twice.
     #
     # `ts_jobs` is the WHOLE page, not the rows that survived the title gate: the id
-    # is a fact about the EMPLOYER, the row is bought either way, and a company whose
-    # only match this week is a Sales role would otherwise keep its empty cell.
+    # and the domain are facts about the EMPLOYER, the row is bought either way, and a
+    # company whose only match this week is a Sales role would otherwise keep its empty
+    # cells.
     if ts_jobs:
-        s.linkedin_seen, s.linkedin_filled = _harvest_linkedin(hq, ts_jobs, session=session)
+        (s.linkedin_seen, s.linkedin_filled,
+         s.domain_seen, s.domain_filled) = _harvest_linkedin(hq, ts_jobs, session=session)
 
     pushable = [r for r in new_records
                 if r.get("disposition") != gates.FILTERED   # qualified-only pushes (WS1)
@@ -635,7 +665,8 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
 
     hq.log("wide", "sweep", detail=f"cafe={s.fetched} theirstack={s.ts_fetched} "
                                    f"appended={s.appended} pushed={s.pushed} "
-                                   f"linkedin={s.linkedin_filled}/{s.linkedin_seen}")
+                                   f"linkedin={s.linkedin_filled}/{s.linkedin_seen} "
+                                   f"domain={s.domain_filled}/{s.domain_seen}")
     hq.heartbeat(_beat(sources))
     s.ok = True
     return s
@@ -660,7 +691,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(f"[wide] skipped={s.skipped} cafe={s.fetched} theirstack={s.ts_fetched} "
           f"appended={s.appended} pushed={s.pushed} "
-          f"linkedin={s.linkedin_filled}/{s.linkedin_seen} errors={len(s.errors)}",
+          f"linkedin={s.linkedin_filled}/{s.linkedin_seen} "
+          f"domain={s.domain_filled}/{s.domain_seen} errors={len(s.errors)}",
           file=sys.stderr)
     if s.errors:
         print(f"[wide] errors: {'; '.join(s.errors)}", file=sys.stderr)

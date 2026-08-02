@@ -184,7 +184,8 @@ const APPLICATION_COLS =
   "id, posting_key, company, title, url, status, status_actor, suggested_status, " +
   "evidence, applied_date, next_action, next_action_date, notes, updated_at";
 const COMPANY_COLS =
-  "id, name, ats, slug, source, reliability_tier, resolution_method, linkedin_company_id, linkedin_id_source, updated_at";
+  "id, name, ats, slug, source, reliability_tier, resolution_method, linkedin_company_id, linkedin_id_source, domain, updated_at";
+const COMPANY_DOMAIN_COLS = "name, domain";
 
 /**
  * One string literal, for COMPANY_COLS' reason: `postgrest-js` parses the select
@@ -335,6 +336,25 @@ function uuidOrThrow(userId: string): string {
 }
 
 /**
+ * One user_companies row from the cosmetic domain lookup → its name-key/domain pair.
+ *
+ * Keep this mapper narrower than `toCompanyView`: queue/jobs need only the two fields
+ * that join a posting's company name to its logo key. A malformed or blank embed is
+ * absent enrichment, never a guessed domain.
+ */
+function toCompanyDomainEntry(
+  uc: Record<string, unknown>,
+): [nameKey: string, domain: string] | null {
+  const c = (Array.isArray(uc.companies) ? uc.companies[0] : uc.companies) as
+    | Record<string, unknown>
+    | undefined;
+  if (!c) return null;
+  const domain = str(c.domain);
+  const nameKey = companyNameKey(String(c.name ?? ""));
+  return domain && nameKey ? [nameKey, domain] : null;
+}
+
+/**
  * comp_range -> [min_k, max_k] in thousands of dollars, for the grid's two
  * numeric columns.
  *
@@ -394,6 +414,12 @@ export function toJobView(up: Record<string, unknown>): JobView | null {
     dispositionReason: String(up.disposition_reason ?? ""),
     triage: (String(up.triage ?? "") as Triage),
     snoozeUntil: str(up.snooze_until),
+    // The job's company domain, for the LogoAvatar. A COMPANY fact with no posting
+    // column and no FK to resolve it from here — so the list reads (queue/jobs) fold
+    // it in from the company-universe map after mapping, and it defaults to null
+    // everywhere else (a triage write's returned row, a conflict re-read). Null falls
+    // through to the monogram, which is the correct absent for those paths.
+    companyDomain: null,
     updatedAt: str(up.updated_at),
   };
 }
@@ -445,6 +471,8 @@ export function toCompanyView(uc: Record<string, unknown>): CompanyView | null {
     seeded: bool(uc.seeded),
     linkedinCompanyId: String(c.linkedin_company_id ?? ""),
     linkedinIdSource: String(c.linkedin_id_source ?? ""),
+    // '' (never filled) maps to null — a value never stated is null.
+    domain: str(c.domain),
     updatedAt: str(uc.updated_at),
     // The SHARED row's token, out of the nested object. Two tokens, two writes;
     // `app_company_row` puts this one inside `companies` precisely so a caller
@@ -673,33 +701,101 @@ export class SupabaseDataSource implements DataSource {
       .filter((j): j is JobView => j !== null);
   }
 
-  queue(opts: QueueOptions = {}): Promise<JobView[]> {
-    return this.userPostings((q) =>
-      q
-        .eq("disposition", "qualified")
-        .eq("triage", "")
-        .neq("postings.status", "Closed")
-        // "Freshest first" means first_seen — the column JobView carries and
-        // the fixture sorts by. This ordered by last_seen, which every sweep
-        // bumps on a posting it still sees, so the queue reshuffled twice a
-        // day and demo order never matched production. The key tiebreak
-        // exists because Postgres returns tied rows in whatever order the
-        // plan produced — nondeterminism the stable demo could not show.
-        .order("postings(first_seen)", { ascending: false, nullsFirst: false })
-        .order("posting_key", { ascending: false })
-        .limit(opts.limit ?? 20),
-    );
+  /**
+   * `companyNameKey` → domain, for keying a posting's LogoAvatar off its company.
+   *
+   * A posting carries a company NAME and no FK to `companies`, so the domain (0021)
+   * cannot ride the postings embed — it is resolved here from the user's company
+   * universe and folded onto the JobViews by `applyDomains`. Coverage is deliberately
+   * partial: a job whose company is outside this user's universe gets no domain and
+   * renders the monogram, which is the honest fallback the LogoAvatar is built around.
+   * A plain `companies(...)` embed, NOT an inner join, so this select does not
+   * collide with the inner-embed marker the select-list pin keys the /companies case
+   * on (that pin searches the source for the literal inner-embed token, and a second
+   * one in a comment or a plain string would point it at the wrong template).
+   *
+   * IT NEVER REJECTS. This is a cosmetic enrichment on the client, and it is subject
+   * to the same envelope doctrine `monitor/wide.py::_harvest_linkedin` states on the
+   * engine side: *"an enrichment that can eat the primary product is not best-effort,
+   * whatever its docstring says."* The first version let `throw new Error(...)` out of
+   * here into the `Promise.all` in `queue()`/`jobs()`, so a range error or a statement
+   * timeout on the LOGO query rejected the whole read — executed, and both surfaces
+   * went blank while the postings themselves had been fetched fine. A logo lookup must
+   * never be able to empty somebody's queue.
+   *
+   * An empty map is the honest degradation, because the monogram is already the
+   * designed bottom of the ladder: no domains means every row renders initials, which
+   * is exactly what a company with no harvested domain renders anyway. Logged rather
+   * than swallowed.
+   */
+  private async companyDomains(): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    try {
+      const { data, error } = await this.supabase
+        .from("user_companies")
+        .select(`company_id, companies(${COMPANY_DOMAIN_COLS})`)
+        .eq("user_id", this.userId)
+        .limit(5000);
+      if (error) throw new Error(error.message);
+      for (const uc of (data ?? []) as Record<string, unknown>[]) {
+        const entry = toCompanyDomainEntry(uc);
+        if (entry) map.set(entry[0], entry[1]);
+      }
+    } catch (e) {
+      console.warn(
+        `[logo] company-domain lookup failed; every row falls back to its monogram: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+      return new Map();
+    }
+    return map;
   }
 
-  jobs(): Promise<JobView[]> {
+  /** Fold the company-domain map onto a batch of jobs. Missing → unchanged (null). */
+  private applyDomains(jobs: JobView[], domains: Map<string, string>): JobView[] {
+    if (domains.size === 0) return jobs;
+    return jobs.map((j) => ({
+      ...j,
+      companyDomain: domains.get(companyNameKey(j.company)) ?? j.companyDomain,
+    }));
+  }
+
+  async queue(opts: QueueOptions = {}): Promise<JobView[]> {
+    const [jobs, domains] = await Promise.all([
+      this.userPostings((q) =>
+        q
+          .eq("disposition", "qualified")
+          .eq("triage", "")
+          .neq("postings.status", "Closed")
+          // "Freshest first" means first_seen — the column JobView carries and
+          // the fixture sorts by. This ordered by last_seen, which every sweep
+          // bumps on a posting it still sees, so the queue reshuffled twice a
+          // day and demo order never matched production. The key tiebreak
+          // exists because Postgres returns tied rows in whatever order the
+          // plan produced — nondeterminism the stable demo could not show.
+          .order("postings(first_seen)", { ascending: false, nullsFirst: false })
+          .order("posting_key", { ascending: false })
+          .limit(opts.limit ?? 20),
+      ),
+      this.companyDomains(),
+    ]);
+    return this.applyDomains(jobs, domains);
+  }
+
+  async jobs(): Promise<JobView[]> {
     // Same order as queue(): the 5000 cap means the ordering decides WHICH
     // rows survive it, so it cannot be left undefined on a tie either.
-    return this.userPostings((q) =>
-      q
-        .order("postings(first_seen)", { ascending: false, nullsFirst: false })
-        .order("posting_key", { ascending: false })
-        .limit(5000),
-    );
+    const [jobs, domains] = await Promise.all([
+      this.userPostings((q) =>
+        q
+          .order("postings(first_seen)", { ascending: false, nullsFirst: false })
+          .order("posting_key", { ascending: false })
+          .limit(5000),
+      ),
+      this.companyDomains(),
+    ]);
+    return this.applyDomains(jobs, domains);
   }
 
   async applications(): Promise<ApplicationView[]> {

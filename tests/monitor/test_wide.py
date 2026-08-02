@@ -580,6 +580,27 @@ def test_the_sweep_keeps_the_linkedin_id_it_was_already_paying_for(monkeypatch):
     assert params["p_source"] == "wide-theirstack"
 
 
+def test_the_sweep_keeps_the_domain_it_was_already_paying_for(monkeypatch):
+    """0021's half of the same free harvest: `company_object.domain` ("plaid.com")
+    rode the SAME payload the id did, going in the bin, and now lands the LogoAvatar's
+    key — still zero extra requests, asserted, because a domain harvest that quietly
+    bought its own page would be a cost regression the free tier hides until it runs
+    out."""
+    sent = []
+    _store(monkeypatch, lambda fn, params, session=None: (
+        sent.append((fn, params)) or {"outcome": "filled"}))
+    session = FakeSession(payload={"data": [_ts_job_with_firmographics()]})
+    s = _run(_ts_hq(), FakeApify(items=[]), session=session)
+
+    assert len(session.calls) == 1, "the domain harvest must not send a request of its own"
+    assert s.domain_seen == 1 and s.domain_filled == 1
+    domain_calls = [p for fn, p in sent if fn == "hq_fill_domain"]
+    assert len(domain_calls) == 1
+    assert domain_calls[0]["p_name"] == "Plaid"
+    assert domain_calls[0]["p_domain"] == "plaid.com"
+    assert domain_calls[0]["p_source"] == "wide-theirstack"
+
+
 def test_a_row_that_fails_the_title_gate_still_donates_its_companys_id(monkeypatch):
     """The id is a fact about the EMPLOYER and the row is bought either way. Harvest
     after the Feed mapping instead and a company whose only match this week is a
@@ -647,3 +668,4 @@ def test_no_store_configured_is_a_clean_skip(monkeypatch):
     s = _run(_ts_hq(), FakeApify(items=[]),
              session=FakeSession(payload={"data": [_ts_job_with_firmographics()]}))
     assert s.ok and s.linkedin_seen == 1 and s.linkedin_filled == 0
+    assert s.domain_seen == 1 and s.domain_filled == 0

@@ -36,6 +36,7 @@ function job(partial: Partial<JobView>): JobView {
     dispositionReason: "",
     triage: "",
     snoozeUntil: null,
+    companyDomain: null,
     updatedAt: null,
     ...partial,
   };

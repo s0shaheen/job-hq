@@ -128,6 +128,103 @@ def test_two_different_ids_for_one_company_keeps_the_first_and_warns(capsys):
     assert "harvest conflict" in capsys.readouterr().out
 
 
+# ------------------------------------------------- the domain, riding the same rows
+
+def test_the_domain_rides_in_on_the_same_row_as_the_id():
+    """`company_object.domain` was in the payload the sweep already parses (the
+    fixture carries "ramp.com"), going in the bin beside the id. `harvest_domain`
+    keeps it, canonicalized — the LogoAvatar's key, zero extra credits."""
+    assert lb.harvest_domain(ts_job()) == ("Ramp", "ramp.com")
+
+
+def test_the_domain_is_canonicalized_not_taken_raw():
+    """MUTATION REASON: store `co["domain"]` raw instead of through `normalize_domain`
+    and `HTTPS://WWW.Ramp.com/careers` is written whole — a value the LogoAvatar hands
+    to logo.dev that is not a host, so a wrong logo or none. The canonicalizer folds it
+    to `ramp.com`, the SAME string a bare `ramp.com` row produces."""
+    job = ts_job()
+    job["company_object"]["domain"] = "HTTPS://WWW.Ramp.com/careers?utm=x"
+    assert lb.harvest_domain(job) == ("Ramp", "ramp.com")
+
+
+@pytest.mark.parametrize("bad", [None, "", "   ", "ramp", "localhost", "not a host",
+                                 "1.2.3.4", "javascript:alert(1)"])
+def test_a_domainless_or_garbage_payload_is_dropped_not_guessed(bad):
+    """The task's 'resilient to a domain-less payload': a missing, blank or
+    non-host `domain` yields None, and the caller counts it — nothing is invented,
+    and TheirStack being out of credits (402) simply means these are all None until
+    it returns, which the monogram fallback covers."""
+    job = ts_job()
+    job["company_object"]["domain"] = bad
+    assert lb.harvest_domain(job) is None
+
+
+def test_the_domain_and_the_name_come_from_the_same_object():
+    """`harvest`'s rule, for `harvest`'s reason: a domain filed under the wrong name is
+    a wrong logo. MUTATION REASON: fall back to the flat `company` field for the name
+    and Ramp's domain lands under Plaid."""
+    job = ts_job(name="Ramp")
+    job["company_object"]["name"] = ""
+    job["company"] = "Plaid"
+    assert lb.harvest_domain(job) is None
+
+
+@pytest.mark.parametrize("job", [None, "a string", 42, [], {"company_object": None},
+                                 {"company_object": "Ramp"}, {"company_object": []}])
+def test_a_malformed_row_costs_one_domain_and_never_the_page(job):
+    """Every access type-guarded, `harvest`'s MAJOR-2: a `null` element in a bought
+    page costs one domain, not the page's worth."""
+    assert lb.harvest_domain(job) is None
+
+
+def test_a_page_from_one_employer_is_one_domain():
+    """Deduped on the normalized name — 25 jobs from Ramp is 25 copies of one domain,
+    and the store folds on the same key, so it is one RPC per company."""
+    jobs = [ts_job(name="Ramp"), ts_job(name="ramp "), ts_job(name="Plaid")]
+    for j in jobs:
+        j["company_object"]["domain"] = "ramp.com" if "amp" in j["company_object"]["name"].lower() else "plaid.com"
+    assert lb.harvest_all_domains(jobs) == [("Ramp", "ramp.com"), ("Plaid", "plaid.com")]
+
+
+def test_two_domains_for_one_company_keeps_the_first_and_warns(capsys):
+    a = ts_job(name="Ramp")
+    a["company_object"]["domain"] = "ramp.com"
+    b = ts_job(name="Ramp")
+    b["company_object"]["domain"] = "ramp.io"
+    assert lb.harvest_all_domains([a, b]) == [("Ramp", "ramp.com")]
+    assert "domain harvest conflict" in capsys.readouterr().out
+
+
+def test_fill_domains_sends_one_rpc_per_company_with_the_parameters_the_function_declares(monkeypatch):
+    seen = []
+    monkeypatch.setattr(lb.pg, "rpc", lambda fn, params, session=None: (
+        seen.append((fn, params)) or {"outcome": "filled"}))
+    out = lb.fill_domains([("Ramp", "ramp.com"), ("Plaid", "plaid.com")], USER,
+                          source="wide-theirstack")
+    assert out["counts"]["filled"] == 2 and not out["errors"]
+    assert [f for f, _ in seen] == [lb.DOMAIN_FILL_FN, lb.DOMAIN_FILL_FN]
+    assert seen[0][1] == {"p_user_id": USER, "p_name": "Ramp",
+                          "p_domain": "ramp.com", "p_source": "wide-theirstack"}
+
+
+def test_fill_domains_counts_every_outcome_the_sql_can_return(monkeypatch):
+    answers = iter(["filled", "already_set", "human_owned", "no_company"])
+    monkeypatch.setattr(lb.pg, "rpc",
+                        lambda fn, params, session=None: {"outcome": next(answers)})
+    out = lb.fill_domains([("A", "a.com"), ("B", "b.com"), ("C", "c.com"), ("D", "d.com")],
+                          USER, source="x")
+    assert out["counts"] == {"filled": 1, "already_set": 1,
+                             "human_owned": 1, "no_company": 1}
+
+
+def test_fill_domains_treats_an_unknown_outcome_as_an_error(monkeypatch):
+    """MUTATION REASON: count it as a fill and a renamed SQL outcome reports success
+    forever — the number the operator reads to decide the LogoAvatar has data."""
+    monkeypatch.setattr(lb.pg, "rpc", lambda fn, params, session=None: {"outcome": "merged"})
+    out = lb.fill_domains([("Ramp", "ramp.com")], USER, source="x")
+    assert out["counts"]["filled"] == 0 and "merged" in out["errors"][0]
+
+
 # ---------------------------------------------------------------- the write
 
 def test_fill_sends_one_rpc_per_company_with_the_parameters_the_function_declares(monkeypatch):

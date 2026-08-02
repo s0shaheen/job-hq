@@ -62,6 +62,7 @@ function co(over: Partial<CompanyView> & Pick<CompanyView, "id" | "name">): Comp
     seeded: false,
     linkedinCompanyId: "",
     linkedinIdSource: "",
+    domain: null,
     updatedAt: "2026-07-21T12:00:00.000Z",
     companyUpdatedAt: "2026-07-21T12:03:00.000Z",
     ...over,

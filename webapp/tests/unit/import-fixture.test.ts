@@ -942,7 +942,7 @@ describe("the per-column report (G13)", () => {
           workModel: null, compRange: null, compMinK: null, compMaxK: null, minYoe: null,
           seniority: null, industry: null, roleFocus: null, skills: [], posted: null,
           firstSeen: null, taggedAt: null, status: "New", disposition: "qualified", dispositionReason: "",
-          triage: "", snoozeUntil: null, updatedAt: null,
+          triage: "", snoozeUntil: null, companyDomain: null, updatedAt: null,
         },
       ],
     );

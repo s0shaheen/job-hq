@@ -99,6 +99,20 @@ export type JobView = {
   dispositionReason: string;
   triage: Triage;
   snoozeUntil: string | null;
+
+  /**
+   * The domain of the job's company as a bare host ("ramp.com"), or null when
+   * unknown — the key the LogoAvatar renders a logo from (logo.dev → favicon →
+   * monogram), null when it falls straight through to the monogram.
+   *
+   * A COMPANY fact carried on the posting for convenience, not a `postings` column:
+   * postings have no domain and no FK to `companies`, so the Supabase source resolves
+   * it by folding the job's company name against the user's company universe (0021's
+   * `companies.domain`). Absent for a job whose company is outside that universe —
+   * fine, the monogram covers it. Never synthesized from the name.
+   */
+  companyDomain: string | null;
+
   /** Optimistic-concurrency token: sent back with any write. */
   updatedAt: string | null;
 };
@@ -161,6 +175,17 @@ export type CompanyView = {
    * precedent), so anything that is not exactly `"human"` reads as not-human.
    */
   linkedinIdSource: string;
+  /**
+   * `companies.domain` (0021) — the company's domain as a bare host ("ramp.com"),
+   * or null when the engine has not harvested one yet. The LogoAvatar's key: the
+   * /companies grid renders a company logo from it (logo.dev → favicon → monogram),
+   * and null is the honest absent that falls straight through to the monogram.
+   *
+   * Free-vocab and canonicalized at the door (`hq_normalize_domain`), so the '' the
+   * column holds until filled is mapped to null here — a value never stated is null,
+   * this file's rule.
+   */
+  domain: string | null;
   /** Optimistic-concurrency token for the per-user subscription row. */
   updatedAt: string | null;
   /**

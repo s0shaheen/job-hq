@@ -98,6 +98,7 @@ import requests
 
 from core import pg, pgwrites
 from core.companykeys import company_name_key
+from core.domains import normalize_domain
 from core.linkedinids import extract_linkedin_id, is_blank
 from core.sheets import HQ, RowNotFound
 
@@ -115,6 +116,17 @@ FILL_FN = "hq_fill_linkedin_company_id"
 #: possibly by CLEARING it. It is deliberately not folded into `already_set` — one
 #: means "the store is ahead of the provider", the other means "stop asking".
 FILL_OUTCOMES = ("filled", "already_set", "human_owned", "no_company")
+
+#: 0021's engine door, the domain twin of `FILL_FN`. The company domain rides the
+#: SAME TheirStack `company_object` this module already harvests the LinkedIn id from
+#: (probe #2; the `domain` field measured 2026-07-27) — zero extra requests, zero
+#: extra credits — and lands the LogoAvatar's key. Named + pinned like `FILL_FN`.
+DOMAIN_FILL_FN = "hq_fill_domain"
+
+#: Every outcome `hq_fill_domain` can return — the same four as the id fill, kept a
+#: DISTINCT constant so `tests/core/test_migrations.py` pins each vocabulary against
+#: its own migration rather than one standing in for the other.
+DOMAIN_FILL_OUTCOMES = ("filled", "already_set", "human_owned", "no_company")
 
 TS_URL = "https://api.theirstack.com/v1/jobs/search"
 TS_TIMEOUT = 30
@@ -241,6 +253,62 @@ def harvest_all(jobs: list[dict]) -> list[tuple[str, str]]:
     return out
 
 
+# ---------------------------------------------------------- the domain, riding along
+
+def harvest_domain(job: dict) -> tuple[str, str] | None:
+    """One TheirStack job row -> (company name, canonical domain), or None.
+
+    THE NAME AND THE DOMAIN COME FROM THE SAME OBJECT, always — `harvest`'s rule, for
+    `harvest`'s reason: taking the name from the flat `company` field while the domain
+    comes from `company_object` files one employer's domain under another's name, and
+    a wrong domain renders a wrong logo. `company_object.domain` is the field measured
+    2026-07-27 (e.g. "abbvie.com"), normalized here through `core.domains` — the mirror
+    of the SQL door's `hq_normalize_domain` — so anything that is not a plausible host
+    is refused, not guessed.
+
+    Every access is type-guarded (a `null` row, a non-dict `company_object`): a
+    malformed row costs ONE domain, never the page. None means "no domain we are sure
+    of", and the caller counts it.
+    """
+    if not isinstance(job, dict):
+        return None
+    co = job.get("company_object")
+    if not isinstance(co, dict):
+        return None
+    name = _text(co.get("name"))
+    if not name:
+        return None
+    domain = normalize_domain(co.get("domain"))
+    return (name, domain) if domain else None
+
+
+def harvest_all_domains(jobs: list[dict]) -> list[tuple[str, str]]:
+    """Every (name, domain) pair a batch carries, deduped on the normalized name.
+
+    `harvest_all`'s twin: a 25-job page from one employer is 25 copies of one domain,
+    and the store folds on the same key, so it is one RPC per company. First spelling
+    wins; a second, DIFFERENT domain for the same company in one page is a provider
+    contradiction, warned about and dropped rather than silently overwriting.
+    """
+    out: list[tuple[str, str]] = []
+    seen: dict[str, str] = {}
+    for job in jobs or []:
+        got = harvest_domain(job)
+        if got is None:
+            continue
+        name, domain = got
+        key = company_name_key(name)
+        if key in seen:
+            if seen[key] != domain:
+                print(f"::warning title=domain harvest conflict::{name!r} came back with "
+                      f"two domains in one page ({seen[key]} and {domain}); kept the first "
+                      f"and wrote neither of the others — check the provider payload")
+            continue
+        seen[key] = domain
+        out.append((name, domain))
+    return out
+
+
 # ------------------------------------------------------------------ the write
 
 def fill(pairs: list[tuple[str, str]], user_id: str, *, source: str,
@@ -272,6 +340,39 @@ def fill(pairs: list[tuple[str, str]], user_id: str, *, source: str,
         except Exception as e:
             errors.append(f"{name}: {type(e).__name__}: {e}"[:300])
             print(f"[linkedin] fill {name!r} FAILED: {type(e).__name__}: {e}",
+                  file=sys.stderr)
+            continue
+        counts[outcome] += 1
+    return {"counts": counts, "errors": errors}
+
+
+def fill_domains(pairs: list[tuple[str, str]], user_id: str, *, source: str,
+                 session: requests.Session | None = None) -> dict:
+    """`fill`'s domain twin: one `hq_fill_domain` RPC per company.
+
+    A deliberate parallel of `fill` rather than a shared generic, for the reason the
+    `_config_value` twins state one screen down — the two send different arguments
+    (`p_domain` vs `p_linkedin_id`) to different functions and are each pinned to
+    their own by `tests/core/test_migrations.py`, so folding them saves four lines and
+    buys an indirection two guards would then have to see through. Same posture: one
+    bad row is attributed and skipped, the pass continues, nothing raises for a single
+    company.
+    """
+    counts = {o: 0 for o in DOMAIN_FILL_OUTCOMES}
+    errors: list[str] = []
+    for name, domain in pairs:
+        try:
+            res = pg.rpc(DOMAIN_FILL_FN, {"p_user_id": user_id, "p_name": name,
+                                          "p_domain": domain, "p_source": source},
+                         session=session) or {}
+            outcome = str(res.get("outcome", ""))
+            if outcome not in counts:
+                raise RuntimeError(
+                    f"{DOMAIN_FILL_FN} returned an outcome this version does not "
+                    f"understand: {outcome!r}")
+        except Exception as e:
+            errors.append(f"{name}: {type(e).__name__}: {e}"[:300])
+            print(f"[domain] fill {name!r} FAILED: {type(e).__name__}: {e}",
                   file=sys.stderr)
             continue
         counts[outcome] += 1

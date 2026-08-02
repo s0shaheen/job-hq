@@ -48,12 +48,8 @@ RESERVED_MIGRATION_NUMBERS: dict[int, str] = {
     # 20–24 were the redesign's prerequisite spine (docs 07 §4), five branches cut
     # from the same commit. E5 claimed 25 rather than 20 so that the four ahead of
     # it keep the numbers they were planned with; a reservation is cheap and
-    # renumbering four branches mid-flight is not.
-    #
-    # 20 came out when `0020_warm_referral.sql` landed on main (#94); 23 came out
-    # when this branch landed `0023_bot_runs.sql` — the mechanism working, not a
-    # courtesy: the assertions below go red until each landed line is deleted.
-    21: "logos — company logo storage",
+    # renumbering four branches mid-flight is not. 20 (#94), 23 (#102), and this
+    # branch's 21 came out as each landed — the mechanism working as designed.
     22: "E1 — email events into Postgres",
     24: "phase 0, if the owner takes that fork",
 }
@@ -336,6 +332,9 @@ def test_the_engine_only_rpcs_are_not_reachable_from_a_browser():
     for fn in ("reconcile_grounded_company", "note_grounding_blocked",
                "hq_apply_email_event", "hq_upsert_sheet_application",
                "hq_note_unapplied_event", "hq_fill_linkedin_company_id",
+               # 0021's domain twin of the linkedin fill — same posture: takes the
+               # acting user as an argument, writes a column every watcher reads.
+               "hq_fill_domain",
                # 0018's four. `hq_capture_email_events` takes the acting user as an
                # argument the same way the join RPC does; the three token functions
                # MINT AND REVOKE A CREDENTIAL, which is the one thing on this list
@@ -412,6 +411,8 @@ def _outcomes(body: str) -> set[str]:
      "0015_engine_writes.sql"),
     ("monitor.linkedin_backfill", "FILL_OUTCOMES", "hq_fill_linkedin_company_id",
      "0016_linkedin_fill.sql"),
+    ("monitor.linkedin_backfill", "DOMAIN_FILL_OUTCOMES", "hq_fill_domain",
+     "0021_company_domain.sql"),
 ], ids=lambda v: str(v))
 def test_the_outcome_vocabulary_is_the_same_on_both_sides_of_the_wire(
         module, attr, fn, migration):
@@ -472,6 +473,31 @@ def test_the_linkedin_fill_rpc_the_engine_calls_exists_and_takes_what_it_is_pass
     # EQUALITY, the engine-owned-both-ends rule: an undeclared argument fails to
     # resolve the function at all (PostgREST matches overloads by name), and a
     # declared one the caller stops passing is worse because it is silent.
+    assert passed == declared, {
+        "passed but not declared": sorted(passed - declared),
+        "declared but not passed": sorted(declared - passed),
+    }
+
+
+def test_the_domain_fill_rpc_the_engine_calls_exists_and_takes_what_it_is_passed():
+    """The same contract, for the LogoAvatar's engine RPC (0021).
+
+    The domain harvest rides the SAME wide sweep as the id harvest, through
+    `fill_domains`, so a typo in `DOMAIN_FILL_FN` is a 404 that stops domains
+    appearing while every other test stays green — the unit suite monkeypatches the
+    RPC and the db suite calls the SQL directly, so the constant is only checked here.
+    """
+    import inspect
+
+    from monitor import linkedin_backfill
+
+    declared = set(_sql_function_params(ALL_SQL, linkedin_backfill.DOMAIN_FILL_FN) or [])
+    assert declared, (
+        f"monitor.linkedin_backfill calls {linkedin_backfill.DOMAIN_FILL_FN}() but no "
+        f"migration defines it — every harvested domain would 404 into nothing"
+    )
+    passed = set(re.findall(r'"(p_\w+)":', inspect.getsource(linkedin_backfill.fill_domains)))
+    # EQUALITY, the engine-owned-both-ends rule (see the linkedin fill above).
     assert passed == declared, {
         "passed but not declared": sorted(passed - declared),
         "declared but not passed": sorted(declared - passed),

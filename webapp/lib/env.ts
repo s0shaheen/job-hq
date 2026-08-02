@@ -54,3 +54,26 @@ export function getServiceEnv(): ServiceEnv | null {
   if (!url || !serviceKey) return null;
   return { url, serviceKey };
 }
+
+/**
+ * The logo.dev PUBLISHABLE token — client-safe BY DESIGN, and the deliberate
+ * inverse of `getServiceEnv` above.
+ *
+ * `getServiceEnv` exists to keep a secret OFF the client bundle. This does the
+ * opposite on purpose: logo.dev issues a publishable key (`pk_…`) meant to sit in an
+ * `<img src="https://img.logo.dev/{domain}?token={key}">` a browser fetches. It grants
+ * read-only logo lookups and nothing else — inlining it into the bundle is the
+ * intended use, exactly like `NEXT_PUBLIC_SUPABASE_ANON_KEY`. That is why it carries
+ * the `NEXT_PUBLIC_` prefix a secret must NEVER carry, and why
+ * `service-key-containment.test.ts` neither flags it nor should: that test bans
+ * `NEXT_PUBLIC_*SERVICE` / `*SECRET`, and a publishable key is neither. The real
+ * secret — `SUPABASE_SERVICE_KEY` — stays server-only and unchanged, still read in
+ * this one file and nowhere else.
+ *
+ * Returns "" when unset. The LogoAvatar (landing with the Jobs surface) degrades
+ * gracefully: no key → skip the logo.dev tier → Google favicon → monogram. See
+ * `docs/plans/LOGO-AVATAR.md` for the full ladder.
+ */
+export function getLogoDevKey(): string {
+  return process.env.NEXT_PUBLIC_LOGO_DEV_KEY ?? "";
+}

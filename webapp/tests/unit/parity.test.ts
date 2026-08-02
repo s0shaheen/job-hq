@@ -198,6 +198,7 @@ function jv(seed: Partial<JobView> & Pick<JobView, "key">): JobView {
     dispositionReason: "",
     triage: "",
     snoozeUntil: null,
+    companyDomain: null,
     updatedAt: STAMP,
     ...seed,
   };
@@ -463,6 +464,7 @@ describe("company universe parity", () => {
       seeded: false,
       linkedinCompanyId: "",
       linkedinIdSource: "",
+      domain: null,
       companyUpdatedAt: null,
       updatedAt: STAMP,
       ...seed,

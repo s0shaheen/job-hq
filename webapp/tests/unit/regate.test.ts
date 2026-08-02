@@ -44,6 +44,7 @@ function job(over: Partial<JobView> & Pick<JobView, "key">): JobView {
     dispositionReason: "",
     triage: "",
     snoozeUntil: null,
+    companyDomain: null,
     updatedAt: "2026-07-20T00:00:00.000Z",
     ...over,
   };

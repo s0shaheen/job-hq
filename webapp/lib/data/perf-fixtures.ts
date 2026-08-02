@@ -181,6 +181,17 @@ export function makePerfJobs(n: number): JobView[] {
           : "",
       triage,
       snoozeUntil: triage === "snoozed" ? daysAgo(-3) : null,
+      // Every third row gets a domain, so a perf render exercises the LogoAvatar's
+      // logo.dev path and its monogram path at scale rather than only one of them.
+      //
+      // Set DIRECTLY here, unlike `fixtures.ts`, and not a parity gap: this generator
+      // is not a DataSource. `app/(app)/jobs/page.tsx` substitutes these rows for the
+      // source's output entirely, so nothing resolves them against a company universe
+      // — there isn't one. What is being measured is the COST of rendering 5000 rows
+      // with a mix of logo and monogram cells; where the mix came from is not part of
+      // the measurement. The behavioural claim (a domain is resolved from the company
+      // universe by name key, on both sources) is pinned in company-domain-source.test.ts.
+      companyDomain: i % 3 === 0 ? `${company.toLowerCase().replace(/[^a-z0-9]/g, "")}.com` : null,
       updatedAt: stampAgo((i % 500) + 1),
     });
   }
