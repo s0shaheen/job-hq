@@ -797,7 +797,11 @@ const JOB_LABELS: Record<string, string> = {
 
 export function jobLabel(job: string): string {
   const j = (job ?? "").trim();
-  if (!j) return "unknown";
+  // NOT_LISTED, never the engine's own "unknown": this string is rendered as
+  // the Activity row's name, and an absent fact says "Not listed" everywhere in
+  // the product. The copy lint caught it — a nameless run is an absent fact,
+  // not a job called unknown.
+  if (!j) return NOT_LISTED;
   return JOB_LABELS[j] ?? j;
 }
 
