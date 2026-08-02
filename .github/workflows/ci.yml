@@ -81,6 +81,21 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run lint:copy
         if: matrix.shard == 1
+      # The coverage ledger: which surface states are unverified, as a command.
+      # Beside lint:copy because it is the same kind of gate — cheap, static,
+      # and answering a question that otherwise needs an investigation. It
+      # fails on a `missing` cell for a routed surface that is not in the dated
+      # baseline, and on a `covered` cell whose cited test title no longer
+      # exists, so renaming a test cannot silently uncover a state.
+      - name: UI coverage ledger
+        if: matrix.shard == 1
+        run: npm run coverage:ledger
+      # The rendered ledger is committed, so a diff shows exactly which states
+      # a change covered or abandoned. A stale checked-in copy is a coverage
+      # claim nobody regenerated.
+      - name: The committed ledger is current
+        if: matrix.shard == 1
+        run: git diff --exit-code -- ../docs/pilot-launch/evidence/ui-coverage.md
       - run: npm run typecheck
       - run: npm run build
         env:

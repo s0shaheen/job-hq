@@ -15,6 +15,7 @@
     "test:e2e:update": "playwright test --update-snapshots",
     "lint:overflow": "playwright test tests/e2e/layout.spec.ts",
     "lint:copy": "node scripts/copy-lint/run.mjs",
+    "coverage:ledger": "node scripts/coverage-ledger.mjs",
     "demo": "HQ_DEMO=1 next dev"
   },
   "engines": {
