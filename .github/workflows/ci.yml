@@ -85,6 +85,16 @@ jobs:
       - run: npm run build
         env:
           HQ_DEMO: "1"
+      # And again WITHOUT HQ_DEMO, because that is the artifact production
+      # actually serves. `HQ_DEMO` is build-time inlined and swaps the whole
+      # auth path for fixtures, so a demo-only build type-checks and bundles
+      # code the real app never runs — and leaves the real middleware, session
+      # reads, and Supabase client wiring untested until a deploy. The baseline
+      # report named this: tested artifact != shipped artifact. Shard 2 so the
+      # two builds run concurrently rather than serially.
+      - name: Build in production mode (no HQ_DEMO)
+        if: matrix.shard == 2
+        run: npm run build
       - run: npm test
         if: matrix.shard == 1   # unit tests are shard-independent; once is enough
       - name: Cache Playwright browser

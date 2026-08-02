@@ -1,0 +1,99 @@
+# Deploy the web app to Vercel production, from a clean checkout of main.
+#
+# The baseline report (docs/pilot-launch/evidence/baseline-2026-08-02.md, C3)
+# found the live artifact had been created from a laptop with `gitDirty: "1"`:
+# nobody could say what was in it, and the release rule requires the tested and
+# shipped artifacts to be the same thing. A workflow checkout is clean by
+# construction, and it records the commit it deployed.
+#
+# Dispatch-only and confirm-gated, like db-apply.yml: deployment is a decision,
+# not a consequence of merging. CI must be green on the commit first — this
+# workflow refuses a commit whose CI run did not succeed rather than trusting
+# the operator to have looked.
+name: Deploy webapp
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to push the current main to Vercel production'
+        required: true
+
+permissions:
+  contents: read
+  actions: read       # to read the CI conclusion for this commit
+
+concurrency:
+  group: deploy-prod   # never two production deploys racing
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: inputs.confirm == 'deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # A deploy of a commit CI never passed is the failure this lane exists to
+      # prevent, so it is a gate rather than a note. `gh run list` is filtered
+      # to the CI workflow on this exact sha; anything other than one success
+      # stops the run.
+      - name: Require green CI on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="${{ github.sha }}"
+          status=$(gh run list --workflow=ci.yml --commit "$sha" \
+                     --json conclusion -q '[.[].conclusion] | unique | join(",")')
+          echo "CI conclusions for ${sha}: ${status:-<none>}"
+          if [ "$status" != "success" ]; then
+            echo "::error title=CI not green::refusing to deploy ${sha} (CI: ${status:-none})"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm, cache-dependency-path: webapp/package-lock.json }
+
+      # HQ_DEMO is deliberately absent from every step below. It is build-time
+      # inlined and disables authentication outright, so a production build that
+      # carried it would publish a public, unauthenticated copy of the app.
+      - name: Deploy to production
+        working-directory: webapp
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          url=$(npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN")
+          echo "deployed: $url"
+          echo "DEPLOY_URL=$url" >> "$GITHUB_ENV"
+
+      # The gate that would have caught a demo build reaching production: a
+      # protected route must redirect an anonymous request to /login, and the
+      # body must not carry data. Checked against the deployment URL itself, so
+      # a broken deploy fails here instead of when somebody opens the app.
+      - name: Verify the deployed artifact refuses anonymous access
+        run: |
+          set -euo pipefail
+          for path in / /jobs /pipeline; do
+            code=$(curl -s -o /tmp/body -w '%{http_code}' "${DEPLOY_URL}${path}")
+            echo "${path} -> ${code}"
+            if [ "$code" != "307" ] && [ "$code" != "302" ]; then
+              echo "::error title=Auth gate open::${path} returned ${code}, expected a redirect"
+              exit 1
+            fi
+            if grep -qiE 'posting|application|greenhouse' /tmp/body; then
+              echo "::error title=Data in an unauthenticated body::${path}"
+              exit 1
+            fi
+          done
+
+      - name: Ops alert on failure
+        if: failure() || cancelled()
+        run: |
+          curl -s -H "Title: Webapp deploy failed" -H "Priority: high" -H "Tags: warning" \
+            -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "https://ntfy.sh/${{ secrets.HQ_OPS_NTFY_TOPIC }}" || true

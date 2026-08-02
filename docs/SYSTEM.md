@@ -223,6 +223,7 @@ aws lambda invoke --function-name job-hq-bots \
 |---|---|---|
 | CI | `.github/workflows/ci.yml` | push (branches `main`) · pull_request · dispatch |
 | DB apply | `.github/workflows/db-apply.yml` | **dispatch only** |
+| Deploy webapp | `.github/workflows/deploy.yml` | **dispatch only** |
 | PG snapshot | `.github/workflows/pgdump.yml` | **dispatch only** |
 | Resume render & publish | `.github/workflows/resume.yml` | push (branches `main`; paths `resume/**`, `scripts/render-alt.sh`, `scripts/yaml_to_docx.py`, `scripts/publish_to_drive.py`) · dispatch |
 | Run a bot | `.github/workflows/run-bot.yml` | **dispatch only** |

@@ -135,4 +135,4 @@ jobs:
           curl -s -H "Title: [${{ inputs.user || 'salman' }}] Run a bot: ${{ inputs.job }} failed" \
             -H "Priority: high" -H "Tags: warning" \
             -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            "https://ntfy.sh/${{ secrets.HQ_OPS_NTFY_TOPIC || 'REDACTED-NTFY-TOPIC' }}" || true
+            "https://ntfy.sh/${{ secrets.HQ_OPS_NTFY_TOPIC }}" || true

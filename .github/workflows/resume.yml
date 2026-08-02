@@ -31,7 +31,7 @@ concurrency:
 # Topics mirror hq.config.yaml (ntfy.jobs / ntfy.ops); secrets override if rotated.
 env:
   HQ_NTFY_TOPIC: ${{ secrets.HQ_NTFY_TOPIC || 'REDACTED-NTFY-TOPIC' }}
-  HQ_OPS_NTFY_TOPIC: ${{ secrets.HQ_OPS_NTFY_TOPIC || 'REDACTED-NTFY-TOPIC' }}
+  HQ_OPS_NTFY_TOPIC: ${{ secrets.HQ_OPS_NTFY_TOPIC }}
 
 jobs:
   render:

@@ -69,4 +69,4 @@ jobs:
         run: |
           curl -s -H "Title: [${{ matrix.user }}] Self-heal failed" -H "Priority: high" -H "Tags: warning" \
             -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            "https://ntfy.sh/REDACTED-NTFY-TOPIC" || true
+            "https://ntfy.sh/${{ secrets.HQ_OPS_NTFY_TOPIC }}" || true
