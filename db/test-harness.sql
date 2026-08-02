@@ -82,6 +82,22 @@ alter default privileges in schema public
 alter default privileges in schema public
   grant all on functions to anon, authenticated, service_role;
 
+-- Supabase grants USAGE on the auth schema to the three roles
+-- (`20211115181400_update-auth-permissions.sql`), and this harness did not.
+--
+-- Nothing noticed for nineteen migrations, because schema usage is checked at
+-- NAME RESOLUTION and every existing caller of `auth.uid()` is either a policy
+-- expression (parsed once, by the superuser who created it) or a
+-- `security definer` function (parsed as its owner). The first plain function to
+-- call `auth.uid()` under `set role authenticated` — 0027's `hq_is_entitled`,
+-- deliberately not a definer so it can only ever see the caller's own row — got
+-- "permission denied for schema auth" here and works fine on Supabase.
+--
+-- A harness that is stricter than production in a way production is not turns a
+-- correct function into a red test, which is the pressure that makes somebody
+-- mark it `security definer` to get green. Closing the divergence instead.
+grant usage on schema auth to anon, authenticated, service_role;
+
 -- The acting user, per-session. `true` on current_setting means "return NULL if
 -- unset" rather than raising, which is what lets a test assert the
 -- not-authenticated path.

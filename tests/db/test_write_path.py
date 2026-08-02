@@ -584,20 +584,35 @@ def test_two_concurrent_writes_produce_one_success_and_exactly_one_event(conn):
 
 # ------------------------------------------------------------------ security
 
-def test_a_non_allowlisted_email_cannot_become_a_user(conn):
-    """Journey B1's first line: "non-allowlisted emails are refused at the door."
+def test_a_non_allowlisted_email_becomes_an_account_that_reaches_nothing(conn):
+    """Journey B1's first line USED to read "non-allowlisted emails are refused
+    at the door", and migration 0027 deliberately reverses it.
 
-    This one announced itself — the first run of this suite failed on it,
-    because the helper created users without seeding the allowlist. Worth an
-    explicit test rather than an incidental one: the gate is the only thing
-    standing between a Google sign-in button and anybody with a Gmail account.
+    The owner's invite-only launch needs open signup: anyone may create an
+    account, and an account that was not invited is inert until he turns it on.
+    So the door opens and the gate moves one step inward — which means the
+    assertion that used to live here (the trigger raises) is now the assertion
+    that the feature is broken.
+
+    What replaces it has to be at least as strong, because this is still the only
+    thing standing between a Google sign-in button and anybody with a Gmail
+    account: the account exists, and it is PENDING. `tests/db/test_entitlement.py`
+    holds the rest of the contract (what pending reaches, who may flip it).
+
+    KILLED BY: `status` defaulting to `'active'`, or the trigger's
+    `case when v_invited then 'active' else 'pending' end` losing its else branch.
     """
-    with pytest.raises(psycopg.errors.Error) as exc:
-        conn.execute(
-            "insert into auth.users (id, email) values (%s, %s)",
-            (str(uuid.uuid4()), f"stranger-{uuid.uuid4()}@example.com"),
-        )
-    assert "not allowlisted" in str(exc.value).lower()
+    email = f"stranger-{uuid.uuid4()}@example.com"
+    uid = str(uuid.uuid4())
+    conn.execute("insert into auth.users (id, email) values (%s, %s)", (uid, email))
+
+    assert conn.execute(
+        "select email from public.users where id = %s", (uid,)
+    ).fetchone() == (email,), "an uninvited signup must still create the account"
+    assert conn.execute(
+        "select status, invited, activated_at from public.entitlements where user_id = %s",
+        (uid,),
+    ).fetchone() == ("pending", False, None)
 
 
 def test_an_unauthenticated_caller_is_refused(conn):

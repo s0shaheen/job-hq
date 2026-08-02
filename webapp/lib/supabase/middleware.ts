@@ -1,5 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import {
+  DEMO_ENTITLEMENT_COOKIE,
+  demoEntitlement,
+  isActive,
+  readEntitlement,
+  type EntitlementReader,
+} from "@/lib/auth/entitlement";
 import { isDemoMode } from "@/lib/data/source";
 import { getSupabaseEnv } from "@/lib/env";
 
@@ -43,6 +50,45 @@ export function isPublicPath(pathname: string): boolean {
   );
 }
 
+/** Where the holding surface lives. Outside `(app)`, so it has no shell to gate. */
+export const PENDING_PATH = "/pending";
+
+/**
+ * The routes an account that is NOT turned on may reach. An ALLOWLIST, and the
+ * direction is the entire point.
+ *
+ * A denylist ("block /queue, /jobs, /pipeline, …") is wrong the moment somebody
+ * adds a route, because the failure mode of forgetting is EXPOSURE. Written this
+ * way, forgetting means a new surface is refused until somebody deliberately
+ * puts it on this list — the failure mode of forgetting is a 302 to the holding
+ * page, which is visible in ten seconds and harms nobody.
+ *
+ * It is exactly two things:
+ *
+ *   * the holding surface itself, or a pending user cannot see why they are
+ *     stuck (and `/pending` would redirect to itself forever);
+ *   * everything already public. That list is signed-out pages plus the two
+ *     endpoints that authenticate their own caller with a credential this app
+ *     minted (`/api/capture`'s bearer token, `/d`'s signed link). Those do not
+ *     read the session at all, so gating them on the session's entitlement would
+ *     break the Gmail script for a reason that has nothing to do with it.
+ *
+ * `/onboarding` is deliberately NOT here: a pending account must not be able to
+ * write a search profile, and the wizard is the one surface outside `(app)` that
+ * would otherwise let it.
+ */
+export function isPendingAllowedPath(pathname: string): boolean {
+  if (pathname === PENDING_PATH || pathname.startsWith(`${PENDING_PATH}/`)) return true;
+  return isPublicPath(pathname);
+}
+
+function redirectTo(request: NextRequest, pathname: string): NextResponse {
+  const url = request.nextUrl.clone();
+  url.pathname = pathname;
+  url.search = "";
+  return NextResponse.redirect(url);
+}
+
 /**
  * Session refresh + auth gate, per the @supabase/ssr contract:
  * - do NOT run other logic between createServerClient and the auth call;
@@ -60,6 +106,15 @@ export async function updateSession(request: NextRequest) {
   // kept it. Middleware mints the id on first visit so the mechanism is
   // actually driven.
   if (isDemoMode()) {
+    // The entitlement gate still runs, driven by the seam cookie instead of by a
+    // store there isn't one of. Same predicate, same allowlist, same redirect —
+    // which is the point: without this the route gate would be unreachable
+    // through the only mode the E2E suite can drive, and "a pending user reaches
+    // nothing" would be a claim with no browser behind it.
+    const entitlement = demoEntitlement(request.cookies.get(DEMO_ENTITLEMENT_COOKIE)?.value);
+    if (!isActive(entitlement) && !isPendingAllowedPath(request.nextUrl.pathname)) {
+      return redirectTo(request, PENDING_PATH);
+    }
     const response = NextResponse.next({ request });
     if (!request.cookies.get(DEMO_COOKIE)) {
       response.cookies.set(DEMO_COOKIE, crypto.randomUUID(), {
@@ -119,17 +174,57 @@ export async function updateSession(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (!claims && !isPublicPath(pathname)) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.search = "";
-    return NextResponse.redirect(url);
+    return redirectTo(request, "/login");
   }
 
+  /**
+   * The entitlement gate (0027).
+   *
+   * IN MIDDLEWARE AS WELL AS AT THE DATA LAYER, and the two are not redundant.
+   * The data layer is the security boundary — `getDataSource()` throws, so a
+   * hand-crafted POST to a server action gets a refusal rather than a write.
+   * This is the one that makes a pending person land somewhere that explains
+   * itself instead of on an error page, and it is what keeps a route that reads
+   * nothing (a future static surface) from rendering for an account that is not
+   * turned on.
+   *
+   * THE COST, STATED. This is one indexed primary-key lookup on a table with one
+   * row per user, and middleware runs on every request including the RSC payloads
+   * a single navigation fans out into. `(app)/layout.tsx` makes the opposite
+   * trade for the onboarding guard and says so; the difference is that this
+   * decides ACCESS, and a guard that only runs where somebody remembered to put
+   * it is the shape this whole branch exists to remove. The read is skipped
+   * whenever the destination is already pending-allowed, so the holding page
+   * itself does not pay it per paint.
+   *
+   * IT FAILS OPEN, and that is deliberate: `unreadable` means the query failed,
+   * not that the person is pending, and routing every signed-in user to the
+   * holding page during a Supabase blip is an outage this product would be
+   * inflicting on itself. The request continues to the data layer, which fails
+   * CLOSED on the same signal. Open here, closed there, on purpose.
+   */
+  const sub = typeof claims?.sub === "string" ? claims.sub : "";
+  // Narrowed once. Handing `SupabaseClient` straight to `readEntitlement` twice
+  // makes tsc re-derive postgrest's row type from the select literal at each call
+  // site and blow its instantiation-depth budget (TS2589); one widening
+  // assignment to the structural reader costs nothing and keeps the check — this
+  // is an assignment tsc verifies, not a cast that would silence it.
+  const reader: EntitlementReader = supabase;
+
   if (claims && pathname === "/login") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/queue";
-    url.search = "";
-    return NextResponse.redirect(url);
+    // Straight to the right place rather than to /queue and back out again: a
+    // pending user bouncing through the queue sees a flash of a surface they are
+    // not allowed to be on.
+    const read = await readEntitlement(reader, sub);
+    const blocked = read.kind === "ok" && !isActive(read.entitlement);
+    return redirectTo(request, blocked ? PENDING_PATH : "/queue");
+  }
+
+  if (claims && !isPendingAllowedPath(pathname)) {
+    const read = await readEntitlement(reader, sub);
+    if (read.kind === "ok" && !isActive(read.entitlement)) {
+      return redirectTo(request, PENDING_PATH);
+    }
   }
 
   return supabaseResponse;

@@ -111,7 +111,25 @@ def make_app(conn, user_id: str, *, status="Applied", posting_key=None,
              notes="", suggested="", actor="system") -> int:
     """Insert an application the way the engine's mirror would: directly, with
     the service role, naming no function of ours. That is deliberate — the whole
-    point of the trigger is that it holds for THIS writer."""
+    point of the trigger is that it holds for THIS writer.
+
+    The service role carries no JWT subject, so `auth.uid()` is NULL for it — and
+    since 0027 that is load-bearing rather than incidental: `hq_entitlement_guard`
+    refuses a browser session writing a row owned by somebody else, and a fixture
+    that inserted user B's application while the session identity was still user A
+    would be asking the store to allow exactly the thing the guard exists to
+    refuse. Clearing the identity for the duration is what the engine actually
+    does; leaving it set was the fixture being less faithful than production.
+    """
+    prior = conn.execute("select current_setting('hq.test_user', true)").fetchone()[0]
+    conn.execute("select set_config('hq.test_user', '', false)")
+    try:
+        return _insert_app(conn, user_id, status, posting_key, notes, suggested, actor)
+    finally:
+        conn.execute("select set_config('hq.test_user', %s, false)", (prior or "",))
+
+
+def _insert_app(conn, user_id, status, posting_key, notes, suggested, actor) -> int:
     return conn.execute(
         """insert into public.applications
              (user_id, posting_key, company, title, url, status, suggested_status,

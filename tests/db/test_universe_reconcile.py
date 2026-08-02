@@ -67,10 +67,27 @@ def conn(schema):  # noqa: F811
 # ------------------------------------------------------------------ helpers
 
 def reconcile(conn, name, ats, slug, tier=1, method="discover-greenhouse"):
-    return conn.execute(
-        "select public.reconcile_grounded_company(%s,%s,%s,%s::smallint,%s)",
-        (name, ats, slug, tier, method),
-    ).fetchone()[0]
+    """The ENGINE's grounding call — `reconcile_grounded_company` is granted to no
+    browser role, and the engine reaches it with the service key, which carries no
+    JWT subject.
+
+    So the identity is cleared for the duration, and since 0027 that is
+    load-bearing: this function fans `company.grounded` events out to EVERY
+    subscriber of the shared row, and `hq_entitlement_guard` refuses a browser
+    session writing a row owned by somebody else. Running it with a leftover
+    `hq.test_user` was the fixture asking the store to permit a cross-user write
+    from a browser session — which is the state the guard exists to refuse and
+    which the engine is never in.
+    """
+    prior = conn.execute("select current_setting('hq.test_user', true)").fetchone()[0]
+    conn.execute("select set_config('hq.test_user', '', false)")
+    try:
+        return conn.execute(
+            "select public.reconcile_grounded_company(%s,%s,%s,%s::smallint,%s)",
+            (name, ats, slug, tier, method),
+        ).fetchone()[0]
+    finally:
+        conn.execute("select set_config('hq.test_user', %s, false)", (prior or "",))
 
 
 def propose(conn, names, source="paste"):

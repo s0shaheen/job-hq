@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { refuseUnlessEntitled } from "@/lib/auth/api-guard";
 import { getDataSource, isConfigured } from "@/lib/data/get-source";
 import { PROPOSE_SOURCE_TAGS } from "@/lib/data/view-models";
 import { getSupabaseEnv } from "@/lib/env";
@@ -81,6 +82,12 @@ export async function POST(request: Request) {
     const { data } = await supabase.auth.getClaims();
     if (!data?.claims) return bad("Not signed in.", 401);
   }
+
+  // The entitlement gate (0027). Answered HERE for the same reason auth is: this
+  // is a fetch, and middleware's redirect to the holding page would reach it as
+  // `POST /pending`. A 403 with a sentence is what the caller can act on.
+  const notEntitled = await refuseUnlessEntitled();
+  if (notEntitled) return notEntitled;
 
   const raw = await request.text();
   if (raw.length > MAX_BODY_BYTES) return bad("Request body too large.", 413);

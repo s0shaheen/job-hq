@@ -1,3 +1,4 @@
+import { entitlementRefusal, refuseUnlessEntitled } from "@/lib/auth/api-guard";
 import { getDataSource } from "@/lib/data/get-source";
 import { isDemoMode, type DataSource } from "@/lib/data/source";
 import { getSupabaseEnv } from "@/lib/env";
@@ -127,6 +128,12 @@ export async function POST(request: Request): Promise<Response> {
     return fail("Your session expired. Sign in again to export.", 401);
   }
 
+  // The entitlement gate (0027). Answered HERE for the same reason auth is: this
+  // is a fetch, and middleware's redirect to the holding page would reach it as
+  // `POST /pending`. A 403 with a sentence is what the caller can act on.
+  const notEntitled = await refuseUnlessEntitled();
+  if (notEntitled) return notEntitled;
+
   let raw: unknown;
   try {
     raw = await request.json();
@@ -159,6 +166,11 @@ export async function POST(request: Request): Promise<Response> {
       },
     });
   } catch (err) {
+    // A refusal is not a failure: `getDataSource()` throws for an account that is
+    // not turned on, and reporting that as a 500 tells the dialog to retry
+    // forever and files a false alarm in the log.
+    const refused = entitlementRefusal(err);
+    if (refused) return refused;
     // Never a stack trace to the browser; the toast says the export failed and
     // offers a retry, and the detail stays in the server log.
     console.error("export failed", err);

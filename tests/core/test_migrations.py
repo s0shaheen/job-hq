@@ -52,6 +52,15 @@ RESERVED_MIGRATION_NUMBERS: dict[int, str] = {
     # branch's 21 came out as each landed — the mechanism working as designed.
     22: "E1 — email events into Postgres",
     24: "phase 0, if the owner takes that fork",
+    # 26 has to be DECLARED here rather than merely left empty, and only
+    # `feat/entitlement-model` can do it: contiguity is checked up to the highest
+    # migration that exists, so main — whose highest is 0025 — never had to name
+    # it. 0027 raises that ceiling, and the number under it turns from "nobody has
+    # got there yet" into a hole somebody has to account for.
+    #
+    # 25 was E5's own; `0025_display_prefs.sql` landed on main and the line came
+    # out on the rebase that pulled it in, the same way 20 did.
+    26: "parallel design-cutover branch",
 }
 
 
@@ -345,7 +354,14 @@ def test_the_engine_only_rpcs_are_not_reachable_from_a_browser():
                # caller learned that user from an HMAC signature and not from a
                # session; reachable from a browser it would let any signed-in
                # visitor triage anybody's queue.
-               "hq_digest_set_triage"):
+               "hq_digest_set_triage",
+               # 0027's three. These are the only functions in the schema that
+               # decide who may USE this product, and two take the acting user as
+               # an argument for the token family's reason — the caller is the
+               # operator in the SQL editor, not a session. Reachable from a
+               # browser, `hq_activate_user` is a pending account's self-service
+               # route past the entire gate.
+               "hq_activate_user", "hq_suspend_user", "hq_pending_users"):
         revokes = re.findall(rf"revoke\s+all\s+on\s+function\s+public\.{fn}\s*\([^)]*\)\s*\n?\s*"
                              rf"from\s+([^;]+);", ALL_SQL, re.I)
         assert revokes, f"{fn}() is never revoked"

@@ -501,6 +501,50 @@ The Health tab is a full snapshot per daily monitor run — one row per monitore
 5. Dead company / don't care: set `monitor` = `FALSE` on its Companies row. Never delete
    the row — history stays.
 
+## Turning a new signup on (entitlements, migration 0027)
+
+Since 0027 anyone may create an account and **nobody reaches the product until you turn them
+on**. An allowlisted address (`allowed_emails`) is active on first sign-in; everybody else
+lands `pending` and sees the holding page at `/pending`. Nothing pushes on a signup — this
+section is the whole notification mechanism.
+
+**Who is waiting** — Supabase dashboard → SQL editor:
+
+```sql
+select * from public.hq_pending_users();
+```
+
+Oldest first, and it lists `suspended` accounts too: "who currently cannot use this" is one
+list, and the `status` column says which is which.
+
+**Turn one on / turn one off:**
+
+```sql
+select public.hq_activate_user('<user_id>', 'why — shows up in the audit trail');
+select public.hq_suspend_user ('<user_id>', 'why');
+```
+
+Both are idempotent and both answer `{"changed": true|false, …}`; running one twice does not
+restamp the grant date and does not write a second `events` row. Suspension is a **stamp,
+never a delete** — the account, its pipeline and its history stay exactly where they are, and
+`hq_activate_user` puts it back with the original `activated_at` intact.
+
+**Why the SQL editor and not a bot.** Both are operator-only: `revoke … from public, anon,
+authenticated` plus `grant execute … to service_role`, so no browser session can reach them.
+A dispatchable job would print "who was granted access to this product and when" into a
+CloudWatch or Actions log, and that is an authorization decision rather than a line in a
+build log. Provisioning the allowlist already works this way (`db/README.md` step 3).
+
+**If somebody says the app is empty or refuses them:** check
+`select status, invited, reason from public.entitlements where user_id = '<id>'`. `pending`
+means never turned on, `suspended` means turned off after the fact, and no row at all means
+the signup trigger did not run — activate them, which creates the row.
+
+**Founding users** are `invited = true`, free forever, and exempt from commercial quotas when
+billing lands. They are **not** exempt from the security and spend limits: the warm-referral
+daily cap applies to them unchanged, and suspending a founding account refuses it exactly
+like any other.
+
 ## The capture endpoint (`/api/capture`) — mint, rotate, revoke
 
 The Gmail Apps Script dual-writes: the **Email Events** tab first (still authoritative — the

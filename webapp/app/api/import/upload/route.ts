@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { refuseUnlessEntitled } from "@/lib/auth/api-guard";
 import { getDataSource, isConfigured } from "@/lib/data/get-source";
 import { isDemoMode } from "@/lib/data/source";
 import { getSupabaseEnv } from "@/lib/env";
@@ -158,6 +159,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!(await hasSession())) {
     return fail("Your session expired. Sign in again and upload the file once more.", 401);
   }
+
+  // The entitlement gate (0027). Answered HERE for the same reason auth is: this
+  // is a fetch, and middleware's redirect to the holding page would reach it as
+  // `POST /pending`. A 403 with a sentence is what the caller can act on.
+  const notEntitled = await refuseUnlessEntitled();
+  if (notEntitled) return notEntitled;
 
   // `.get()` answers null for an absent header and `Number(null)` is 0 — finite,
   // non-negative, and straight past the check below. So a chunked request, which

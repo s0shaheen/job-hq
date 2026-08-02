@@ -1,4 +1,5 @@
 import { redirect, unstable_rethrow } from "next/navigation";
+import { isNotEntitled } from "@/lib/auth/entitlement";
 import { getSupabaseEnv } from "@/lib/env";
 import { getDataSource } from "@/lib/data/get-source";
 import { createClient } from "@/lib/supabase/server";
@@ -53,6 +54,21 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // this footgun and it re-throws every framework control-flow error, not
     // just this one.
     unstable_rethrow(err);
+    /**
+     * The entitlement guard (migration 0027), and it has to be INSIDE this catch.
+     *
+     * `getDataSource()` refuses a pending account by throwing, and the two lines
+     * below this one are a deliberate fail-open: any error becomes "no count,
+     * render the shell". Left alone, that would swallow the refusal and paint the
+     * whole app for somebody the gate just turned away — the guard defeated by
+     * the error handling that predates it.
+     *
+     * Duck-typed, never `instanceof`: layouts, pages and actions are separate
+     * server bundles with separate copies of the class object (the reasoning is
+     * in `lib/auth/entitlement.ts`, and `get-source.ts` records the same bug
+     * being found the hard way).
+     */
+    if (isNotEntitled(err)) redirect("/pending");
     queueCount = 0; // a count is decoration; it must never break the shell
   }
 

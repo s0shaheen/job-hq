@@ -38,9 +38,20 @@ const { cookieJar, sourceRef, configuredRef } = vi.hoisted(() => ({
   configuredRef: { current: true },
 }));
 
+// `getSessionEntitlement` is here because the route now calls
+// `refuseUnlessEntitled()` before it reads a byte of the upload (migration 0027):
+// an account that is not turned on must not be able to stage rows, and this is a
+// route the middleware redirect does not protect — a POST straight at the endpoint
+// never passes a redirect. The mock answers ACTIVE so every case below still
+// exercises the import logic it was written for; the refusal itself is proved in
+// `entitlement-gate.test.ts`, which owns that behaviour.
 vi.mock("@/lib/data/get-source", () => ({
   getDataSource: async () => sourceRef.current,
   isConfigured: () => configuredRef.current,
+  getSessionEntitlement: async () => ({
+    kind: "ok" as const,
+    entitlement: { status: "active" as const, invited: true, plan: "free", activatedAt: null },
+  }),
 }));
 
 const { POST, GET } = await import("@/app/api/import/upload/route");

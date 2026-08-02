@@ -1,6 +1,14 @@
 import "server-only";
 
 import { cookies } from "next/headers";
+import {
+  DEMO_ENTITLEMENT_COOKIE,
+  demoEntitlement,
+  isActive,
+  NotEntitledError,
+  readEntitlement,
+  type EntitlementRead,
+} from "@/lib/auth/entitlement";
 import { getSupabaseEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { EMPTY_APPLY_LIBRARY } from "./apply-fixtures";
@@ -275,6 +283,35 @@ export function isConfigured(): boolean {
   return isDemoMode() || Boolean(getSupabaseEnv());
 }
 
+/**
+ * The CURRENT session's entitlement (migration 0027).
+ *
+ * Exported because the holding surface has to read it WITHOUT going through
+ * `getDataSource()` — that function refuses a pending account by design, so a
+ * page that used it to find out why it was refused could never render.
+ *
+ * Demo mode answers from the seam cookie; an unconfigured deployment throws
+ * `NotConfiguredError` exactly as `getDataSource()` does, because "we cannot
+ * tell whether you are entitled" and "we are serving invented data" are the same
+ * refusal.
+ */
+export async function getSessionEntitlement(): Promise<EntitlementRead> {
+  if (isDemoMode()) {
+    let cookieValue: string | undefined;
+    try {
+      cookieValue = (await cookies()).get(DEMO_ENTITLEMENT_COOKIE)?.value;
+    } catch {
+      // cookies() is unavailable in some contexts; the demo default is active
+    }
+    return { kind: "ok", entitlement: demoEntitlement(cookieValue) };
+  }
+  if (!getSupabaseEnv()) throw new NotConfiguredError();
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+  const userId = typeof data?.claims?.sub === "string" ? data.claims.sub : "";
+  return readEntitlement(supabase, userId);
+}
+
 export async function getDataSource(): Promise<DataSource> {
   // Demo mode is the ONLY route to fixtures, and it is opt-in via an env var
   // the deployer sets deliberately. Missing configuration is not demo mode.
@@ -284,6 +321,7 @@ export async function getDataSource(): Promise<DataSource> {
     let fail: string | undefined;
     let overCap: string | undefined;
     let display: string | undefined;
+    let entitlementCookie: string | undefined;
     try {
       const jar = await cookies();
       id = jar.get(DEMO_COOKIE)?.value || "shared";
@@ -291,9 +329,16 @@ export async function getDataSource(): Promise<DataSource> {
       fail = jar.get(FAIL_COOKIE)?.value;
       overCap = jar.get(WARM_OVER_CAP_COOKIE)?.value;
       display = jar.get(DISPLAY_COOKIE)?.value;
+      entitlementCookie = jar.get(DEMO_ENTITLEMENT_COOKIE)?.value;
     } catch {
       // cookies() is unavailable in some contexts; the shared store is fine
     }
+    // The gate runs here too, and not only in middleware. Otherwise the E2E
+    // suite would prove the redirect and prove nothing at all about the layer
+    // that refuses a request which never passed a redirect — a server action
+    // POSTed straight at its own endpoint.
+    const demoEnt = demoEntitlement(entitlementCookie);
+    if (!isActive(demoEnt)) throw new NotEntitledError(demoEnt.status);
     const store = demoStore(id, seed);
     // BEFORE the failure arming below, not after: `failNextWrite` is consumed
     // by the first WRITE, and seeding preferences is one. Armed the other way
@@ -331,5 +376,28 @@ export async function getDataSource(): Promise<DataSource> {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const userId = typeof data?.claims?.sub === "string" ? data.claims.sub : "";
+
+  /**
+   * THE ENTITLEMENT GATE, at the one place every read and every write passes.
+   *
+   * Every page, every server action and every API route that touches data
+   * resolves its source here — so a surface added next month is refused for a
+   * pending account without anybody remembering to guard it. That is the whole
+   * design: the check sits at the choke point rather than at each door, because
+   * a door somebody forgets is a door that is open.
+   *
+   * FAILS CLOSED, unlike the middleware gate. `unreadable` means the store did
+   * not answer, and a security boundary that opens when the store hiccups is a
+   * boundary anybody can open by making the store hiccup. A signed-in owner
+   * during a Supabase outage sees an error, which is true; a pending stranger
+   * during the same outage sees the same error, which is the point.
+   *
+   * The cost is one primary-key lookup per resolve, alongside reads the caller
+   * was making anyway.
+   */
+  const read = await readEntitlement(supabase, userId);
+  if (read.kind !== "ok") throw new NotEntitledError("pending");
+  if (!isActive(read.entitlement)) throw new NotEntitledError(read.entitlement.status);
+
   return new SupabaseDataSource(supabase, userId);
 }

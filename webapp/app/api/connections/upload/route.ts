@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { refuseUnlessEntitled } from "@/lib/auth/api-guard";
 import { isConfigured } from "@/lib/data/get-source";
 import { isDemoMode } from "@/lib/data/source";
 import { getSupabaseEnv } from "@/lib/env";
@@ -99,6 +100,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!(await hasSession())) {
     return fail("Your session expired. Sign in again and upload the file once more.", 401);
   }
+
+  // This route never resolves a data source — it parses the CSV and hands the
+  // rows back to the browser — so `getDataSource()`'s refusal never runs for it
+  // and the gate has to be stated. The one endpoint the choke point does not
+  // cover, named rather than left implicit.
+  const notEntitled = await refuseUnlessEntitled();
+  if (notEntitled) return notEntitled;
 
   // A string check first: `.get()` answers null for an absent header and
   // `Number(null)` is 0 — finite, non-negative, and straight past the cap. A
