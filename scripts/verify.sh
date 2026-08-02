@@ -435,6 +435,59 @@ for s in "${selected[@]+"${selected[@]}"}"; do
 done
 [[ $precondition_failed -eq 0 ]] || { echo; echo "verify: NOT RUN — a selected gate could not run. Nothing was verified." >&2; exit 4; }
 
+# ─────────────────────────────────────────────────────────── serialize
+#
+# One heavy verification run at a time, per machine.
+#
+# The loop this breaks, measured on 2026-08-02: two full gates overlap, the
+# 14-core box goes to a load average near 100, timing-sensitive Playwright specs
+# fail at random, somebody re-runs to find out whether the failure was real, and
+# the re-run is itself more load. It cost several hours and — worse — it hid a
+# GENUINE mobile regression behind four rounds of plausible noise, because every
+# failure had an innocent explanation available.
+#
+# A lock, not a concurrency limit: a second run WAITS rather than failing, so an
+# agent that starts one is never punished for another agent's timing. `flock` is
+# not on macOS, so the lock is a directory — `mkdir` is atomic on every
+# filesystem this runs on, which a lockfile written with `>` is not. The PID is
+# recorded so a stale lock names its owner, and a lock whose owner is gone is
+# reclaimed rather than waited on forever.
+#
+# Scoped to the heavy modes. A change-scoped run of two fast suites has no
+# business queueing behind a full gate, and serializing those would remove the
+# entire point of the fast lane.
+LOCK_DIR="${HQ_VERIFY_LOCK:-${TMPDIR:-/tmp}/hq-verify.lock}"
+lock_held=0
+release_lock() { [[ "$lock_held" == 1 ]] && rm -rf "$LOCK_DIR"; }
+
+heavy=0
+[[ "$mode" == "full" ]] && heavy=1
+for _s in "${selected[@]+"${selected[@]}"}"; do
+  case "$_s" in e2e|e2e-visual|e2e-slop|build) heavy=1 ;; esac
+done
+
+if [[ "$heavy" == 1 && "${HQ_VERIFY_NO_LOCK:-0}" != "1" ]]; then
+  waited=0
+  until mkdir "$LOCK_DIR" 2>/dev/null; do
+    owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || echo '')"
+    if [[ -n "$owner" ]] && ! kill -0 "$owner" 2>/dev/null; then
+      echo "verify: reclaiming a lock whose owner (pid $owner) is gone" >&2
+      rm -rf "$LOCK_DIR"; continue
+    fi
+    if [[ "$waited" == 0 ]]; then
+      echo "verify: another heavy run holds the lock (pid ${owner:-unknown}); waiting." >&2
+      echo "        Concurrent full gates make timing tests fail at random, which costs" >&2
+      echo "        more to disprove than the parallelism saves. HQ_VERIFY_NO_LOCK=1 opts out." >&2
+    fi
+    sleep 5; waited=$((waited + 5))
+    if (( waited % 300 == 0 )); then echo "verify: still waiting (${waited}s)" >&2; fi
+  done
+  lock_held=1
+  printf '%s' "$$" > "$LOCK_DIR/pid"
+  trap release_lock EXIT INT TERM
+  [[ "$waited" -gt 0 ]] && echo "verify: lock acquired after ${waited}s" >&2
+fi
+
 # ─────────────────────────────────────────────────────────── run
 cmd_of() { local i; for i in "${!suite_ids[@]}"; do [[ "${suite_ids[$i]}" == "$1" ]] && { echo "${suite_cmd[$i]}"; return; }; done; }
 declare -a results=()
