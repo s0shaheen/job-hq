@@ -173,7 +173,11 @@ Launch is allowed only when:
    locked decisions, blocking ADRs, design addenda, and current risks.
 10. [`16-source-manifest.md`](16-source-manifest.md) records content-addressed design and
     repository planning sources.
-11. [`archive/`](archive/) preserves historical narrow-pilot analysis. It is not an
+11. [`17-ui-verification-standard.md`](17-ui-verification-standard.md) is the executable
+    companion to 04 and 05: the surface × state × mode coverage ledger, the live-data
+    browser lane, the launch journeys, and the flake and anti-vacuity policies. A routed
+    surface with a `missing` cell is not a release candidate.
+12. [`archive/`](archive/) preserves historical narrow-pilot analysis. It is not an
     execution source.
 
 Any older sentence in this directory that recommends a narrow pilot, a placeholder
