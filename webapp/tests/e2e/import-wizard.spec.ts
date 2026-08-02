@@ -217,7 +217,7 @@ test("the wizard survives the large type scale", async ({ page, context }, testI
   // into one that pushes its row past the edge (matrix row 123).
   await ownStore(page, testInfo);
   await context.addCookies([
-    { name: "hq_display", value: "large,comfortable", url: "http://127.0.0.1:3210" },
+    { name: "hq_demo_display", value: "large,comfortable", url: "http://127.0.0.1:3210" },
   ]);
   await page.setViewportSize({ width: 375, height: 900 });
   const url = await atStep(page, "map");

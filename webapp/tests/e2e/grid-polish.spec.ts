@@ -110,7 +110,7 @@ test("the per-user type cookie does not compound the view's own type scale", asy
   // the second one, and 15 of 19 comp cells clipped. The existing test above sets
   // the view scale and never the cookie, so it could not see it.
   await context.addCookies([
-    { name: "hq_display", value: "large,comfortable", url: "http://127.0.0.1:3210" },
+    { name: "hq_demo_display", value: "large,comfortable", url: "http://127.0.0.1:3210" },
   ]);
   await gotoJobs(page, context);
   await expect(page.locator("html")).toHaveAttribute("data-type-scale", "large");

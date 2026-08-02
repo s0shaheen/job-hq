@@ -8,7 +8,7 @@ import { FIXTURE_JOBS } from "./fixtures";
 import { FIXTURE_PROFILE_NEW } from "./preview-fixtures";
 import { FixtureDataSource } from "./fixture-source";
 import { SupabaseDataSource } from "./supabase-source";
-import { isDemoMode, type DataSource } from "./source";
+import { isDemoMode, type DataSource, type SetDisplayPrefsInput } from "./source";
 
 /**
  * Demo stores are keyed by a cookie so each browser session gets its own.
@@ -84,6 +84,46 @@ const FAIL_COOKIE = "hq_demo_fail";
 
 /** Arms the next warm search to refuse with over-cap — the E2E's shortcut to that state. */
 const WARM_OVER_CAP_COOKIE = "hq_warm_over_cap";
+
+/**
+ * Seeds this demo store's DISPLAY PREFERENCES, for the same reason
+ * `hq_demo_fail` seeds a failure: an E2E drives the real UI and needs the
+ * SERVER to start from a state, and a cookie is the only channel it has.
+ *
+ * Not to be confused with the `hq_display` cookie this replaces, and the
+ * difference is the whole point of E5. That one was the PRODUCTION mechanism —
+ * a client script read it before paint, so the preference lived in the browser
+ * and never reached the person's phone. This one is read on the SERVER, under
+ * `isDemoMode()` only, and it drives the same `setDisplayPrefs` write path a
+ * real gesture takes. In production the value comes from `profiles` and there
+ * is no cookie at all.
+ *
+ * Grammar is the old one's, a comma list of flags, so the specs that drove it
+ * change by one word each: `large`, `comfortable`, `no-hints`, `theme-dark`,
+ * `theme-light`. Unrecognised flags are ignored rather than applied — a stale
+ * or hand-edited value cannot put the app in a state no CSS defines.
+ */
+const DISPLAY_COOKIE = "hq_demo_display";
+
+function parseDisplaySeam(value: string | undefined): SetDisplayPrefsInput | null {
+  if (!value) return null;
+  const flags = new Set(value.split(",").map((f) => f.trim()));
+  const input: SetDisplayPrefsInput = {
+    // A key derived from the VALUE, not a fresh uuid: this runs on every
+    // resolve while the cookie is set, and the store's idempotency map turns
+    // every request after the first into a replay rather than a second write.
+    idempotencyKey: `demo-display:${value.slice(0, 120)}`,
+    // No version check. The seam states an absolute starting state; it is not
+    // a gesture racing anyone.
+    expectedUpdatedAt: null,
+  };
+  if (flags.has("large")) input.typeScale = "large";
+  if (flags.has("comfortable")) input.density = "comfortable";
+  if (flags.has("no-hints")) input.keyboardHints = false;
+  if (flags.has("theme-dark")) input.theme = "dark";
+  if (flags.has("theme-light")) input.theme = "light";
+  return input;
+}
 
 function parseSeed(value: string | undefined): SeedName {
   // An unrecognised value falls back to the full set rather than to nothing:
@@ -240,16 +280,24 @@ export async function getDataSource(): Promise<DataSource> {
     let seed: SeedName = "full";
     let fail: string | undefined;
     let overCap: string | undefined;
+    let display: string | undefined;
     try {
       const jar = await cookies();
       id = jar.get(DEMO_COOKIE)?.value || "shared";
       seed = parseSeed(jar.get(SEED_COOKIE)?.value);
       fail = jar.get(FAIL_COOKIE)?.value;
       overCap = jar.get(WARM_OVER_CAP_COOKIE)?.value;
+      display = jar.get(DISPLAY_COOKIE)?.value;
     } catch {
       // cookies() is unavailable in some contexts; the shared store is fine
     }
     const store = demoStore(id, seed);
+    // BEFORE the failure arming below, not after: `failNextWrite` is consumed
+    // by the first WRITE, and seeding preferences is one. Armed the other way
+    // round, a test setting both cookies would spend its failure on the seam
+    // and see its own gesture succeed.
+    const seamPrefs = parseDisplaySeam(display);
+    if (seamPrefs) await store.setDisplayPrefs(seamPrefs);
     // Duck-typed, NOT `instanceof`, and that is the same lesson as the globalThis
     // map above it. Next compiles pages, server actions and route handlers into
     // separate bundles, each with its own copy of this module AND its own

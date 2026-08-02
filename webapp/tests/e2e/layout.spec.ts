@@ -138,7 +138,7 @@ test.describe("nothing paints past the edge at the large type scale", () => {
     for (const width of WIDTHS) {
       test(`${path} @ ${width}px`, async ({ page, context }) => {
         await context.addCookies([
-          { name: "hq_display", value: "large,comfortable", url: "http://127.0.0.1:3210" },
+          { name: "hq_demo_display", value: "large,comfortable", url: "http://127.0.0.1:3210" },
         ]);
         await page.setViewportSize({ width, height: 900 });
         await page.goto(path);

@@ -7,7 +7,15 @@ import {
   isDemoMode,
   type CommitProfileResult,
   type PreviewProfileResult,
+  type SetDisplayPrefsInput,
+  type SetDisplayPrefsResult,
 } from "@/lib/data/source";
+import {
+  DENSITIES,
+  LANDING_VIEW_MAX,
+  THEMES,
+  TYPE_SCALES,
+} from "@/lib/display/prefs";
 import { getSupabaseEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { parseCriteria, type ProfileCriteria } from "@/lib/profile/criteria";
@@ -106,6 +114,85 @@ export async function commitProfileAction(
     revalidatePath("/queue");
     revalidatePath("/jobs");
     revalidatePath("/settings");
+  }
+  return result;
+}
+
+/**
+ * Autosave one or more display preferences (0025).
+ *
+ * A server action rather than the cookie write this replaces, and the old
+ * comment's argument for the cookie is worth answering rather than deleting: it
+ * said there was "nothing to authorize, nothing to audit and nothing another
+ * device needs to agree about — it is this browser's eyesight". The last clause
+ * was the wrong call. Somebody who needs 16px type needs it on their phone too,
+ * and a browser-local preference means every new device starts by being
+ * unreadable to the person who most needs it readable.
+ *
+ * Autosave (06 §A: Preferences autosave, Profile & search does not), so this is
+ * built to be cheap: one nullable field per knob, and 0025 writes nothing at
+ * all when nothing moved.
+ *
+ * Every validator here exists for `commitProfileAction`'s reason — a server
+ * action is a public endpoint and the input type is erased at runtime (matrix
+ * row 38). The closed sets are checked against the SAME constants the parser
+ * and the CHECK constraints use, so there is one vocabulary rather than three.
+ */
+export async function setDisplayPrefsAction(
+  input: SetDisplayPrefsInput,
+): Promise<SetDisplayPrefsResult> {
+  if (await demoSessionExpired()) return { ok: false, kind: "auth" };
+  if (!(await hasSession())) return { ok: false, kind: "auth" };
+
+  if (typeof input !== "object" || input === null) {
+    return { ok: false, kind: "error", message: "Malformed request." };
+  }
+  const {
+    density,
+    typeScale,
+    keyboardHints,
+    landingView,
+    theme,
+    idempotencyKey,
+    expectedUpdatedAt,
+  } = input;
+  if (typeof idempotencyKey !== "string" || !idempotencyKey || idempotencyKey.length > 200) {
+    return { ok: false, kind: "error", message: "Invalid idempotency key." };
+  }
+  if (expectedUpdatedAt !== null && typeof expectedUpdatedAt !== "string") {
+    return { ok: false, kind: "error", message: "Invalid version token." };
+  }
+  const bad =
+    (density !== undefined && !DENSITIES.includes(density)) ||
+    (typeScale !== undefined && !TYPE_SCALES.includes(typeScale)) ||
+    (theme !== undefined && !THEMES.includes(theme)) ||
+    (keyboardHints !== undefined && typeof keyboardHints !== "boolean") ||
+    (landingView !== undefined &&
+      (typeof landingView !== "string" || landingView.length > LANDING_VIEW_MAX));
+  if (bad) return { ok: false, kind: "error", message: "Unknown display preference." };
+
+  const src = await getDataSource();
+  const result = await src.setDisplayPrefs({
+    // Rebuilt field by field rather than spread: a server action receives
+    // whatever the caller serialised, and a spread would forward keys the
+    // contract does not have straight into the RPC argument object — where
+    // PostgREST fails to resolve the overload at all.
+    ...(density !== undefined ? { density } : {}),
+    ...(typeScale !== undefined ? { typeScale } : {}),
+    ...(keyboardHints !== undefined ? { keyboardHints } : {}),
+    ...(landingView !== undefined ? { landingView } : {}),
+    ...(theme !== undefined ? { theme } : {}),
+    idempotencyKey,
+    expectedUpdatedAt,
+  });
+
+  if (result.ok && result.changed) {
+    // The ROOT layout renders these as `<html>` attributes, so the whole tree
+    // is downstream of them — `"layout"` scope, not the settings page alone.
+    // The control reloads anyway (see display-prefs.tsx for why a reload rather
+    // than a re-render), and revalidating is what makes that reload cheap
+    // rather than a second read of stale cache.
+    revalidatePath("/", "layout");
   }
   return result;
 }

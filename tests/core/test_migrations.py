@@ -44,6 +44,19 @@ def test_there_are_migrations():
 RESERVED_MIGRATION_NUMBERS: dict[int, str] = {
     # 13 was reserved for the referral-finder branch; it merged (#81) and the
     # reservation came out the same hour — the mechanism working as designed.
+    #
+    # 20–24 were the redesign's prerequisite spine (docs 07 §4), five branches cut
+    # from the same commit. E5 claimed 25 rather than 20 so that the four ahead of
+    # it keep the numbers they were planned with; a reservation is cheap and
+    # renumbering four branches mid-flight is not.
+    #
+    # 20 came out when `0020_warm_referral.sql` landed on main (#94) and E5 rebased
+    # onto it — which is the mechanism working, not a courtesy: both assertions
+    # below went red on the rebase and stayed red until this line was deleted.
+    21: "logos — company logo storage",
+    22: "E1 — email events into Postgres",
+    23: "E3 — bot heartbeats",
+    24: "phase 0, if the owner takes that fork",
 }
 
 

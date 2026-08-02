@@ -37,6 +37,12 @@ import type { RegateEntry } from "@/lib/profile/regate";
 // reaches a client bundle through this widely-imported module.
 import type { WarmCandidate, WarmParams, WarmPersona, WarmStatus } from "@/lib/warm/types";
 import type {
+  Density,
+  DisplayPrefs,
+  ThemeChoice,
+  TypeScale,
+} from "@/lib/display/prefs";
+import type {
   ImportBatchView,
   ImportColumnReportView,
   ImportCounts,
@@ -667,6 +673,65 @@ export type CommitProfileResult =
   | { ok: false; kind: "auth" }
   | { ok: false; kind: "error"; message: string };
 
+// ---- display preferences (0025) --------------------------------------------
+
+/**
+ * One user's display preferences, with the version token that guards a write.
+ *
+ * A SEPARATE token from `ProfileView.updatedAt`, and that separation is the
+ * point rather than an accident: Preferences autosave and the Search Profile
+ * saves explicitly (06 §A), so one shared token would mean ticking "Larger
+ * text" makes a half-finished profile edit un-saveable. 0025's trigger clause
+ * is the server half of the same guarantee.
+ *
+ * `updatedAt` is null when no row exists yet — somebody who signed in and has
+ * never saved anything. That reads as "the defaults", not as an error: the
+ * first write materialises the row.
+ */
+export type DisplayPrefsView = DisplayPrefs & {
+  updatedAt: string | null;
+};
+
+/**
+ * Turning one knob.
+ *
+ * EVERY VALUE IS OPTIONAL AND OMITTING ONE LEAVES IT ALONE — `undefined` maps
+ * to the SQL null that means "leave it". A call that had to restate all five
+ * would replay whatever this tab last READ into the other four, so flipping
+ * density on the phone would quietly revert the type scale the laptop set
+ * thirty seconds earlier. The popover flips one switch at a time; this shape is
+ * what makes that safe.
+ *
+ * `expectedUpdatedAt: null` skips the version check the way 0012's does, for
+ * the caller that legitimately has no token yet (a first write against a row
+ * that does not exist).
+ */
+export type SetDisplayPrefsInput = {
+  density?: Density;
+  typeScale?: TypeScale;
+  keyboardHints?: boolean;
+  landingView?: string;
+  theme?: ThemeChoice;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+/**
+ * `changed` is what the STORE did, not what the caller asked for.
+ *
+ * A no-op autosave answers `changed: false` and leaves the token where it was —
+ * which is how the caller can tell "saved" from "nothing to save" without
+ * comparing timestamps, and what the quiet saved tick (06 §A) should be driven
+ * by. Replaying an idempotency key returns the first call's answer verbatim,
+ * `changed` included.
+ */
+export type SetDisplayPrefsResult =
+  | { ok: true; prefs: DisplayPrefsView; changed: boolean }
+  /** Another device moved these first. `current` is what it set. */
+  | { ok: false; kind: "conflict"; current: DisplayPrefsView }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
 // ---- the answer library (0014) ---------------------------------------------
 
 /**
@@ -904,6 +969,25 @@ export interface DataSource {
   previewProfile(input: PreviewProfileInput): Promise<PreviewProfileResult>;
   /** Save the profile and restamp the untriaged rows it moves, in one transaction. */
   commitProfile(input: CommitProfileInput): Promise<CommitProfileResult>;
+
+  // ---- display preferences (0025) -----------------------------------------
+
+  /**
+   * This user's display preferences. Read on the SERVER, before first paint.
+   *
+   * That is the whole reason this is a data-layer method rather than a client
+   * hook: the type scale and density are `<html>` attributes, and applying them
+   * after hydration is a large-type user watching the page reflow on every
+   * navigation. The cookie this replaces existed for exactly that property; the
+   * profile keeps it and adds the one the cookie could never have, which is
+   * that the preference follows the person to their other devices.
+   *
+   * Never throws for a missing row: an account with nothing saved reads as the
+   * defaults.
+   */
+  displayPrefs(): Promise<DisplayPrefsView>;
+  /** Autosave one or more knobs. Omitted values are left alone. */
+  setDisplayPrefs(input: SetDisplayPrefsInput): Promise<SetDisplayPrefsResult>;
 
   // ---- the answer library (0014) ------------------------------------------
 

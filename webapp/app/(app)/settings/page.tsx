@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getDataSource } from "@/lib/data/get-source";
+import { shellDisplayPrefs } from "@/lib/display/server";
 import { draftFromPreset } from "@/lib/profile/presets";
 import { DisplayPrefs } from "./display-prefs";
 import ProfileForm from "./profile-form";
@@ -26,6 +27,11 @@ export const dynamic = "force-dynamic";
 export default async function SettingsPage() {
   const src = await getDataSource();
   const profile = await src.profile();
+  // Through `shellDisplayPrefs`, not `src.displayPrefs()` directly: it is a
+  // React `cache()`, so this is the SAME read the root layout already made for
+  // the `<html>` attributes. One query, and — the part that matters — no way
+  // for the control and the page it renders on to show two different answers.
+  const display = await shellDisplayPrefs();
 
   return (
     <div
@@ -42,7 +48,7 @@ export default async function SettingsPage() {
       </header>
 
       <div className="mx-auto max-w-2xl space-y-3 px-4 pt-5 sm:px-6">
-        <DisplayPrefs />
+        <DisplayPrefs prefs={display} />
         {/* The other half of "settings", and deliberately a link rather than a
             section: these ids are the why-popover's contract, and sixteen policy
             topics in that namespace would be sixteen anchors nothing links to. */}

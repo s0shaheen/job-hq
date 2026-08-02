@@ -54,6 +54,9 @@ import type {
   PreviewProfileResult,
   CommitProfileInput,
   CommitProfileResult,
+  DisplayPrefsView,
+  SetDisplayPrefsInput,
+  SetDisplayPrefsResult,
   ClearConnectionsInput,
   ClearConnectionsResult,
   ImportConnectionsInput,
@@ -110,6 +113,25 @@ import {
 import { FIXTURE_PROFILE, PREVIEW_CORPUS, PREVIEW_MAX_ROWS } from "./preview-fixtures";
 import { clampWindowDays, computePreview } from "@/lib/profile/preview";
 import { isOnboarded, parseCriteria } from "@/lib/profile/criteria";
+import {
+  DENSITIES,
+  LANDING_VIEW_MAX,
+  THEMES,
+  TYPE_SCALES,
+} from "@/lib/display/prefs";
+// The Supabase source's mapper, imported rather than re-implemented — matrix
+// row 212 again: two mappings for one row is where the fake and production
+// quietly stop agreeing.
+import { toDisplayPrefsView } from "./supabase-source";
+
+/** The columns the no-op guard compares. The version token is not one of them. */
+const DISPLAY_COLUMNS = [
+  "display_density",
+  "display_type_scale",
+  "display_keyboard_hints",
+  "display_landing_view",
+  "display_theme",
+] as const;
 import type { Disposition } from "./view-models";
 import { FIXTURE_COMPANIES } from "./company-fixtures";
 import { isTerminalStatus } from "@/lib/status";
@@ -1719,6 +1741,117 @@ export class FixtureDataSource implements DataSource {
       newlyQualifiedKeys: newlyQualified,
     };
     this.seenProfileKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  // ---- display preferences (0025) ------------------------------------------
+  //
+  // Stored in the DATABASE's shape — the `display_`-prefixed column names — and
+  // read back through the SAME `toDisplayPrefsView` the Supabase source uses,
+  // for matrix row 212's reason: a fake that holds the view model tests the
+  // RESULT and never the MAPPING, and an `isOnboarded` mutant survived 383
+  // tests exactly that way.
+
+  private displayRow: Record<string, unknown> = {
+    display_density: "dense",
+    display_type_scale: "default",
+    display_keyboard_hints: true,
+    display_landing_view: "",
+    display_theme: "system",
+    // Null, not a timestamp: no `profiles` row exists until the first write, and
+    // "there is nothing here yet" is a state the Supabase source can genuinely
+    // return. A fake that started with a token would make every first write send
+    // an expectation the real store cannot match.
+    display_updated_at: null as string | null,
+  };
+  private seenDisplayKeys = new Map<string, SetDisplayPrefsResult>();
+  private displaySeq = 0;
+
+  async displayPrefs(): Promise<DisplayPrefsView> {
+    return toDisplayPrefsView({ ...this.displayRow });
+  }
+
+  /**
+   * `app_set_display_prefs`, clause for clause.
+   *
+   * The ORDER is the migration's: the payload is validated BEFORE the replay is
+   * looked up, so a retry carrying something the function refuses gets the
+   * refusal rather than the stored result (0014's rule, and the reason a
+   * replay-first fake would answer "saved" to a request Postgres rejects).
+   */
+  async setDisplayPrefs(input: SetDisplayPrefsInput): Promise<SetDisplayPrefsResult> {
+    if (
+      !input.idempotencyKey ||
+      blankTrim(input.idempotencyKey) === "" ||
+      charLength(input.idempotencyKey) > 200
+    ) {
+      return { ok: false, kind: "error", message: "idempotency key required" };
+    }
+
+    // The CHECK constraints and the function's own guards, in the language that
+    // calls them. A fake that accepted `density: "cozy"` would let a demo — and
+    // every e2e test that drives one — prove a write production refuses.
+    const bad =
+      (input.density !== undefined && !DENSITIES.includes(input.density)
+        ? `unknown density: ${input.density}`
+        : "") ||
+      (input.typeScale !== undefined && !TYPE_SCALES.includes(input.typeScale)
+        ? `unknown type scale: ${input.typeScale}`
+        : "") ||
+      (input.theme !== undefined && !THEMES.includes(input.theme)
+        ? `unknown theme: ${input.theme}`
+        : "") ||
+      (input.landingView !== undefined && charLength(input.landingView) > LANDING_VIEW_MAX
+        ? `landing view too long: ${charLength(input.landingView)} chars`
+        : "");
+    if (bad) return { ok: false, kind: "error", message: bad };
+
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    const replay = this.seenDisplayKeys.get(input.idempotencyKey);
+    if (replay) return replay;
+
+    if (
+      input.expectedUpdatedAt !== null &&
+      input.expectedUpdatedAt !== this.displayRow.display_updated_at
+    ) {
+      return { ok: false, kind: "conflict", current: await this.displayPrefs() };
+    }
+
+    // `??`, matching SQL's `coalesce(p_x, column)`: an OMITTED value leaves its
+    // column alone. `||` here would be the bug — `keyboardHints: false` and
+    // `landingView: ""` are both falsy and both meaningful.
+    const next: Record<string, unknown> = {
+      ...this.displayRow,
+      display_density: input.density ?? this.displayRow.display_density,
+      display_type_scale: input.typeScale ?? this.displayRow.display_type_scale,
+      display_keyboard_hints: input.keyboardHints ?? this.displayRow.display_keyboard_hints,
+      display_landing_view: input.landingView ?? this.displayRow.display_landing_view,
+      display_theme: input.theme ?? this.displayRow.display_theme,
+    };
+
+    // The UPDATE's `is distinct from` guard. A no-op autosave writes nothing:
+    // no bumped token, and (in the store) no event. The token holding still is
+    // what stops a tab invalidating its own expectation by re-sending what it
+    // already has.
+    const changed = DISPLAY_COLUMNS.some((c) => next[c] !== this.displayRow[c]);
+    if (changed) {
+      next.display_updated_at = new Date(
+        new Date(FIXTURE_NOW).getTime() + 1000 + ++this.displaySeq,
+      ).toISOString();
+      this.displayRow = next;
+    }
+
+    const result: SetDisplayPrefsResult = {
+      ok: true,
+      prefs: await this.displayPrefs(),
+      changed,
+    };
+    this.seenDisplayKeys.set(input.idempotencyKey, result);
     return result;
   }
 

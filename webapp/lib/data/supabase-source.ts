@@ -41,6 +41,9 @@ import type {
   PreviewProfileResult,
   CommitProfileInput,
   CommitProfileResult,
+  DisplayPrefsView,
+  SetDisplayPrefsInput,
+  SetDisplayPrefsResult,
   ClearConnectionsInput,
   ClearConnectionsResult,
   ImportConnectionsInput,
@@ -90,6 +93,7 @@ import { companyNameKey } from "./view-models";
 import { parseComp } from "@/lib/gating/comp";
 import { clampWindowDays, computePreview, type PreviewPosting } from "@/lib/profile/preview";
 import { isOnboarded, parseCriteria } from "@/lib/profile/criteria";
+import { DEFAULT_DISPLAY_PREFS, parseDisplayPrefs } from "@/lib/display/prefs";
 import type {
   ApplicationView,
   ChannelHealthView,
@@ -121,6 +125,34 @@ function toSavedView(r: Record<string, unknown>): SavedView {
     state: r.state ?? {},
     isDefault: bool(r.is_default),
     updatedAt: str(r.updated_at),
+  };
+}
+
+/**
+ * The display half of one `profiles` row (0025) — from a select OR from
+ * `app_display_prefs_row`'s jsonb, which is built with the same keys so that
+ * one mapper serves the read and the write.
+ *
+ * The five values are handed to `parseDisplayPrefs` one by one rather than as
+ * the whole row, and that is not ceremony: `tests/unit/supabase-select-lists.test.ts`
+ * pins every column a MAPPER reads against the columns its query ASKED FOR, and
+ * it reads this function's source to do it. Passing `r` straight through would
+ * move all five reads inside `lib/display/prefs.ts`, where the pin cannot see
+ * them — which is exactly how `companies.linkedin_id_source` went missing from
+ * `COMPANY_COLS` and rendered nothing against a real database while demo mode
+ * worked perfectly.
+ */
+export function toDisplayPrefsView(raw: unknown): DisplayPrefsView {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  return {
+    ...parseDisplayPrefs({
+      display_density: r.display_density,
+      display_type_scale: r.display_type_scale,
+      display_keyboard_hints: r.display_keyboard_hints,
+      display_landing_view: r.display_landing_view,
+      display_theme: r.display_theme,
+    }),
+    updatedAt: str(r.display_updated_at),
   };
 }
 
@@ -171,6 +203,17 @@ const WARM_PIN_COLS =
 
 /** SQLSTATE `app_*_warm_search` raises for "not this user's search" — a 404. */
 const NO_SUCH_WARM_SEARCH = "P0002";
+
+/**
+ * The display half of `profiles` (0025). One string literal, same reason.
+ *
+ * `display_updated_at` and not `updated_at`: they are two independent version
+ * tokens on one row, and selecting the wrong one here would send the Search
+ * Profile's token as the preferences' expectation — so every autosave after a
+ * profile save would be reported as somebody else's edit.
+ */
+const DISPLAY_PREFS_COLS =
+  "display_density, display_type_scale, display_keyboard_hints, display_landing_view, display_theme, display_updated_at";
 
 // ---- import row shapes (P9) -------------------------------------------------
 
@@ -1277,6 +1320,60 @@ export class SupabaseDataSource implements DataSource {
       newlyQualifiedKeys: Array.isArray(row.newly_qualified_keys)
         ? (row.newly_qualified_keys as unknown[]).map(String)
         : [],
+    };
+  }
+
+  // ---- display preferences (0025) -----------------------------------------
+
+  /**
+   * This user's display preferences, or the server's defaults when no row
+   * exists — which is every account that has never saved anything, since
+   * `handle_new_auth_user` writes `users` only.
+   *
+   * Fails to the DEFAULTS rather than throwing, and that is the same call the
+   * onboarding guard makes for the same reason: this read happens in the root
+   * layout, before first paint, on every route including the ones nobody is
+   * signed in on. A transient error here must render the app slightly wrong,
+   * never blank.
+   */
+  async displayPrefs(): Promise<DisplayPrefsView> {
+    const { data, error } = await this.supabase
+      .from("profiles")
+      .select(DISPLAY_PREFS_COLS)
+      .eq("user_id", this.userId)
+      .maybeSingle();
+    if (error || !data) return { ...DEFAULT_DISPLAY_PREFS, updatedAt: null };
+    return toDisplayPrefsView(data as unknown as Record<string, unknown>);
+  }
+
+  async setDisplayPrefs(input: SetDisplayPrefsInput): Promise<SetDisplayPrefsResult> {
+    // `?? null` on every value, not a spread of the input: PostgREST sends the
+    // keys it is given, and a `undefined` one is omitted from the JSON body
+    // entirely — at which point Postgres falls back to the parameter's DEFAULT,
+    // which these deliberately do not have. An explicit null is the "leave it"
+    // signal the function is written against.
+    const { data, error } = await this.supabase.rpc("app_set_display_prefs", {
+      p_density: input.density ?? null,
+      p_type_scale: input.typeScale ?? null,
+      p_keyboard_hints: input.keyboardHints ?? null,
+      p_landing_view: input.landingView ?? null,
+      p_theme: input.theme ?? null,
+      p_idem: input.idempotencyKey,
+      p_expected_updated_at: input.expectedUpdatedAt,
+    });
+    if (error) {
+      // The same match `commitProfile` uses, on the same word, for the same
+      // reason: 0025 raises `conflict: your display preferences changed …`.
+      if (/conflict|stale/i.test(error.message)) {
+        return { ok: false, kind: "conflict", current: await this.displayPrefs() };
+      }
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const row = (data ?? {}) as Record<string, unknown>;
+    return {
+      ok: true,
+      prefs: toDisplayPrefsView(row.display),
+      changed: row.changed === true,
     };
   }
 

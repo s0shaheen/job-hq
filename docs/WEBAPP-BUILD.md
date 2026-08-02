@@ -994,6 +994,108 @@ Worth keeping, because each was stated confidently and was wrong:
       the joiner still reads the tab, and the pg join lane is where 0015's
       `hq_apply_email_event` finally gets its second caller.
 
+- [x] **E5 — display preferences move to `profiles`** (design doc 07 §4; migration
+      **0025**). The **first** of the redesign's prerequisite spine, and the one the
+      cutover order puts first because it proves the pipeline end to end on the
+      richest existing surface.
+
+      **What it closes: half of conflict C6, precisely.** The deferral note above
+      (item **c**) records two mechanisms across two surfaces. The per-USER half is
+      now one store: density, type scale, keyboard hints, landing view and theme are
+      typed columns on `profiles` with CHECK constraints and server-owned defaults,
+      the `hq_display` cookie is gone, and `app/layout.tsx` renders
+      `data-type-scale` / `data-density` on `<html>` from the profile — on the
+      server, so the attributes are in the first byte of the document rather than in
+      the first script that runs against it. Item **b** ("the persona default comes
+      from a cookie nothing writes") is discharged: `/settings` writes the profile.
+
+      **What it does NOT close, stated so nobody reads this as done:** `/jobs` still
+      carries `typeScale` / `density` / `hints` in `saved_views.state`, and the
+      `data-type-scale-scope="own"` block in `globals.css` is still load-bearing.
+      That half retires with the **Display popover**, which lands with the Jobs
+      surface build from the owner's design (07 §3). Deleting the scope block before
+      then re-opens the compounding that clipped 15 of 19 comp cells.
+
+      **The bug worth the migration on its own.** `updated_at` is the Search
+      Profile's optimistic-concurrency token and 0001's `profiles_touch` bumped it on
+      every update to the row — while Preferences AUTOSAVE (06 §A). So "tick Larger
+      text, then press Save changes" would have raised `conflict: this profile
+      changed since you read it` over a gesture that touched nothing the form edits,
+      every time, on the one page carrying both controls. 0025 gives the display lane
+      its own `display_updated_at` and makes `profiles_touch` conditional — written
+      as *"the display tuple did not change"*, never as *"a non-display column did"*,
+      so every existing writer keeps its exact behaviour including a save that
+      rewrites `criteria` to the same value.
+
+      **Autosave semantics, in the write path rather than in the UI.** Every value
+      parameter of `app_set_display_prefs` is nullable and null means "leave it", so
+      two devices turning two different knobs cannot revert each other; a write that
+      changes nothing writes nothing — no token bump, no event — so an autosave storm
+      of identical values cannot invalidate a tab's own version token or fill the
+      append-only trail.
+
+      **Three deviations, each a decision rather than an oversight.** (1) The
+      vocabulary is the repo's `dense|comfortable` / `default|large`, not 01 §3's
+      "compact"/"normal": `globals.css` matches `:root[data-density="comfortable"]`
+      and four e2e specs assert those attribute values, so the brief's words would
+      need a translation layer between the column and the CSS selector. (2) `theme`
+      defaults to `system`, not the design's "light default" — a stored `light` would
+      silently overrule the OS for every existing account, and `theme.spec.ts` pins
+      the opposite on five routes. **Owner call.** (3) Theme keeps its `localStorage`
+      lane, because `system` means "ask the operating system" and a server cannot;
+      the profile is the server-rendered default underneath it.
+
+      Notification preferences are NOT duplicated: `profiles.notify` has held them
+      since 0001 and `app_commit_profile` already carries it opaquely.
+
+      **`tests/unit/theme-split.test.ts` is new and is the point of 07 §2.** Type
+      tokens must stay in a plain `@theme` and colours in `@theme inline`; swap them
+      and nothing errors — Tailwind compiles either way, the token tests add `.dark`
+      by hand, and both runtime proofs live on surfaces that will be replaced. The
+      pin is structural so it survives a rewrite of every component.
+
+      Gates: 21 db cases (three mutations watched red), 1721 vitest, 910 playwright
+      across both projects, container visual **53/53 with zero re-records** — the
+      defaults are byte-identical to what the app rendered before.
+
+      **Adversarial review before the PR, and what it found.** The gates above were
+      claimed, not verified; re-run, `tsc` and vitest and the 642-case db suite
+      against a real Postgres are green, and two of the three claimed mutations were
+      re-watched red (the trigger's `when` clause, and `keyboardHints !== false`).
+      Two defects came out of it and are fixed here, one is recorded and is an
+      **owner call**:
+
+      1. *Fixed.* The autosave control called `setDisplayPrefsAction` with **no
+         timeout and no catch** — the only client write in the app without both
+         (`WRITE_TIMEOUT_MS = 15_000` is declared in five other files for matrix row
+         135's reason). A server action REJECTS when the network is gone, so offline
+         left `pending` set, the checkbox disabled forever, and nothing on screen
+         saying why. Autosave makes that worse than anywhere else: there is no Save
+         button to press again. Now bounded, caught, and carrying one idempotency key
+         per gesture held across retries so "try again" cannot write twice.
+         `tests/unit/display-prefs-control.test.tsx` fails on all three against the
+         previous file.
+      2. *Fixed.* The rebase onto `0020_warm_referral.sql` turned both migration
+         numbering assertions red, exactly as `RESERVED_MIGRATION_NUMBERS` promises.
+         The `20:` line is deleted.
+      3. **Open, owner call — the root layout is now dynamic on every route.**
+         `shellDisplayPrefs()` reads cookies in `app/layout.tsx`, so with Supabase
+         env present `next build` moves `/`, `/login`, `/setup` and `/_not-found`
+         from **○ Static** to **ƒ Dynamic** (verified both ways against `origin/main`
+         with the same env). Signed-out pages now cost a request-time resolve. That
+         is inherent to per-user attributes on `<html>` rather than a mistake in the
+         implementation — a nested layout cannot set them and a wrapper `div` would
+         leave every portal outside the chosen scale — so it is stated rather than
+         silently re-architected here.
+
+      Two smaller notes, neither fixed: `theme` still gives `localStorage`
+      precedence over the profile, so a browser that has already chosen a palette
+      will not follow a theme set from another device until the Display popover
+      writes both halves; and the server action accepts any bounded
+      `landingView` string while `parseDisplayPrefs` resolves anything outside
+      `KNOWN_LANDING_VIEWS` back to `""`, so such a value stores and reads back
+      empty. No surface writes either field yet.
+
 - [ ] **Next up — the rest of Track 2** (`docs/plans/HQ-V2-BUILD.md`): P11 digest.
       Track-1 discovery infra is complete **except the last hop**: 0009 landed the
       reconciler and `monitor/universe.py`, which READS the verdict —

@@ -322,3 +322,120 @@ test("double-clicking Save leaves one change and no error", async ({ page }) => 
   await page.reload();
   await expect(page.getByTestId("metros-chips")).toContainText("Miami");
 });
+
+/**
+ * A store nothing has touched, even when the dev server outlives the test run.
+ *
+ * `isolate` keys the demo store by a STABLE id, which is right for every test
+ * above: they assert on an end state, so re-running against a store their last
+ * run mutated still means what it says. The three display-preference cases below
+ * assert on a STARTING state ("large type is off, now turn it on"), and
+ * `globalThis.__hqDemoStores` survives between runs against a reused server — so
+ * the second run of the suite would start with the preference already set and
+ * the precondition would fail for a reason that has nothing to do with the code.
+ * A per-run suffix buys a genuinely untouched store; the map is bounded, so
+ * nothing accumulates.
+ */
+async function isolateFresh(page: Page, id: string) {
+  await isolate(page, `${id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+}
+
+/**
+ * Wait until the toggle's reload has LANDED and the page is interactive again.
+ *
+ * Two waits, and skipping either is a real flake rather than belt-and-braces.
+ * The attribute is server HTML, so it is true the moment the new document
+ * arrives — before React has attached a single handler. A gesture in that gap
+ * fires into nothing, which is the exact lesson `gotoSettings` was written for;
+ * under parallel load it cost this file two failures and no error anywhere.
+ */
+async function displaySettled(page: Page, attr: string, value: string) {
+  await expect(page.locator("html")).toHaveAttribute(attr, value, { timeout: 15_000 });
+  await expect(page.getByTestId("profile-form")).toHaveAttribute("data-hydrated", "true");
+}
+
+// ------------------------------------------------------ display preferences
+
+test("a display preference autosaves, survives a reload, and reaches every surface", async ({
+  page,
+}) => {
+  // The E5 round trip end to end: a gesture on /settings writes `profiles`, and
+  // the ROOT layout renders the result as an `<html>` attribute — on the server,
+  // which is what removes the flash the retired `hq_display` cookie existed to
+  // prevent while adding the thing that cookie could never do (following the
+  // person to their phone).
+  //
+  // Worth an E2E rather than a unit test for two reasons neither layer covers:
+  // the write is AUTOSAVED, so there is no Save button to assert against and
+  // "landed" can only mean the server answers differently afterwards; and the
+  // attribute is set by a DIFFERENT layout from the page that wrote it.
+  await isolateFresh(page, "display-prefs");
+  await gotoSettings(page);
+
+  await expect(page.locator("html")).not.toHaveAttribute("data-type-scale", "large");
+  await page.getByTestId("display-large").check();
+
+  // The control reloads once the server confirms — display-prefs.tsx states why
+  // a reload rather than a re-render. Waiting on the ATTRIBUTE rather than on
+  // the checkbox is the point: the checkbox is client state and would flip the
+  // instant it was clicked, whether or not anything was stored.
+  await displaySettled(page, "data-type-scale", "large");
+  await expect(page.getByTestId("display-large")).toBeChecked();
+
+  // A hard reload, because the assertion this suite once lacked everywhere is
+  // "did it actually persist" — a write into a store nothing else reads passes
+  // every check made straight after the gesture.
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-type-scale", "large");
+
+  // And on a surface that never mentions display preferences, which is the
+  // "per-user, everywhere" claim rather than the "this page remembers" one.
+  await page.goto("/pipeline");
+  await expect(page.locator("html")).toHaveAttribute("data-type-scale", "large");
+});
+
+test("turning one knob does not revert the other", async ({ page }) => {
+  // The reason every value in `SetDisplayPrefsInput` is optional. A control that
+  // sent all five would replay whatever it last READ into the other four, so the
+  // second gesture would quietly undo the first — and both checkboxes would
+  // still LOOK right until a reload, which is why this asserts after one.
+  await isolateFresh(page, "display-both");
+  await gotoSettings(page);
+
+  await page.getByTestId("display-large").check();
+  await displaySettled(page, "data-type-scale", "large");
+  await page.getByTestId("display-comfortable").check();
+  await displaySettled(page, "data-density", "comfortable");
+
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-type-scale", "large");
+  await expect(page.locator("html")).toHaveAttribute("data-density", "comfortable");
+});
+
+test("an autosaved preference does not make the profile form report a conflict", async ({
+  page,
+}) => {
+  // The bug 0025's trigger clause exists for, driven the way a person hits it:
+  // both controls live on ONE page, `updated_at` is the Search Profile's version
+  // token, and 0001 bumped it on every write to the row. So ticking a preference
+  // and then pressing Save would have raised "this profile changed since you
+  // read it" over a gesture that touched nothing the form edits — every time, on
+  // the one page that carries both.
+  await isolateFresh(page, "display-no-conflict");
+  await gotoSettings(page);
+  const before = await versionOnce(page);
+
+  await page.getByTestId("display-comfortable").check();
+  await displaySettled(page, "data-density", "comfortable");
+
+  // The token the form holds is untouched by the preference write — the
+  // server-side half of the claim, read off the same attribute every other test
+  // in this file waits on.
+  expect(await version(page)).toBe(before);
+
+  await addChip(page, "metros", "Miami");
+  await check(page);
+  await page.getByTestId("save-button").click();
+  await expect(page.getByTestId("commit-banner")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/couldn.t save|changed since|try again/i)).toHaveCount(0);
+});

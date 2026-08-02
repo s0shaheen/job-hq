@@ -723,7 +723,7 @@ test("the large type scale really grows the tokens, and the pill still fits", as
   const small = (await pill.boundingBox())!;
   const smallFont = await pill.evaluate((el) => getComputedStyle(el).fontSize);
 
-  await context.addCookies([{ name: "hq_display", value: "large", url: ORIGIN }]);
+  await context.addCookies([{ name: "hq_demo_display", value: "large", url: ORIGIN }]);
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-type-scale", "large");
 
@@ -773,7 +773,7 @@ test("comfortable density makes rows taller without pushing anything off-screen"
   const row = page.getByTestId(`row-${PLAID}`);
   const dense = (await row.boundingBox())!;
 
-  await context.addCookies([{ name: "hq_display", value: "comfortable", url: ORIGIN }]);
+  await context.addCookies([{ name: "hq_demo_display", value: "comfortable", url: ORIGIN }]);
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-density", "comfortable");
   const comfy = (await row.boundingBox())!;
@@ -783,11 +783,17 @@ test("comfortable density makes rows taller without pushing anything off-screen"
   expect(offenders, describeOffenders(offenders)).toEqual([]);
 });
 
-test("an unrecognised display cookie is ignored, not applied", async ({ page, context }) => {
-  // A stale or hand-edited cookie must not leave the app in a state no CSS
+test("an unrecognised display preference is ignored, not applied", async ({ page, context }) => {
+  // A stale or hand-edited value must not leave the app in a state no CSS
   // defines. Fail towards the default, which is the readable one for everybody.
+  //
+  // Driven through the demo seam because the PRODUCTION channel no longer has
+  // a hole this shape: 0025 gives the columns CHECK constraints and the write
+  // function refuses an unknown value by name. What survives is the read path —
+  // `parseDisplayPrefs` resolving anything it does not recognise to the
+  // default — and that is what this drives end to end.
   await isolate(page, "display-garbage");
-  await context.addCookies([{ name: "hq_display", value: "enormous,zzz", url: ORIGIN }]);
+  await context.addCookies([{ name: "hq_demo_display", value: "enormous,zzz", url: ORIGIN }]);
   await gotoPipeline(page);
   await expect(page.locator("html")).not.toHaveAttribute("data-type-scale", "large");
   await expect(page.locator("html")).not.toHaveAttribute("data-density", "comfortable");

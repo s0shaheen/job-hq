@@ -250,6 +250,18 @@ const CASES: Case[] = [
     variable: "r",
     select: () => plainSelectAfterFrom("saved_views"),
   },
+  {
+    // 0025's five knobs plus their own version token. The one that would bite
+    // silently here is `display_updated_at`: `profiles` carries TWO tokens and
+    // selecting the Search Profile's `updated_at` by mistake would send it back
+    // as the preferences' expectation, so every autosave after a profile save
+    // would be refused as somebody else's edit — with nothing on screen and no
+    // type error anywhere.
+    table: "profiles (the display half)",
+    mapper: "toDisplayPrefsView",
+    variable: "r",
+    select: () => constLiteral("DISPLAY_PREFS_COLS"),
+  },
 ];
 
 describe("every column a mapper reads is a column the query selects", () => {

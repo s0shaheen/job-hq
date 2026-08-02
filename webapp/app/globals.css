@@ -242,10 +242,19 @@
  *
  * Re-declaring the default tokens on the subtree restores them for everything
  * inside it (custom properties inherit), so the grid keeps exactly the one scale
- * it manages itself. This is a HOLDING measure, not the destination: plans/README
- * conflict C6 wants one per-user mechanism, and unifying them means moving
- * `typeScale` out of saved-view state — which is P9's, when the value moves to
- * `profiles`. Recorded in the deferral list rather than left as a surprise.
+ * it manages itself.
+ *
+ * STILL A HOLDING MEASURE after E5, and it is worth being exact about what E5
+ * did and did not finish. Migration 0025 moved the per-USER value onto
+ * `profiles`, so the source of `data-type-scale` is now a person rather than a
+ * browser — but /jobs still carries its own `typeScale` in `saved_views.state`,
+ * because the control that replaces it is the Display popover and that lands
+ * with the Jobs surface build (doc 07 §3). Until then the two scales still
+ * exist and can still compound, so this block is exactly as load-bearing as it
+ * was: DO NOT DELETE IT with the saved-view knobs still in place.
+ *
+ * Every branch states its own font size on purpose. A branch that inherited
+ * would take the outer scale, which is the compounding this exists to stop.
  */
 :root[data-type-scale="large"] [data-type-scale-scope="own"] {
   --text-2xs: 0.6875rem;
@@ -267,17 +276,16 @@
 /*
  * Row density for the surfaces that opt in, via `.hq-row`.
  *
- * **Scope, stated accurately:** driven by `hq_display`, this is ONE GLOBAL COOKIE
- * and therefore per-USER, which is NOT what plans/README conflict C6 resolves
- * (typeScale per-user, density per-VIEW — density belongs in `saved_views.state`).
- * An earlier version of this comment called it per-surface, which it never was.
+ * **Scope, stated accurately:** driven by `profiles.display_density` (migration
+ * 0025) and therefore per-USER, rendered onto `<html>` by the root layout.
  *
- * Shipped anyway, and recorded as a deviation rather than mislabelled: the
- * pipeline has no saved views (`savedViews("pipeline")` is unprovisioned), so
- * per-view density here would mean building that store first. `/jobs` keeps its
- * own per-view density untouched, so nothing regresses — what exists is two
- * mechanisms on two surfaces, which C6 exists to collapse. The deferral list in
- * docs/WEBAPP-BUILD.md carries it.
+ * It used to be driven by the `hq_display` cookie, which was per-BROWSER while
+ * this comment called it per-user — true of the value's SHAPE and false of the
+ * person's experience, since signing in from a phone forgot it. E5 (doc 07 §4)
+ * closed that half of conflict C6. The other half is still open and is stated
+ * rather than implied: `/jobs` keeps its own per-view density in
+ * `saved_views.state` until the Display popover replaces the view-switcher's
+ * display knobs, so two mechanisms still exist across two surfaces.
  *
  * `dense` lives in the class itself and `comfortable` is the override, so the two
  * knobs cannot fight. Written as CSS rather than a Tailwind conditional because
