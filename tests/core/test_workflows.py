@@ -42,8 +42,9 @@ def _named_step(name_fragment: str, filename: str) -> dict:
 #: Every lane that writes a pg heartbeat from GitHub Actions, and the step that does it.
 #: A lane whose workflow step cannot reach the store is a lane the digest reports dead
 #: while it is committing nightly — which is what shipped, for `snapshot`, on this branch.
-PG_BEAT_STEPS = [("selfheal.yml", "Snapshot tabs to CSV"),
-                 ("pgdump.yml", "Heartbeat the pg backup lane")]
+#: (`pgdump.yml` left this list when PKT-DUMP-DISABLE closed its lane: a disabled
+#: workflow must not vouch for backups, so it carries no beat step at all.)
+PG_BEAT_STEPS = [("selfheal.yml", "Snapshot tabs to CSV")]
 
 
 @pytest.mark.parametrize("filename,step_name", PG_BEAT_STEPS, ids=lambda v: str(v))
@@ -56,15 +57,54 @@ def test_actions_lanes_that_beat_in_pg_carry_the_credentials_to_do_it(filename, 
         assert key in env, f"{filename}:{step_name!r} cannot reach the store: {key} unset"
 
 
-def test_the_pgdump_beat_is_the_last_step_before_the_failure_handler():
-    """The beat means "the store has a backup as of now". Reachable before the dump's
-    size gate or the push retry, it would vouch for a backup that never landed."""
-    wf = next(w for w in WORKFLOWS if w.name == "pgdump.yml")
-    names = [s.get("name") or "" for s in _steps(wf)]
-    beat, commit = names.index("Heartbeat the pg backup lane"), names.index("Commit")
-    assert beat > commit, "the pg backup beat can be reached without a committed dump"
-    assert "if" not in _named_step("Heartbeat the pg backup lane", "pgdump.yml"), \
-        "the beat step carries a condition — a failed dump must simply not reach it"
+def _dump_capable(doc: dict) -> list[str]:
+    """Why a parsed workflow could put a database dump in Git (empty = it can't).
+
+    The containment rule (FP-OPS-001, PKT-DUMP-DISABLE) is deliberately blunter
+    than "dump AND commit in the same workflow": pg_dump has no business in ANY
+    Actions run block — the only sanctioned dump lane lives off-Git. Scheduling
+    plus a commit of snapshots/pg/ is flagged independently so a split-across-
+    steps variant cannot slip through either half."""
+    reasons = []
+    runs = " ".join(
+        str(s.get("run") or "")
+        for job in (doc.get("jobs") or {}).values()
+        for s in (job.get("steps") or [])
+    )
+    if "pg_dump" in runs:
+        reasons.append("invokes pg_dump")
+    if "snapshots/pg" in runs and ("git add" in runs or "git commit" in runs or "git push" in runs):
+        reasons.append("touches snapshots/pg/ alongside git add/commit/push")
+    return reasons
+
+
+@pytest.mark.parametrize("wf", WORKFLOWS, ids=lambda p: p.name)
+def test_no_workflow_can_put_a_database_dump_in_git(wf):
+    """PKT-DUMP-DISABLE's acceptance gate: static inspection of every workflow
+    finds no pg_dump and no dump-artifact commit path. This is the test that
+    keeps the lane closed after the people who closed it forget it existed."""
+    reasons = _dump_capable(yaml.safe_load(wf.read_text()))
+    assert not reasons, f"{wf.name} could put a database dump in Git: {reasons}"
+
+
+def test_the_dump_detector_catches_the_violation_it_exists_for():
+    """The packet demands the oracle be proven capable of failing: a fixture
+    with a schedule plus a dump commit must be flagged. If this fixture ever
+    passes clean, the containment test above is vacuous."""
+    violating = yaml.safe_load("""
+        name: sneaky snapshot
+        on:
+          schedule: [{cron: "0 0 * * *"}]
+        jobs:
+          dump:
+            runs-on: ubuntu-latest
+            steps:
+              - run: pg_dump "$DB" | gzip > snapshots/pg/hq.sql.gz
+              - run: git add snapshots/pg/ && git commit -m x && git push
+    """)
+    reasons = _dump_capable(violating)
+    assert "invokes pg_dump" in reasons
+    assert any("snapshots/pg/" in r for r in reasons)
 
 
 @pytest.mark.parametrize("wf", WORKFLOWS, ids=lambda p: p.name)

@@ -1,120 +1,35 @@
-# Nightly Postgres snapshot — the pg twin of the sheet CSV snapshot ritual.
-# Gated on the PGDUMP_ENABLED repo VARIABLE so the workflow is silent until
-# the Supabase project exists (db/README.md), then loud on any failure.
+# DISABLED by PKT-DUMP-DISABLE (FP-OPS-001): no database dump may enter Git.
 #
-# A backup that fails silently is worse than no backup: every step below is
-# written so a broken dump FAILS the run rather than committing an empty file.
+# This workflow used to pg_dump the production public schema and COMMIT the
+# gzipped SQL to snapshots/pg/ nightly. Under the pilot-launch containment
+# packet (docs/pilot-launch/instances/PKT-DUMP-DISABLE.md) that lane is closed:
+# no schedule, no manual dispatch, no configuration toggle here can produce or
+# push a dump. The PGDUMP_ENABLED repo variable is intentionally ignored.
 #
-# STAYS ON GITHUB ACTIONS after the 2026-07-25 Lambda cutover, same rule as selfheal.yml: its
-# product is a git commit, and it needs the pg_dump 17 binary Lambda's image doesn't carry.
+# What remains tracked (snapshots/pg/hq.sql.gz and its history) is preserved
+# as incident evidence; deleting it or rotating SUPABASE_DB_URL is a separate
+# owner-approved packet (docs/pilot-launch/packets/00-baseline-and-containment.md).
+# The replacement backup — pg_dump to the versioned S3 bucket, never git —
+# ships as its own packet; until it does, tracker.digest's `pgdump` lane
+# correctly reports the store as having no watched backup under
+# HQ_PG_WRITES=first_class.
+#
+# The file stays (rather than being deleted) so the workflow name remains
+# claimed and this pointer is where the next person looks.
 name: PG snapshot
 
 on:
-  schedule:
-    - cron: "53 9 * * *"   # ~04:53 America/Chicago — an hour after selfheal's
-                           # commit window so the two never race to push main
-  workflow_dispatch: {}
+  workflow_dispatch: {}   # kept only so the file is valid workflow YAML;
+                          # the single job below refuses to do anything.
 
-permissions:
-  contents: write
-
-concurrency:
-  group: hq-main-committers   # serialize with other workflows that push main
-  cancel-in-progress: false
+permissions: {}
 
 jobs:
-  dump:
-    if: vars.PGDUMP_ENABLED == 'true'
+  disabled:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        shell: bash          # `bash` (not the default `bash -e`) so the
-                             # explicit pipefail below actually applies
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Install pg_dump 17 (must match/exceed the Supabase server major)
+      - name: Refuse
         run: |
-          set -euo pipefail
-          # Ubuntu's default postgresql-client is 16; Supabase projects run 17+
-          # and pg_dump ABORTS when the server major exceeds the client's.
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
-            https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
-            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
-          sudo apt-get -qq update
-          sudo apt-get -qq install -y postgresql-client-17
-          # /usr/bin/pg_dump is Ubuntu's perl wrapper and it resolves to the
-          # runner's preinstalled 16 cluster even with client-17 installed —
-          # the first live run proved it (server 17.6, wrapper picked 16.14).
-          # Only the versioned path is trustworthy here.
-          /usr/lib/postgresql/17/bin/pg_dump --version
-
-      - name: Dump public schema
-        env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-        run: |
-          set -euo pipefail        # without this, a failed pg_dump piped into
-                                   # gzip still exits 0 and commits an empty file
-          mkdir -p snapshots/pg
-          # --schema=public ONLY: auth.users/sessions and storage must never
-          # land in git, and a restore into a fresh project must not collide
-          # with Supabase's own managed schemas.
-          /usr/lib/postgresql/17/bin/pg_dump "$SUPABASE_DB_URL" \
-            --schema=public --no-owner --no-privileges \
-            | gzip -9 > snapshots/pg/hq.sql.gz
-          # sanity gate: a real dump of this schema is never this small
-          size=$(stat -c%s snapshots/pg/hq.sql.gz)
-          echo "dump size: ${size} bytes"
-          if [ "$size" -lt 1000 ]; then
-            echo "::error title=PG dump implausibly small::${size} bytes — refusing to commit"
-            exit 1
-          fi
-          gzip -t snapshots/pg/hq.sql.gz   # integrity check before committing
-
-      - name: Commit
-        run: |
-          set -euo pipefail
-          git config user.name "hq-bot"
-          git config user.email "bot@users.noreply.github.com"
-          git add snapshots/pg/
-          if git diff --cached --quiet; then
-            echo "no changes"; exit 0
-          fi
-          git commit -m "chore: nightly PG snapshot $(date -u +%Y-%m-%d)"
-          # a push rejected by a concurrent bot commit must retry, never be
-          # swallowed by `|| echo` — a swallowed push is a missing backup
-          for attempt in 1 2 3; do
-            if git push; then exit 0; fi
-            echo "push rejected (attempt ${attempt}) — rebasing on origin/main"
-            git pull --rebase origin "${GITHUB_REF_NAME}"
-          done
-          echo "::error title=PG snapshot push failed::3 attempts rejected"
+          echo "::error title=PG snapshot is disabled::Dumps must not enter Git (FP-OPS-001). See docs/pilot-launch/instances/PKT-DUMP-DISABLE.md"
           exit 1
-
-      # LAST, and only on the success path: the beat means "the store has a backup as of
-      # now", so it must not be reachable by a run whose dump failed the size gate or whose
-      # push was rejected. Under HQ_PG_WRITES=first_class the digest watches this lane
-      # (tracker.digest.PG_CADENCE_HOURS) and pages when it goes quiet — which is what makes
-      # "pg is load-bearing and its backup died" a thing somebody finds out about before
-      # restore day. A no-op in Phase A.
-      - name: Heartbeat the pg backup lane
-        env:
-          HQ_PG_WRITES: ${{ vars.HQ_PG_WRITES }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          HQ_PG_USER_ID: ${{ secrets.HQ_PG_USER_ID }}
-        run: |
-          set -euo pipefail
-          pip install -r requirements.txt
-          python -m tracker.beat pgdump
-
-      - name: Ops alert on failure
-        if: failure() || cancelled()
-        run: |
-          curl -s -H "Title: PG snapshot failed" -H "Priority: high" -H "Tags: warning" \
-            -d "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            "https://ntfy.sh/${{ secrets.HQ_OPS_NTFY_TOPIC || 'REDACTED-NTFY-TOPIC' }}" || true

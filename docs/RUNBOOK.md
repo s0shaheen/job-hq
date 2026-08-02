@@ -398,26 +398,17 @@ workflow is the one that *commits* (schema re-assert + tab CSVs + re-pinned gids
 **Run a bot** with `job = selfheal`, which re-asserts the schema but only commits `hq.config.yaml`
 if a gid actually moved.
 
-## PG snapshot (present, gated off)
+## PG snapshot (DISABLED — dumps must not enter Git)
 
-`pgdump.yml` was deleted on 2026-07-25 with the rest of the migration scaffolding and
-**resurrected in #72** (Phase A). This section said "deleted" until 2026-07-27; it was wrong, and
-the file has been in the tree the whole time.
-
-It runs nightly at `53 9 * * *` (~04:53 CT) **only when the `PGDUMP_ENABLED` repo variable is
-`true`**, dumps `--schema=public` to `snapshots/pg/hq.sql.gz`, gates on a plausibility size check
-plus `gzip -t`, commits, and — since Phase C1 — stamps the `pgdump` pg heartbeat as its last step
-(`python -m tracker.beat pgdump`, after the commit, so a failed dump cannot vouch for itself).
-
-**It needs `PGDUMP_ENABLED=true` before `HQ_PG_WRITES=first_class` goes to SSM.** Under
-first_class the store is what the system depends on, and the digest pages **HQ backups stale**
-naming `pgdump (pg)` for as long as the lane has never beaten. That page is the point: pg
-load-bearing with no backup is the sheet's 2026-07-24 outage waiting to happen in the substrate
-that replaced it.
-
-**Secrets it needs:** `SUPABASE_DB_URL` (the dump), plus `SUPABASE_URL` /
-`SUPABASE_SERVICE_KEY` / `HQ_PG_USER_ID` and the `HQ_PG_WRITES` variable (the heartbeat step —
-without them the beat step is a silent no-op and the lane reads dead).
+`pgdump.yml` is a refusing tombstone since PKT-DUMP-DISABLE
+(docs/pilot-launch/instances/PKT-DUMP-DISABLE.md, FP-OPS-001): no schedule, dispatch, or
+variable — `PGDUMP_ENABLED` is ignored — can dump the database or commit one to Git. The
+tracked `snapshots/pg/hq.sql.gz` and its history are preserved as incident evidence;
+deleting them and rotating `SUPABASE_DB_URL` are separate owner-approved packets. The
+replacement lane (pg_dump to the versioned S3 bucket, like `snapshot_s3`) ships as its own
+packet; until it does the `pgdump` heartbeat is intentionally silent, and under
+`HQ_PG_WRITES=first_class` the digest's **HQ backups stale** page naming `pgdump (pg)` is
+correct — the store really has no watched backup yet.
 
 ## The store lane (`HQ_PG_WRITES`)
 
