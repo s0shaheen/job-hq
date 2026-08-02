@@ -89,13 +89,15 @@ import {
   type AnswerView,
   type PolicyRuleView,
 } from "@/lib/apply/views";
-import { companyNameKey } from "./view-models";
+import { activityFromRuns, companyNameKey } from "./view-models";
 import { parseComp } from "@/lib/gating/comp";
 import { clampWindowDays, computePreview, type PreviewPosting } from "@/lib/profile/preview";
 import { isOnboarded, parseCriteria } from "@/lib/profile/criteria";
 import { DEFAULT_DISPLAY_PREFS, parseDisplayPrefs } from "@/lib/display/prefs";
 import type {
+  ActivityView,
   ApplicationView,
+  BotRunRow,
   ChannelHealthView,
   CompanyView,
   ConnectionView,
@@ -159,6 +161,7 @@ export function toDisplayPrefsView(raw: unknown): DisplayPrefsView {
 const POSTING_COLS =
   "key, company, title, location, url, posted, first_seen, last_seen, status, tags, geo, source";
 const CHANNEL_RUN_COLS = "channel, ran_at, fetched, new_rows, filtered, tagged, errors";
+const BOT_RUN_COLS = "job, started_at, finished_at, ok, fetched, new_rows, error";
 /**
  * The note embed on a pipeline read, and its bound.
  *
@@ -312,6 +315,23 @@ function str(v: unknown): string | null {
 }
 function bool(v: unknown): boolean {
   return v === true || v === "TRUE" || v === "true" || v === 1;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * A user id that is safe to place inside a PostgREST filter STRING.
+ *
+ * Every other read here uses `.eq("user_id", this.userId)`, where the value is
+ * parameterised and its shape cannot change the query. `.or(...)` is the one
+ * builder that takes a filter expression as text, so an id containing a comma or
+ * a dot would not be a bad value — it would be extra filter syntax. Nothing
+ * currently gets a non-uuid here (the id comes from the session), which is
+ * exactly why it is asserted rather than assumed: throw instead of issuing a
+ * query whose meaning is not the one written above.
+ */
+function uuidOrThrow(userId: string): string {
+  if (!UUID_RE.test(userId)) throw new Error("refusing to build a filter from a non-uuid user id");
+  return userId;
 }
 
 /**
@@ -882,6 +902,32 @@ export class SupabaseDataSource implements DataSource {
       );
     });
     return [...latest.values()];
+  }
+
+  async getActivity(): Promise<ActivityView[]> {
+    // 500 newest runs, then grouped by job in the shared mapper. Wide enough to
+    // hold several invocations per job (so "Failing since" can see the streak's
+    // start), bounded so the payload cannot grow with history — the newest run of
+    // each job, which decides its state, is always inside the window.
+    //
+    // SCOPED TO THIS USER, and not left to RLS. The 0023 policy is deliberately
+    // generous — an operator can read EVERY user's runs — so RLS alone would
+    // hand an operator all users' runs interleaved, and the mapper, which groups
+    // by job alone, would read them as one job's history. That is not a cosmetic
+    // merge: another user's successful `monitor` run lands mid-streak and ends a
+    // "Failing since" that never ended, and their open row makes a dead job read
+    // "Running". A per-user read is also what keeps the 500-row window a fixed
+    // number of days per user instead of one divided by the user count.
+    // `user_id is null` stays in: those are the shared, operator-wide jobs.
+    const { data, error } = await this.supabase
+      .from("bot_runs")
+      .select(BOT_RUN_COLS)
+      .or(`user_id.is.null,user_id.eq.${uuidOrThrow(this.userId)}`)
+      .order("started_at", { ascending: false })
+      .limit(500);
+    if (error) throw new Error(error.message);
+    const runs = ((data ?? []) as Record<string, unknown>[]).map(toBotRun);
+    return activityFromRuns(runs);
   }
 
   async setTriage(input: TriageInput): Promise<WriteResult> {
@@ -1805,6 +1851,21 @@ export const CADENCE: Record<string, number> = {
   monitor: 12, review: 24, tracker: 2, cafe: 24, theirstack: 24,
   simplify: 24, selfheal: 24, snapshot: 24, capture: 1.5,
 };
+
+/** One bot_runs row → the raw run the Activity mapper consumes (BOT_RUN_COLS). */
+function toBotRun(r: Record<string, unknown>): BotRunRow {
+  return {
+    job: String(r.job ?? ""),
+    startedAt: str(r.started_at) ?? "",
+    finishedAt: str(r.finished_at),
+    // A finished-but-unstamped `ok` cannot happen (the writer sets them together),
+    // but null-vs-false is the running/failed distinction, so coerce carefully.
+    ok: r.ok === null || r.ok === undefined ? null : Boolean(r.ok),
+    fetched: Number(r.fetched ?? 0),
+    newRows: Number(r.new_rows ?? 0),
+    error: str(r.error),
+  };
+}
 
 function toHealthView(channel: string, r: Record<string, unknown>): ChannelHealthView {
   const ranAt = str(r.ran_at);

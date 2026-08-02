@@ -155,8 +155,11 @@ function buildStore(seed: SeedName): DataSource {
   // other collection joined this call: a store with no data that still held ten
   // answers and eleven rules would leave the settings surface's empty state
   // unreachable through the only source the tests can drive.
+  // "Nothing at all" now also includes the bot runs: a store with no data that
+  // still reported four jobs' activity would leave the Activity tab's "nothing
+  // has reported yet" empty state unreachable — health's lesson, on the new tab.
   if (seed === "empty") {
-    return new FixtureDataSource([], [], [], [], undefined, [], EMPTY_APPLY_LIBRARY);
+    return new FixtureDataSource([], [], [], [], undefined, [], EMPTY_APPLY_LIBRARY, []);
   }
   if (seed === "no-answers") {
     // Everything else untouched, so there are applications to prepare. What a

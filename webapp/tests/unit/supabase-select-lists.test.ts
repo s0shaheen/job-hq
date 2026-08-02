@@ -228,6 +228,12 @@ const CASES: Case[] = [
     select: () => constLiteral("CHANNEL_RUN_COLS"),
   },
   {
+    table: "bot_runs",
+    mapper: "toBotRun",
+    variable: "r",
+    select: () => constLiteral("BOT_RUN_COLS"),
+  },
+  {
     table: "import_batches",
     mapper: "toImportBatchView",
     variable: "r",

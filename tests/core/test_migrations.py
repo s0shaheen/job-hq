@@ -50,12 +50,11 @@ RESERVED_MIGRATION_NUMBERS: dict[int, str] = {
     # it keep the numbers they were planned with; a reservation is cheap and
     # renumbering four branches mid-flight is not.
     #
-    # 20 came out when `0020_warm_referral.sql` landed on main (#94) and E5 rebased
-    # onto it — which is the mechanism working, not a courtesy: both assertions
-    # below went red on the rebase and stayed red until this line was deleted.
+    # 20 came out when `0020_warm_referral.sql` landed on main (#94); 23 came out
+    # when this branch landed `0023_bot_runs.sql` — the mechanism working, not a
+    # courtesy: the assertions below go red until each landed line is deleted.
     21: "logos — company logo storage",
     22: "E1 — email events into Postgres",
-    23: "E3 — bot heartbeats",
     24: "phase 0, if the owner takes that fork",
 }
 

@@ -147,6 +147,143 @@ def test_channel_runs_shared_rows_are_readable_and_other_users_rows_are_not(conn
     assert count(conn, "select count(*) from public.channel_runs where user_id = %s", u["b"]) == 0
 
 
+# ---------------------------------------------------------- bot runs (0023, E3)
+
+def test_bot_runs_owner_and_shared_are_readable_and_another_users_are_not(conn, two_users):
+    """The Activity tab's source, with `channel_runs`' visibility rule: a user
+    sees their own runs plus the shared (null user_id) ones, and none of another
+    user's. Positive control first — the owner reads their own — so a green result
+    cannot come from A reading nothing, this file's standing requirement."""
+    u = two_users
+    conn.execute("reset role")
+    conn.execute(
+        """insert into public.bot_runs (user_id, job, finished_at, ok)
+           values (null, 'monitor', now(), true), (%s, 'tracker', now(), true),
+                  (%s, 'digest', now(), true)""",
+        (u["a"], u["b"]),
+    )
+    as_authenticated(conn, u["a"])
+    assert count(conn, "select count(*) from public.bot_runs where user_id is null") > 0, (
+        "the shared run is not visible — every negative below would be vacuous"
+    )
+    assert count(conn, "select count(*) from public.bot_runs where user_id = %s", u["a"]) == 1
+    assert count(conn, "select count(*) from public.bot_runs where user_id = %s", u["b"]) == 0
+
+
+def test_an_operator_reads_every_jobs_bot_runs(conn, two_users):
+    """Coverage's Activity tab is an operator surface: `is_operator` sees all runs,
+    which is the third arm of the policy `channel_runs` shares."""
+    u = two_users
+    op = make_user(conn, f"op-{uuid.uuid4()}@example.com")
+    conn.execute("reset role")
+    conn.execute("update public.users set is_operator = true where id = %s", (op,))
+    conn.execute(
+        """insert into public.bot_runs (user_id, job, finished_at, ok)
+           values (%s, 'tracker', now(), true), (%s, 'digest', now(), true)""",
+        (u["a"], u["b"]),
+    )
+    as_authenticated(conn, op)
+    assert count(conn, "select count(*) from public.bot_runs where user_id = %s", u["a"]) == 1
+    assert count(conn, "select count(*) from public.bot_runs where user_id = %s", u["b"]) == 1
+
+
+def test_the_bot_runs_read_policy_is_what_hides_them(conn, two_users):
+    """The meta-test in this file's shape: drop the protection and the negative
+    above must go RED, so it is the policy doing the hiding and not A being unable
+    to read the table at all."""
+    u = two_users
+    conn.execute("reset role")
+    conn.execute("insert into public.bot_runs (user_id, job) values (%s, 'tracker')", (u["b"],))
+    conn.execute("alter table public.bot_runs disable row level security")
+    try:
+        as_authenticated(conn, u["a"])
+        leaked = count(conn, "select count(*) from public.bot_runs where user_id = %s", u["b"])
+        assert leaked > 0, (
+            "with RLS disabled A still could not see B's runs — the test is "
+            "measuring something other than the policy"
+        )
+    finally:
+        conn.execute("reset role")
+        conn.execute("alter table public.bot_runs enable row level security")
+
+
+def test_an_authenticated_user_has_no_direct_write_to_bot_runs(conn, two_users):
+    """There is no function and no write policy: the engine writes via the service
+    role, a browser writes nothing. The revoke NAMES the roles (0023), because
+    Supabase grants write by name and RLS alone would let an UPDATE/DELETE silently
+    touch zero rows rather than refuse — a named revoke makes it a privilege error."""
+    u = two_users
+    as_authenticated(conn, u["a"])
+    for stmt, args in (
+        ("insert into public.bot_runs (user_id, job) values (%s, 'sneaky')", (u["a"],)),
+        ("update public.bot_runs set ok = false", ()),
+        ("delete from public.bot_runs", ()),
+    ):
+        with pytest.raises(psycopg.errors.Error) as exc:
+            conn.execute(stmt, args)
+        assert "permission denied" in str(exc.value).lower() or "policy" in str(
+            exc.value
+        ).lower(), stmt
+
+
+def test_a_run_is_either_open_or_closed_never_finished_with_no_outcome(conn, two_users):
+    """0023's check constraint, and the reason it exists.
+
+    "Finished, outcome unknown" is the one row the Activity reader cannot render
+    honestly — neither a success nor a failure, and whichever it picked would be
+    a guess about whether the user's automation is working. `core/runlog.py`
+    always writes the pair together, so barring the third combination costs the
+    writer nothing and makes the reader's state machine total. Both legal shapes
+    are asserted alongside, so a constraint that refused everything would fail
+    here rather than look like success."""
+    u = two_users
+    conn.execute("reset role")
+    # Legal: open (neither), and closed (both).
+    conn.execute("insert into public.bot_runs (user_id, job) values (%s, 'monitor')", (u["a"],))
+    conn.execute(
+        "insert into public.bot_runs (user_id, job, finished_at, ok) values (%s, 'monitor', now(), true)",
+        (u["a"],),
+    )
+    for bad, why in (
+        ("insert into public.bot_runs (job, finished_at) values ('monitor', now())",
+         "finished with no outcome"),
+        ("insert into public.bot_runs (job, ok) values ('monitor', true)",
+         "an outcome with no finish time"),
+    ):
+        with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
+            conn.execute(bad)
+    # …and it holds on UPDATE too, not only on the insert path.
+    with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
+        conn.execute("update public.bot_runs set ok = null where finished_at is not null")
+
+
+def test_the_service_role_opens_and_closes_a_run_row(conn, two_users):
+    """The engine's write path, proven end to end: the service role (RLS-exempt)
+    inserts the open row and updates it closed — start()/finish() in
+    core/runlog.py, over pg.insert_returning + pg.patch."""
+    u = two_users
+    conn.execute("reset role")
+    conn.execute("set role service_role")
+    try:
+        rid = conn.execute(
+            "insert into public.bot_runs (user_id, job) values (%s, 'monitor') returning id",
+            (u["a"],),
+        ).fetchone()[0]
+        conn.execute(
+            "update public.bot_runs set finished_at = now(), ok = true, fetched = 38, "
+            "new_rows = 2 where id = %s",
+            (rid,),
+        )
+    finally:
+        conn.execute("reset role")
+    row = conn.execute(
+        "select ok, fetched, new_rows, finished_at is not null "
+        "from public.bot_runs where id = %s",
+        (rid,),
+    ).fetchone()
+    assert row == (True, 38, 2, True)
+
+
 # ---------------------------------------------------------- the audit trail
 
 def test_an_authenticated_user_cannot_rewrite_or_delete_an_audit_row(conn, two_users):

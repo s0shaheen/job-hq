@@ -18,6 +18,7 @@
  * its keep by reproducing failure modes, not just happy paths.
  */
 import type {
+  ActivityView,
   ApplicationView,
   ChannelHealthView,
   CompanyView,
@@ -869,7 +870,14 @@ export interface DataSource {
   /** Everything, for the grid — filtering happens client-side over this. */
   jobs(): Promise<JobView[]>;
   applications(): Promise<ApplicationView[]>;
+  /** The OLD discovery-health ledger, in ops terms (channel / cadence / stale). */
   health(): Promise<ChannelHealthView[]>;
+  /**
+   * Per-job automation activity, in plain words — Coverage's Activity tab (E3).
+   * One row per job, newest run mapped to Running / Last succeeded / Failing
+   * since; problems ordered first. Reads `bot_runs` (migration 0023).
+   */
+  getActivity(): Promise<ActivityView[]>;
   setTriage(input: TriageInput): Promise<WriteResult>;
   /** One triage applied to N postings in one transaction — all or nothing. */
   setTriageBulk(input: BulkTriageInput): Promise<BulkWriteResult>;

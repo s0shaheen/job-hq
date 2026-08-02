@@ -538,6 +538,242 @@ export type ChannelHealthView = {
   cadenceHours: number;
 };
 
+// ---- automation activity (bot_runs, migration 0023) ------------------------
+//
+// Coverage's Activity tab, in plain words. `ChannelHealthView` above is the OLD
+// health surface — ops vocabulary (channel / cadence / stale) over the discovery
+// ledger. This is E3's replacement: one row per JOB per invocation, mapped so
+// no ops jargon reaches the view. The dictionary — raw run rows in, "Running" /
+// "Last succeeded 2h ago" / "Failing since Jul 24" out — lives entirely below,
+// shared by both data sources so the fake cannot say something the query can't.
+
+/**
+ * One `bot_runs` row, as either data source hands it to the mapper.
+ *
+ * Deliberately the raw run, not a rendered view: `activityForJob` is the ONE
+ * place raw becomes plain words, and both sources reach it through the same
+ * `activityFromRuns` so a divergence is a test failure, not a demo that lies.
+ */
+export type BotRunRow = {
+  job: string;
+  startedAt: string;
+  /** null = still running, or the invocation died before it could close. */
+  finishedAt: string | null;
+  /** null while running; true|false once finished. */
+  ok: boolean | null;
+  fetched: number;
+  newRows: number;
+  /** One-line failure summary, or null on success. */
+  error: string | null;
+};
+
+export type ActivityState = "running" | "succeeded" | "failing" | "never";
+
+/** One job's automation activity, as the Activity tab renders it. */
+export type ActivityView = {
+  /** The raw `handler.JOBS` key — a stable React key / deep-link handle, not shown. */
+  job: string;
+  /** The job in plain words: what a person reads. */
+  label: string;
+  state: ActivityState;
+  /** "Running" | "Last succeeded 2h ago" | "Failing since Jul 24" | "Never run". */
+  stateLabel: string;
+  /** "38 roles checked, 2 new" | a failure's one-liner | "". */
+  lastResult: string;
+  /** ISO of the newest FINISHED run, or null. */
+  lastRunAt: string | null;
+};
+
+/**
+ * How a job key is named to a person, as opposed to in `handler.JOBS`.
+ *
+ * The point of the tab is that "monitor" and "wide_theirstack" are ops names.
+ * Grounded in what each job actually does (CLAUDE.md's schedule table), and an
+ * unrecognised key renders verbatim — `sourceLabel`'s rule, for its reason: a
+ * future job may legitimately appear before this map learns its name, and hiding
+ * it would drop a real run off the one surface that answers "is it alive?".
+ */
+const JOB_LABELS: Record<string, string> = {
+  monitor: "Job discovery",
+  review: "Role tagging",
+  tracker: "Pipeline sync",
+  digest: "Daily briefing",
+  snapshot: "Backups",
+  selfheal: "Self-heal",
+  simplify: "Simplify import",
+  wide_cafe: "Wide net (hiring.cafe)",
+  wide_theirstack: "Wide net (TheirStack)",
+  seed_universe: "Universe seed",
+  seed_pipeline: "Pipeline seed",
+  linkedin_backfill: "Referral finder",
+};
+
+export function jobLabel(job: string): string {
+  const j = (job ?? "").trim();
+  if (!j) return "unknown";
+  return JOB_LABELS[j] ?? j;
+}
+
+const MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/** "Jul 24", in UTC so a fixed run instant renders the same date everywhere. */
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "an unknown date";
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
+/** "just now" / "3m ago" / "2h ago" / "5d ago" — coarse on purpose. */
+function relativeTime(iso: string, now: number): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "at an unknown time";
+  const mins = Math.floor((now - then) / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+/**
+ * "Last result" for one run: the counts if it moved any, else its error, else a
+ * bare "completed". "roles checked" matches the discovery job the tab leads with;
+ * a non-discovery job reports 0 counts and reads "completed", never a wrong noun.
+ */
+function resultText(run: BotRunRow): string {
+  if (run.fetched > 0 || run.newRows > 0) {
+    const base = `${run.fetched} roles checked`;
+    return run.newRows > 0 ? `${base}, ${run.newRows} new` : base;
+  }
+  // `!== true`, not `=== false`: a finished run whose outcome is unknown is not
+  // a success, and must not read as one. See `succeeded` below.
+  if (run.ok !== true) return (run.error ?? "").trim() || "failed";
+  return "completed";
+}
+
+/**
+ * How long an open run may stay open before it stops meaning "Running".
+ *
+ * An invocation that is OOM-killed or hits its Lambda timeout dies without
+ * closing its row, so `finished_at` stays null forever. Read literally, the tab
+ * whose entire promise is "is the machinery alive" would then say "Running"
+ * about a job that died days ago — health()'s answer-by-omission failure, in a
+ * louder register, because "Running" is an active reassurance rather than a
+ * silence. Lambda's hard ceiling is 15 minutes, so an hour is a wide margin:
+ * past it the row is abandoned, not running, and the job's state comes from its
+ * newest FINISHED run instead. No new state is invented — an abandoned run
+ * simply stops voting. If it is the ONLY run there is, "Running" stands, since
+ * the alternative would be to claim the job never ran.
+ */
+const ABANDONED_RUN_MS = 60 * 60 * 1000;
+
+/**
+ * One job's runs (any order) → its plain-words Activity row.
+ *
+ * The state machine, newest run first:
+ *   - the newest run is still open        → Running
+ *   - the newest FINISHED run succeeded   → Last succeeded <when>
+ *   - the newest FINISHED run failed      → Failing since <the first failure of
+ *                                           the current streak, i.e. the run
+ *                                           right after the last success>
+ *   - no runs at all                      → Never run
+ *
+ * "Failing since" is the START of the current failing streak, not the newest
+ * failure: walking back from now until the last success and taking the oldest
+ * failure is what makes the date answer "how long has this been broken", which
+ * is the question an operator actually has.
+ */
+export function activityForJob(job: string, runs: BotRunRow[], now: number): ActivityView {
+  const base = { job, label: jobLabel(job) };
+  if (runs.length === 0) {
+    return { ...base, state: "never", stateLabel: "Never run", lastResult: "", lastRunAt: null };
+  }
+  const byNewest = [...runs].sort(
+    (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+  );
+  const finished = byNewest.filter((r) => r.finishedAt !== null);
+  const lastRunAt = finished[0]?.finishedAt ?? null;
+
+  const open = byNewest[0].finishedAt === null ? byNewest[0] : null;
+  // NaN (an unparseable startedAt) compares false, so a row we cannot date is
+  // treated as running rather than as abandoned — the conservative direction.
+  const abandoned =
+    open !== null && now - new Date(open.startedAt).getTime() > ABANDONED_RUN_MS;
+  if (open !== null && !(abandoned && finished.length > 0)) {
+    // Running now. Still surface the last known result, so a long job is not a
+    // blank row — but the state is what it is doing, not what it last did.
+    return {
+      ...base,
+      state: "running",
+      stateLabel: "Running",
+      lastResult: finished[0] ? resultText(finished[0]) : "",
+      lastRunAt,
+    };
+  }
+  const newest = finished[0];
+  // `=== true`, not `!== false`. A finished run with a null outcome is barred by
+  // 0023's check constraint, so this is defence in depth against a hand-edited
+  // or future-writer row — and the direction matters: an unknown outcome shown
+  // as "Last succeeded" is the system telling the user their automation is fine
+  // when nobody knows that. Unknown routes to the not-succeeded branch instead.
+  if (newest.ok === true) {
+    return {
+      ...base,
+      state: "succeeded",
+      stateLabel: `Last succeeded ${relativeTime(newest.finishedAt as string, now)}`,
+      lastResult: resultText(newest),
+      lastRunAt,
+    };
+  }
+
+  // Failing: walk the finished runs newest→oldest through the unbroken run of
+  // failures; the last one in that streak is when it started going wrong.
+  let since = newest;
+  for (const run of finished) {
+    if (run.ok !== true) since = run;
+    else break;
+  }
+  return {
+    ...base,
+    state: "failing",
+    stateLabel: `Failing since ${shortDate(since.finishedAt as string)}`,
+    lastResult: resultText(newest),
+    lastRunAt,
+  };
+}
+
+//: Problems first — the tab exists to surface them — then healthy, then quiet.
+const STATE_ORDER: Record<ActivityState, number> = {
+  failing: 0,
+  running: 1,
+  succeeded: 2,
+  never: 3,
+};
+
+/**
+ * Every job's runs → one Activity row per job, ordered deterministically.
+ *
+ * Both `SupabaseDataSource` and `FixtureDataSource` call THIS, over the same
+ * `BotRunRow` shape, so "the fake matches the query" is structural rather than
+ * hoped-for. Order: failing, then running, then succeeded, then never; ties by
+ * label, so the tab never reshuffles between two reads of the same data.
+ */
+export function activityFromRuns(runs: BotRunRow[], now: number = Date.now()): ActivityView[] {
+  const byJob = new Map<string, BotRunRow[]>();
+  for (const run of runs) {
+    const list = byJob.get(run.job);
+    if (list) list.push(run);
+    else byJob.set(run.job, [run]);
+  }
+  const out = [...byJob.entries()].map(([job, jobRuns]) => activityForJob(job, jobRuns, now));
+  return out.sort(
+    (a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.label.localeCompare(b.label),
+  );
+}
+
 /**
  * A user's saved grid state. `state` is deliberately opaque here — its shape
  * (filters, sort, group, quick search, column layout, density, type scale,

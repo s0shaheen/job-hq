@@ -106,6 +106,7 @@ import {
 } from "./apply-fixtures";
 import {
   FIXTURE_APPLICATIONS,
+  FIXTURE_BOT_RUNS,
   FIXTURE_HEALTH,
   FIXTURE_JOBS,
   FIXTURE_NOW,
@@ -147,9 +148,11 @@ import {
   type ImportCounts,
   type ImportRowView,
 } from "@/lib/import/views";
-import { blankTrim, companyNameKey, PROPOSE_SOURCE_TAGS } from "./view-models";
+import { activityFromRuns, blankTrim, companyNameKey, PROPOSE_SOURCE_TAGS } from "./view-models";
 import type {
+  ActivityView,
   ApplicationView,
+  BotRunRow,
   ChannelHealthView,
   CompanyView,
   ConnectionView,
@@ -305,6 +308,7 @@ export class FixtureDataSource implements DataSource {
   private armedTokens = new Set<string>();
 
   private channels: ChannelHealthView[];
+  private botRuns: BotRunRow[];
 
   /**
    * Every collection comes from the constructor, including health.
@@ -346,6 +350,11 @@ export class FixtureDataSource implements DataSource {
     // on a question only they can answer). The second is the state the whole
     // feature is judged on, so it is seeded rather than reachable only by hand.
     library: ApplyLibrarySeed = FIXTURE_APPLY_LIBRARY,
+    // Injectable for health's exact reason: the `empty` seed must produce a
+    // zero-row Activity tab, or its empty state ("nothing has reported yet")
+    // ships unlooked-at — and the parity test needs to drive the SAME raw runs
+    // through both sources, which only injection allows.
+    botRuns: BotRunRow[] = FIXTURE_BOT_RUNS,
   ) {
     // Stored as the DATABASE stores it — a jsonb object, `{}` for a profile
     // nobody has completed — rather than as the view model. `profile()` then maps
@@ -359,6 +368,7 @@ export class FixtureDataSource implements DataSource {
     for (const j of seed) this.jobsByKey.set(j.key, { ...j });
     this.apps = apps.map((a) => ({ ...a }));
     this.channels = channels.map((c) => ({ ...c }));
+    this.botRuns = botRuns.map((r) => ({ ...r }));
     // Injectable for the same reason health is: the `empty` demo seed must be
     // able to produce a zero-row /companies, or its empty state ships unlooked-at
     // (matrix row 15's lesson, and the "every collection a fake owns comes from
@@ -484,6 +494,16 @@ export class FixtureDataSource implements DataSource {
 
   async health(): Promise<ChannelHealthView[]> {
     return this.channels.map((h) => ({ ...h }));
+  }
+
+  async getActivity(): Promise<ActivityView[]> {
+    // The SAME mapper the Supabase source calls, over the same raw shape — the
+    // parity test drives one raw run set through both and asserts they agree.
+    // No user filter here and none needed: a fixture store holds exactly one
+    // user's world, which is what the Supabase read narrows itself down TO.
+    // The narrowing is proven on the query side (activity.test.ts), because it
+    // is a property of the query, not of the mapping the two share.
+    return activityFromRuns(this.botRuns.map((r) => ({ ...r })));
   }
 
   async setTriage(input: TriageInput): Promise<WriteResult> {

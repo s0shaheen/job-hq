@@ -13,7 +13,7 @@
  *      years, a remote row with no city, and rows filtered for each distinct
  *      reason. A fixture set of tidy rows tests nothing.
  */
-import type { ApplicationView, ChannelHealthView, JobView } from "./view-models";
+import type { ApplicationView, BotRunRow, ChannelHealthView, JobView } from "./view-models";
 
 /** The instant every fixture date is relative to. Tests pin the clock here. */
 export const FIXTURE_NOW = "2026-07-21T15:00:00.000Z";
@@ -380,4 +380,30 @@ export const FIXTURE_HEALTH: ChannelHealthView[] = [
   { channel: "theirstack", ranAt: stampAgo(6), fetched: 25, newRows: 0, filtered: 0, tagged: 0, errors: 0, ageHours: 6, cadenceHours: 24 },
   { channel: "tracker", ranAt: stampAgo(1), fetched: 0, newRows: 0, filtered: 0, tagged: 0, errors: 0, ageHours: 1, cadenceHours: 2 },
   { channel: "capture", ranAt: stampAgo(0.3), fetched: 43, newRows: 15, filtered: 0, tagged: 0, errors: 0, ageHours: 0.3, cadenceHours: 1.5 },
+];
+
+/**
+ * Per-run bot rows (bot_runs, migration 0023) — the Activity tab's source.
+ *
+ * Deliberately spans every branch of `activityForJob`, so the mapper is
+ * exercised by demo mode and the parity test rather than only by hand-written
+ * unit cases:
+ *   - monitor      succeeded 2h ago, with counts   → "Last succeeded 2h ago",
+ *                                                     "38 roles checked, 2 new"
+ *   - digest       succeeded, no counts            → "completed"
+ *   - tracker      an OPEN row (finishedAt null)    → "Running"
+ *   - theirstack   three failures after a success   → "Failing since Jul 19"
+ *                                                     ("since" is the streak's
+ *                                                     start, not the newest fail)
+ */
+export const FIXTURE_BOT_RUNS: BotRunRow[] = [
+  { job: "monitor", startedAt: stampAgo(2.05), finishedAt: stampAgo(2), ok: true, fetched: 38, newRows: 2, error: null },
+  { job: "monitor", startedAt: stampAgo(14.1), finishedAt: stampAgo(14), ok: true, fetched: 40, newRows: 1, error: null },
+  { job: "digest", startedAt: stampAgo(8.02), finishedAt: stampAgo(8), ok: true, fetched: 0, newRows: 0, error: null },
+  { job: "tracker", startedAt: stampAgo(0.05), finishedAt: null, ok: null, fetched: 0, newRows: 0, error: null },
+  { job: "tracker", startedAt: stampAgo(2.02), finishedAt: stampAgo(2), ok: true, fetched: 0, newRows: 0, error: null },
+  { job: "theirstack", startedAt: stampAgo(6.1), finishedAt: stampAgo(6), ok: false, fetched: 0, newRows: 0, error: "TheirStack API returned 429" },
+  { job: "theirstack", startedAt: stampAgo(30.1), finishedAt: stampAgo(30), ok: false, fetched: 0, newRows: 0, error: "TheirStack API returned 429" },
+  { job: "theirstack", startedAt: stampAgo(54.1), finishedAt: stampAgo(54), ok: false, fetched: 0, newRows: 0, error: "TheirStack API returned 429" },
+  { job: "theirstack", startedAt: stampAgo(78.1), finishedAt: stampAgo(78), ok: true, fetched: 25, newRows: 0, error: null },
 ];

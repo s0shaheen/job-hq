@@ -254,3 +254,112 @@ def test_every_dispatched_module_resolves():
     for steps in h.JOBS.values():
         for module, _argv in steps:
             assert importlib.util.find_spec(module) is not None, f"{module} does not resolve"
+
+
+# ---------------------------------------------------------------- E3: per-run rows
+#
+# The handler now opens a `bot_runs` row before a job's modules and closes it
+# after (core/runlog.py). The binding property: that recorder must NEVER change
+# whether — or how — a bot job succeeds or fails. The ops ntfy alerting is
+# untouched, and is re-asserted alongside the recorder here.
+
+
+#: The real recorder, bound before any fixture can stub it — the one test that
+#: exercises it end to end puts these back.
+from core import runlog as _runlog                       # noqa: E402
+_REAL_RUNLOG_START, _REAL_RUNLOG_FINISH = _runlog.start, _runlog.finish
+
+
+@pytest.fixture(autouse=True)
+def quiet_runlog(monkeypatch):
+    """The per-run recorder is best-effort and pg-gated, so it is a no-op in the
+    unit env — but stub it by default so no test here depends on SUPABASE being
+    unset, and the recorder-specific tests below opt back in explicitly."""
+    monkeypatch.setattr("core.runlog.start", lambda job: None)
+    monkeypatch.setattr("core.runlog.finish", lambda run, *, ok, error="": None)
+
+
+def test_a_successful_job_opens_then_closes_a_run_row(no_secrets, monkeypatch):
+    calls = []
+    monkeypatch.setattr("core.runlog.start", lambda job: calls.append(("start", job)) or "RUN")
+    monkeypatch.setattr("core.runlog.finish",
+                        lambda run, *, ok, error="": calls.append(("finish", run, ok)))
+    monkeypatch.setattr(h.runpy, "run_module", lambda mod, **k: None)
+    h.handler({"job": "digest"}, None)
+    # opened once with the job name, closed once as ok — the run started AFTER the
+    # job was known (an unknown job never opens a row).
+    assert calls == [("start", "digest"), ("finish", "RUN", True)]
+
+
+def test_a_failing_job_closes_the_run_as_failed_and_still_raises_and_alerts(
+        no_secrets, alerts, monkeypatch):
+    closed = []
+    monkeypatch.setattr("core.runlog.start", lambda job: "RUN")
+    monkeypatch.setattr("core.runlog.finish",
+                        lambda run, *, ok, error="": closed.append((run, ok, error)))
+    monkeypatch.setattr(h.runpy, "run_module", _raiser(SystemExit(1)))
+    with pytest.raises(SystemExit):
+        h.handler({"job": "tracker"}, None)
+    assert closed and closed[0][:2] == ("RUN", False)
+    assert "tracker.promote" in closed[0][2]           # the failed step names the run's error
+    # E3 must not touch the ops alerting: the failure still paged, naming the step.
+    assert [(job, module) for job, module, _ in alerts] == [("tracker", "tracker.promote")]
+
+
+def test_a_broken_recorder_never_fails_a_successful_job(no_secrets, monkeypatch):
+    """The wrap-doesn't-fail-the-job proof: a pg outage in the recorder is
+    swallowed by the handler's guard, and the job returns exactly as before."""
+    monkeypatch.setattr("core.runlog.start", _raiser(RuntimeError("pg down")))
+    monkeypatch.setattr("core.runlog.finish", _raiser(RuntimeError("pg down")))
+    monkeypatch.setattr(h.runpy, "run_module", lambda mod, **k: None)
+    out = h.handler({"job": "digest"}, None)
+    assert out == {"job": "digest", "ran": ["tracker.digest"]}
+
+
+def test_a_broken_recorder_does_not_mask_a_job_failure(no_secrets, alerts, monkeypatch):
+    """A recorder that raises on the failure path must not replace the bot's own
+    exception — the same envelope doctrine `_ops_alert` already holds."""
+    monkeypatch.setattr("core.runlog.start", lambda job: "RUN")
+    monkeypatch.setattr("core.runlog.finish", _raiser(RuntimeError("pg down")))
+    monkeypatch.setattr(h.runpy, "run_module", _raiser(SystemExit(2)))
+    with pytest.raises(SystemExit) as exc:
+        h.handler({"job": "tracker"}, None)
+    assert exc.value.code == 2                          # the bot's exit, not the recorder's error
+    assert [(job, module) for job, module, _ in alerts] == [("tracker", "tracker.promote")]
+
+
+def test_an_unknown_job_opens_no_run_row(no_secrets, monkeypatch):
+    """The row is opened only after the job is resolved, so a bad payload does not
+    mint a run for a job that never ran."""
+    monkeypatch.setattr("core.runlog.start", _raiser(AssertionError("opened a row for an unknown job")))
+    with pytest.raises(ValueError):
+        h.handler({"job": "nope"}, None)
+
+
+def test_a_failure_before_start_writes_no_row_at_all(no_secrets, monkeypatch):
+    """The same case, through the REAL recorder rather than a stub of it.
+
+    The handler's failure path closes the run before re-raising, and on an
+    unknown job (or a user-select / secret-load failure) there is no run to
+    close. `core/runlog.finish` is what has to notice: given `None` it must write
+    nothing. Without that guard it inserted a finished, failed row for a job
+    named "?" — an invented failure for an invocation that never chose a job.
+    Asserted at the pg layer, so a change of route (patch vs insert) cannot slip
+    a row past it — and RECORDED rather than raised, because `runlog` swallows
+    everything by design and a raising stub would be caught by the very guard
+    this test is meant to see through."""
+    wrote: list[tuple] = []
+    # Put the REAL recorder back over the autouse stub (captured at import, before
+    # any fixture ran), and let it fail loudly at the pg layer if it writes.
+    monkeypatch.setattr("core.runlog.start", _REAL_RUNLOG_START)
+    monkeypatch.setattr("core.runlog.finish", _REAL_RUNLOG_FINISH)
+    monkeypatch.setattr("core.pg.enabled", lambda: True)
+    monkeypatch.setattr("core.pg.insert",
+                        lambda t, rows, session=None: wrote.append(("insert", t, rows)))
+    monkeypatch.setattr("core.pg.patch",
+                        lambda t, q, v, session=None: wrote.append(("patch", t, q)))
+    monkeypatch.setattr("core.pg.insert_returning",
+                        lambda t, rows, session=None: wrote.append(("open", t, rows)) or [{"id": 1}])
+    with pytest.raises(ValueError):
+        h.handler({"job": "nope"}, None)
+    assert wrote == [], f"an invocation that never chose a job wrote {wrote}"

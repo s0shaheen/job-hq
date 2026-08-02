@@ -71,8 +71,9 @@ def upsert(table: str, rows: list[dict[str, Any]], *, on_conflict: str,
 
 
 def insert(table: str, rows: list[dict[str, Any]], *,
-           session: requests.Session | None = None) -> int:
-    """Plain append (events, channel_runs)."""
+           session: requests.Session | None = None,
+           timeout: float | None = None) -> int:
+    """Plain append (events, channel_runs). `timeout` as in `insert_returning`."""
     if not rows:
         return 0
     s = session or requests.Session()
@@ -81,9 +82,49 @@ def insert(table: str, rows: list[dict[str, Any]], *,
     for i in range(0, len(rows), 500):
         chunk = rows[i:i + 500]
         resp = s.post(url, data=json.dumps(chunk), headers=headers,
-                      timeout=TIMEOUT)
+                      timeout=timeout or TIMEOUT)
         _check(resp, f"insert {table} ({len(chunk)} rows)")
     return len(rows)
+
+
+def insert_returning(table: str, rows: list[dict[str, Any]], *,
+                     session: requests.Session | None = None,
+                     timeout: float | None = None) -> list[dict]:
+    """Append and return the created rows (`Prefer: return=representation`).
+
+    The variant `insert` cannot be, because it asks for `return=minimal` and hands
+    back a count. Used where the caller needs a generated column back — `bot_runs`
+    opens a row and needs its `id` to close the same row later (core/runlog.py).
+    Not chunked: the one caller inserts a single row. `timeout` overrides the
+    module default for a caller whose write must not hold the process — see
+    `core/runlog.py`, whose budget is a fraction of a bot's, not a bot's.
+    """
+    if not rows:
+        return []
+    s = session or requests.Session()
+    url = f"{base_url()}/rest/v1/{table}"
+    headers = _headers({"Prefer": "return=representation"})
+    resp = s.post(url, data=json.dumps(rows), headers=headers,
+                  timeout=timeout or TIMEOUT)
+    _check(resp, f"insert {table} ({len(rows)} rows)")
+    return resp.json()
+
+
+def patch(table: str, query: str, values: dict[str, Any], *,
+          session: requests.Session | None = None,
+          timeout: float | None = None) -> None:
+    """Update the rows a raw PostgREST query matches (`query` is caller-built, like
+    `select`). `return=minimal`, because the one caller — closing a `bot_runs` row
+    by its own id — needs nothing back. A PATCH with no filter would rewrite the
+    whole table, so the query is required and never empty."""
+    if not query:
+        raise PgError(f"patch {table} refused: an empty query would update every row")
+    s = session or requests.Session()
+    url = f"{base_url()}/rest/v1/{table}?{query}"
+    headers = _headers({"Prefer": "return=minimal"})
+    resp = s.patch(url, data=json.dumps(values), headers=headers,
+                   timeout=timeout or TIMEOUT)
+    _check(resp, f"patch {table} ({query})")
 
 
 def rpc(fn: str, params: dict[str, Any], *,

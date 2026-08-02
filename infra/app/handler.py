@@ -164,11 +164,37 @@ def _run_module(module: str, argv: list[str]) -> None:
             raise
 
 
+def _run_start(job: str):
+    """Open a `bot_runs` row for this invocation — E3's per-run heartbeat.
+
+    Guarded the way `_ops_alert` is: `core.runlog` is already best-effort, and
+    this second wrapper means even a broken import (core off the path) cannot turn
+    a telemetry write into a bot failure. Returns the run handle, or None."""
+    try:
+        from core import runlog
+        return runlog.start(job)
+    except Exception as e:                        # a missing Activity row must never fail the job
+        print(f"[handler] run-start record failed: {e!r}")
+        return None
+
+
+def _run_finish(run, ok: bool, error: str = "") -> None:
+    """Close the run row with its outcome and result counts. Same guard as
+    `_run_start`; on the failure path it runs BEFORE the re-raise, so a failed run
+    is recorded, and it can never mask the bot's own traceback."""
+    try:
+        from core import runlog
+        runlog.finish(run, ok=ok, error=error)
+    except Exception as e:                        # never let closing the row eat the real exception
+        print(f"[handler] run-finish record failed: {e!r}")
+
+
 def handler(event, context):
     job = (event or {}).get("job")
     user = (event or {}).get("user") or ""       # "" = the flat single-user registry
     ran: list[str] = []
     module = "-"                                 # names the failing step in the ops push
+    run = None                                   # the per-run bot_runs handle (E3)
     try:
         _export_runtime_deadline(context)        # before any bot computes its own budget
         _select_user(user)                       # before anything reads config, warm or cold
@@ -176,10 +202,13 @@ def handler(event, context):
         steps = JOBS.get(job)
         if steps is None:
             raise ValueError(f"unknown job {job!r}; known jobs: {sorted(JOBS)}")
+        run = _run_start(str(job))               # after user+secrets: runlog needs pg creds + user
         for module, argv in steps:
             _run_module(module, argv)
             ran.append(module)
     except BaseException as e:                   # BaseException: SystemExit(nonzero) is a failure
         _ops_alert(str(job), module, e, context, user=user)
+        _run_finish(run, ok=False, error=f"{module}: {type(e).__name__}: {e}")
         raise
+    _run_finish(run, ok=True)
     return {"job": job, "ran": ran}
