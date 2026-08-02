@@ -348,6 +348,46 @@ while :; do
 
   CHECKS="$raw"
 
+  # Checks this repository does not own, and therefore does not gate on.
+  #
+  # `Vercel` is a preview deployment for the editor project, attached by that
+  # project's own Git integration. On 2026-08-02 it began failing every PR with
+  # "Deployment rate limited — retry in 24 hours": an account-level build cap,
+  # not a statement about the code. The webapp's own deployment goes through
+  # deploy.yml, which builds and probes the artifact itself, so nothing about
+  # correctness is lost by not gating here.
+  #
+  # This list is DELIBERATELY a list and not a pattern. Every entry is a
+  # decision that a specific external service does not speak for this repo, and
+  # a pattern would quietly absorb the next check somebody adds. An ignored
+  # check is still printed, so it cannot go unnoticed.
+  IGNORED_CHECKS_JQ='["Vercel", "Vercel Preview Comments"]'
+  ignored_fail="$(printf '%s' "$raw" | jq -r --argjson ig "$IGNORED_CHECKS_JQ" \
+    '[.[] | select((.bucket == "fail" or .bucket == "cancel") and (.name | IN($ig[])))] | .[] | "    ignored  \(.name)  \(.link)"')"
+  if [ -n "$ignored_fail" ]; then
+    warn "failing checks this repo does not own — NOT gating on them:"
+    printf '%s\n' "$ignored_fail" >&2
+  fi
+  # Filter ALWAYS, then treat an empty result the way an empty check set is
+  # treated: keep waiting while the grace window is open, refuse once it closes.
+  # The first attempt kept the UNFILTERED set whenever filtering emptied it,
+  # meaning to be cautious — and on PR #126 the only check registered yet was
+  # the ignored one, so that "caution" gated on exactly the check the list
+  # exists to ignore. Waiting is the honest reading of "the only thing
+  # reporting so far is something we do not own".
+  raw="$(printf '%s' "$raw" | jq --argjson ig "$IGNORED_CHECKS_JQ" '[.[] | select((.name | IN($ig[])) | not)]' 2>/dev/null || printf '[]')"
+  count="$(printf '%s' "$raw" | jq 'length' 2>/dev/null || printf '0')"
+  if [ "${count:-0}" -eq 0 ]; then
+    if [ "$elapsed" -lt "$CHECK_GRACE" ]; then
+      info "only ignored checks so far (${elapsed}s of ${CHECK_GRACE}s grace)"
+      sleep "$POLL_INTERVAL"
+      continue
+    fi
+    refuse 10 "PR #${PR_NUM} has no checks this repository owns." \
+      "Every check reporting is on the ignore list, so nothing that speaks for" \
+      "this repo has vouched for the branch. That is a refusal, not a pass."
+  fi
+
   fail_n="$(printf '%s' "$raw"    | jq '[.[] | select(.bucket == "fail" or .bucket == "cancel")] | length')"
   pending_n="$(printf '%s' "$raw" | jq '[.[] | select(.bucket == "pending")] | length')"
   pass_n="$(printf '%s' "$raw"    | jq '[.[] | select(.bucket == "pass")] | length')"
