@@ -116,3 +116,68 @@ stable
 as $$
   select coalesce(nullif(current_setting('hq.test_role', true), ''), 'authenticated')
 $$;
+
+-- ============================================================ storage (0026)
+--
+-- Supabase Storage keeps its objects in a real Postgres table, `storage.objects`,
+-- and access is decided by ORDINARY RLS POLICIES on that table. That is the whole
+-- reason 0026 can put résumé artifacts there without inventing a second authz
+-- model: the policy is `(storage.foldername(name))[1] = auth.uid()::text`, which
+-- is the same `auth.uid()` predicate as every other table in this schema.
+--
+-- Stubbed here for the same reason `auth.users` is: a policy that is only ever
+-- read as text is a policy nobody has run. With this stub, `tests/db/test_rls.py`
+-- can `set role authenticated` and prove that user A cannot read user B's résumé
+-- PDF — which is the single assertion standing between one person's résumé and
+-- another's.
+--
+--   TESTED FOR REAL: the policy expression, the folder-prefix derivation, and
+--   the two-user negative. Plain Postgres, identical behaviour.
+--
+--   NOT TESTED HERE: that Supabase's storage-api actually consults these
+--   policies on an HTTP GET, that signed URLs expire, or that the bucket is
+--   private. Those are Supabase's behaviour. The bucket's `public` flag in
+--   particular is set by the migration's insert into `storage.buckets` and is
+--   NOT proven by anything here — treat it as configuration to verify in the
+--   dashboard, not as something the suite covers.
+--
+-- Only the columns the policies reference are stubbed. The real table has ~15.
+create schema if not exists storage;
+
+create table if not exists storage.buckets (
+  id     text primary key,
+  name   text not null,
+  public boolean not null default false
+);
+
+create table if not exists storage.objects (
+  id        uuid primary key default gen_random_uuid(),
+  bucket_id text not null references storage.buckets (id),
+  -- The object key, e.g. `<user_id>/<artifact_id>/resume.pdf`. Supabase calls
+  -- this `name`; it is a path, not a filename.
+  name      text not null,
+  owner     uuid,
+  created_at timestamptz not null default now(),
+  unique (bucket_id, name)
+);
+
+grant usage on schema storage to anon, authenticated, service_role;
+grant all on storage.objects to anon, authenticated, service_role;
+grant all on storage.buckets to anon, authenticated, service_role;
+
+-- Supabase's own helper: split an object key on `/` and return the segments, so
+-- a policy can match on the first one. Reproduced exactly — the real one returns
+-- text[] and drops the final segment (the file itself), which is what makes
+-- `[1]` the owner directory rather than the whole path.
+create or replace function storage.foldername(name text)
+returns text[]
+language plpgsql
+immutable
+as $$
+declare
+  parts text[];
+begin
+  parts := string_to_array(name, '/');
+  return parts[1:array_length(parts, 1) - 1];
+end
+$$;

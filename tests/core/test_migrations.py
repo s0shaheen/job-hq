@@ -60,7 +60,11 @@ RESERVED_MIGRATION_NUMBERS: dict[int, str] = {
     #
     # 25 was E5's own; `0025_display_prefs.sql` landed on main and the line came
     # out on the rebase that pulled it in, the same way 20 did.
-    26: "parallel design-cutover branch",
+    #
+    # 26 was declared by `feat/entitlement-model` because 0027 raised the
+    # contiguity ceiling over a number nobody had filed yet. `0026_resume.sql`
+    # landed with this branch and the line came out on the rebase that pulled it
+    # in, the same way 20, 21, 23 and 25 did — the mechanism working as designed.
 }
 
 

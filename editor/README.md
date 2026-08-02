@@ -30,7 +30,7 @@ verified approach this implements.
 - **Publish** — modal with an optional version label; commits each dirty file as
   `resume: <label or "phone edit">`, then polls the Actions API for the workflow
   run on that commit: queued → rendering → rendered/failed, with a link to the run
-  and (on success) the Drive folder. The PDF lands in Drive › Resume › Current.
+  and (on success) wherever this deployment publishes the PDF (PUBLISH_LINK_URL).
 - **Conflict safety** — every commit sends the blob sha the client loaded. If the
   file changed on GitHub in the meantime, the publish aborts with a "reload before
   publishing" prompt. Nothing is ever force-written.
@@ -47,7 +47,8 @@ Copy `.env.example` to `.env.local` for local dev; set the same in Vercel.
 | `GITHUB_BRANCH` | no | Defaults to `main` (the branch the render workflow watches). |
 | `RESUME_PATH` | no | Defaults to `resume/base.yaml`. |
 | `DESIGN_PATH` | no | Defaults to `resume/design.yaml`. |
-| `DRIVE_FOLDER_URL` | no | If set, a successful render shows an "Open Drive folder" link (point it at Drive › Resume › Current). |
+| `PUBLISH_LINK_URL` | no | If set, a successful render shows a link to wherever that deployment publishes the PDF. |
+| `PUBLISH_LINK_LABEL` | no | The link's text. Defaults to "Open output folder" — the owner's Drive install sets it to "Open Drive folder". |
 
 ## Minting the PAT
 
@@ -79,7 +80,7 @@ cd editor
 npx vercel link            # create/link a Vercel project; framework auto-detects Next.js
 npx vercel env add EDITOR_PASSCODE production
 npx vercel env add GITHUB_TOKEN production
-# optional: GITHUB_REPO / GITHUB_BRANCH / RESUME_PATH / DESIGN_PATH / DRIVE_FOLDER_URL
+# optional: GITHUB_REPO / GITHUB_BRANCH / RESUME_PATH / DESIGN_PATH / PUBLISH_LINK_URL / PUBLISH_LINK_LABEL
 npx vercel deploy --prod
 ```
 

@@ -1,0 +1,25 @@
+# The render Lambda's dependency set. SEPARATE from the repo's requirements.txt on purpose:
+#
+#   * rendercv 2.8 requires Python >= 3.12; the bots image is 3.11 (public.ecr.aws/lambda/
+#     python:3.11) and moving it is a change to nine scheduled chains, not to a renderer.
+#   * the bots image installs gspread, google-auth, anthropic and the rest. The render
+#     function is the one that executes USER-SUPPLIED documents, so every package it does not
+#     need is attack surface it does not have to reason about.
+#
+# rendercv[full] is pure-pip — it bundles the Typst compiler and the fonts as wheels — so the
+# image needs no system packages. The `[full]` extra is what supplies `typst`; without it the
+# render has no compiler and fails at the first request, not at build time.
+#
+# PINS ARE LOAD-BEARING. `==2.8`, not `~=2.8`: RenderCV breaks compatibility inside 2.x, and
+# tests/infra/test_render_live.py's two vulnerability tests are statements about 2.8's code —
+# a bump must re-derive them (both tests fail loudly if the behaviour moved). The theme
+# allowlist in render.py is cross-checked against the installed set at import, so a bump that
+# adds or renames a theme is a cold-start failure rather than a surprise at request time.
+rendercv[full]==2.8
+
+# The page count, the gate verdict and the ATS text all come out of the compiled PDF.
+# rendercv does not expose a page count, so this is a direct dependency, not a transitive one.
+pypdf==6.14.2
+
+# Runtime only — the test tools the `render` CI job needs (pytest, PyYAML) are installed by
+# that job, not listed here, so nothing test-shaped can end up inside the image.

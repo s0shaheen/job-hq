@@ -108,3 +108,36 @@ variable "jobs" {
     wide_theirstack = { cron = "cron(50 13 * * ? *)" }   # daily 13:50 UTC  (wide --source theirstack)
   }
 }
+
+# --- the render service (render.tf) ---------------------------------------------------------
+# Separate from the bots' image_tag/timeout/memory on purpose: the two functions ship on
+# different cadences from different images, and a shared knob would couple a renderer change to
+# a bots deploy.
+
+variable "render_image_tag" {
+  description = "ECR image tag for the render function (infra/deploy.sh render pins it by git SHA afterwards)."
+  type        = string
+  default     = "latest"
+}
+
+variable "render_timeout_seconds" {
+  description = <<-EOT
+    Ceiling for ONE synchronous render. A warm render is single-digit seconds (typst compiles a
+    résumé in ~2-7 ms; the cost is the cold start and the font index). This is not the bots'
+    900 s: the caller is a person waiting on a server action, so a long timeout does not rescue
+    a pathological document, it just makes the failure arrive later.
+  EOT
+  type        = number
+  default     = 60
+}
+
+variable "render_memory_mb" {
+  description = <<-EOT
+    Typst holds the document and the bundled font index in memory, and Lambda scales vCPU with
+    memory — the compile is CPU-bound, so this is a latency knob as much as a capacity one.
+    1024 matches the bots' sizing rationale; revisit against a real Max Memory Used line, not a
+    guess, once the function has run.
+  EOT
+  type        = number
+  default     = 1024
+}

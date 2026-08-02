@@ -139,3 +139,31 @@ resource "aws_cloudwatch_metric_alarm" "bots_silent" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
   ok_actions          = [aws_sns_topic.alerts.arn]
 }
+
+# The render service's errors (render.tf). It lives here, next to the bots' alarms, because the
+# SNS topic and the alerter are shared and because docs/SYSTEM.md's alarm table is generated
+# from THIS FILE — an alarm defined elsewhere would work and go undocumented.
+#
+# There is no `-silent` twin, and that is not an oversight: the renderer has no schedule. It
+# runs when a person clicks render, so "no invocations in 3 h" is a normal Tuesday night, and an
+# alarm that fires every night is one nobody reads by Friday.
+#
+# What this catches is what the function cannot report itself: it is invoked SYNCHRONOUSLY, so a
+# validation error already surfaces to the person who typed the document that caused it. A
+# timeout, an OOM kill, a broken image or an import failure never reaches that person as
+# anything but a spinner — this is the only path by which those page anyone.
+resource "aws_cloudwatch_metric_alarm" "render_errors" {
+  alarm_name          = "${local.name}-render-errors"
+  alarm_description   = "The résumé render Lambda failed (raised, timed out, was killed, or the image is broken). Logs: /aws/lambda/${local.name}-render. A user-visible validation error is NOT this — those return to the caller."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  dimensions          = { FunctionName = aws_lambda_function.render.function_name }
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching" # no renders in a window is the normal state here
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  ok_actions          = [aws_sns_topic.alerts.arn]
+}

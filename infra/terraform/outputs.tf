@@ -23,7 +23,8 @@ output "alerter_function_name" {
 
 output "alarm_names" {
   value = sort([aws_cloudwatch_metric_alarm.bots_errors.alarm_name,
-    aws_cloudwatch_metric_alarm.bots_silent.alarm_name])
+    aws_cloudwatch_metric_alarm.bots_silent.alarm_name,
+  aws_cloudwatch_metric_alarm.render_errors.alarm_name])
 }
 
 output "ses_verified_identities" {
@@ -34,4 +35,19 @@ output "ses_verified_identities" {
 output "ssm_prefix" {
   description = "Put the bots' secrets under this path as SecureStrings (see the runbook)."
   value       = var.ssm_prefix
+}
+
+output "render_ecr_repository_url" {
+  description = "Push the render image here: infra/deploy.sh render."
+  value       = aws_ecr_repository.render.repository_url
+}
+
+output "render_function_name" {
+  description = "Invoked synchronously by the webapp. No schedule, no function URL — see render.tf."
+  value       = aws_lambda_function.render.function_name
+}
+
+output "render_function_arn" {
+  description = "The exact ARN the webapp's identity gets lambda:InvokeFunction on. Nothing may be granted invoke on a wildcard."
+  value       = aws_lambda_function.render.arn
 }

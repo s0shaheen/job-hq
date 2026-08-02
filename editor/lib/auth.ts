@@ -3,7 +3,7 @@
 // invalidates every session. Web Crypto only, so the exact same code runs in
 // edge middleware and Node route handlers.
 
-export const AUTH_COOKIE = "hq_editor_auth";
+export const AUTH_COOKIE = "resume_editor_auth";
 export const SESSION_DAYS = 30;
 
 const enc = new TextEncoder();
@@ -11,7 +11,10 @@ const enc = new TextEncoder();
 async function hmacKey(secret: string): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     "raw",
-    enc.encode(`hq-resume-editor:${secret}`),
+    // Domain-separation label for the HMAC. Renaming it (or the cookie above)
+    // invalidates every live session exactly like rotating the passcode does —
+    // the next visit is one re-login, nothing else.
+    enc.encode(`resume-editor:${secret}`),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign", "verify"],

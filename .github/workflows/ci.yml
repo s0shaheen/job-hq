@@ -196,6 +196,40 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pytest -q
 
+  # The résumé render service, against the real rendercv it ships with.
+  #
+  # A SEPARATE JOB because it cannot join the one above: rendercv 2.8 requires Python >= 3.12
+  # and the bots' requirements.txt is 3.11, so tests/infra/test_render_live.py SKIPS in `tests`
+  # by design. Its two vulnerability tests (theme-folder RCE, photo-URL SSRF) re-derive both
+  # vectors from the installed library — they are the check that the double the 3.11 suite uses
+  # still matches reality, and the gate that says the render image may ship. A skipped security
+  # test is not a passed one, so this job exists to make sure neither ever only skips.
+  #
+  # The per-theme one-page gate runs here too: it renders the reference fixture in all nine
+  # themes and fails loudly, by name, on any theme that spills to a second page.
+  render:
+    name: render service (rendercv 2.8 on 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12", cache: pip }
+      # rendercv[full] is pure-pip (bundled Typst + fonts) — no apt packages needed. The repo's
+      # requirements.txt goes in too, and only for tests/conftest.py: the global no-real-ntfy
+      # guard imports core.notify, so a job without `requests` cannot collect ANY test under
+      # tests/. It is not in the image — infra/render/Dockerfile copies neither.
+      - run: pip install -r requirements.txt -r infra/render/requirements.txt
+      # -p no:cacheprovider + explicit paths: this job installs a DIFFERENT dependency set than
+      # the repo suite, so it must never collect tests/ wholesale (gspread and friends are absent).
+      - name: Render service suite (live library + the doubles it stands in for)
+        env:
+          # Turns "rendercv is missing or off-pin" from a skipped file into a hard failure —
+          # the same trick the db job uses with HQ_REQUIRE_DB. A security suite that skips
+          # reports green, and green is exactly what it must not report.
+          HQ_REQUIRE_RENDERCV: "1"
+        run: pytest tests/infra/test_render_live.py tests/infra/test_render_guards.py -q -p no:cacheprovider
+
   # The migrations, actually executed. tests/core/test_migrations.py reads the
   # SQL as text — enough to catch a function the app calls but nobody defined,
   # and blind to every logic error in the function body. This job applies the

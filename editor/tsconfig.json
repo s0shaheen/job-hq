@@ -1,8 +1,17 @@
 {
+  // `exclude` used to list "scripts", which meant the one test file in this
+  // package was never typechecked — a test that calls applyOps with a wrong op
+  // shape would have compiled fine and only failed at runtime, if at all.
+  // It is included now: "**/*.mjs" pulls it into the program, `checkJs` stays
+  // OFF so only files carrying `// @ts-check` are checked (today: the test),
+  // and `allowImportingTsExtensions` lets it import ../lib/yamlops.ts by its
+  // real name, which is what Node's native type stripping requires.
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
+    "checkJs": false,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
@@ -15,6 +24,6 @@
     "incremental": true,
     "plugins": [{ "name": "next" }]
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "scripts"]
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "**/*.mjs", ".next/types/**/*.ts"],
+  "exclude": ["node_modules", ".next", ".tmp-standalone"]
 }

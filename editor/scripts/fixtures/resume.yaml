@@ -1,0 +1,50 @@
+# Neutral test fixture — a generic résumé in the shape this editor edits.
+#
+# Committed on purpose. The fidelity claims (byte-identical replay, one-line
+# diffs, comments/quoting/blank lines survive) are asserted against THIS file
+# unconditionally, so they hold in a standalone checkout and cannot be quietly
+# deleted by moving whatever resume tree a deployment happens to point at.
+#
+# Everything below is invented. Do not "tidy" it: the inline comment, the
+# quoted bullet, and the blank lines between entries are the test subject.
+# The phone number is a real-looking 555 number in a valid US range — the
+# +1-555-01xx block is NOT a valid number and fails RenderCV validation.
+cv:
+  name: Alex Rivera
+  email: alex.rivera@example.com
+  phone: "+1-512-555-0123"
+  location: Austin, TX
+
+  sections:
+    experience:
+      - company: Northwind Systems
+        position: Product Manager # inline comment must survive an edit
+        start_date: 2022-01
+        end_date: present
+        location: Austin, TX
+        highlights:
+          - Led the billing rewrite, cutting invoice errors 40% in two quarters.
+          - Shipped self-serve plan changes; moved 18k accounts off support tickets.
+          - "Owned the pricing API: 6 internal consumers on one contract."
+
+      - company: Cedarline Software
+        position: Associate Product Manager
+        start_date: 2019-06
+        end_date: 2021-12
+        location: Remote
+        highlights:
+          - Ran the onboarding experiment program, 12 tests/quarter.
+          - Rebuilt the admin console with 3 engineers, cutting setup 8 to 3 hrs.
+
+    education:
+      - institution: State University
+        area: Economics
+        degree: BA
+        start_date: 2015-08
+        end_date: 2019-05
+
+    skills:
+      - label: Product
+        details: Discovery, roadmapping, experimentation
+      - label: Technical
+        details: SQL, APIs, data modeling

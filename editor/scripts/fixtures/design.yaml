@@ -1,0 +1,40 @@
+# Neutral test fixture — the design half of a RenderCV document pair.
+#
+# The Design tab is a raw text editor: the app only ever parse-validates this
+# file and commits the string byte-for-byte, so the only claim to assert here
+# is "a realistic design file parses clean". Values are ordinary defaults, not
+# any particular person's typography.
+design:
+  theme: classic
+
+  typography:
+    font_size:
+      name: 20pt
+      connections: 9pt
+      section_titles: 13pt
+      body: 10pt
+
+  page:
+    show_footer: false
+    top_margin: 0.5in
+    bottom_margin: 0.5in
+    left_margin: 0.5in
+    right_margin: 0.5in
+
+  header:
+    connections:
+      display_urls_instead_of_usernames: true
+    space_below_name: 0.3cm
+    space_below_connections: 0.4cm
+
+  section_titles:
+    space_above: 0.35cm
+    space_below: 0.30cm
+
+  entries:
+    space_between_regular_entries: 0.3cm
+    space_between_text_based_entries: 0.1cm
+
+  highlights:
+    bullet: "•"
+    space_between_highlights: 0.15cm

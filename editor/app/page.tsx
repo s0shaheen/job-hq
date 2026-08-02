@@ -6,5 +6,15 @@ export const dynamic = "force-dynamic";
 
 export default function Page() {
   const { repo, branch } = repoConfig();
-  return <Editor repo={repo} branch={branch} driveFolderUrl={process.env.DRIVE_FOLDER_URL || null} />;
+  // Optional post-render link. Deliberately generic: WHERE a deployment's
+  // render workflow puts the PDF (Drive, S3, an artifact page, nowhere) is that
+  // deployment's business, so both the URL and its label are configuration.
+  return (
+    <Editor
+      repo={repo}
+      branch={branch}
+      publishLinkUrl={process.env.PUBLISH_LINK_URL || null}
+      publishLinkLabel={process.env.PUBLISH_LINK_LABEL || "Open output folder"}
+    />
+  );
 }

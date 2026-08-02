@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 #
-# Build and ship the bots container image, PINNED TO THE GIT SHA that produced it.
+# Build and ship a container image, PINNED TO THE GIT SHA that produced it.
 #
-#   infra/deploy.sh              # from anywhere in the repo
-#   infra/deploy.sh --dirty      # emergency: ship uncommitted work as <sha>-dirty
+#   infra/deploy.sh                     # the scheduled bots (default)
+#   infra/deploy.sh render              # the résumé render service
+#   infra/deploy.sh [render] --dirty    # emergency: ship uncommitted work as <sha>-dirty
+#
+# TWO IMAGES, ONE SCRIPT. The render service is a second function with its own image, its own
+# repo and its own role (infra/terraform/render.tf explains why it is not just another bot).
+# Everything below — the SHA tag, the account check, the linux/amd64 build, the pin-then-verify
+# — is identical for both, so the only difference is which Dockerfile, repo and function name
+# the three variables below hold. A copied second script would drift on the first fix.
 #
 # WHY: the deploy used to be a `:latest` push plus a hand-typed update-function-code. Nothing
 # recorded WHICH build was live (`:latest` is mutable — the tag moves under you), so "roll back
@@ -22,15 +29,47 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
-ECR_REPO="${ECR_REPO:-job-hq-bots}"          # ECR repository name (terraform: ${var.project}-bots)
-FN="${LAMBDA_FN:-job-hq-bots}"               # function name       (terraform: ${var.project}-bots)
 EXPECT_ACCOUNT="${HQ_AWS_ACCOUNT:-690340855657}"   # the account this repo's terraform state deploys
 
+TARGET="bots"
 DIRTY_OK=0
-case "${1:-}" in
-  --dirty) DIRTY_OK=1 ;;
-  "") ;;
-  *) echo "usage: infra/deploy.sh [--dirty]" >&2; exit 2 ;;
+for arg in "$@"; do
+  case "${arg}" in
+    bots|render) TARGET="${arg}" ;;
+    --dirty) DIRTY_OK=1 ;;
+    *) echo "usage: infra/deploy.sh [bots|render] [--dirty]" >&2; exit 2 ;;
+  esac
+done
+
+# The three things that differ between the two images. Names mirror Terraform exactly
+# (${var.project}-bots / ${var.project}-render); a mismatch here pushes a working image into a
+# repo nothing reads and reports success.
+#
+# NOT OVERRIDABLE, and that is the security control. These were `${LAMBDA_FN:-job-hq-render}`
+# and `${ECR_REPO:-job-hq-render}`, which means an exported variable BEAT the target the `case`
+# above had just chosen: `LAMBDA_FN=job-hq-bots infra/deploy.sh render` built
+# infra/render/Dockerfile and then ran `update-function-code --function-name job-hq-bots`, i.e.
+# put the renderer of user-authored documents into the role that reads every /job-hq/*
+# SecureString, writes the backup bucket and sends mail. That is the exact inversion
+# infra/terraform/render.tf exists to prevent, and it was reachable from a stale `export` in a
+# shell. `ECR_REPO=job-hq-bots` was the same failure one step earlier: it moves the bots repo's
+# `:latest`, which is the tag main.tf reads at function-create time.
+#
+# The lane is chosen ONCE, by the argument, and nothing downstream can move it. Deploying
+# something else is an edit to this case statement, in a commit, in review — which is the
+# amount of ceremony "which role does untrusted input run under" deserves. Wrong ACCOUNT is
+# still overridable (HQ_AWS_ACCOUNT below): that one is checked out loud before anything ships.
+case "${TARGET}" in
+  bots)
+    DOCKERFILE="infra/Dockerfile"
+    ECR_REPO="job-hq-bots"
+    FN="job-hq-bots"
+    ;;
+  render)
+    DOCKERFILE="infra/render/Dockerfile"
+    ECR_REPO="job-hq-render"
+    FN="job-hq-render"
+    ;;
 esac
 
 # --- what is being shipped -------------------------------------------------------------------
@@ -63,7 +102,7 @@ if [[ "${ACCOUNT}" != "${EXPECT_ACCOUNT}" ]]; then
 fi
 ECR="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO}"
 
-echo "[deploy] ${TAG} -> ${ECR} (account ${ACCOUNT}, ${REGION})"
+echo "[deploy] ${TARGET} ${TAG} -> ${ECR} (account ${ACCOUNT}, ${REGION})"
 
 # --- build + push ----------------------------------------------------------------------------
 aws ecr get-login-password --region "${REGION}" \
@@ -71,7 +110,7 @@ aws ecr get-login-password --region "${REGION}" \
 
 # --platform linux/amd64: the Lambda is x86_64, and an Apple-silicon default build boots to an
 # exec-format error at the first invocation, not at push time.
-docker build --platform linux/amd64 -f infra/Dockerfile -t "${ECR}:${TAG}" .
+docker build --platform linux/amd64 -f "${DOCKERFILE}" -t "${ECR}:${TAG}" .
 docker tag "${ECR}:${TAG}" "${ECR}:latest"
 docker push "${ECR}:${TAG}"
 docker push "${ECR}:latest"

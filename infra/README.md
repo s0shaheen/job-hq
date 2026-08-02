@@ -281,6 +281,50 @@ Closed on this branch (kept here so the history is readable):
 
 ---
 
+## The render service (`terraform/render.tf`, `infra/render/`)
+
+A **second Lambda**, `job-hq-render`, from a **second image** — not another entry in `var.jobs`.
+It turns two YAML documents into a PDF and a page count, and the webapp invokes it
+**synchronously** when a person clicks render. There is no schedule, no function URL and no API
+Gateway behind it.
+
+**Why it is separate, which is the only thing worth remembering about it:** this is the one
+piece of compute in the system whose input is written by the user. A résumé YAML is arbitrary
+attacker-controlled text handed to a third-party renderer, and rendercv 2.8 — left alone —
+executes a custom theme folder's `__init__.py` during validation and fetches `cv.photo` by URL
+with no allowlist. Both are real, both are reproduced against the live library in
+`tests/infra/test_render_live.py`, and both are blocked in `infra/render/render.py` (a hardcoded
+theme allowlist checked before the model is built; an unconditional photo strip). The guards are
+the first line. The separate function is the second: its role can write CloudWatch Logs and
+nothing else, so a full compromise of the renderer reaches an empty account. In the bots
+function the same document would have had the role that reads every `/job-hq/*` SecureString.
+
+| | bots | render |
+|---|---|---|
+| image | `infra/Dockerfile`, Python 3.11 | `infra/render/Dockerfile`, Python 3.12 (rendercv 2.8 needs >= 3.12) |
+| deps | `requirements.txt` | `infra/render/requirements.txt` (rendercv + pypdf, nothing else) |
+| role | SSM read + S3 backups + SES send | **CloudWatch Logs only** |
+| invoked by | EventBridge Scheduler, 7 lanes | the webapp, synchronously |
+| alarms | `-bots-errors`, `-bots-silent` | `-render-errors` only (no schedule = no silence alarm) |
+
+```sh
+infra/deploy.sh render        # build + push + pin to the git SHA, same as the bots
+cd infra/terraform && terraform apply
+```
+
+Bootstrap order is the bots' order: the image must exist before Terraform can create the
+function from it, so `deploy.sh render` prints a "run terraform apply, then re-run me" notice
+the first time and exits 0.
+
+**The one-page gate.** `render.gate_themes()` renders `infra/render/fixtures/reference_cv.yaml`
+in all nine themes and raises `ThemeGateFailed`, naming each theme and its page count, if any
+spills past one page. CI's `render` job runs it. A theme the product offers that cannot hold a
+full one-page résumé is a shipping defect, not a user problem — which is why this one raises
+where the per-document gate inside `render()` only reports.
+
+**Not deployed.** Nothing on this branch has been applied; ECR repo, function, role and alarm
+all exist as plan-only Terraform.
+
 ## Add a bot later
 
 1. Add its `python -m` sequence to `JOBS` in `infra/app/handler.py`.

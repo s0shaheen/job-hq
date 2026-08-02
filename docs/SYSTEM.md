@@ -285,6 +285,7 @@ flowchart TD
     DEAD["the schedules stop firing<br/>(role, account, or EventBridge itself)"] --> A2
     A1["CloudWatch alarm job-hq-bots-errors<br/>Errors GreaterThanThreshold 0 · period 300s<br/>missing data: notBreaching"] --> SNS
     A2["CloudWatch alarm job-hq-bots-silent<br/>Invocations LessThanThreshold 1 · period 10800s<br/>missing data: breaching"] --> SNS
+    A3["CloudWatch alarm job-hq-render-errors<br/>Errors GreaterThanThreshold 0 · period 300s<br/>missing data: notBreaching"] --> SNS
     SNS["SNS topic job-hq-alerts"] --> AL["job-hq-alerter Lambda<br/>stdlib-only zip — shares no code with the bots' image"]
     STALE["a backup heartbeat goes stale"] --> DG["tracker.digest watchdog"]
     H --> NTFY["ntfy topic REDACTED-NTFY-TOPIC<br/>(your phone)"]
@@ -296,6 +297,7 @@ flowchart TD
 |---|---|---|---|---|---|
 | `job-hq-bots-errors` | Errors (Sum) | GreaterThanThreshold 0 | 300s | `notBreaching` | `aws_cloudwatch_metric_alarm.bots_errors` |
 | `job-hq-bots-silent` | Invocations (Sum) | LessThanThreshold 1 | 10800s | `breaching` | `aws_cloudwatch_metric_alarm.bots_silent` |
+| `job-hq-render-errors` | Errors (Sum) | GreaterThanThreshold 0 | 300s | `notBreaching` | `aws_cloudwatch_metric_alarm.render_errors` |
 
 Both alarms also fire on recovery, so an ALARM always closes with a push. Layer 1 (`handler.py`) is the only layer that can name which bot died — one Lambda runs them all — and layer 2 is the only layer that survives that Lambda being broken.
 <!-- sysmap:end alerting -->

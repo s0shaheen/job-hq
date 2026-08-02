@@ -22,9 +22,15 @@ function env(name: string, fallback?: string): string {
   return v;
 }
 
+// GITHUB_REPO has NO default on purpose. A repo default is a deployment's
+// identity, not a property of this tool: shipped with one baked in, a
+// misconfigured instance quietly reads and commits to somebody else's
+// repository. `env()` throws a 500 naming the variable instead. The other
+// three keep defaults because they are generic conventions, not identities —
+// `main` is the usual branch, and the two paths are the usual RenderCV layout.
 export function repoConfig(): { repo: string; branch: string; paths: Record<Which, string> } {
   return {
-    repo: env("GITHUB_REPO", "s0shaheen/job-hq"),
+    repo: env("GITHUB_REPO"),
     branch: env("GITHUB_BRANCH", "main"),
     paths: {
       base: env("RESUME_PATH", "resume/base.yaml"),
@@ -40,7 +46,7 @@ async function gh(path: string, init?: RequestInit): Promise<Response> {
       Authorization: `Bearer ${env("GITHUB_TOKEN")}`,
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "hq-resume-editor",
+      "User-Agent": "resume-editor",
       ...(init?.headers ?? {}),
     },
     cache: "no-store",

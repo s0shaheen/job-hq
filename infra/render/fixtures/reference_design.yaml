@@ -1,0 +1,9 @@
+# The design half of the theme gate's reference document.
+#
+# Deliberately NEARLY EMPTY. `theme` is overwritten per theme by gate_themes(), and every
+# other key is left at the theme's own default on purpose: the gate asks "does THIS THEME,
+# as shipped, hold a full one-page résumé?", and margin/typography overrides tuned for one
+# theme would answer a different question for the other eight — a theme that only fits
+# because the gate shrank its type is not a theme that fits.
+design:
+  theme: classic

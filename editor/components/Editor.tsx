@@ -68,11 +68,18 @@ type RunResp = {
 export default function Editor({
   repo,
   branch,
-  driveFolderUrl,
+  publishLinkUrl,
+  publishLinkLabel,
 }: {
   repo: string;
   branch: string;
-  driveFolderUrl: string | null;
+  // WHERE a deployment's render workflow puts the finished PDF — Drive, S3, an
+  // artifact page, nowhere at all — is that deployment's business, not this
+  // component's. Both halves are configuration for the same reason: a label
+  // hardcoded to "Drive" is a lie on every install that does not use Drive, and
+  // this editor is no longer a single owner's tool.
+  publishLinkUrl: string | null;
+  publishLinkLabel: string;
 }) {
   const [tab, setTab] = useState<Tab>("content");
   const [base, setBase] = useState<FileCore>(EMPTY);
@@ -402,12 +409,11 @@ export default function Editor({
             <span className="dot" />
             rendered
           </span>
-          {driveFolderUrl ? (
-            <a href={driveFolderUrl} target="_blank" rel="noreferrer">
-              Open Drive folder
+          {publishLinkUrl ? (
+            <a href={publishLinkUrl} target="_blank" rel="noreferrer">
+              {publishLinkLabel}
             </a>
           ) : null}
-          <span style={{ color: "var(--muted)" }}>PDF lands in Drive › Resume › Current</span>
         </>
       );
     } else {

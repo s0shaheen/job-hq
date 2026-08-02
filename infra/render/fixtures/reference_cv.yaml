@@ -1,0 +1,59 @@
+# The theme gate's reference document (infra/render/render.py: gate_themes).
+#
+# INVENTED PERSON, INVENTED EMPLOYERS, INVENTED NUMBERS. Nothing here is any real user's
+# résumé content, and nothing here may ever be replaced with any: a fixture is committed,
+# public, and read by every future session, and the owner's résumé is private user data.
+#
+# It is deliberately DENSE — three roles, nine bullets, education and two skills rows, at
+# the length a real one-page résumé actually runs. A gate fed a three-line document passes
+# for every theme ever written and proves nothing about whether the theme set holds a
+# résumé. If a theme fails the gate against this, that is the finding.
+cv:
+  name: Alex Rivera
+  location: Austin, TX
+  email: alex.rivera@example.com
+  phone: "+1-512-555-0123"
+  social_networks:
+    - network: LinkedIn
+      username: alexrivera
+  sections:
+    experience:
+      - company: Northwind Logistics
+        position: Product Manager, Fulfillment Platform
+        start_date: 2023-04
+        end_date: present
+        location: Austin, TX
+        highlights:
+          - Own the order-routing service behind 40K shipments a day across 9 warehouses
+          - Cut average pick-to-ship time 30% (14 to 10 hrs) by rebuilding the wave planner around live capacity
+          - Launched a carrier-rate comparison step at checkout; freight spend fell 6% on 1.2M annual parcels
+      - company: Harbor Analytics
+        position: Product Manager, Reporting
+        start_date: 2021-06
+        end_date: 2023-04
+        location: Remote
+        highlights:
+          - Shipped a self-serve report builder that took 70% of custom-report requests off the services queue
+          - Ran the migration of 300 legacy dashboards to the new query layer with no customer-visible downtime
+          - Led weekly discovery with 25 design partners; the resulting scheduling feature drove 18% of renewals
+      - company: Fieldstone Software
+        position: Associate Product Manager
+        start_date: 2019-08
+        end_date: 2021-06
+        location: Dallas, TX
+        highlights:
+          - Owned the onboarding flow; activation rose from 44% to 58% over four releases
+          - Built the team's first experiment review, moving 12 launches a quarter onto measured outcomes
+          - Wrote the API deprecation policy still used to retire endpoints across 6 services
+    education:
+      - institution: University of Texas at Austin
+        area: Economics
+        degree: BA
+        start_date: 2015-08
+        end_date: 2019-05
+        location: Austin, TX
+    skills:
+      - label: Product
+        details: Discovery, experimentation, roadmapping, pricing, platform strategy
+      - label: Technical
+        details: SQL, Python, REST and event-driven design, dbt, Figma
