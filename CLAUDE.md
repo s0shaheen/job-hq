@@ -108,6 +108,23 @@ touch, and phone states. Target WCAG 2.2 AA and the specified viewport/browser m
 
 ## Verification
 
+Four rules that exist because 2026-08-02 measured their absence, and each names the
+cost it is paying down:
+
+1. **Scope a delegated task to 30–45 minutes of work.** Ten agents died or stalled that
+   day; the ones holding hours of work were the expensive ones. Duration is the risk
+   factor, not difficulty — a long task simply has more chances to die.
+2. **Give the author the attack list up front.** Résumé and Autopilot each took three
+   review rounds, and rounds two and three kept finding the same defect class as round
+   one. A reviewer's attack list is cheap to write before the work and expensive to
+   discover after it.
+3. **Do not wait for CI to merge T0/T1 work.** `land.sh` waits for the full check set,
+   which is right for a migration and is twelve idle minutes for a doc change. Local
+   gates plus the red-main alarm are the proportionate gate below T2.
+4. **Do not exceed three concurrent agents on one machine.** Beyond that, timing-sensitive
+   tests fail randomly, and proving a failure is not real costs more than the parallelism
+   saved. It also hid a genuine mobile regression behind noise for four attempts.
+
 Match the rigor to the review tier in `docs/pilot-launch/14-work-packet-standard.md` §4.
 Those tiers exist and were ignored for most of 2026-08-02: doc-only changes, CSS geometry,
 and RLS migrations all got full gates plus independent adversarial review. That uniformity

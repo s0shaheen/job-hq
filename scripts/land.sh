@@ -285,6 +285,18 @@ info "$PR_URL"
 # short-lived call, the loop owns the decision, and the ONLY path out that
 # continues to the merge is an explicit all-pass.
 
+# Below T2 the full check set is twelve idle minutes for a change that cannot
+# break a migration, an RLS policy or a rendered surface. `LAND_TIER=t1` merges
+# on local gates and leaves CI to catch it on main, where red-main.yml pages.
+# Deliberately opt-IN and never the default: the tier is a judgement about blast
+# radius, and a script cannot make it.
+if [ "${LAND_TIER:-}" = "t0" ] || [ "${LAND_TIER:-}" = "t1" ]; then
+  warn "LAND_TIER=${LAND_TIER}: merging on local gates without waiting for CI."
+  warn "Red main pages via red-main.yml. Do NOT use this for migrations, RLS,"
+  warn "RPCs, storage, workers, providers, or any rendered surface."
+  SKIP_CHECK_WAIT=1
+fi
+
 step "Waiting for checks on PR #${PR_NUM}"
 
 poll_checks() {
@@ -300,7 +312,7 @@ started="$(date +%s)"
 last_summary=""
 CHECKS=""
 
-while :; do
+while [ -z "${SKIP_CHECK_WAIT:-}" ]; do
   now="$(date +%s)"
   elapsed=$(( now - started ))
 
@@ -422,14 +434,18 @@ while :; do
 done
 
 # A run of nothing but skipped checks is not evidence of anything either.
-if [ "$pass_n" -eq 0 ]; then
+if [ -z "${SKIP_CHECK_WAIT:-}" ] && [ "${pass_n:-0}" -eq 0 ]; then
   refuse 10 "PR #${PR_NUM} has ${count} check(s) but NONE of them passed." \
     "$(printf '%s' "$CHECKS" | jq -r '.[] | "    \(.bucket)  \(.name)"')" \
     "" \
     "Skipped or neutral checks do not vouch for a branch."
 fi
 
-ok "all checks green (${pass_n} passed)"
+if [ -n "${SKIP_CHECK_WAIT:-}" ]; then
+  ok "checks not waited on (LAND_TIER=${LAND_TIER}); CI will run on main"
+else
+  ok "all checks green (${pass_n} passed)"
+fi
 
 # Re-read the head one last time. The loop guard proved the checks belonged to
 # HEAD_SHA when they were read; this proves nothing was pushed to the branch in
