@@ -27,6 +27,28 @@ import { cn } from "@/lib/utils";
  * accumulate or the viewport narrows: the bar is inside the page's flex
  * column, so anything it cannot wrap would push the grid off the bottom or
  * the side — both are the failure layout.spec.ts exists to catch.
+ *
+ * THE REST-STATE HEIGHT IS NOT ALLOWED TO DEPEND ON FONT METRICS. It used to:
+ * the controls plus the count filled the 1280px bar to the last pixel (the
+ * count's right edge landed exactly on the content edge, 0px of slack), so the
+ * same markup was one row on macOS and two on Linux — and the loading skeleton,
+ * which models one row, was measured 22px above the loaded grid in CI while
+ * passing locally. A bar whose height is decided by the renderer's font is a
+ * layout jump waiting for any user whose text is a few percent wider, skeleton
+ * or no skeleton, so the composition — not the skeleton — is what changed:
+ *
+ *   1. The quick search is the flexible filler (`flex-1` over `min-w-0`, capped
+ *      at its old fixed width). Its hypothetical main size is 0, so it can
+ *      never be the item that pushes a line over; it absorbs the slack instead,
+ *      and any leftover still reaches its `ml-auto` — the rest state renders
+ *      pixel-for-pixel where it did before.
+ *   2. The count owns its own row below `xl` and shares the controls row at
+ *      `xl` and above. Which row it is on is now a declared breakpoint rather
+ *      than the outcome of a text measurement. That is the same layout the
+ *      1280px and 412px viewports rendered before, with ~245px and a whole row
+ *      of headroom respectively instead of zero.
+ *
+ * `app/(app)/jobs/loading.tsx` mirrors both rules; grid.spec.ts measures them.
  */
 
 const control =
@@ -99,14 +121,22 @@ export default function FilterBar(props: FilterBarProps) {
       {/* Search sits BEFORE the count in the DOM so that on a phone the
           wrap order is [toggle · Filter · search] over [count]: the rest-state
           bar keeps the exact height the loading skeleton mirrors, and the rail
-          does not jump when data lands (the queue's 69px lesson, row 7). */}
+          does not jump when data lands (the queue's 69px lesson, row 7).
+
+          It is also the bar's flexible filler — `flex-1` (basis 0) with
+          `min-w-0`, capped at the width it used to be fixed at. Flexbox breaks
+          lines on hypothetical main size and only then shrinks, so a fixed-width
+          search could push the row over the edge; a basis-0 one contributes
+          nothing to that decision and shrinks first instead. Where there is
+          room it grows straight back to 8/11rem and `ml-auto` still takes the
+          leftover, so nothing moves at rest. */}
       <input
         type="search"
         aria-label="Quick search"
         placeholder="Search postings"
         value={props.q}
         onChange={(e) => props.onQChange(e.target.value)}
-        className={cn(control, "ml-auto w-32 min-w-0 sm:w-44")}
+        className={cn(control, "ml-auto min-w-0 flex-1 max-w-32 sm:max-w-44")}
       />
 
       {/* Desktop chrome: the grid is a desktop-first surface and the phone
@@ -128,8 +158,16 @@ export default function FilterBar(props: FilterBarProps) {
 
       {/* Which set, and how big it is against everything — stated, not
           implied. A grid that silently shows a subset is the top-tier trust
-          bug the spec names for exports, wearing a different surface. */}
-      <p data-testid="grid-count" className="min-w-0 text-xs text-muted">
+          bug the spec names for exports, wearing a different surface.
+
+          `w-full` below xl: the count takes the whole row, so it is on its own
+          line by construction at every width where it does not comfortably fit
+          beside the controls — which is what 1024px, 768px and a phone already
+          rendered, only by measurement rather than by rule. From xl up it
+          returns to the controls' line with ~245px to spare. It is never
+          truncated: a stated count is exactly the fact §5's "long strings" row
+          forbids abbreviating away. */}
+      <p data-testid="grid-count" className="w-full min-w-0 text-xs text-muted xl:w-auto">
         {props.countText}
       </p>
     </div>

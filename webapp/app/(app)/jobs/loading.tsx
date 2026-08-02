@@ -28,10 +28,18 @@ export default function JobsLoading() {
         <div className="h-4 w-72 max-w-full animate-pulse rounded bg-raised" />
       </header>
 
-      {/* Mirrors the grid toolbar: h-7 set toggle + count line. */}
+      {/* Mirrors the grid toolbar: an h-7 controls row, plus the count line.
+          The count's row is the SAME rule filter-bar.tsx states — its own row
+          below xl, the controls' row from xl up — rather than whatever the
+          two blocks' widths happened to wrap into. Both files reading the
+          breakpoint off the same rule is what makes this height a promise
+          instead of a coincidence: the widths used to agree on macOS and
+          disagree on Linux, and the rail landed 22px apart in CI. */}
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-4 py-2 sm:px-6">
-        <div className="h-7 w-36 animate-pulse rounded-md bg-raised" />
-        <div className="h-4 w-64 max-w-full animate-pulse rounded bg-raised" />
+        <div className="h-7 w-36 shrink-0 animate-pulse rounded-md bg-raised" />
+        <div className="w-full xl:w-auto">
+          <div className="h-4 w-64 max-w-full animate-pulse rounded bg-raised" />
+        </div>
       </div>
 
       {/* The grid: a 32px column-header rail over 32px rows. overflow-hidden,
