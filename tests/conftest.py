@@ -52,3 +52,54 @@ def blocked_ntfy(monkeypatch):
     stub = _NoNetwork()
     monkeypatch.setattr(notify, "requests", stub)
     return stub
+
+
+# ─────────────────────────────────────────────────────── the honest-gate banner
+#
+# `tests/db/**` self-skips when DATABASE_URL is unset, and pytest reports the
+# run as a success — so the canonical full-gate command silently omitted 588
+# cases covering RLS, entitlement, idempotency, and every migration's real
+# behaviour. A suite that reports green while executing none of that teaches
+# people to trust a number that does not mean what they think it means. It
+# cannot become a hard failure (a laptop without Docker must still be able to
+# run the rest), so it becomes LOUD instead, and the pass/fail line is followed
+# by a statement of what was not run.
+#
+# HQ_REQUIRE_DB=1 is the CI spelling that turns the same condition into an
+# error, and it lives in tests/db's own modules.
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):  # noqa: ARG001
+    import os
+
+    if os.environ.get("DATABASE_URL"):
+        return
+
+    skipped = [
+        report
+        for report in terminalreporter.stats.get("skipped", [])
+        if "tests/db" in str(getattr(report, "nodeid", ""))
+    ]
+    if not skipped:
+        return
+
+    terminalreporter.write_sep("=", "DATABASE SUITE DID NOT RUN", red=True, bold=True)
+    terminalreporter.write_line(
+        f"{len(skipped)} tests in tests/db were SKIPPED because DATABASE_URL is unset. "
+        "They cover RLS, entitlement, idempotency, and migration behaviour against a "
+        "real Postgres, and none of it was verified by this run."
+    )
+    terminalreporter.write_line("")
+    terminalreporter.write_line("  docker run --rm -e POSTGRES_PASSWORD=pw -p 55432:5432 -d postgres:16")
+    terminalreporter.write_line(
+        "  DATABASE_URL=postgresql://postgres:pw@127.0.0.1:55432/postgres HQ_REQUIRE_DB=1 \\"
+    )
+    terminalreporter.write_line(
+        "    uv run --python 3.11 --with-requirements requirements.txt \\"
+    )
+    terminalreporter.write_line(
+        "      --with 'psycopg[binary]' --no-project -- pytest"
+    )
+    terminalreporter.write_line("")
+    terminalreporter.write_line(
+        "Do not report this run as a full gate pass without the command above."
+    )

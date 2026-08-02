@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
@@ -6,15 +7,33 @@ import { defineConfig, devices } from "@playwright/test";
  * rather than a source of daily false alarms.
  */
 /**
- * 3210 unless told otherwise. The override exists because two git worktrees of
- * this repo cannot both hold the port, and the second run silently attaches to
- * the FIRST worktree's server (`reuseExistingServer`) and reports the other
- * branch's UI as this branch's result. Overriding is how a parallel run stays
- * honest; CI never sets it, so nothing about the shipped run changes.
+ * The port is DERIVED FROM THE WORKTREE, not a shared default anyone has to
+ * remember to override.
+ *
+ * Two git worktrees of this repo cannot both hold one port, and the loser does
+ * not fail — `reuseExistingServer` silently attaches it to the FIRST worktree's
+ * server, so it reports another branch's UI as this branch's result. A manual
+ * `HQ_E2E_PORT` fixed that only for whoever remembered, and on 2026-08-02 the
+ * shared default cost two parallel runs: one suite triaged rows another was
+ * asserting, and a second stalled on the contention outright.
+ *
+ * Hashing the checkout path gives every worktree its own port with no
+ * coordination and no memory. CI is unaffected: it runs one checkout, and the
+ * explicit override still wins where a specific port is needed.
  *
  * Specs that need an absolute origin (cookie `url`s) build it from this.
  */
-const PORT = Number(process.env.HQ_E2E_PORT ?? 3210);
+function portForThisCheckout(): number {
+  const explicit = process.env.HQ_E2E_PORT;
+  if (explicit) return Number(explicit);
+  if (process.env.CI) return 3210;
+  // 3210–3465: high enough to avoid the common dev ports, wide enough that two
+  // worktrees colliding needs a 1-in-256 hash accident rather than a habit.
+  const hash = createHash("sha256").update(process.cwd()).digest();
+  return 3210 + (hash.readUInt16BE(0) % 256);
+}
+
+const PORT = portForThisCheckout();
 
 export default defineConfig({
   testDir: "./tests/e2e",

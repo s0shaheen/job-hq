@@ -108,6 +108,17 @@ cd ..
 uv run --python 3.11 --with-requirements requirements.txt --no-project -- pytest
 ```
 
+That pytest line SKIPS `tests/db/**` — several hundred cases covering RLS, entitlement,
+idempotency, and every migration's real behaviour — and still reports success. The run
+now says so loudly at the end. A full gate claim requires the database too:
+
+```sh
+docker run --rm -e POSTGRES_PASSWORD=pw -p 55432:5432 -d postgres:16
+DATABASE_URL=postgresql://postgres:pw@127.0.0.1:55432/postgres HQ_REQUIRE_DB=1 \
+  uv run --python 3.11 --with-requirements requirements.txt \
+    --with 'psycopg[binary]' --no-project -- pytest
+```
+
 Database, migration, provider, restore, accessibility, and design work also requires the
 authoritative-boundary evidence in its packet. A test must be proven capable of failing
 with a safe counterexample or mutation. Never fix a failure by weakening the test or
