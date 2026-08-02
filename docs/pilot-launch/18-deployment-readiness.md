@@ -83,3 +83,24 @@ previous app version, it needs an explicit two-step plan before it ships.
 - `HQ_DEMO` must be absent from production. It is build-time inlined and disables
   authentication outright — a demo build in production is a public, unauthenticated copy
   of the app.
+
+## 7. The e2e test project
+
+`job-hq-e2e` (`ehpngcdtymqxmqrcfpby`, us-west-1) exists so the live-data browser lane has
+somewhere to run that is not production. Created 2026-08-02 on the **free tier** — the API
+rejected a paid-only instance-size parameter, which is what confirms the plan and that the
+project costs nothing.
+
+- All 28 migrations applied from empty, in filename order, with no failures. That was
+  itself the from-scratch provisioning test production can no longer provide; the résumé
+  storage migration's capability probe — the one that replaced an inferred precondition —
+  worked on a brand-new project, which is exactly the case the inference got wrong.
+- `allowed_emails` is deliberately EMPTY. That is what lets the lane drive the uninvited
+  and pending paths for real rather than through a demo cookie.
+- Its four credentials are GitHub secrets: `HQ_LIVE_SUPABASE_URL`,
+  `HQ_LIVE_SUPABASE_ANON_KEY`, `HQ_LIVE_SUPABASE_SERVICE_KEY`, `HQ_LIVE_SEED_PASSWORD`.
+  The lane refuses to run against the production ref, checking the URL, the anon key's
+  `ref` claim and the service key's `ref` claim — a test URL carrying production's
+  service_role key is the combination a URL-only check waves through.
+- Keep its schema current the same way production's is kept current: apply migrations to
+  it whenever they land, or the lane starts testing an older product than the one shipping.
