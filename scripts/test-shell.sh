@@ -52,13 +52,23 @@ fi
 # image's node_modules.
 vol="hq-test-node-modules-$want"
 
+# `.next` is keyed by the CHECKOUT as well, because its contents belong to one
+# branch. Sharing it across worktrees is the same bug the e2e port had: two
+# concurrent `--image` runs write each other's generated route types, and the
+# loser fails `typecheck` and `e2e-visual` on modules its own tree does not
+# contain. It cost two agents a false diagnosis on 2026-08-02 — one reported the
+# resulting errors as a "stale checkout artifact", which is exactly what
+# cross-contamination looks like from inside. node_modules is safe to share: it
+# is a function of the lockfile, which the hash already covers.
+checkout_key="$(printf '%s' "$repo" | shasum -a 256 | cut -c1-12)"
+
 # A worktree's .git is a FILE pointing into the parent checkout, so git inside the
 # container would fail. Nothing here needs git — scripts/verify.sh resolves the
 # changed paths on the host and passes them in through HQ_VERIFY_PATHS.
 args=(--rm --init
   -v "$repo:/repo"
   -v "$vol:/repo/webapp/node_modules"
-  -v "hq-test-next-$want:/repo/webapp/.next"
+  -v "hq-test-next-$want-$checkout_key:/repo/webapp/.next"
   -w /repo
   -e "HQ_VERIFY_PATHS=${HQ_VERIFY_PATHS:-}"
   -e "HQ_DEMO=${HQ_DEMO:-}"
