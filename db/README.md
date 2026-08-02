@@ -66,6 +66,15 @@ sheet stays the system of record until stage 3 flips triage writes to the app.
    Verified in C, POSIX and en_US.UTF-8 collations, and asserted in
    `tests/core/test_migrations.py` and `tests/db/test_migration_ledger.py`.
 
+   **Do not create the `resumes` storage bucket by hand.** `20260802_084857_resume_storage.sql`
+   creates it private and attaches the four owner-scoped policies over
+   `storage.objects`, so a fresh project provisions identically to the live one.
+   A bucket made in the dashboard has no policies on it and no record of that
+   anywhere — which is the state PR #104 shipped into and this migration closes.
+   If it refuses, it names the grant to issue: the applying role has to hold
+   ownership privileges on `storage.objects`, which on Supabase means membership
+   of `supabase_storage_admin` **with inherit**.
+
 3. **Allowlist the family** — SQL editor:
    ```sql
    insert into allowed_emails (email, name, is_operator) values

@@ -117,37 +117,66 @@ as $$
   select coalesce(nullif(current_setting('hq.test_role', true), ''), 'authenticated')
 $$;
 
--- ============================================================ storage (0026)
+-- ============================================================ storage (0026, resume_storage)
 --
 -- Supabase Storage keeps its objects in a real Postgres table, `storage.objects`,
 -- and access is decided by ORDINARY RLS POLICIES on that table. That is the whole
 -- reason 0026 can put résumé artifacts there without inventing a second authz
--- model: the policy is `(storage.foldername(name))[1] = auth.uid()::text`, which
--- is the same `auth.uid()` predicate as every other table in this schema.
+-- model: `20260802_084857_resume_storage.sql`'s four policies test
+-- `left(name, 37) = auth.uid()::text || '/'`, which is the same `auth.uid()`
+-- predicate as every other table in this schema, spelled the same way 0026's
+-- CHECK constraint and `app_record_resume_artifact` spell it.
 --
 -- Stubbed here for the same reason `auth.users` is: a policy that is only ever
--- read as text is a policy nobody has run. With this stub, `tests/db/test_rls.py`
--- can `set role authenticated` and prove that user A cannot read user B's résumé
--- PDF — which is the single assertion standing between one person's résumé and
--- another's.
+-- read as text is a policy nobody has run. With this stub,
+-- `tests/db/test_resume_storage.py` can `set role authenticated` and prove that
+-- user A cannot read user B's résumé PDF — which is the single assertion
+-- standing between one person's résumé and another's.
 --
---   TESTED FOR REAL: the policy expression, the folder-prefix derivation, and
---   the two-user negative. Plain Postgres, identical behaviour.
+-- WHAT THIS STUB CAN AND CANNOT FAITHFULLY REPRODUCE. Stated flatly, because
+-- this block spent one release as a comment describing a guarantee nobody had
+-- written: the schema was here, RLS was never enabled on it, and there were zero
+-- policies. Anything that "passed" against it passed against an open table.
 --
---   NOT TESTED HERE: that Supabase's storage-api actually consults these
---   policies on an HTTP GET, that signed URLs expire, or that the bucket is
---   private. Those are Supabase's behaviour. The bucket's `public` flag in
---   particular is set by the migration's insert into `storage.buckets` and is
---   NOT proven by anything here — treat it as configuration to verify in the
---   dashboard, not as something the suite covers.
+--   REPRODUCED FAITHFULLY — plain Postgres, byte-identical behaviour:
+--     the policy expressions, RLS enablement, the role targeting
+--     (`to authenticated`, so `anon` matches nothing), the entitlement conjunct,
+--     the owner-prefix compare including its anchoring, `with check` on UPDATE,
+--     and `service_role`'s `bypassrls`. These are the authorization boundary and
+--     they are what the suite asserts.
 --
--- Only the columns the policies reference are stubbed. The real table has ~15.
+--   NOT REPRODUCIBLE HERE, and not pretended otherwise. Supabase Storage is an
+--   HTTP service (`storage-api`, a Node process) in front of this table plus S3.
+--   Nothing local stands that up, so nothing local proves:
+--     · that storage-api issues its queries as the JWT's role at all, rather
+--       than as its own privileged connection — if it did the latter, every
+--       policy below would be decoration. (It does not; it sets the role per
+--       request. That is Supabase's behaviour, verified by them, asserted by
+--       nobody here.)
+--     · that `public = false` actually withholds the unauthenticated
+--       `/object/public/…` route
+--     · that `file_size_limit` and `allowed_mime_types` refuse an upload — those
+--       columns are read by storage-api, never by Postgres. The suite proves the
+--       VALUES are stored and stops there.
+--     · that a signed URL expires, or that deleting the row deletes the S3 object
+--   Those four are dashboard/staging checks, not suite coverage, and calling
+--   them covered would be the exact mistake this block is a fix for.
+--
+-- Only the columns the policies and the migration reference are stubbed. The
+-- real `storage.objects` has ~15 and `storage.buckets` ~12.
 create schema if not exists storage;
 
 create table if not exists storage.buckets (
   id     text primary key,
   name   text not null,
-  public boolean not null default false
+  -- The flag that decides whether an object is reachable without a JWT. Real,
+  -- and set by the resume_storage migration; enforced by storage-api, not by anything here.
+  public boolean not null default false,
+  -- Read by storage-api on upload. Present so that migration's insert is the same
+  -- statement locally and on Supabase, rather than a shorter one that would hide
+  -- a typo in the real column names until provisioning day.
+  file_size_limit    bigint,
+  allowed_mime_types text[]
 );
 
 create table if not exists storage.objects (
@@ -161,6 +190,11 @@ create table if not exists storage.objects (
   unique (bucket_id, name)
 );
 
+-- Supabase's bootstrap grants again, and for the identical reason: the privilege
+-- system must not be what refuses, or "B cannot read A's résumé" passes because
+-- B cannot read the table. RLS is deliberately NOT enabled here — 0029 enables
+-- it, so applying the migrations to this harness exercises that statement rather
+-- than finding the work already done.
 grant usage on schema storage to anon, authenticated, service_role;
 grant all on storage.objects to anon, authenticated, service_role;
 grant all on storage.buckets to anon, authenticated, service_role;

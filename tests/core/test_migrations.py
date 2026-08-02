@@ -820,14 +820,109 @@ def test_definer_functions_are_revoked_from_public(name):
     )
 
 
+#: The ONE table where a browser write policy is the mechanism rather than a leak.
+#:
+#: `storage.objects` is not a table this schema owns and not a table an RPC can
+#: stand in front of. Supabase Storage IS an HTTP upload writing that row, so
+#: "write through a function or not at all" has no expression there: the choice
+#: is a policy or an open bucket, and 0029 chose a policy. Every other table in
+#: this repo keeps the original rule.
+#:
+#: Named as a constant rather than special-cased inside the regex so the
+#: exception is one line a reviewer can see, and so the test below can hold it to
+#: a higher bar than the rule it is exempt from.
+STORAGE_WRITE_POLICY_TABLE = "storage.objects"
+
+
+def _write_policies(sql: str) -> list[tuple[str, str, str]]:
+    """Every `create policy <name> on <table> … for insert|update|delete`.
+
+    Captures the TABLE, which the original version did not: it matched the verb
+    anywhere after the policy name and reported the policy alone, so it could say
+    a direct write policy exists but not where. That was fine while the answer
+    was always "nowhere"; it stops being fine the moment there is an exception,
+    because an exception you cannot locate is an exception you cannot bound.
+    """
+    return [
+        (m.group(1), m.group(2), m.group(3).lower())
+        for m in re.finditer(
+            r"create\s+policy\s+(\w+)\s+on\s+([\w.]+)[^;]*?for\s+(insert|update|delete)",
+            sql,
+            re.I | re.S,
+        )
+    ]
+
+
 def test_browser_still_has_no_direct_write_policy():
     """The durability contract: browsers write through functions or not at all.
     An `for insert`/`for update` policy appearing here would quietly reopen the
     direct-write path that 0001_init.sql closes on purpose."""
-    offenders = re.findall(
-        r"create\s+policy\s+(\w+)[^;]*?for\s+(insert|update|delete)", ALL_SQL, re.I | re.S
-    )
+    offenders = [
+        (name, table, verb)
+        for name, table, verb in _write_policies(ALL_SQL)
+        if table.lower() != STORAGE_WRITE_POLICY_TABLE
+    ]
     assert not offenders, f"direct write policies added: {offenders}"
+
+
+def test_the_storage_write_policies_are_bucket_scoped_and_entitlement_gated():
+    """The exemption pays for itself here, or it is not an exemption.
+
+    `storage.objects` holds EVERY bucket in the project, so a write policy on it
+    that forgets `bucket_id` is a write policy on buckets nobody has written yet.
+    And 0028 put the résumé artifact ROWS behind the entitlement boundary, so a
+    storage policy without `hq_is_entitled()` would refuse a suspended account the
+    index and serve it the document.
+
+    Read as text here and executed in
+    `tests/db/test_resume_storage.py::test_every_policy_on_the_resumes_bucket_
+    carries_the_entitlement_conjunct`, which re-derives the same set from
+    `pg_catalog`. Two directions on purpose: this one catches a policy added to a
+    migration, that one catches a policy added to the live database.
+    """
+    storage_policies = [
+        (name, verb)
+        for name, table, verb in _write_policies(ALL_SQL)
+        if table.lower() == STORAGE_WRITE_POLICY_TABLE
+    ]
+    assert storage_policies, (
+        f"no write policies on {STORAGE_WRITE_POLICY_TABLE} — either 0029 was reverted "
+        "and this exemption should come out, or the parser stopped seeing them"
+    )
+
+    # All four policies interpolate ONE predicate — `v_owned`, declared once in
+    # 0029's `do` block — so read/insert/update/delete cannot drift apart. That
+    # is the property being asserted: not "each policy mentions a bucket", which
+    # a copy-paste would satisfy while one copy quietly lost a conjunct.
+    predicate = re.search(
+        r"v_owned\s+text\s*:=\s*\$pred\$(.*?)\$pred\$", ALL_SQL, re.S
+    )
+    assert predicate, (
+        "0029's shared `v_owned` predicate is gone — if the policies were rewritten "
+        "one by one, this test can no longer prove they say the same thing"
+    )
+    body = predicate.group(1)
+    assert re.search(r"bucket_id\s*=\s*'resumes'", body), (
+        f"the storage predicate is on a shared table with no bucket scope: {body!r}"
+    )
+    assert "public.hq_is_entitled()" in body, (
+        f"the storage predicate skips 0028's entitlement boundary: {body!r}"
+    )
+    assert re.search(
+        r"left\(\s*name\s*,\s*37\s*\)\s*=\s*auth\.uid\(\)::text\s*\|\|\s*'/'", body
+    ), (
+        "the storage owner-prefix compare is gone or reworded — it is supposed to be "
+        "character-for-character the rule app_record_resume_artifact enforces "
+        f"(`left(v_path, 37) <> (v_user::text || '/')`), so the two cannot drift: {body!r}"
+    )
+
+    # And every policy really does use it, rather than carrying its own copy.
+    for stmt in re.finditer(
+        r"create\s+policy\s+(\w+)\s+on\s+storage\.objects[^\']*", ALL_SQL, re.I
+    ):
+        assert "%s" in stmt.group(0), (
+            f"{stmt.group(1)} inlines its own predicate instead of the shared one"
+        )
 
 
 def test_the_write_path_writes_its_audit_event():

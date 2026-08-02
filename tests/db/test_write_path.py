@@ -63,6 +63,12 @@ def schema():
     with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
         conn.execute("drop schema if exists public cascade")
         conn.execute("drop schema if exists auth cascade")
+        # `storage` too, since 0029. The harness builds it with
+        # `create table if not exists`, so a schema left over from an earlier run
+        # SURVIVES a harness change — the columns 0029's insert names would be
+        # missing and the failure would read like a bad migration rather than a
+        # stale database. Dropped for the same reason `auth` is.
+        conn.execute("drop schema if exists storage cascade")
         conn.execute("create schema public")
         conn.execute(HARNESS.read_text())
         for m in MIGRATIONS:
