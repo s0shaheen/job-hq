@@ -276,7 +276,7 @@ def test_untracked_files_do_not_block(land: Land) -> None:
     r = land.run(GH_CHECKS_FILE=land.checks(PASSING_CHECKS))
     assert r.returncode == 0, r.stdout + r.stderr
     # `warn` goes to stdout, the file listing it introduces goes to stderr.
-    assert "untracked files present" in r.stdout
+    assert "untracked files present" in r.stderr
     assert "personal-notes.md" in r.stderr, "untracked files must be named, not silently ignored"
 
 
@@ -469,7 +469,7 @@ def test_only_ignored_checks_waits_during_grace_then_refuses_with_10(land: Land)
     r = land.run(GH_CHECKS_FILE=land.checks(IGNORED_FAIL_ONLY),
                  LAND_CHECK_GRACE="2", LAND_POLL_INTERVAL="1")
     assert r.returncode == 10, r.stdout + r.stderr
-    assert "only ignored checks so far" in r.stdout, "it must WAIT during grace, not refuse instantly"
+    assert "only ignored checks so far" in r.stderr, "it must WAIT during grace, not refuse instantly"
     assert "no checks this repository owns" in refusal(r)
     assert not any(c.startswith("pr merge") for c in land.gh_calls())
 
@@ -482,7 +482,7 @@ def test_a_failing_vercel_does_not_gate(land: Land) -> None:
     still printed."""
     r = land.run(GH_CHECKS_FILE=land.checks(IGNORED_FAIL_PLUS_PASS))
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "NOT gating on them" in r.stdout
+    assert "NOT gating on them" in r.stderr
     assert "Vercel" in r.stderr, "an ignored check must still be visible"
 
 
@@ -529,8 +529,8 @@ def test_a_failed_branch_delete_is_not_a_failed_merge(land: Land) -> None:
                  GH_MERGE_MODE="fail_but_merged")
     assert r.returncode == 0, r.stdout + r.stderr
     assert "LANDED" in r.stdout
-    assert "is MERGED" in r.stdout, "it must say why it proceeded"
-    assert "branch delete failed" in r.stdout
+    assert "is MERGED" in r.stderr, "it must say why it proceeded"
+    assert "branch delete failed" in r.stderr
 
 
 # ──────────────────────────────────────────────────────── the LAND_TIER fast path
@@ -548,7 +548,7 @@ def test_land_tier_skips_the_check_wait_but_not_the_gates(land: Land, tier: str)
     assert not any(c.startswith("pr checks") for c in land.gh_calls()), \
         "the fast path still polled the check API"
     assert "unbound variable" not in r.stderr, r.stderr
-    assert "checks not waited on" in r.stdout, "the run must say it did not wait"
+    assert "checks not waited on" in r.stderr, "the run must say it did not wait"
     assert "LANDED" in r.stdout
 
 
@@ -572,7 +572,7 @@ def test_land_tier_does_not_suppress_the_dirty_worktree_refusal(land: Land) -> N
 def test_dry_run_never_merges(land: Land) -> None:
     r = land.run("--dry-run", GH_CHECKS_FILE=land.checks(PASSING_CHECKS))
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "stopping before the merge" in r.stdout
+    assert "stopping before the merge" in r.stderr
     assert not any(c.startswith("pr merge") for c in land.gh_calls())
 
 

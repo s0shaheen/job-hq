@@ -73,10 +73,25 @@ else
   _b=""; _r=""; _g=""; _y=""; _0=""
 fi
 
-step()  { printf '%s\n' "${_b}==> $*${_0}"; }
-info()  { printf '    %s\n' "$*"; }
-warn()  { printf '%s\n' "${_y}    $*${_0}"; }
-ok()    { printf '%s\n' "${_g}    $*${_0}"; }
+# ALL narration goes to stderr; stdout carries the RESULT and nothing else.
+#
+# Before this, `step`/`info`/`ok` wrote to stdout and the detail lines beside a
+# refusal wrote to stderr, so one refusal's narrative arrived split across two
+# streams — a caller redirecting either got half a sentence. The split is also
+# why `land.sh | tail` showed progress but not the reason for a failure.
+#
+# The contract now: `land.sh > out` leaves `out` holding the LANDED summary, and
+# `2> log` holds the story of how it got there.
+step()  { printf '%s\n' "${_b}==> $*${_0}" >&2; }
+info()  { printf '    %s\n' "$*" >&2; }
+# stderr, like the detail lines a refusal prints beside it. This used to write to
+# stdout, which split one refusal's narrative across two streams — header on
+# stdout, explanation on stderr — so a caller redirecting either one got half a
+# sentence. Every diagnostic this script emits goes to stderr; only the LANDED
+# summary is stdout, because that is the script's result rather than its
+# commentary.
+warn()  { printf '%s\n' "${_y}    $*${_0}" >&2; }
+ok()    { printf '%s\n' "${_g}    $*${_0}" >&2; }
 
 # refuse <exit-code> <headline> [detail...]
 refuse() {
