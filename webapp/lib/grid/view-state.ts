@@ -17,6 +17,35 @@
  * JSON schema. One grammar, one hardened parser (url-state.ts, clause-granular
  * drops, already unit-tested against hostile input) — a second JSON shape
  * would be a second place for the same parsing bugs to live.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * THE DENSITY TAXONOMY: TWO NAMES, TWO NUMBERS, AND WHICH LAYER OWNS EACH
+ *
+ * Two vocabularies existed for the same knob and they disagreed on both:
+ *
+ *   shipped code  `dense` = 32px  ·  `comfortable` = 44px  ·  default `dense`
+ *   design 01 §8  `compact` = 32px · `comfortable` = 40px  ·  default comfortable
+ *
+ * They are settled on DIFFERENT layers, and conflating the two is what an
+ * earlier draft of this file got wrong.
+ *
+ * THE NUMBER is presentation, so the design wins: `rowPxFor` returns 40 / 32,
+ * the IBM Carbon row sizes 01 §8 takes wholesale, with Carbon's taller variants
+ * unused because no cell here is ever two lines. The 44px comfortable row was
+ * never a decision, just the number that happened to be there.
+ *
+ * THE WORD is the wire format, so the store wins, and the store is now real:
+ * migration 0025 put these knobs on `profiles` with a CHECK constraint spelling
+ * `dense`, `globals.css` matches `:root[data-density="comfortable"]`, and
+ * `lib/display/prefs.ts` — which landed with 0025 — states the rule outright:
+ * "the 02 dictionary owns what a person READS; these own what the stylesheet
+ * matches." So `Density` is IMPORTED from that module rather than restated
+ * here. Renaming the token to the design's prose would insert a translation
+ * layer between a database CHECK and a CSS selector, which is precisely a place
+ * for the two to disagree in silence.
+ *
+ * The design's word survives where it belongs — on screen. `Compact` is what
+ * the Display popover renders, via `densityLabel` in `./display-prefs`.
  */
 import type { SavedView } from "@/lib/data/view-models";
 import type { WorkingSet } from "./presets";
@@ -27,8 +56,9 @@ import {
   type GridUrlState,
 } from "./url-state";
 
-export type Density = "dense" | "comfortable";
-export type TypeScale = "default" | "large";
+// One definition, in the module that owns the wire format (see the header).
+export type { Density, TypeScale } from "@/lib/display/prefs";
+import type { Density, TypeScale } from "@/lib/display/prefs";
 
 export type DisplayState = {
   density: Density;
@@ -36,7 +66,15 @@ export type DisplayState = {
   hints: boolean;
 };
 
-/** The owner's defaults (spec D): dense, 13px, hints on. */
+/**
+ * The owner's defaults (spec D): compact rows, 13px, hints on.
+ *
+ * Equal to `DEFAULT_DISPLAY_PREFS` in `lib/display/prefs.ts`, field for field,
+ * and `tests/unit/display-prefs.test.ts` pins them equal in both directions.
+ * That equality is what let 0025 land without re-recording a visual baseline,
+ * and it is why a saved view with no display block and a profile with no
+ * display row render the same screen.
+ */
 export const DEFAULT_DISPLAY: DisplayState = {
   density: "dense",
   typeScale: "default",
@@ -45,13 +83,15 @@ export const DEFAULT_DISPLAY: DisplayState = {
 
 /**
  * Fixed row height per density — the constant that keeps virtualization exact.
- * Dense mirrors columns.ROW_PX; the value is duplicated rather than imported
+ * Carbon's two sizes, per 01 §8: comfortable 40, compact 32.
+ *
+ * Compact mirrors columns.ROW_PX; the value is duplicated rather than imported
  * because columns.tsx drags react-table + JSX into every bundle that touches
  * it (including the saved-view server action), and a unit test pins the two
  * copies equal so they cannot drift silently.
  */
 export function rowPxFor(density: Density): number {
-  return density === "comfortable" ? 44 : 32;
+  return density === "comfortable" ? 40 : 32;
 }
 
 /** What `saved_views.state` holds. `nav` is a url-state query string. */
@@ -83,11 +123,29 @@ export function parseViewState(raw: unknown): { nav: GridUrlState; display: Disp
   return {
     nav: parseGridState(new URLSearchParams(navStr)).state,
     display: {
-      density: o.density === "comfortable" ? "comfortable" : "dense",
+      density: parseDensity(o.density),
       typeScale: o.typeScale === "large" ? "large" : "default",
       hints: typeof o.hints === "boolean" ? o.hints : true,
     },
   };
+}
+
+/**
+ * Stored density → the current vocabulary.
+ *
+ * `"compact"` is accepted as an alias for `"dense"` and always will be. It is
+ * the design's word for the same row, so it is the value a hand-written server
+ * action or a future writer that read the design first is most likely to send,
+ * and a saved view that will not open is a view nobody can even delete (the
+ * header rule above). Named explicitly rather than left to fall through, so the
+ * mapping survives a future change to `DEFAULT_DISPLAY`. Anything else — a
+ * value from a version that grew a third density, or a typo — takes the
+ * default.
+ */
+function parseDensity(raw: unknown): Density {
+  if (raw === "comfortable") return "comfortable";
+  if (raw === "dense" || raw === "compact") return "dense";
+  return DEFAULT_DISPLAY.density;
 }
 
 export function displayEquals(a: DisplayState, b: DisplayState): boolean {

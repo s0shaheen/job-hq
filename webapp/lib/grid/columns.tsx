@@ -166,7 +166,7 @@ export const GRID_COLUMNS: ColumnDef<JobView>[] = [
     // looked sortable and was not would be worse than a plain one.
     //
     // NO CELL, deliberately, and this is the one column in the table without
-    // one. `jobs-grid.tsx` renders every Warm cell itself, because `WarmCell`
+    // one. The Jobs surface renders every warm-path control itself, because `WarmCell`
     // reaches a server action, `lib/referral/actions.ts` reaches
     // `getDataSource`, and that reaches the `server-only` reader — a
     // `columns.tsx` that imported the component could no longer be imported by a

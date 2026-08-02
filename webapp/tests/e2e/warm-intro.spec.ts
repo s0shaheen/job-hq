@@ -60,10 +60,16 @@ async function pipelineReady(page: Page) {
   await expect(page.locator('[data-testid="pipeline"][data-hydrated="true"]')).toBeAttached();
 }
 
-/** The /jobs row whose Company cell is exactly `name`. */
+/** The /jobs row whose Company cell names exactly `name`.
+ *
+ * Matched on the NAME element, not on the cell's text. The redesigned Company
+ * cell is a composition — logo avatar, then the name, then the layer-0 warm
+ * indicator — so its `textContent` reads "RARamp2 1st-degree" and an anchored
+ * regex over the cell matches nothing. The name carries `title` for its own
+ * truncation tooltip, which makes it the one addressable element. */
 function rowFor(page: Page, name: string) {
   const company = page
-    .locator('[role="gridcell"][data-col="company"]')
+    .locator('[role="gridcell"][data-col="company"] span[title]')
     .filter({ hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) });
   return page.locator('[role="row"]', { has: company });
 }

@@ -3,9 +3,9 @@ import { isNotEntitled } from "@/lib/auth/entitlement";
 import { getSupabaseEnv } from "@/lib/env";
 import { getDataSource } from "@/lib/data/get-source";
 import { createClient } from "@/lib/supabase/server";
+import { AppShell } from "@/components/ds";
 import { PendingWork } from "@/components/pending-work";
 import { Toaster } from "@/components/ui/toaster";
-import NavLinks from "./nav-links";
 import SignOut from "./sign-out";
 
 /**
@@ -72,35 +72,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     queueCount = 0; // a count is decoration; it must never break the shell
   }
 
+  // `active` is not passed: `AppNav` derives it from the pathname, which this
+  // server component does not have. The onboarding guard and session-level
+  // pending-work/toast behavior above and below are unchanged by the frame.
   return (
-    <div className="flex min-h-dvh flex-col lg:flex-row">
-      <aside
-        className="shrink-0 border-b border-border bg-surface p-3 lg:h-dvh lg:w-56
-                   lg:border-r lg:border-b-0 lg:sticky lg:top-0"
+    <>
+      <AppShell
+        badge={queueCount}
+        userName={email ?? undefined}
+        userAction={email ? <SignOut /> : undefined}
       >
-        {/* The wordmark is a full row on desktop; on a phone that is another
-            line of chrome above the content, so it sits inline with the nav. */}
-        <div className="hidden items-center justify-between pb-3 lg:block">
-          <span className="px-1 text-sm font-semibold">Job Search HQ</span>
-        </div>
-        <NavLinks counts={{ "/queue": queueCount }} />
-        {email ? (
-          <div className="mt-3 hidden border-t border-border pt-3 lg:absolute lg:bottom-3 lg:block lg:w-[12.5rem]">
-            <p className="truncate px-1 pb-1.5 text-2xs text-muted" title={email}>
-              {email}
-            </p>
-            <SignOut />
-          </div>
-        ) : null}
-      </aside>
-
-      <main className="min-w-0 flex-1">
-        {/* Above the content and on every surface: undelivered work is a
-            property of the session, not of the page you happen to be on. */}
         <PendingWork />
         {children}
-      </main>
+      </AppShell>
       <Toaster />
-    </div>
+    </>
   );
 }

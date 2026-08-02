@@ -4,7 +4,7 @@ import { Download } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import * as React from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ds/button";
 import type { JobView } from "@/lib/data/view-models";
 import type { Column } from "@/lib/export/columns";
 import { toCsv } from "@/lib/export/delimited";
@@ -36,10 +36,14 @@ export type ExportMenuProps = {
   selectionRows: JobView[];
   /** Everything the server handed the grid — the escape-hatch scope. */
   allRows: JobView[];
-  /** Visible columns in view order, mapped through JOB_COLUMNS (+ URL). */
+  /** Export columns. Jobs preserves the full record export at redesign cutover. */
   columns: Column<JobView>[];
   /** Distinct per mount: the toolbar and the selection bar both carry one. */
   testid: string;
+  /** The toolbar states the current count; the selection bar keeps the compact label. */
+  triggerLabel?: string;
+  /** The toolbar owns the view's one primary action. */
+  primary?: boolean;
 };
 
 function download(rows: JobView[], columns: Column<JobView>[]): void {
@@ -80,9 +84,9 @@ export default function ExportMenu(props: ExportMenuProps) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <Button size="sm" variant="secondary" data-testid={props.testid}>
+        <Button variant={props.primary ? "primary" : "secondary"} data-testid={props.testid}>
           <Download aria-hidden="true" className="size-3.5" />
-          Export
+          {props.triggerLabel ?? "Export"}
         </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -104,13 +108,13 @@ export default function ExportMenu(props: ExportMenuProps) {
               {s.label}
             </DropdownMenu.Item>
           ))}
-          {/* The column contract, stated where the choice is made — not in a
-              tooltip nobody opens. */}
+          {/* The column contract, stated where the choice is made, not hidden
+              in a tooltip. */}
           <p
             data-testid={`${props.testid}-note`}
             className="px-2 pb-1 pt-1.5 text-2xs text-muted"
           >
-            CSV of this view's columns plus the posting URL. Hidden columns are excluded.
+            CSV, all role fields plus the posting URL.
           </p>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

@@ -65,7 +65,7 @@ Visible implementation is blocked until every state maps to an owner artifact:
 | ADD-005 | Responsive phone behavior for every template, including file upload/download/preview | UI qualification |
 | ADD-006 | Billing lifecycle states beyond founding-free view | PKT-09A/B |
 | ADD-007 | Account deletion irreversibility: already submitted employer applications cannot be recalled | PKT-09F |
-| ADD-008 | Does the Display popover persist, or is it session-only? The contract shows no save affordance, and reading it as persistent means inventing a write path | Jobs cutover |
+| ADD-008 | Whether the Jobs Display popover WRITES its four knobs to `profiles`, or is per-session only. Migration 0025 made density, type size and keyboard hints a durable per-user record, and Settings persists them; `DisplayPopover.d.ts` carries no save affordance, no dirty state and no "applies to this session" line, and 04 §3 lists the control without saying which it is. The two readings are visibly different products — change density in Jobs, reload, and the row height either holds or reverts — so the surface keeps today's per-session behavior until the owner says | Jobs surface build |
 
 No implementation worker may fill these gaps from taste.
 

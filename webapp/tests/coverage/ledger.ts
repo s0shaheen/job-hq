@@ -115,7 +115,10 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
         "grid",
         "a filter that matches nothing says so and offers one-click clear — distinct from profile gating",
       ),
-      [ST.missingFact]: e2e("grid", "a value the posting never stated reads Not listed, never an invention"),
+      [ST.missingFact]: e2e(
+        "grid",
+        "a value the posting never stated renders as Not listed, never an invention",
+      ),
       [ST.degraded]: e2e("grid-views", "a stale view id falls back loudly — never a 404, never a blank grid"),
       [ST.validation]: e2e("grid-views", "a name collision is rejected with the store's message, not a crash"),
       [ST.writePending]: e2e(
@@ -130,14 +133,50 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.permission]: MISSING,
       [ST.sessionExpired]: e2e("grid-views", "an expired session answers with the auth copy, not a crash"),
       [ST.fatal]: MISSING,
-      [ST.detail]: e2e("grid-selection", "click selects one row, the bar appears with the count, Clear empties it"),
+      // Two things, because the redesign split them. Selection is the checkbox
+      // track; the DETAIL is a pane that opens on row click, which is the state
+      // §5 names and which no selection test looks at.
+      [ST.detail]: {
+        verdict: "covered",
+        cites: [
+          {
+            spec: "tests/e2e/jobs-redesign.spec.ts",
+            title: "opens on row click, over a list that stays interactive",
+          },
+          {
+            spec: "tests/e2e/grid-selection.spec.ts",
+            title: "checkboxes build a selection, and Clear empties it",
+          },
+        ],
+      },
       [ST.longStrings]: e2e("grid", "the long fixture row stays one row tall and keeps its full text reachable"),
       [ST.highVolume]: e2e("grid-perf", "row 25: the DOM holds a bounded number of rows at any scroll position"),
       [ST.largeType]: e2e("grid-polish", "the header and body columns stay aligned at large type"),
       [ST.zoom]: e2e("resilience", "the page survives a 200% text zoom"),
       [ST.narrow]: e2e("grid", "the grid, not the page, absorbs the horizontal overflow"),
       [ST.reducedMotion]: MISSING,
-      [ST.providerImage]: MISSING,
+      [ST.providerImage]: {
+        verdict: "covered",
+        cites: [
+          {
+            spec: "tests/e2e/jobs-redesign.spec.ts",
+            title: "a logo host that never answers degrades to the monogram, not a broken image",
+          },
+          {
+            spec: "tests/e2e/jobs-redesign.spec.ts",
+            title: "a company the universe has no domain for is on the monogram already",
+          },
+          // The third rendered case. It was passing and uncited, which is the
+          // one way a covered cell silently uncovers itself: the resolver only
+          // protects titles it is pointed at, so a rename here would have taken
+          // the branch's own accessibility fix out of the ledger without
+          // failing anything.
+          {
+            spec: "tests/e2e/jobs-redesign.spec.ts",
+            title: "the monogram is decorative, so the column does not read as 'R A Ramp'",
+          },
+        ],
+      },
     },
   },
 
@@ -484,7 +523,6 @@ export const BASELINE_MISSING: Baseline = {
 
     // Provider imagery — the monogram fallback is unit-tested only.
     { key: "today | Provider image failure | fixture", reason: "The monogram fallback for a failed company logo is asserted in unit tests only, never in a rendered page." },
-    { key: "jobs | Provider image failure | fixture", reason: "The monogram fallback for a failed company logo is asserted in unit tests only." },
     { key: "applications | Provider image failure | fixture", reason: "The monogram fallback for a failed company logo is asserted in unit tests only." },
     { key: "coverage | Provider image failure | fixture", reason: "The monogram fallback for a failed company logo is asserted in unit tests only, on the surface that shows the most logos." },
   ],

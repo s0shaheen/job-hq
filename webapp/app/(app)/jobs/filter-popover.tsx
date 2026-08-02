@@ -1,196 +1,63 @@
 "use client";
 
-import { ListFilter, X } from "lucide-react";
+/**
+ * The Filter control: one popover, one clause at a time.
+ *
+ * 03 §4's decision, verbatim: "Filter bar keeps its operator power but renders
+ * as chips reading in plain language". The 11-operator by 4-kind builder does
+ * not go away — it moves OFF the chrome and INTO this popover, and what stays
+ * on the toolbar is the readable projection (the chips). 04 §3 records why the
+ * builder left the chrome: "The builder is Airtable cosplay for a find-a-row
+ * task; power stays available inside the Filter popover".
+ *
+ * The clause logic below is a MOVE from `filter-bar.tsx` (deleted at this
+ * surface's cutover), not a rewrite. `buildClause` is byte-equivalent: it is
+ * the guard that keeps a half-typed filter out of the URL, and it has unit
+ * tests behind the grammar it emits.
+ *
+ * Radix owns open/dismiss/focus. Hand-rolling that is the own-goal the repo's
+ * dialog component already documents.
+ */
+
+import { Filter as FilterIcon } from "lucide-react";
 import { Popover } from "radix-ui";
 import * as React from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ds";
 import type { JobView } from "@/lib/data/view-models";
 import {
   enumValues,
-  formatGroup,
   type Clause,
   type EnumFieldId,
   type NumberFieldId,
   type OrGroup,
 } from "@/lib/grid/filter";
-import type { GroupBy } from "@/lib/grid/sort";
-import type { GridUrlState } from "@/lib/grid/url-state";
 import { cn } from "@/lib/utils";
-
-/**
- * The grid toolbar: the view switcher, active-filter chips, the clause
- * builder, quick search, grouping, and the stated count. Presentational — the
- * grid owns the URL; every control here reports a decision upward and renders
- * whatever state comes back down.
- *
- * One row of h-7 controls at rest, wrapping (never overflowing) as chips
- * accumulate or the viewport narrows: the bar is inside the page's flex
- * column, so anything it cannot wrap would push the grid off the bottom or
- * the side — both are the failure layout.spec.ts exists to catch.
- *
- * THE REST-STATE HEIGHT IS NOT ALLOWED TO DEPEND ON FONT METRICS. It used to:
- * the controls plus the count filled the 1280px bar to the last pixel (the
- * count's right edge landed exactly on the content edge, 0px of slack), so the
- * same markup was one row on macOS and two on Linux — and the loading skeleton,
- * which models one row, was measured 22px above the loaded grid in CI while
- * passing locally. A bar whose height is decided by the renderer's font is a
- * layout jump waiting for any user whose text is a few percent wider, skeleton
- * or no skeleton, so the composition — not the skeleton — is what changed:
- *
- *   1. The quick search is the flexible filler (`flex-1` over `min-w-0`, capped
- *      at its old fixed width). Its hypothetical main size is 0, so it can
- *      never be the item that pushes a line over; it absorbs the slack instead,
- *      and any leftover still reaches its `ml-auto` — the rest state renders
- *      pixel-for-pixel where it did before.
- *   2. The count owns its own row below `xl` and shares the controls row at
- *      `xl` and above. Which row it is on is now a declared breakpoint rather
- *      than the outcome of a text measurement. That is the same layout the
- *      1280px and 412px viewports rendered before, with ~245px and a whole row
- *      of headroom respectively instead of zero.
- *
- * `app/(app)/jobs/loading.tsx` mirrors both rules; grid.spec.ts measures them.
- */
 
 const control =
   "h-7 rounded-md border border-border-strong bg-surface px-2 text-xs text-text " +
   "focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-ring";
 
-export type FilterBarProps = {
-  state: GridUrlState;
-  q: string;
-  countText: string;
-  /** Unknown-comp rows among the CURRENT result — the G16 "incl. N unstated". */
-  compUnknown: number;
-  /** Universe for the builder's enum value lists (all rows, not the filtered
-   *  view: a value the current filter hides must stay pickable). */
-  rows: JobView[];
-  /** The view switcher (G3). A slot rather than an import: the switcher needs
-   *  the saved views and the write callbacks, all of which the grid owns. */
-  switcher?: React.ReactNode;
-  onQChange: (q: string) => void;
-  onAddGroup: (group: OrGroup) => void;
-  onRemoveGroup: (index: number) => void;
-  onGroupChange: (group: GroupBy) => void;
-};
-
-export default function FilterBar(props: FilterBarProps) {
-  const { state } = props;
-  return (
-    <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-4 py-2 sm:px-6">
-      {/* The view switcher is the single control for which set/view is shown —
-          Queue and All postings are its first two entries. A standalone
-          Queue/All toggle used to sit here too, so the toolbar carried two
-          controls that both said "All postings"; that read as unfinished (the
-          owner's stated fear) and made "All postings" an ambiguous test
-          locator. One control, in the vocabulary the saved views already use. */}
-      {props.switcher}
-
-      <ClauseBuilder rows={props.rows} onAdd={props.onAddGroup} />
-
-      {state.filter.map((group, i) => {
-        const label = formatGroup(group);
-        const isComp = group.some((c) => c.kind === "number" && c.field === "compMax");
-        return (
-          <span
-            key={`${i}-${label}`}
-            data-testid="filter-chip"
-            className="inline-flex h-7 min-w-0 max-w-full items-center gap-1 rounded-md border border-border-strong bg-raised pl-2 pr-1 text-xs text-text-2"
-          >
-            <span className="truncate">{label}</span>
-            {isComp ? (
-              // G16 made visible: the keep-rule for unknown comp is stated on
-              // the very chip that triggered it, so "why is a no-comp row
-              // here?" never needs asking. Excluding them is its own clause
-              // (Comp → "is stated"), never a quiet side effect of this one.
-              <span className="whitespace-nowrap text-muted">
-                , plus {props.compUnknown} with pay not listed
-              </span>
-            ) : null}
-            <button
-              type="button"
-              aria-label={`Remove filter: ${label}`}
-              onClick={() => props.onRemoveGroup(i)}
-              className="shrink-0 rounded p-0.5 text-muted hover:bg-surface hover:text-text"
-            >
-              <X aria-hidden="true" className="size-3" />
-            </button>
-          </span>
-        );
-      })}
-
-      {/* Search sits BEFORE the count in the DOM so that on a phone the
-          wrap order is [toggle · Filter · search] over [count]: the rest-state
-          bar keeps the exact height the loading skeleton mirrors, and the rail
-          does not jump when data lands (the queue's 69px lesson, row 7).
-
-          It is also the bar's flexible filler — `flex-1` (basis 0) with
-          `min-w-0`, capped at the width it used to be fixed at. Flexbox breaks
-          lines on hypothetical main size and only then shrinks, so a fixed-width
-          search could push the row over the edge; a basis-0 one contributes
-          nothing to that decision and shrinks first instead. Where there is
-          room it grows straight back to 8/11rem and `ml-auto` still takes the
-          leftover, so nothing moves at rest. */}
-      <input
-        type="search"
-        aria-label="Quick search"
-        placeholder="Search postings"
-        value={props.q}
-        onChange={(e) => props.onQChange(e.target.value)}
-        className={cn(control, "ml-auto min-w-0 flex-1 max-w-32 sm:max-w-44")}
-      />
-
-      {/* Desktop chrome: the grid is a desktop-first surface and the phone
-          bar has no room for a fourth control at rest. Grouping still works
-          on a phone through the URL (group=company) — the deep link is the
-          state, the select is only one way to write it. */}
-      <label className="hidden shrink-0 items-center gap-1.5 text-xs text-muted sm:flex">
-        Group
-        <select
-          aria-label="Group rows"
-          value={state.group ?? ""}
-          onChange={(e) => props.onGroupChange(e.target.value === "company" ? "company" : null)}
-          className={control}
-        >
-          <option value="">No grouping</option>
-          <option value="company">Company</option>
-        </select>
-      </label>
-
-      {/* Which set, and how big it is against everything — stated, not
-          implied. A grid that silently shows a subset is the top-tier trust
-          bug the spec names for exports, wearing a different surface.
-
-          `w-full` below xl: the count takes the whole row, so it is on its own
-          line by construction at every width where it does not comfortably fit
-          beside the controls — which is what 1024px, 768px and a phone already
-          rendered, only by measurement rather than by rule. From xl up it
-          returns to the controls' line with ~245px to spare. It is never
-          truncated: a stated count is exactly the fact §5's "long strings" row
-          forbids abbreviating away. */}
-      <p data-testid="grid-count" className="w-full min-w-0 text-xs text-muted xl:w-auto">
-        {props.countText}
-      </p>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Clause builder — a small structured popover, not a wall of inputs. Radix
-// owns the open/dismiss/focus behaviour; hand-rolling that is the classic
-// own-goal the dialog component already documents.
-// ---------------------------------------------------------------------------
-
-/** What the builder offers. `comp` folds the G16 pair in: the numeric ops
- *  compare on the band top, and "is stated / is not stated" emit the explicit
- *  compRange.empty clause the spec demands for excluding unknowns. */
+/**
+ * What the builder offers.
+ *
+ * Field LABELS route through the dictionary (02 §4): Comp is "Pay", the two
+ * location columns read as one "Location & model" on the table but stay two
+ * filterable fields here, and "Decision" is already the user-facing word.
+ * "Min YoE" becomes "Minimum years" — the abbreviation is chrome nobody outside
+ * this repo writes (02 §10's attested-label rule).
+ *
+ * `comp` folds the unknown-comp pair in: the numeric ops compare on the band
+ * top, and "is stated / is not stated" emit the explicit compRange.empty clause
+ * the spec demands for excluding unknowns.
+ */
 const BUILDER_FIELDS = [
   { id: "company", label: "Company", kind: "text" },
   { id: "title", label: "Title", kind: "text" },
   { id: "location", label: "Location", kind: "text" },
   { id: "workModel", label: "Work model", kind: "enum" },
   { id: "remote", label: "Remote", kind: "remote" },
-  { id: "compMax", label: "Comp", kind: "comp" },
-  { id: "minYoe", label: "Min YoE", kind: "number" },
+  { id: "compMax", label: "Pay", kind: "comp" },
+  { id: "minYoe", label: "Minimum years", kind: "number" },
   { id: "posted", label: "Posted", kind: "date" },
   { id: "seniority", label: "Seniority", kind: "enum" },
   { id: "status", label: "Status", kind: "enum" },
@@ -216,30 +83,47 @@ const OPS: Record<BuilderField["kind"], Array<{ v: string; label: string }>> = {
     { v: "between", label: "between" },
   ],
   comp: [
-    { v: "gte", label: "at least ($k)" },
-    { v: "lte", label: "at most ($k)" },
-    { v: "between", label: "between ($k)" },
+    { v: "gte", label: "above" },
+    { v: "lte", label: "below" },
+    { v: "between", label: "between" },
     { v: "stated", label: "is stated" },
     { v: "unstated", label: "is not stated" },
   ],
   date: [
-    { v: "inlast", label: "in last N days" },
+    { v: "inlast", label: "in the last N days" },
     { v: "before", label: "before" },
     { v: "after", label: "after" },
   ],
   remote: [
     { v: "remote", label: "remote only" },
-    { v: "onsite-hybrid", label: "onsite or hybrid" },
+    { v: "onsite-hybrid", label: "on-site or hybrid" },
   ],
 };
 
-function ClauseBuilder({
-  rows,
-  onAdd,
-}: {
+/**
+ * The decision values a person picks from, in the dictionary's words.
+ *
+ * `lib/grid/filter.ts` matches on the ENGINE token ("undecided", "snoozed",
+ * "dismissed"), which is exactly the leak 02 §4 closes: the clause keeps the
+ * token, the checkbox shows the word. Two arrays, one index.
+ */
+const DECISION_TOKENS = ["undecided", "interested", "snoozed", "dismissed"] as const;
+const DECISION_WORDS = ["Needs decision", "Interested", "Later", "Passed"] as const;
+
+function enumOptionLabel(field: EnumFieldId, value: string): string {
+  if (field !== "triage") return value;
+  const i = DECISION_TOKENS.indexOf(value as (typeof DECISION_TOKENS)[number]);
+  return i === -1 ? value : DECISION_WORDS[i];
+}
+
+export type FilterPopoverProps = {
+  /** Universe for the enum value lists (all rows, not the filtered view: a
+   *  value the current filter hides must stay pickable). */
   rows: JobView[];
   onAdd: (group: OrGroup) => void;
-}) {
+};
+
+export default function FilterPopover({ rows, onAdd }: FilterPopoverProps) {
   const [open, setOpen] = React.useState(false);
   const [fieldId, setFieldId] = React.useState<BuilderField["id"]>("company");
   const [op, setOp] = React.useState<string>("has");
@@ -280,8 +164,8 @@ function ClauseBuilder({
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <Button size="sm" variant="secondary">
-          <ListFilter aria-hidden="true" className="size-3.5" />
+        <Button data-testid="filter-trigger">
+          <FilterIcon size={14} strokeWidth={1.75} className="text-muted" aria-hidden />
           Filter
         </Button>
       </Popover.Trigger>
@@ -290,7 +174,8 @@ function ClauseBuilder({
           align="start"
           sideOffset={6}
           collisionPadding={8}
-          className="z-40 w-64 max-w-[calc(100vw-16px)] rounded-lg border border-border bg-surface p-3 shadow-xl outline-none"
+          data-testid="filter-popover"
+          className="z-40 w-64 max-w-[calc(100vw-16px)] rounded-lg border border-border-strong bg-surface p-3 shadow-[0_8px_24px_rgba(26,26,24,0.12)] outline-none"
         >
           <div className="flex flex-col gap-2">
             <select
@@ -343,7 +228,7 @@ function ClauseBuilder({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") add();
                 }}
-                placeholder={field.kind === "comp" ? "e.g. 150" : "e.g. 3"}
+                placeholder={field.kind === "comp" ? "e.g. 120" : "e.g. 3"}
                 className={control}
               />
             ) : null}
@@ -409,14 +294,16 @@ function ClauseBuilder({
                         setChecked(next);
                       }}
                     />
-                    <span className="truncate">{v}</span>
+                    <span className="truncate">
+                      {enumOptionLabel(field.id as EnumFieldId, v)}
+                    </span>
                   </label>
                 ))}
               </div>
             ) : null}
 
             <div className="mt-1 flex justify-end">
-              <Button size="sm" variant="primary" disabled={!clause} onClick={add}>
+              <Button variant="primary" disabled={!clause} onClick={add}>
                 Add filter
               </Button>
             </div>
@@ -432,7 +319,7 @@ function ClauseBuilder({
 
 /** Null while the inputs cannot make a valid clause — Add stays disabled, so a
  *  half-typed filter can never reach the URL. */
-function buildClause(
+export function buildClause(
   field: BuilderField,
   op: string,
   v: {

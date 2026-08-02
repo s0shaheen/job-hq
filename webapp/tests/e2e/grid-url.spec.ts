@@ -43,7 +43,8 @@ async function ready(page: Page) {
   ).toBeAttached();
 }
 
-const companyCells = (page: Page) => page.locator('[role="gridcell"][data-col="company"]');
+const companyNames = (page: Page) =>
+  page.locator('[role="gridcell"][data-col="company"] span[title]');
 
 test("a cold deep link renders its exact state in the server HTML — no post-hydration pop", async ({
   page,
@@ -59,7 +60,7 @@ test("a cold deep link renders its exact state in the server HTML — no post-hy
   // order must already be in it. This is the assertion that catches a grid
   // which server-renders everything and filters after hydration.
   const html = await (await page.request.get(url)).text();
-  expect(html).toContain(`${expected.length} of ${TOTAL} postings match`);
+  expect(html).toContain(`${expected.length} of ${TOTAL} match your filters`);
   const first = html.indexOf(`>${expected[0].company}<`);
   const second = html.indexOf(`>${expected[1].company}<`);
   expect(first, `${expected[0].company} not in the server HTML`).toBeGreaterThan(-1);
@@ -69,8 +70,8 @@ test("a cold deep link renders its exact state in the server HTML — no post-hy
   // And the hydrated page shows the same state.
   await page.goto(url);
   await ready(page);
-  await expect(companyCells(page)).toHaveText(expected.map((j) => j.company));
-  await expect(page.locator('[role="columnheader"][data-col="comp"]')).toHaveAttribute(
+  await expect(companyNames(page)).toHaveText(expected.map((j) => j.company));
+  await expect(page.locator('[role="columnheader"][data-col="pay"]')).toHaveAttribute(
     "aria-sort",
     "descending",
   );
@@ -91,7 +92,7 @@ test("back/forward replays filter and sort decisions, one per step (criterion 22
   const afterOne = FIXTURE_JOBS.filter(
     (j) => QUEUE.includes(j) && (j.workModel ?? "").toLowerCase() === "remote (us)",
   );
-  await expect(companyCells(page)).toHaveText(afterOne.map((j) => j.company));
+  await expect(companyNames(page)).toHaveText(afterOne.map((j) => j.company));
   await expect(page).toHaveURL(/f=workModel\.in\./);
 
   // Decision 2: min YoE at most 3.
@@ -102,7 +103,7 @@ test("back/forward replays filter and sort decisions, one per step (criterion 22
   await page.getByLabel("Filter value").fill("3");
   await page.getByRole("button", { name: "Add filter" }).click();
   const afterTwo = afterOne.filter((j) => j.minYoe !== null && j.minYoe <= 3);
-  await expect(companyCells(page)).toHaveText(afterTwo.map((j) => j.company));
+  await expect(companyNames(page)).toHaveText(afterTwo.map((j) => j.company));
 
   // Decision 3: sort by pay.
   await page.getByRole("button", { name: "Pay", exact: true }).click();
@@ -110,8 +111,8 @@ test("back/forward replays filter and sort decisions, one per step (criterion 22
   const fullUrl = page.url();
 
   // Leave, come back: the exact state, not an approximation of it.
-  await page.locator('a[href="/queue"]').first().click();
-  await page.waitForURL("**/queue");
+  await page.locator('a[href="/today"]').first().click();
+  await page.waitForURL("**/today");
   await page.goBack();
   await ready(page);
   // `expect(page).toHaveURL` and not `expect(page.url()).toBe(...)`: a bare
@@ -119,7 +120,7 @@ test("back/forward replays filter and sort decisions, one per step (criterion 22
   // race on the mobile project — which reads as a product bug and is the test
   // disagreeing with itself (matrix row 45).
   await expect(page).toHaveURL(fullUrl);
-  await expect(companyCells(page)).toHaveText(afterTwo.map((j) => j.company));
+  await expect(companyNames(page)).toHaveText(afterTwo.map((j) => j.company));
   await expect(page.getByTestId("grid-count")).toContainText(
     `${afterTwo.length} of ${QUEUE.length}`,
   );
@@ -132,7 +133,7 @@ test("back/forward replays filter and sort decisions, one per step (criterion 22
   // And forward restores it.
   await page.goForward();
   await expect(page).toHaveURL(fullUrl);
-  await expect(page.locator('[role="columnheader"][data-col="comp"]')).toHaveAttribute(
+  await expect(page.locator('[role="columnheader"][data-col="pay"]')).toHaveAttribute(
     "aria-sort",
     "ascending",
   );
@@ -141,7 +142,7 @@ test("back/forward replays filter and sort decisions, one per step (criterion 22
   // the identical grid.
   await page.goto(fullUrl);
   await ready(page);
-  await expect(companyCells(page)).toHaveText(afterTwo.map((j) => j.company));
+  await expect(companyNames(page)).toHaveText(afterTwo.map((j) => j.company));
 });
 
 test("a malformed param drops that clause loudly and keeps its valid siblings", async ({
@@ -152,13 +153,13 @@ test("a malformed param drops that clause loudly and keeps its valid siblings", 
 
   // The page stands, the readable clause applies…
   const expected = QUEUE.filter((j) => j.minYoe !== null && j.minYoe <= 3);
-  await expect(companyCells(page)).toHaveText(expected.map((j) => j.company));
+  await expect(companyNames(page)).toHaveText(expected.map((j) => j.company));
 
   // …the unreadable ones are announced, not silently vanished…
   await expect(page.getByText(/Ignored 3 unrecognized/)).toBeVisible();
 
   // …and neither the bogus sort nor the bogus grouping half-applied.
-  await expect(page.locator('[role="columnheader"][data-col="comp"]')).not.toHaveAttribute(
+  await expect(page.locator('[role="columnheader"][data-col="pay"]')).not.toHaveAttribute(
     "aria-sort",
     /.*/,
   );
@@ -173,20 +174,18 @@ test("typing in quick search coalesces into ONE history entry — Back steps ove
 
   // A discrete decision first (push), so the typing session below has a prior
   // entry to collapse onto — replace mutates the current entry by design. The
-  // set is chosen through the view switcher now (the standalone Queue/All
-  // toggle was removed as a duplicate of it).
-  await page.getByTestId("view-switcher").click();
-  await page.getByRole("menuitemradio", { name: "All postings" }).click();
+  // A saved-view tab is a named query, so choosing All is one history entry.
+  await page.getByRole("button", { name: "All", exact: true }).click();
   await expect(page).toHaveURL(/set=all/);
 
-  const search = page.getByLabel("Quick search");
+  const search = page.getByLabel("Search roles");
   await search.click();
   await search.pressSequentially("mod");
   await expect(page).toHaveURL(/q=mod(&|$)/);
   await search.pressSequentially("ern trea");
   await expect(page).toHaveURL(/q=modern\+trea/);
 
-  await expect(companyCells(page)).toHaveText(["Modern Treasury"]);
+  await expect(companyNames(page)).toHaveText(["Modern Treasury"]);
 
   // Typing must never look like triage: no toast appeared for any keystroke.
   await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
@@ -197,7 +196,5 @@ test("typing in quick search coalesces into ONE history entry — Back steps ove
   await page.goBack();
   await expect(page).not.toHaveURL(/q=/);
   await expect(page).not.toHaveURL(/set=/);
-  await expect(page.getByTestId("grid-count")).toContainText(
-    `${QUEUE.length} of ${TOTAL}`,
-  );
+  await expect(page.getByTestId("grid-count")).toHaveText(`${QUEUE.length} roles`);
 });

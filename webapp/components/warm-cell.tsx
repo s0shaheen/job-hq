@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, UserRound } from "lucide-react";
 import Link from "next/link";
 import { Popover } from "radix-ui";
 import * as React from "react";
@@ -78,6 +78,8 @@ export type WarmCellProps = {
   universeId: number | null;
   /** The SHARED company row's version token — the one the paste sends back. */
   companyUpdatedAt: string | null;
+  /** Collapse the former column chip into the Company-cell indicator. */
+  indicator?: boolean;
   /** Whether the user has imported an export at all. Changes the empty copy. */
   hasAnyConnections: boolean;
 };
@@ -106,6 +108,10 @@ export function WarmCell(props: WarmCellProps) {
   const summary = summaryLabel({ firstDegree, hasId, canPaste });
 
   if (summary.text === NOT_LISTED) {
+    // The Company-cell indicator has no room for a value word: an absent fact
+    // renders as the absence of the icon, and the cell's own "Not listed"
+    // already carries the sentence for a screen reader.
+    if (props.indicator) return null;
     return (
       <span className="truncate text-muted" data-testid="warm-none">
         {NOT_LISTED}
@@ -125,17 +131,28 @@ export function WarmCell(props: WarmCellProps) {
               ? `You know someone here: ${props.connections.map((connection) => connection.fullName).join(", ")}`
               : `Find a warm intro at ${props.company}`
           }
+          title={props.indicator ? summary.text : undefined}
           className={cn(
-            "inline-flex h-[22px] min-w-0 max-w-full items-center rounded-md border px-1.5 text-left text-xs tabular",
+            props.indicator
+              ? "inline-flex size-5 shrink-0 items-center justify-center rounded-md text-text-2 hover:bg-raised hover:text-text"
+              : "inline-flex h-[22px] min-w-0 max-w-full items-center rounded-md border px-1.5 text-left text-xs tabular",
             "focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-ring",
-            summary.tone === "warm"
-              ? "border-accent-subtle bg-accent-subtle font-medium text-accent hover:border-accent"
-              : summary.tone === "plain"
-                ? "border-border bg-raised text-text-2 hover:border-border-strong hover:bg-surface"
-                : "border-border bg-raised text-muted hover:border-border-strong hover:text-text-2",
+            !props.indicator &&
+              (summary.tone === "warm"
+                ? "border-accent-subtle bg-accent-subtle font-medium text-accent hover:border-accent"
+                : summary.tone === "plain"
+                  ? "border-border bg-raised text-text-2 hover:border-border-strong hover:bg-surface"
+                  : "border-border bg-raised text-muted hover:border-border-strong hover:text-text-2"),
           )}
         >
-          <span className="truncate">{summary.text}</span>
+          {props.indicator ? (
+            <>
+              <UserRound aria-hidden="true" className="size-3" />
+              <span className="sr-only">{summary.text}</span>
+            </>
+          ) : (
+            <span className="truncate">{summary.text}</span>
+          )}
         </button>
       </Popover.Trigger>
       <WarmPopoverContent {...props} onDone={() => setOpen(false)} />
@@ -193,7 +210,7 @@ function WarmPopoverContent(props: WarmCellProps & { onDone: () => void }) {
                       <ExternalLink aria-hidden="true" className="size-3 shrink-0" />
                     </a>
                     {c.title ? (
-                      <span className="text-muted" title={c.title}>
+                      <span className="ml-1 text-muted" title={c.title}>
                         , {c.title}
                       </span>
                     ) : null}
@@ -402,12 +419,14 @@ function PasteIdForm(props: {
       <p className="mt-1 text-xs text-muted">
         {correcting ? (
           <>
-            Open the company on LinkedIn, click "See all employees", and paste that page's
+            Open the company on LinkedIn, click{" "}
+            <span className="font-medium">See all employees</span>, and paste that page's
             address. Or empty the field to remove the ID. The scan will not put it back.
           </>
         ) : (
           <>
-            Open the company on LinkedIn, click "See all employees", and paste that page's
+            Open the company on LinkedIn, click{" "}
+            <span className="font-medium">See all employees</span>, and paste that page's
             address here. Once per company.
           </>
         )}

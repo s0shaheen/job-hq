@@ -145,8 +145,10 @@ describe("the per-view opt-out", () => {
     // A selector nothing sets is a dead guard that reads as protection. The
     // grid is the subtree that manages its own scale; if it ever stops opting
     // out, this fails here rather than in a screenshot of clipped comp cells.
+    // `jobs-grid.tsx` was this file's subject until the Jobs redesign deleted
+    // it; `jobs-table.tsx` is the same subtree under its new name.
     const grid = readFileSync(
-      join(process.cwd(), "app", "(app)", "jobs", "jobs-grid.tsx"),
+      join(process.cwd(), "app", "(app)", "jobs", "jobs-table.tsx"),
       "utf8",
     );
     expect(grid).toContain('data-type-scale-scope="own"');

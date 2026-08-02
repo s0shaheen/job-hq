@@ -60,7 +60,7 @@ async function pipelineReady(page: Page) {
 function warmChipOn(page: Page, name: string) {
   const company = page
     .locator('[role="gridcell"][data-col="company"]')
-    .filter({ hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) });
+    .filter({ has: page.getByTitle(name, { exact: true }) });
   return page.locator('[role="row"]', { has: company }).getByTestId("warm-chip");
 }
 

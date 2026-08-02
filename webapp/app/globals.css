@@ -245,7 +245,7 @@
  * The opt-out: a subtree that already scales its own type.
  *
  * `/jobs` had a per-VIEW type scale before this per-USER one existed, and it does
- * more than change a font size — `colScale` in `jobs-grid.tsx` widens every fixed
+ * more than change a font size — `colScale` in `jobs-table.tsx` widens every fixed
  * column by the same ratio, because the widths are tuned for 14px and a fixed
  * width ellipsizes "$165,000 - $210,000" at 18px. Once the token override became
  * reachable there, the two scales COMPOUNDED: the cells grew a second time and

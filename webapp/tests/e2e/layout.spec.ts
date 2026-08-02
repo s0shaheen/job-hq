@@ -208,3 +208,50 @@ test("on a phone, the first job is on the first screen", async ({ page }, testIn
     `the first card starts ${Math.round(box.y)}px down a ${viewport.height}px screen`,
   ).toBeLessThan(viewport.height * 0.5);
 });
+
+/**
+ * The document scrolls on every surface that has not opted into the bounded frame.
+ *
+ * PR #121 gave the whole app `h-dvh overflow-hidden` because the Jobs virtualizer
+ * needs a viewport-sized scroll parent — and that silently took document scrolling
+ * away from twelve surfaces that never asked for it. On a Pixel 7 the result was a
+ * submit button pinned under a bottom-anchored toast with no page scroll to lift it
+ * clear. `companies.spec.ts` caught it on one surface; this catches it on all of
+ * them, because the next surface to adopt the frame will not think to re-test the
+ * eleven it did not touch.
+ */
+test.describe("the un-bounded surfaces keep their document scroll", () => {
+  for (const path of ["/companies/add", "/connections", "/settings", "/queue"]) {
+    test(`${path} scrolls the document, not a nested box`, async ({ page }) => {
+      await page.goto(path);
+      const frame = await page.evaluate(() => {
+        // The clipping happens on the SHELL ROOT, a div inside body — not on
+        // html or body, whose overflow stays `visible` either way. A first
+        // version of this test read those two and passed under the mutation it
+        // exists to catch, which is the whole reason it now walks the ancestors
+        // of `main` and reports what it actually found.
+        const main = document.querySelector("main");
+        const clipped: string[] = [];
+        for (let el = main?.parentElement; el && el !== document.body; el = el.parentElement) {
+          const cs = getComputedStyle(el);
+          const bounded = cs.overflow === "hidden" || cs.overflowY === "hidden";
+          const fixedHeight = cs.height !== "auto" && Math.abs(el.clientHeight - window.innerHeight) < 2;
+          if (bounded && fixedHeight) clipped.push(`${el.tagName.toLowerCase()}.${el.className}`);
+        }
+        return {
+          bounded: !!document.querySelector("[data-bounded-frame]"),
+          clipped,
+        };
+      });
+      expect(
+        frame.bounded,
+        `${path} opted into the bounded frame; if that is deliberate, this list is stale`,
+      ).toBe(false);
+      expect(
+        frame.clipped,
+        `${path} is inside a viewport-height clipping ancestor, so the page cannot ` +
+          `scroll and a bottom-anchored toast can cover the primary action`,
+      ).toEqual([]);
+    });
+  }
+});

@@ -840,12 +840,12 @@ test.describe("it does not visually break", () => {
     // track. Counting and ordering the bands catches the regression that actually
     // happened (a missing band) and cannot be moved by a font.
     await isolate(page, "look-skeleton-bands");
-    await page.goto("/health");
+    await page.goto("/coverage");
     await page.route(/\/companies/, async (route) => {
       await new Promise((r) => setTimeout(r, 1500));
       await route.continue();
     });
-    await page.getByRole("link", { name: "Companies" }).click();
+    await page.getByRole("link", { name: "Go to companies" }).click();
     const skeleton = page.getByTestId("companies-skeleton");
     await skeleton.waitFor({ state: "attached", timeout: 10_000 });
 

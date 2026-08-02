@@ -63,12 +63,40 @@ describe("view state round trip", () => {
     expect(serializeGridState(parsed.nav)).toBe("f=minYoe.lte.3");
   });
 
-  it("rowPxFor(dense) equals the grid's ROW_PX", () => {
-    // The constant is deliberately duplicated (importing columns.tsx would
-    // drag react-table into the server action bundle); this pin is what keeps
-    // the copies from drifting.
+  it("the design's word 'compact' parses to the stored 'dense', forever", () => {
+    // KILLING MUTATION: deleting the explicit `raw === "compact"` branch in
+    // parseDensity. Today the fallback happens to be dense too, so the literal
+    // assertion (not `DEFAULT_DISPLAY.density`) is what makes this test bite:
+    // the day the default flips to comfortable, a view written with the
+    // design's spelling would silently change row height, and this line fails
+    // instead.
+    //
+    // The direction is the taxonomy split (see view-state.ts's header): `dense`
+    // is the wire format, spelled by migration 0025's CHECK and matched by
+    // `globals.css`; `Compact` is what a person reads. The alias exists so the
+    // word the design uses is never the word that breaks a saved view.
+    expect(parseViewState({ density: "compact" }).display.density).toBe("dense");
+    expect(rowPxFor(parseViewState({ density: "compact" }).display.density)).toBe(32);
+  });
+
+  it("an unrecognised density falls back to the default, never a throw", () => {
+    // KILLING MUTATION: widening parseDensity to pass through whatever it was
+    // given (`raw as Density`), which would put "cozy" into a union that has
+    // no row height for it and hand rowPxFor a value it silently reads as 32.
+    for (const raw of ["cozy", "dEnse", "COMFORTABLE", "", 40, null, {}]) {
+      expect(parseViewState({ density: raw }).display.density).toBe(DEFAULT_DISPLAY.density);
+    }
+  });
+
+  it("rowPxFor is Carbon's two sizes: comfortable 40, dense 32", () => {
+    // KILLING MUTATION: leaving the shipped 44 in place for comfortable, which
+    // is the number the design overrode (01 §8), or swapping the two arms.
+    // The ROW_PX pin stays because the constant is deliberately duplicated
+    // (importing columns.tsx would drag react-table into the server action
+    // bundle) and this is what keeps the copies from drifting.
+    expect(rowPxFor("comfortable")).toBe(40);
+    expect(rowPxFor("dense")).toBe(32);
     expect(rowPxFor("dense")).toBe(ROW_PX);
-    expect(rowPxFor("comfortable")).toBeGreaterThan(ROW_PX);
   });
 
   it("displayEquals compares all three knobs", () => {
@@ -158,7 +186,7 @@ describe("resolveGridContext", () => {
     // visit would nag about something the user cannot edit yet.
     const fromUrl = resolveGridContext(p("f=garbage"), []);
     expect(fromUrl.dropped).toEqual(["garbage"]);
-    const corrupt = view({ state: { nav: "f=garbage", density: "dense", typeScale: "default", hints: true } });
+    const corrupt = view({ state: { nav: "f=garbage", density: "compact", typeScale: "default", hints: true } });
     const fromView = resolveGridContext(p("view=v1"), [corrupt]);
     expect(fromView.dropped).toEqual([]);
   });

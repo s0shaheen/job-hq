@@ -31,6 +31,7 @@ describe("built-in presets", () => {
     expect(GRID_PRESETS.map((p) => p.name)).toEqual([
       "Queue",
       "All postings",
+      "Interested",
       "Later",
       "Passed",
       "Needs review",

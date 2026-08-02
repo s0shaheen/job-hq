@@ -40,10 +40,9 @@ const QUEUE_SORTED = [...QUEUE_ROWS].sort(byFreshness);
 const HAS_APP = new Set(FIXTURE_APPLICATIONS.map((a) => a.postingKey).filter(Boolean));
 const CLEAN = QUEUE_SORTED.filter((j) => !HAS_APP.has(j.key));
 
-/** The Queue view's visible columns in view order, plus the URL the Title cell
- *  links to — the exact column contract the copy/export payloads must carry. */
-const QUEUE_EXPORT_KEYS = ["company", "title", "comp", "minYoe", "workModel", "location", "posted", "url"];
-const QUEUE_EXPORT_COLS = QUEUE_EXPORT_KEYS.map((k) => JOB_COLUMNS.find((c) => c.key === k)!);
+/** Jobs keeps the existing full export contract even though the screen is
+ * deliberately trimmed to six data columns. */
+const QUEUE_EXPORT_COLS = JOB_COLUMNS;
 
 test.beforeEach(async ({ page, context }) => {
   await page.clock.setFixedTime(FIXTURE_NOW);
@@ -64,9 +63,21 @@ async function gotoJobs(page: Page, path = "/jobs") {
 }
 
 function companyCell(page: Page, company: string) {
-  return page
-    .locator('[role="gridcell"][data-col="company"]')
-    .filter({ hasText: new RegExp(`^${company.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) });
+  return companyRow(page, company).locator('[role="gridcell"][data-col="company"]');
+}
+
+function companyRow(page: Page, company: string) {
+  return page.locator('[role="row"][data-key]').filter({
+    has: page.locator(`[role="gridcell"][data-col="company"] span[title="${company}"]`),
+  });
+}
+
+async function selectCompany(
+  page: Page,
+  company: string,
+  options?: { modifiers?: ("Shift" | "ControlOrMeta")[] },
+) {
+  await companyRow(page, company).getByRole("checkbox", { name: /^Select / }).click(options);
 }
 
 function selectedKeys(page: Page) {
@@ -81,24 +92,23 @@ const bar = (page: Page) => page.getByTestId("selection-bar");
 // Selection semantics
 // ---------------------------------------------------------------------------
 
-test("click selects one row, the bar appears with the count, Clear empties it", async ({ page }) => {
+test("checkboxes build a selection, and Clear empties it", async ({ page }) => {
   await gotoJobs(page);
   await expect(bar(page)).toHaveCount(0); // no selection, no bar
 
-  await companyCell(page, "Ramp").click();
+  await selectCompany(page, "Ramp");
   await expect(bar(page)).toContainText("1 selected");
   expect(await selectedKeys(page)).toEqual([QUEUE_SORTED[0].key]);
 
-  // Clicking another row REPLACES the selection — plain click never accumulates.
-  await companyCell(page, "Chime").click();
-  await expect(bar(page)).toContainText("1 selected");
+  await selectCompany(page, "Chime");
+  await expect(bar(page)).toContainText("2 selected");
 
-  await bar(page).getByRole("button", { name: "Clear" }).click();
+  await bar(page).getByRole("button", { name: "Clear selection" }).click();
   await expect(bar(page)).toHaveCount(0);
   await expect(page.locator('[role="row"][aria-selected="true"]')).toHaveCount(0);
 });
 
-test("⌘-click toggles; Escape clears; the grid does not shift when the bar appears", async ({
+test("checkboxes toggle; Escape clears; the grid does not shift when the bar appears", async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "modifier-key affordance");
@@ -110,14 +120,14 @@ test("⌘-click toggles; Escape clears; the grid does not shift when the bar app
       .evaluate((el) => Math.round(el.getBoundingClientRect().top));
   const before = await firstRowTop();
 
-  await companyCell(page, "Ramp").click();
-  await companyCell(page, "Chime").click({ modifiers: ["ControlOrMeta"] });
+  await selectCompany(page, "Ramp");
+  await selectCompany(page, "Chime");
   await expect(bar(page)).toContainText("2 selected");
 
   // The bar overlays the grid; it must not push rows around when it appears.
   expect(await firstRowTop()).toBe(before);
 
-  await companyCell(page, "Ramp").click({ modifiers: ["ControlOrMeta"] });
+  await selectCompany(page, "Ramp");
   await expect(bar(page)).toContainText("1 selected");
 
   await page.keyboard.press("Escape");
@@ -139,8 +149,8 @@ test("shift-click ranges from the anchor across sort and group boundaries — he
   const unknown = QUEUE_SORTED.filter((j) => j.compMaxK === null);
   const leaves = [...stated, ...unknown];
 
-  await companyCell(page, leaves[1].company).click();
-  await companyCell(page, leaves[4].company).click({ modifiers: ["Shift"] });
+  await selectCompany(page, leaves[1].company);
+  await selectCompany(page, leaves[4].company, { modifiers: ["Shift"] });
 
   await expect(bar(page)).toContainText("4 selected");
   expect((await selectedKeys(page)).sort()).toEqual(
@@ -152,7 +162,7 @@ test("shift-click ranges from the anchor across sort and group boundaries — he
 
   // Re-pinning the range from the SAME anchor shrinks it — the old tail must
   // not stay selected.
-  await companyCell(page, leaves[2].company).click({ modifiers: ["Shift"] });
+  await selectCompany(page, leaves[2].company, { modifiers: ["Shift"] });
   await expect(bar(page)).toContainText("2 selected");
   expect((await selectedKeys(page)).sort()).toEqual(
     leaves.slice(1, 3).map((j) => j.key).sort(),
@@ -183,10 +193,10 @@ test("typing in the quick search never triages or copies — the guard, for i/x/
 }, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "keyboard-only affordance");
   await gotoJobs(page);
-  await companyCell(page, "Chime").click();
+  await selectCompany(page, "Chime");
   await expect(bar(page)).toContainText("1 selected");
 
-  const search = page.getByLabel("Quick search");
+  const search = page.getByLabel("Search roles");
   await search.click();
   await search.pressSequentially("ixs");
   await expect(search).toHaveValue("ixs");
@@ -209,8 +219,8 @@ test("⌘C copies the selected rows as TSV — visible columns in view order, by
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await gotoJobs(page);
 
-  await companyCell(page, QUEUE_SORTED[0].company).click();
-  await companyCell(page, QUEUE_SORTED[1].company).click({ modifiers: ["ControlOrMeta"] });
+  await selectCompany(page, QUEUE_SORTED[0].company);
+  await selectCompany(page, QUEUE_SORTED[1].company);
   await page.keyboard.press("ControlOrMeta+c");
 
   await expect(page.getByText("Copied 2 rows")).toBeVisible();
@@ -228,9 +238,9 @@ test("selection prunes when a filter hides selected rows: copy and export carry 
 
   // Select three rows; the coming filter (work model = Remote (US)) keeps
   // exactly one of them (Plaid) and hides Ramp and Chime.
-  await companyCell(page, "Ramp").click();
-  await companyCell(page, "Plaid").click({ modifiers: ["ControlOrMeta"] });
-  await companyCell(page, "Chime").click({ modifiers: ["ControlOrMeta"] });
+  await selectCompany(page, "Ramp");
+  await selectCompany(page, "Plaid");
+  await selectCompany(page, "Chime");
   await expect(bar(page)).toContainText("3 selected");
 
   await page.getByRole("button", { name: "Filter", exact: true }).click();
@@ -293,7 +303,9 @@ test("export menu: current view exports exactly the filtered rows it promised (H
   );
   await expect(page.getByTestId("grid-export-selection")).toContainText("Selection (0)");
   await expect(page.getByTestId("grid-export-all")).toContainText(`All (${TOTAL} rows)`);
-  await expect(page.getByTestId("grid-export-note")).toContainText("Hidden columns are excluded");
+  await expect(page.getByTestId("grid-export-note")).toContainText(
+    "all role fields plus the posting URL",
+  );
 
   const [download] = await Promise.all([
     page.waitForEvent("download"),
@@ -327,18 +339,18 @@ test("bulk i on 3 rows creates 3 applications through one action with ONE undo t
   await gotoJobs(page);
 
   const picks = CLEAN.slice(0, 3);
-  await companyCell(page, picks[0].company).click();
-  await companyCell(page, picks[1].company).click({ modifiers: ["ControlOrMeta"] });
-  await companyCell(page, picks[2].company).click({ modifiers: ["ControlOrMeta"] });
+  await selectCompany(page, picks[0].company);
+  await selectCompany(page, picks[1].company);
+  await selectCompany(page, picks[2].company);
   await page.keyboard.press("i");
 
   // One toast, one undo — not three of each.
-  await expect(page.getByText("Saved 3 roles")).toBeVisible();
+  await expect(page.getByText("Marked 3 roles interested")).toBeVisible();
   await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(1);
 
   // The rows left the queue set optimistically and the stated count follows.
   for (const j of picks) await expect(companyCell(page, j.company)).toHaveCount(0);
-  await expect(page.getByTestId("grid-count")).toContainText(`${QUEUED - 3} of ${TOTAL}`);
+  await expect(page.getByTestId("grid-count")).toHaveText(`${QUEUED - 3} roles`);
 
   // The store really holds three new Queued applications: a second page reads
   // them back — client state cannot fake this.
@@ -359,18 +371,18 @@ test("the single Undo reverts the whole batch — rows return, applications are 
   await gotoJobs(page);
 
   const picks = CLEAN.slice(0, 3);
-  await companyCell(page, picks[0].company).click();
-  await companyCell(page, picks[1].company).click({ modifiers: ["ControlOrMeta"] });
-  await companyCell(page, picks[2].company).click({ modifiers: ["ControlOrMeta"] });
+  await selectCompany(page, picks[0].company);
+  await selectCompany(page, picks[1].company);
+  await selectCompany(page, picks[2].company);
   await page.keyboard.press("i");
-  await expect(page.getByText("Saved 3 roles")).toBeVisible();
+  await expect(page.getByText("Marked 3 roles interested")).toBeVisible();
   for (const j of picks) await expect(companyCell(page, j.company)).toHaveCount(0);
 
   await page.getByRole("button", { name: "Undo" }).click();
 
   // ALL three come back, and the count agrees.
   for (const j of picks) await expect(companyCell(page, j.company)).toHaveCount(1);
-  await expect(page.getByTestId("grid-count")).toContainText(`${QUEUED} of ${TOTAL}`);
+  await expect(page.getByTestId("grid-count")).toHaveText(`${QUEUED} roles`);
 
   // The compensating batch reached the store: no application survives.
   const pipeline = await context.newPage();
@@ -396,9 +408,9 @@ test("a conflict inside the batch applies NOTHING: full revert plus a changed-el
   await expect(other.getByText(`Passed: ${QUEUE_SORTED[0].company}`, { exact: false })).toBeVisible();
 
   // Tab A: bulk-dismiss a selection that includes the stale row.
-  await companyCell(page, QUEUE_SORTED[0].company).click();
-  await companyCell(page, "Chime").click({ modifiers: ["ControlOrMeta"] });
-  await companyCell(page, "Mercury").click({ modifiers: ["ControlOrMeta"] });
+  await selectCompany(page, QUEUE_SORTED[0].company);
+  await selectCompany(page, "Chime");
+  await selectCompany(page, "Mercury");
   await page.keyboard.press("x");
 
   await expect(page.getByText(/changed on another device/i)).toBeVisible();
@@ -411,7 +423,7 @@ test("a conflict inside the batch applies NOTHING: full revert plus a changed-el
   const check = await context.newPage();
   await check.goto("/jobs?set=dismissed");
   await expect(check.locator('[data-testid="jobs-grid"][data-ready="true"]')).toBeAttached();
-  await expect(check.getByTestId("grid-count")).toContainText("2 of");
+  await expect(check.getByTestId("grid-count")).toHaveText("2 roles");
   await expect(companyCell(check, QUEUE_SORTED[0].company)).toHaveCount(1);
   await expect(companyCell(check, "Notion")).toHaveCount(1);
   await expect(companyCell(check, "Chime")).toHaveCount(0);
@@ -422,8 +434,8 @@ test("bulk s saves the whole selection for later with a wake date", async ({ pag
   test.skip(testInfo.project.name === "mobile", "keyboard-only affordance");
   await gotoJobs(page);
 
-  await companyCell(page, "Chime").click();
-  await companyCell(page, "Mercury").click({ modifiers: ["ControlOrMeta"] });
+  await selectCompany(page, "Chime");
+  await selectCompany(page, "Mercury");
   await page.keyboard.press("s");
 
   await expect(page.getByText("Saved 2 roles for later")).toBeVisible();
@@ -440,11 +452,11 @@ test("the selection bar buttons drive the same bulk path as the keys", async ({ 
   test.skip(testInfo.project.name === "mobile", "modifier-key affordance");
   await gotoJobs(page);
 
-  await companyCell(page, "Chime").click();
-  await companyCell(page, "Mercury").click({ modifiers: ["ControlOrMeta"] });
+  await selectCompany(page, "Chime");
+  await selectCompany(page, "Mercury");
   await bar(page).getByRole("button", { name: /Pass/ }).click();
 
-  await expect(page.getByText("Passed on 2 roles")).toBeVisible();
+  await expect(page.getByText("Passed 2 roles")).toBeVisible();
   await expect(companyCell(page, "Chime")).toHaveCount(0);
   await expect(companyCell(page, "Mercury")).toHaveCount(0);
 });
@@ -457,8 +469,8 @@ test("at 280px a selection paints nothing past the page edge", async ({ page }) 
   await page.setViewportSize({ width: 280, height: 900 });
   await gotoJobs(page);
 
-  await companyCell(page, "Ramp").click();
-  await companyCell(page, "Chime").click({ modifiers: ["ControlOrMeta"] });
+  await selectCompany(page, "Ramp");
+  await selectCompany(page, "Chime");
   await expect(bar(page)).toContainText("2 selected");
 
   const offenders = await page.evaluate(collectPaintedOverflow);

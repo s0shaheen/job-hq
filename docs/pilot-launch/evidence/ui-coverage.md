@@ -16,15 +16,15 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 
 | | Cells |
 |---|---:|
-| covered | 102 |
+| covered | 103 |
 | n/a | 50 |
 | blocked on an ADD item | 132 |
-| missing, baselined 2026-08-02 | 220 |
+| missing, baselined 2026-08-02 | 219 |
 | missing, new (fails) | 0 |
 | on an unbuilt surface (not enforced) | 126 |
 | total | 504 |
 
-**Baselined is not covered.** 220 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
+**Baselined is not covered.** 219 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
 
 ## Matrix, fixture mode
 
@@ -35,7 +35,7 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 | billing-landing-email-import-export | gap | yes | yes | n/a | gap | gap | yes | gap | gap | yes | add | gap | gap | yes | gap | gap | yes | yes | yes | gap | n/a |
 | coverage | yes | yes | yes | yes | gap | yes | yes | yes | gap | gap | gap | gap | yes | yes | gap | gap | yes | yes | yes | gap | gap |
 | find-intro | gap | yes | yes | yes | yes | yes | yes | yes | gap | gap | gap | gap | gap | yes | gap | add | gap | gap | yes | gap | n/a |
-| jobs | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | gap | yes | gap | yes | yes | yes | yes | yes | yes | gap | gap |
+| jobs | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | gap | yes | gap | yes | yes | yes | yes | yes | yes | gap | yes |
 | operator-admin | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | resume | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | settings-auth-onboarding | gap | yes | yes | n/a | yes | yes | yes | yes | gap | yes | gap | gap | yes | yes | yes | gap | yes | yes | yes | gap | n/a |
@@ -210,7 +210,7 @@ Routes: `/jobs`
 | Populated | yes | `tests/e2e/grid.spec.ts` "the Queue set shows qualified, undecided rows only — and states its counts" |
 | Natural empty | yes | `tests/e2e/grid.spec.ts` "with nothing found at all, the grid says so instead of rendering a bare header" |
 | Filter empty | yes | `tests/e2e/grid.spec.ts` "a filter that matches nothing says so and offers one-click clear — distinct from profile gating" |
-| Missing optional fact | yes | `tests/e2e/grid.spec.ts` "a value the posting never stated reads Not listed, never an invention" |
+| Missing optional fact | yes | `tests/e2e/grid.spec.ts` "a value the posting never stated renders as Not listed, never an invention" |
 | Partial/degraded | yes | `tests/e2e/grid-views.spec.ts` "a stale view id falls back loudly — never a 404, never a blank grid" |
 | Validation error | yes | `tests/e2e/grid-views.spec.ts` "a name collision is rejected with the store's message, not a crash" |
 | Write pending | yes | `tests/e2e/grid-selection.spec.ts` "bulk i on 3 rows creates 3 applications through one action with ONE undo toast" |
@@ -219,14 +219,14 @@ Routes: `/jobs`
 | Permission/holding | gap | No browser test drives a pending, suspended or wrong-owner account. |
 | Session expired | yes | `tests/e2e/grid-views.spec.ts` "an expired session answers with the auth copy, not a crash" |
 | Fatal route error | gap | A malformed view falls back loudly, but a thrown render is never exercised. |
-| Selected/detail | yes | `tests/e2e/grid-selection.spec.ts` "click selects one row, the bar appears with the count, Clear empties it" |
+| Selected/detail | yes | `tests/e2e/jobs-redesign.spec.ts` "opens on row click, over a list that stays interactive"; `tests/e2e/grid-selection.spec.ts` "checkboxes build a selection, and Clear empties it" |
 | Long strings | yes | `tests/e2e/grid.spec.ts` "the long fixture row stays one row tall and keeps its full text reachable" |
 | High volume | yes | `tests/e2e/grid-perf.spec.ts` "row 25: the DOM holds a bounded number of rows at any scroll position" |
 | Large type | yes | `tests/e2e/grid-polish.spec.ts` "the header and body columns stay aligned at large type" |
 | 200% zoom | yes | `tests/e2e/resilience.spec.ts` "the page survives a 200% text zoom" |
 | Narrow viewport | yes | `tests/e2e/grid.spec.ts` "the grid, not the page, absorbs the horizontal overflow" |
 | Reduced motion | gap | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
-| Provider image failure | gap | The monogram fallback for a failed company logo is asserted in unit tests only. |
+| Provider image failure | yes | `tests/e2e/jobs-redesign.spec.ts` "a logo host that never answers degrades to the monogram, not a broken image"; `tests/e2e/jobs-redesign.spec.ts` "a company the universe has no domain for is on the monogram already"; `tests/e2e/jobs-redesign.spec.ts` "the monogram is decorative, so the column does not read as 'R A Ramp'" |
 
 ### operator-admin
 
@@ -461,7 +461,6 @@ Each line is a hole that already existed when the gate was switched on. Baseline
 | `find-intro | Large type | fixture` | /connections is absent from the large-type overflow sweep in layout.spec.ts. |
 | `find-intro | 200% zoom | fixture` | /connections is absent from the 200% zoom sweep in resilience.spec.ts. |
 | `today | Provider image failure | fixture` | The monogram fallback for a failed company logo is asserted in unit tests only, never in a rendered page. |
-| `jobs | Provider image failure | fixture` | The monogram fallback for a failed company logo is asserted in unit tests only. |
 | `applications | Provider image failure | fixture` | The monogram fallback for a failed company logo is asserted in unit tests only. |
 | `coverage | Provider image failure | fixture` | The monogram fallback for a failed company logo is asserted in unit tests only, on the surface that shows the most logos. |
 

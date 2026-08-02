@@ -135,12 +135,17 @@ for (const theme of ["light", "dark"] as const) {
     test.skip(theme !== "light", "geometry is theme-independent; once is enough");
     test.skip(testInfo.project.name !== "desktop", "skeleton widths are tuned for desktop");
 
-    await page.goto("/health");
+    // Started from /coverage rather than /health, because the redesigned frame
+    // is five destinations and Companies is not one of them: Coverage is the
+    // destination and its primary action is the link here. Any client-side
+    // transition into /companies does — the point is a SOFT navigation, so the
+    // route's `loading.tsx` paints while the delayed data streams.
+    await page.goto("/coverage");
     await page.route(/\/companies/, async (route) => {
       await new Promise((r) => setTimeout(r, 1500));
       await route.continue();
     });
-    await page.getByRole("link", { name: "Companies" }).click();
+    await page.getByRole("link", { name: "Go to companies" }).click();
     await page
       .locator('[data-testid="companies-skeleton"]')
       .waitFor({ state: "attached", timeout: 10_000 });
@@ -212,11 +217,20 @@ for (const theme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: theme });
     await page.goto("/jobs?set=all");
     await expect(page.locator('[data-testid="jobs-grid"][data-ready="true"]')).toBeAttached();
-    const company = (c: string) =>
-      page.locator('[role="gridcell"][data-col="company"]').filter({ hasText: new RegExp(`^${c}$`) });
-    await company("Fifth Third Bank").click();
-    await company("Databricks").click({ modifiers: ["Shift"] });
-    await expect(page.getByTestId("selection-count")).toContainText("3 selected");
+    // Two things moved at the redesign and both are here. Selection lives on
+    // the CHECKBOX track now (01 §8) — a row click opens the detail pane — and
+    // the Company cell is a composition, so it is matched on the name element
+    // rather than on the cell's text.
+    const row = (c: string) =>
+      page.locator('[role="row"][data-key]').filter({
+        has: page.locator(`[role="gridcell"][data-col="company"] span[title="${c}"]`),
+      });
+    const box = (c: string) => row(c).getByRole("checkbox", { name: /^Select / });
+    await box("Fifth Third Bank").click();
+    await box("Databricks").click({ modifiers: ["Shift"] });
+    // The count moved into the selection BAR at the redesign; the standalone
+    // `selection-count` element it used to live in is gone.
+    await expect(page.getByTestId("selection-bar")).toContainText("3 selected");
     await expect(page).toHaveScreenshot(`jobs-selected-${theme}.png`, { fullPage: true });
   });
 }
@@ -299,8 +313,10 @@ for (const theme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: theme });
     await page.goto("/jobs?set=all");
     await expect(page.locator('[data-testid="jobs-grid"][data-ready="true"]')).toBeAttached();
+    // The NAME element, not the cell: the redesigned Company cell is avatar +
+    // name + warm indicator, so an anchored regex over its text matches nothing.
     const company = page
-      .locator('[role="gridcell"][data-col="company"]')
+      .locator('[role="gridcell"][data-col="company"] span[title]')
       .filter({ hasText: /^Ramp$/ });
     await page.locator('[role="row"]', { has: company }).getByTestId("warm-chip").click();
     await expect(page.getByTestId("warm-popover")).toBeVisible();

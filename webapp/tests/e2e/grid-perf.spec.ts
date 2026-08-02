@@ -5,7 +5,9 @@ import { expect, test, type Page } from "@playwright/test";
 // stealing the CPU for one 204ms task does not get to loosen a line somebody
 // defended. (First firing: two same-night CI runs, 204ms vs the 200ms budget,
 // both green on re-run.)
-test.describe.configure({ retries: 2 });
+// These tests deliberately saturate and throttle the renderer. Running three
+// copies against one dev server measures cross-test contention, not the grid.
+test.describe.configure({ retries: 2, mode: "serial" });
 
 /**
  * Matrix row 18 — "perf collapse at 5k rows" — replaced with measured budgets
@@ -21,7 +23,7 @@ test.describe.configure({ retries: 2 });
  *
  * WHAT THIS SPEC DOES NOT MEASURE, said here rather than discovered later.
  *
- * The perf page is store-free, so it builds no warm context — and `jobs-grid.tsx`
+ * The perf page is store-free, so it builds no warm context — and `jobs-table.tsx`
  * hides the **Warm** column when there is none. So every budget below is measured
  * over a grid WITHOUT the newest per-row component, including the `Popover.Root`
  * each painted Warm cell mounts. A budget that structurally excludes the thing
@@ -188,6 +190,9 @@ test("row 26: interactive under budget and long-task-free scroll at 5k rows, 4×
 test("row 27: sticky header and first column hold under diagonal scroll, columns aligned", async ({
   page,
 }) => {
+  // The redesigned six-column table fits beside the rail at 1280px. Exercise
+  // the same sticky contract at a width where horizontal scrolling is real.
+  await page.setViewportSize({ width: 440, height: 900 });
   await gotoPerf(page);
   await openAllPostings(page);
 

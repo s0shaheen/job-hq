@@ -201,7 +201,7 @@ describe("perf fixtures — deterministic and honestly shaped", () => {
 
   it("declares the Warm column with no cell of its own", () => {
     // The one column in the table without a `cell`, and the absence is the
-    // assertion. `jobs-grid.tsx` renders every Warm cell itself — `WarmCell`
+    // assertion. The Jobs surface renders every warm-path control itself — `WarmCell`
     // reaches a server action, which reaches `getDataSource`, which reaches the
     // `server-only` reader, and a `columns.tsx` that imported it could not be
     // imported by THIS FILE at all.

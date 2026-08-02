@@ -17,7 +17,21 @@ import type { JobView } from "@/lib/data/view-models";
 import type { GridUrlState } from "./url-state";
 import type { DisplayState } from "./view-state";
 
-export const WORKING_SETS = ["queue", "all", "snoozed", "dismissed", "needs-review"] as const;
+/**
+ * `interested` joined the list with the redesign: 03 §4's saved-view tabs are
+ * All / Needs decision / Interested / Passed / Later, and four of the five
+ * already had a set. Expressing the fifth as a filter clause instead would have
+ * made one tab a different KIND of thing from its four siblings, which is how a
+ * "named query" stops being one.
+ */
+export const WORKING_SETS = [
+  "queue",
+  "all",
+  "interested",
+  "snoozed",
+  "dismissed",
+  "needs-review",
+] as const;
 export type WorkingSet = (typeof WORKING_SETS)[number];
 
 export function isWorkingSet(s: string): s is WorkingSet {
@@ -56,6 +70,8 @@ export function rowsForSet(rows: JobView[], set: WorkingSet): JobView[] {
       return rows.filter(isQueueRow);
     case "all":
       return rows;
+    case "interested":
+      return rows.filter((j) => j.triage === "interested");
     case "snoozed":
       return rows.filter((j) => j.triage === "snoozed");
     case "dismissed":
@@ -78,6 +94,7 @@ export type GridPreset = { set: WorkingSet; name: string };
 export const GRID_PRESETS: GridPreset[] = [
   { set: "queue", name: "Queue" },
   { set: "all", name: "All postings" },
+  { set: "interested", name: "Interested" },
   { set: "snoozed", name: "Later" },
   { set: "dismissed", name: "Passed" },
   { set: "needs-review", name: "Needs review" },
