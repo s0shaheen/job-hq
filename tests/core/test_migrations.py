@@ -916,10 +916,26 @@ def test_the_storage_write_policies_are_bucket_scoped_and_entitlement_gated():
         f"(`left(v_path, 37) <> (v_user::text || '/')`), so the two cannot drift: {body!r}"
     )
 
-    # And every policy really does use it, rather than carrying its own copy.
+    # And every REAL policy uses it, rather than carrying its own copy — which is
+    # what stops read/insert/update/delete drifting into a bucket readable by a
+    # caller who could not have written to it.
+    #
+    # One exemption, by name. `hq_storage_capability_probe` is a throwaway
+    # `using (false)` created and dropped in the same block to ask the database
+    # whether the applying role can create a storage policy at all. It exists
+    # because ownership and membership do NOT decide that on hosted Supabase —
+    # measured 2026-08-02 — and it must not share the résumé predicate, because
+    # a probe that granted access would be a policy, not a probe.
+    PROBE = "hq_storage_capability_probe"
     for stmt in re.finditer(
         r"create\s+policy\s+(\w+)\s+on\s+storage\.objects[^\']*", ALL_SQL, re.I
     ):
+        if stmt.group(1) == PROBE:
+            assert "using (false)" in stmt.group(0).lower(), (
+                f"{PROBE} is exempt from the shared predicate only because it grants "
+                "nothing; it no longer says `using (false)`"
+            )
+            continue
         assert "%s" in stmt.group(0), (
             f"{stmt.group(1)} inlines its own predicate instead of the shared one"
         )

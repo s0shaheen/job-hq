@@ -261,13 +261,32 @@ begin
       execute format('set role %I', v_ownname);
       v_switched := true;
     else
-      raise exception
-        'cannot create the resumes storage policy: % owns storage.objects and % is not a member',
-        v_ownname, v_applier
-        using errcode = '42501',
-              hint = 'grant ' || quote_ident(v_ownname) || ' to '
-                     || quote_ident(v_applier)
-                     || ', then re-run this migration';
+      -- NOT a refusal yet. Ownership and membership turn out not to decide this
+      -- on hosted Supabase: `postgres` there is neither the owner of
+      -- `storage.objects` nor a member of `supabase_storage_admin`, and creates
+      -- policies on it anyway — which is why the dashboard's storage policy
+      -- editor works. Measured against the live project on 2026-08-02, after
+      -- this migration refused it on the membership test and the corrective
+      -- `grant supabase_storage_admin to postgres` came back
+      -- "role memberships are reserved, only superusers can grant them". So the
+      -- inferred predicate was both wrong AND pointed at a fix nobody can apply.
+      --
+      -- Ask the database instead of reasoning about it: create a throwaway
+      -- policy and drop it. The capability is the thing that matters, and this
+      -- is the only way to learn it that does not model Supabase's grants.
+      begin
+        execute 'create policy hq_storage_capability_probe on storage.objects for select using (false)';
+        execute 'drop policy hq_storage_capability_probe on storage.objects';
+      exception when insufficient_privilege then
+        raise exception
+          'cannot create the resumes storage policy: % owns storage.objects, '
+          '% is not a member, and it cannot create a policy there either',
+          v_ownname, v_applier
+          using errcode = '42501',
+                hint = 'on hosted Supabase the applying role can normally do this; '
+                       'if it cannot, create the bucket policies from the dashboard '
+                       'SQL editor, which runs with the needed rights';
+      end;
     end if;
   end if;
 
