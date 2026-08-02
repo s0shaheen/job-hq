@@ -95,6 +95,28 @@ touch, and phone states. Target WCAG 2.2 AA and the specified viewport/browser m
 
 ## Verification
 
+Match the rigor to the review tier in `docs/pilot-launch/14-work-packet-standard.md` §4.
+Those tiers exist and were ignored for most of 2026-08-02: doc-only changes, CSS geometry,
+and RLS migrations all got full gates plus independent adversarial review. That uniformity
+was the largest self-inflicted cost of the session, and most of the remaining roadmap is
+T2 surface work.
+
+| Tier | Gates | Review |
+|---|---|---|
+| T0 docs/tests, no behavior | typecheck plus the suite that covers the change | coordinator only |
+| T1 isolated logic | that suite, plus its counterexample | one implementation review |
+| T2 UI over frozen commands | change-scoped lane, browser and accessibility proof, ledger cells filled | one review |
+| T3 migration, RLS, RPC, storage, worker, provider | full gates including the database | independent security review plus real-boundary mutation proof |
+| T4 backup, deletion, notifications, billing, submission, release | T3 | plus owner acceptance and rehearsal |
+
+A tier is set by what the change CAN break, not by its diff size: a one-line change to a
+policy or a grant is T3. When unsure, go up a tier.
+
+A reviewer at T0–T2 MAY fix a mechanical finding in place rather than rejecting, provided
+the fix ships with the mutation that proves it. Rejection is for design-level problems.
+Three rounds on one branch, each finding the same defect class, is a process failure as
+much as a code one.
+
 Run the gates affected by the change. Before declaring implementation or a release
 candidate complete, run the full gates:
 
