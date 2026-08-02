@@ -110,7 +110,11 @@ path_map=(
   "webapp/tests/e2e/visual.spec.ts*   = e2e-visual"
   "webapp/tests/e2e/*                 = typecheck,e2e"
   "webapp/tests/fixtures/*            = vitest,e2e"
-  "webapp/tests/coverage/*            = coverage-ledger"
+  # vitest too, and not only the ledger run: tests/unit/coverage-ledger.test.ts
+  # is what proves the GATE can fail — it feeds report.ts a broken citation and a
+  # new missing cell. Mapped to coverage-ledger alone, a change to report.ts
+  # regenerated the ledger and never ran the test that watches the gate work.
+  "webapp/tests/coverage/*            = coverage-ledger,typecheck,vitest"
   "webapp/scripts/*                   = lint-copy,coverage-ledger"
   "webapp/package.json                = typecheck,vitest,build,e2e,e2e-visual"
   "webapp/package-lock.json           = typecheck,vitest,build,e2e,e2e-visual"

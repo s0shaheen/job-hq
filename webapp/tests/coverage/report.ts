@@ -312,7 +312,7 @@ function render(
     "- The mobile Playwright project is a Pixel 7 viewport and nothing else. The repo issues zero tap, touchscreen or gesture calls, so no phone assertion anywhere covers touch input.",
   );
   out.push(
-    "- No browser test drives a pending, suspended or wrong-owner account. Entitlement is proven at the database layer only, so refusal reaching the UI as copy rather than a stack trace is unverified on every surface.",
+    "- `Permission/holding` means the pending and suspended entitlements, driven through the demo seam that the shipped predicate reads. WRONG-OWNER refusal is still uncovered in the browser: it needs two real identities and RLS, and the whole Playwright estate is one single-tenant fixture store. That half stays proven at the database layer only.",
   );
   out.push(
     "- The visual snapshot suite cannot be cited: every title in `tests/e2e/visual.spec.ts` is computed from a loop variable, and a citation has to name something a person can find.",

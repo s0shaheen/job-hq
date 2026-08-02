@@ -20,9 +20,20 @@ export type Cell =
 
 export type Verdict = Cell["verdict"];
 
-/** Cite one Playwright test (or a `describe`, where the titles are computed). */
-export function e2e(file: string, title: string): Cell {
-  return { verdict: "covered", cites: [{ spec: `tests/e2e/${file}.spec.ts`, title }] };
+/**
+ * Cite one or more Playwright tests in one spec file.
+ *
+ * More than one title is for a cell that genuinely takes two journeys to state —
+ * the holding surface has to be right for a pending account AND for a suspended
+ * one, and citing only the first would credit the cell with half its claim. It is
+ * not a place to pile up loosely related titles: every citation is resolved, so a
+ * long list is a long list of things that must stay named exactly as written.
+ */
+export function e2e(file: string, ...titles: readonly string[]): Cell {
+  return {
+    verdict: "covered",
+    cites: titles.map((title) => ({ spec: `tests/e2e/${file}.spec.ts`, title })),
+  };
 }
 
 export function na(reason: string): Cell {
@@ -91,7 +102,10 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.writePending]: e2e("undo-delivery", "undo after the flush delivered the decision really undoes it"),
       [ST.offline]: e2e("offline", "the decision survives a reload while still offline"),
       [ST.conflict]: e2e("offline", "a conflict on replay says the decision lost, instead of pretending it landed"),
-      [ST.permission]: MISSING,
+      [ST.permission]: e2e(
+        "entry-path",
+        "asking for the queue lands on the holding page, and the queue is not rendered on the way",
+      ),
       [ST.sessionExpired]: e2e("offline", "the held decision is applied once the session is back"),
       [ST.fatal]: MISSING,
       [ST.detail]: na("the queue shows one card at a time; there is no list selection and no detail pane"),
@@ -130,7 +144,10 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
         "grid-selection",
         "a conflict inside the batch applies NOTHING: full revert plus a changed-elsewhere toast",
       ),
-      [ST.permission]: MISSING,
+      [ST.permission]: e2e(
+        "entry-path",
+        "asking for the jobs grid lands on the holding page with no rows anywhere",
+      ),
       [ST.sessionExpired]: e2e("grid-views", "an expired session answers with the auth copy, not a crash"),
       [ST.fatal]: MISSING,
       // Two things, because the redesign split them. Selection is the checkbox
@@ -195,7 +212,10 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.writePending]: e2e("pipeline", "a failed write reverts the row, and Retry succeeds"),
       [ST.offline]: MISSING,
       [ST.conflict]: e2e("pipeline", "a conflict toasts AND refreshes the value on screen"),
-      [ST.permission]: MISSING,
+      [ST.permission]: e2e(
+        "entry-path",
+        "asking for the pipeline or an application lands on the holding page",
+      ),
       [ST.sessionExpired]: MISSING,
       [ST.fatal]: e2e("apply", "a posting the board no longer has is a state, not an error page"),
       [ST.detail]: e2e("apply", "Prepare is reachable from the pipeline row it belongs to"),
@@ -222,7 +242,7 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.writePending]: e2e("companies", "a failed write reverts the whole batch and says so"),
       [ST.offline]: MISSING,
       [ST.conflict]: MISSING,
-      [ST.permission]: MISSING,
+      [ST.permission]: e2e("entry-path", "asking for companies or health lands on the holding page"),
       [ST.sessionExpired]: MISSING,
       [ST.fatal]: e2e("companies", "a bogus set or sort renders the default rather than crashing"),
       [ST.detail]: e2e("companies", "a selection stays accessible and does not shift the rows"),
@@ -250,7 +270,10 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.writePending]: e2e("offline", "no banner when there is nothing pending"),
       [ST.offline]: e2e("offline", "a rejected replay leaves a visible notice, not a vanished banner"),
       [ST.conflict]: na("a conflict is reported by the surface that issued the write, never by the shell"),
-      [ST.permission]: MISSING,
+      [ST.permission]: e2e(
+        "entry-path",
+        "the holding page carries none of the app shell a signed-in user gets",
+      ),
       [ST.sessionExpired]: e2e("offline", "it is not confused with being offline"),
       [ST.fatal]: e2e("routing", "an unknown address keeps the app shell and offers a way back"),
       [ST.detail]: na("the shell selects nothing"),
@@ -281,7 +304,10 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.writePending]: e2e("warm-intro", "pending mode shows the running state, and the Cancel X returns to idle"),
       [ST.offline]: MISSING,
       [ST.conflict]: MISSING,
-      [ST.permission]: MISSING,
+      [ST.permission]: e2e(
+        "entry-path",
+        "asking for connections lands on the holding page, naming no one",
+      ),
       [ST.sessionExpired]: MISSING,
       [ST.fatal]: MISSING,
       [ST.detail]: e2e("warm-intro", "multi-select pins both, survives a reload, and unpinning one leaves the other"),
@@ -301,7 +327,7 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
   "settings-auth-onboarding": {
     routes: ["/settings", "/settings/answers", "/onboarding/[step]", "/login", "/pending", "/setup", "/auth/*"],
     note:
-      "Only /settings, /settings/answers and /onboarding/[step] have browser coverage. /login, /pending, /setup and /auth/* have none at all, and e2e exercises the active entitlement only — the entry path to the product is the least-tested surface in the estate.",
+      "The entry path is covered as journeys in entry-path.spec.ts: /login, /pending, /setup and /auth/* render in a browser on both projects, under the pending, suspended and active entitlements, with an axe pass on each new page state. Two things are deliberately NOT covered and are not faked. The Google button on /login renders only when getSupabaseEnv() is non-null and NEXT_PUBLIC_SUPABASE_* are inlined at build time, so under HQ_DEMO the login page is the unconfigured deployment's login page and the OAuth hand-off belongs to the live lane. And /pending is provisional by its own header comment — the designed Auth surface lands later — so it carries behaviour and data-absence assertions and no visual baseline.",
     fixture: {
       [ST.loading]: MISSING,
       [ST.populated]: e2e("profile", "the profile renders what is saved, not empty fields"),
@@ -312,9 +338,17 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.validation]: e2e("profile", "save is refused until the settings have been checked at least once"),
       [ST.writePending]: e2e("profile", "double-clicking Save leaves one change and no error"),
       [ST.offline]: MISSING,
+      [ST.permission]: e2e(
+        "entry-path",
+        "asking for settings or the onboarding wizard lands on the holding page",
+        "is refused in different words from a pending one, and the page does not guess",
+        "the holding page's only action is a real way out, and it works without client JS",
+      ),
       [ST.conflict]: e2e("profile", "an autosaved preference does not make the profile form report a conflict"),
-      [ST.permission]: MISSING,
-      [ST.sessionExpired]: MISSING,
+      [ST.sessionExpired]: e2e(
+        "entry-path",
+        "the typed draft survives the refusal, and lands once the session is back",
+      ),
       [ST.fatal]: e2e("onboarding", "an out-of-range step is a real page, not a 404"),
       [ST.detail]: e2e("answers", "a one-company answer says so, and its scope survives an edit"),
       [ST.longStrings]: e2e("onboarding", "a draft too long for a URL says so instead of losing the answers"),
@@ -374,7 +408,10 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.writePending]: e2e("offline", "a full localStorage still holds the decision for this tab, and says so"),
       [ST.offline]: e2e("offline", "undo works offline, because nothing was ever sent"),
       [ST.conflict]: na("a conflict belongs to the surface that issued the write"),
-      [ST.permission]: MISSING,
+      [ST.permission]: e2e(
+        "entry-path",
+        "an address that does not exist still lands on the holding page, not on a 404 with a nav",
+      ),
       [ST.sessionExpired]: e2e("offline", "the decision is held and the banner offers a way back in"),
       [ST.fatal]: e2e("routing", "an unknown address keeps the app shell and offers a way back"),
       [ST.detail]: na("the system surface selects nothing"),
@@ -453,21 +490,10 @@ export const BASELINE_MISSING: Baseline = {
     // Reduced motion — nothing in the estate asserts it on any surface.
     { key: "* | Reduced motion | fixture", reason: "No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run." },
 
-    // Permission/holding — the hole named in the standard's §1.
-    { key: "today | Permission/holding | fixture", reason: "No browser test drives a pending, suspended or wrong-owner account; e2e exercises the active entitlement only." },
-    { key: "jobs | Permission/holding | fixture", reason: "No browser test drives a pending, suspended or wrong-owner account." },
-    { key: "applications | Permission/holding | fixture", reason: "No browser test drives a pending, suspended or wrong-owner account." },
-    { key: "coverage | Permission/holding | fixture", reason: "No browser test drives a pending, suspended or wrong-owner account." },
-    { key: "shared-shell-and-components | Permission/holding | fixture", reason: "The holding surface the shell would render has no browser coverage." },
-    { key: "find-intro | Permission/holding | fixture", reason: "Vendor-credit refusal is asserted, but entitlement refusal reaching the UI as copy is not." },
-    { key: "settings-auth-onboarding | Permission/holding | fixture", reason: "/pending has zero browser coverage, so the holding surface is unverified on the one route that owns it." },
-    { key: "system-and-mobile | Permission/holding | fixture", reason: "No browser test drives a refused account through the system surface." },
-
     // Session expired, where no spec reaches the surface.
     { key: "applications | Session expired | fixture", reason: "Session expiry is asserted from /queue only; no spec expires a session mid-journey on /pipeline or /apply." },
     { key: "coverage | Session expired | fixture", reason: "No spec expires a session on /companies or /health." },
     { key: "find-intro | Session expired | fixture", reason: "No spec expires a session on /connections." },
-    { key: "settings-auth-onboarding | Session expired | fixture", reason: "No spec expires a session on /settings, /settings/answers or the wizard." },
     { key: "billing-landing-email-import-export | Session expired | fixture", reason: "No spec expires a session mid-import." },
 
     // Offline write disabled, away from the queue.

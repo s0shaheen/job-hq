@@ -16,32 +16,32 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 
 | | Cells |
 |---|---:|
-| covered | 103 |
+| covered | 112 |
 | n/a | 50 |
 | blocked on an ADD item | 132 |
-| missing, baselined 2026-08-02 | 219 |
+| missing, baselined 2026-08-02 | 210 |
 | missing, new (fails) | 0 |
 | on an unbuilt surface (not enforced) | 126 |
 | total | 504 |
 
-**Baselined is not covered.** 219 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
+**Baselined is not covered.** 210 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
 
 ## Matrix, fixture mode
 
 | Surface | Loading | Populated | Natural empty | Filter empty | Missing optional fact | Partial/degraded | Validation error | Write pending | Offline write disabled | Conflict | Permission/holding | Session expired | Fatal route error | Selected/detail | Long strings | High volume | Large type | 200% zoom | Narrow viewport | Reduced motion | Provider image failure |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| applications | yes | yes | yes | n/a | yes | yes | yes | yes | gap | yes | gap | gap | yes | yes | gap | yes | yes | yes | yes | gap | gap |
+| applications | yes | yes | yes | n/a | yes | yes | yes | yes | gap | yes | yes | gap | yes | yes | gap | yes | yes | yes | yes | gap | gap |
 | autopilot | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | billing-landing-email-import-export | gap | yes | yes | n/a | gap | gap | yes | gap | gap | yes | add | gap | gap | yes | gap | gap | yes | yes | yes | gap | n/a |
-| coverage | yes | yes | yes | yes | gap | yes | yes | yes | gap | gap | gap | gap | yes | yes | gap | gap | yes | yes | yes | gap | gap |
-| find-intro | gap | yes | yes | yes | yes | yes | yes | yes | gap | gap | gap | gap | gap | yes | gap | add | gap | gap | yes | gap | n/a |
-| jobs | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | gap | yes | gap | yes | yes | yes | yes | yes | yes | gap | yes |
+| coverage | yes | yes | yes | yes | gap | yes | yes | yes | gap | gap | yes | gap | yes | yes | gap | gap | yes | yes | yes | gap | gap |
+| find-intro | gap | yes | yes | yes | yes | yes | yes | yes | gap | gap | yes | gap | gap | yes | gap | add | gap | gap | yes | gap | n/a |
+| jobs | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | gap | yes | yes | yes | yes | yes | yes | gap | yes |
 | operator-admin | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | resume | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
-| settings-auth-onboarding | gap | yes | yes | n/a | yes | yes | yes | yes | gap | yes | gap | gap | yes | yes | yes | gap | yes | yes | yes | gap | n/a |
-| shared-shell-and-components | n/a | yes | yes | n/a | n/a | gap | n/a | yes | yes | n/a | gap | yes | yes | n/a | gap | n/a | yes | yes | yes | gap | n/a |
-| system-and-mobile | n/a | yes | n/a | n/a | n/a | yes | n/a | yes | yes | n/a | gap | yes | yes | n/a | gap | n/a | yes | yes | add | gap | n/a |
-| today | yes | yes | yes | yes | yes | gap | n/a | yes | yes | yes | gap | yes | gap | n/a | yes | gap | yes | yes | yes | gap | gap |
+| settings-auth-onboarding | gap | yes | yes | n/a | yes | yes | yes | yes | gap | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | gap | n/a |
+| shared-shell-and-components | n/a | yes | yes | n/a | n/a | gap | n/a | yes | yes | n/a | yes | yes | yes | n/a | gap | n/a | yes | yes | yes | gap | n/a |
+| system-and-mobile | n/a | yes | n/a | n/a | n/a | yes | n/a | yes | yes | n/a | yes | yes | yes | n/a | gap | n/a | yes | yes | add | gap | n/a |
+| today | yes | yes | yes | yes | yes | gap | n/a | yes | yes | yes | yes | yes | gap | n/a | yes | gap | yes | yes | yes | gap | gap |
 
 Live mode is not shown as a matrix because it has one value everywhere. Every live cell is missing: the whole Playwright suite runs `HQ_DEMO=1` against `FixtureDataSource`, so no browser test has ever touched the real data path, real session handling, or RLS.
 
@@ -49,7 +49,7 @@ Live mode is not shown as a matrix because it has one value everywhere. Every li
 
 - No test in the estate renders non-Latin script, emoji, CJK or bidirectional text. Every long-string assertion is Latin-only, so `Long strings` means length, never script.
 - The mobile Playwright project is a Pixel 7 viewport and nothing else. The repo issues zero tap, touchscreen or gesture calls, so no phone assertion anywhere covers touch input.
-- No browser test drives a pending, suspended or wrong-owner account. Entitlement is proven at the database layer only, so refusal reaching the UI as copy rather than a stack trace is unverified on every surface.
+- `Permission/holding` means the pending and suspended entitlements, driven through the demo seam that the shipped predicate reads. WRONG-OWNER refusal is still uncovered in the browser: it needs two real identities and RLS, and the whole Playwright estate is one single-tenant fixture store. That half stays proven at the database layer only.
 - The visual snapshot suite cannot be cited: every title in `tests/e2e/visual.spec.ts` is computed from a loop variable, and a citation has to name something a person can find.
 
 ## Per surface
@@ -70,7 +70,7 @@ Routes: `/pipeline`, `/apply/[applicationId]`
 | Write pending | yes | `tests/e2e/pipeline.spec.ts` "a failed write reverts the row, and Retry succeeds" |
 | Offline write disabled | gap | A status change or note written while offline is never exercised. |
 | Conflict | yes | `tests/e2e/pipeline.spec.ts` "a conflict toasts AND refreshes the value on screen" |
-| Permission/holding | gap | No browser test drives a pending, suspended or wrong-owner account. |
+| Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for the pipeline or an application lands on the holding page" |
 | Session expired | gap | Session expiry is asserted from /queue only; no spec expires a session mid-journey on /pipeline or /apply. |
 | Fatal route error | yes | `tests/e2e/apply.spec.ts` "a posting the board no longer has is a state, not an error page" |
 | Selected/detail | yes | `tests/e2e/apply.spec.ts` "Prepare is reachable from the pipeline row it belongs to" |
@@ -158,7 +158,7 @@ Routes: `/companies`, `/companies/add`, `/health`
 | Write pending | yes | `tests/e2e/companies.spec.ts` "a failed write reverts the whole batch and says so" |
 | Offline write disabled | gap | Approve and dismiss are never exercised offline. |
 | Conflict | gap | No spec simulates a second device reviewing the same company batch. |
-| Permission/holding | gap | No browser test drives a pending, suspended or wrong-owner account. |
+| Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for companies or health lands on the holding page" |
 | Session expired | gap | No spec expires a session on /companies or /health. |
 | Fatal route error | yes | `tests/e2e/companies.spec.ts` "a bogus set or sort renders the default rather than crashing" |
 | Selected/detail | yes | `tests/e2e/companies.spec.ts` "a selection stays accessible and does not shift the rows" |
@@ -188,7 +188,7 @@ Routes: `/connections`
 | Write pending | yes | `tests/e2e/warm-intro.spec.ts` "pending mode shows the running state, and the Cancel X returns to idle" |
 | Offline write disabled | gap | Starting or pinning an intro is never exercised offline. |
 | Conflict | gap | No spec simulates a second device pinning the same connection. |
-| Permission/holding | gap | Vendor-credit refusal is asserted, but entitlement refusal reaching the UI as copy is not. |
+| Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for connections lands on the holding page, naming no one" |
 | Session expired | gap | No spec expires a session on /connections. |
 | Fatal route error | gap | No spec forces /connections to throw. |
 | Selected/detail | yes | `tests/e2e/warm-intro.spec.ts` "multi-select pins both, survives a reload, and unpinning one leaves the other" |
@@ -216,7 +216,7 @@ Routes: `/jobs`
 | Write pending | yes | `tests/e2e/grid-selection.spec.ts` "bulk i on 3 rows creates 3 applications through one action with ONE undo toast" |
 | Offline write disabled | gap | offline.spec drives /queue; bulk triage from the grid is never exercised offline. |
 | Conflict | yes | `tests/e2e/grid-selection.spec.ts` "a conflict inside the batch applies NOTHING: full revert plus a changed-elsewhere toast" |
-| Permission/holding | gap | No browser test drives a pending, suspended or wrong-owner account. |
+| Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for the jobs grid lands on the holding page with no rows anywhere" |
 | Session expired | yes | `tests/e2e/grid-views.spec.ts` "an expired session answers with the auth copy, not a crash" |
 | Fatal route error | gap | A malformed view falls back loudly, but a thrown render is never exercised. |
 | Selected/detail | yes | `tests/e2e/jobs-redesign.spec.ts` "opens on row click, over a list that stays interactive"; `tests/e2e/grid-selection.spec.ts` "checkboxes build a selection, and Clear empties it" |
@@ -292,7 +292,7 @@ No route exists. Listed as unbuilt; contributes no enforced cell.
 
 Routes: `/settings`, `/settings/answers`, `/onboarding/[step]`, `/login`, `/pending`, `/setup`, `/auth/*`
 
-Only /settings, /settings/answers and /onboarding/[step] have browser coverage. /login, /pending, /setup and /auth/* have none at all, and e2e exercises the active entitlement only — the entry path to the product is the least-tested surface in the estate.
+The entry path is covered as journeys in entry-path.spec.ts: /login, /pending, /setup and /auth/* render in a browser on both projects, under the pending, suspended and active entitlements, with an axe pass on each new page state. Two things are deliberately NOT covered and are not faked. The Google button on /login renders only when getSupabaseEnv() is non-null and NEXT_PUBLIC_SUPABASE_* are inlined at build time, so under HQ_DEMO the login page is the unconfigured deployment's login page and the OAuth hand-off belongs to the live lane. And /pending is provisional by its own header comment — the designed Auth surface lands later — so it carries behaviour and data-absence assertions and no visual baseline.
 
 | State | Fixture | Evidence or reason |
 |---|---|---|
@@ -306,8 +306,8 @@ Only /settings, /settings/answers and /onboarding/[step] have browser coverage. 
 | Write pending | yes | `tests/e2e/profile.spec.ts` "double-clicking Save leaves one change and no error" |
 | Offline write disabled | gap | Saving the profile or an answer is never exercised offline. |
 | Conflict | yes | `tests/e2e/profile.spec.ts` "an autosaved preference does not make the profile form report a conflict" |
-| Permission/holding | gap | /pending has zero browser coverage, so the holding surface is unverified on the one route that owns it. |
-| Session expired | gap | No spec expires a session on /settings, /settings/answers or the wizard. |
+| Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for settings or the onboarding wizard lands on the holding page"; `tests/e2e/entry-path.spec.ts` "is refused in different words from a pending one, and the page does not guess"; `tests/e2e/entry-path.spec.ts` "the holding page's only action is a real way out, and it works without client JS" |
+| Session expired | yes | `tests/e2e/entry-path.spec.ts` "the typed draft survives the refusal, and lands once the session is back" |
 | Fatal route error | yes | `tests/e2e/onboarding.spec.ts` "an out-of-range step is a real page, not a 404" |
 | Selected/detail | yes | `tests/e2e/answers.spec.ts` "a one-company answer says so, and its scope survives an edit" |
 | Long strings | yes | `tests/e2e/onboarding.spec.ts` "a draft too long for a URL says so instead of losing the answers" |
@@ -336,7 +336,7 @@ The shell has no route of its own; it is the chrome every routed surface renders
 | Write pending | yes | `tests/e2e/offline.spec.ts` "no banner when there is nothing pending" |
 | Offline write disabled | yes | `tests/e2e/offline.spec.ts` "a rejected replay leaves a visible notice, not a vanished banner" |
 | Conflict | n/a | a conflict is reported by the surface that issued the write, never by the shell |
-| Permission/holding | gap | The holding surface the shell would render has no browser coverage. |
+| Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "the holding page carries none of the app shell a signed-in user gets" |
 | Session expired | yes | `tests/e2e/offline.spec.ts` "it is not confused with being offline" |
 | Fatal route error | yes | `tests/e2e/routing.spec.ts` "an unknown address keeps the app shell and offers a way back" |
 | Selected/detail | n/a | the shell selects nothing |
@@ -366,7 +366,7 @@ The mobile project is a Pixel 7 viewport and nothing else: the repo issues zero 
 | Write pending | yes | `tests/e2e/offline.spec.ts` "a full localStorage still holds the decision for this tab, and says so" |
 | Offline write disabled | yes | `tests/e2e/offline.spec.ts` "undo works offline, because nothing was ever sent" |
 | Conflict | n/a | a conflict belongs to the surface that issued the write |
-| Permission/holding | gap | No browser test drives a refused account through the system surface. |
+| Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "an address that does not exist still lands on the holding page, not on a 404 with a nav" |
 | Session expired | yes | `tests/e2e/offline.spec.ts` "the decision is held and the banner offers a way back in" |
 | Fatal route error | yes | `tests/e2e/routing.spec.ts` "an unknown address keeps the app shell and offers a way back" |
 | Selected/detail | n/a | the system surface selects nothing |
@@ -394,7 +394,7 @@ Routes: `/queue`
 | Write pending | yes | `tests/e2e/undo-delivery.spec.ts` "undo after the flush delivered the decision really undoes it" |
 | Offline write disabled | yes | `tests/e2e/offline.spec.ts` "the decision survives a reload while still offline" |
 | Conflict | yes | `tests/e2e/offline.spec.ts` "a conflict on replay says the decision lost, instead of pretending it landed" |
-| Permission/holding | gap | No browser test drives a pending, suspended or wrong-owner account; e2e exercises the active entitlement only. |
+| Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for the queue lands on the holding page, and the queue is not rendered on the way" |
 | Session expired | yes | `tests/e2e/offline.spec.ts` "the held decision is applied once the session is back" |
 | Fatal route error | gap | No spec forces /queue to throw; only the 404 path is covered. |
 | Selected/detail | n/a | the queue shows one card at a time; there is no list selection and no detail pane |
@@ -414,18 +414,9 @@ Each line is a hole that already existed when the gate was switched on. Baseline
 |---|---|
 | `* | * | live` | No browser test has ever touched the live data path: the whole Playwright suite runs HQ_DEMO=1 against FixtureDataSource, so RLS, entitlement, real sessions and SupabaseDataSource have no rendered-journey coverage. |
 | `* | Reduced motion | fixture` | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
-| `today | Permission/holding | fixture` | No browser test drives a pending, suspended or wrong-owner account; e2e exercises the active entitlement only. |
-| `jobs | Permission/holding | fixture` | No browser test drives a pending, suspended or wrong-owner account. |
-| `applications | Permission/holding | fixture` | No browser test drives a pending, suspended or wrong-owner account. |
-| `coverage | Permission/holding | fixture` | No browser test drives a pending, suspended or wrong-owner account. |
-| `shared-shell-and-components | Permission/holding | fixture` | The holding surface the shell would render has no browser coverage. |
-| `find-intro | Permission/holding | fixture` | Vendor-credit refusal is asserted, but entitlement refusal reaching the UI as copy is not. |
-| `settings-auth-onboarding | Permission/holding | fixture` | /pending has zero browser coverage, so the holding surface is unverified on the one route that owns it. |
-| `system-and-mobile | Permission/holding | fixture` | No browser test drives a refused account through the system surface. |
 | `applications | Session expired | fixture` | Session expiry is asserted from /queue only; no spec expires a session mid-journey on /pipeline or /apply. |
 | `coverage | Session expired | fixture` | No spec expires a session on /companies or /health. |
 | `find-intro | Session expired | fixture` | No spec expires a session on /connections. |
-| `settings-auth-onboarding | Session expired | fixture` | No spec expires a session on /settings, /settings/answers or the wizard. |
 | `billing-landing-email-import-export | Session expired | fixture` | No spec expires a session mid-import. |
 | `jobs | Offline write disabled | fixture` | offline.spec drives /queue; bulk triage from the grid is never exercised offline. |
 | `applications | Offline write disabled | fixture` | A status change or note written while offline is never exercised. |
