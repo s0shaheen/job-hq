@@ -65,8 +65,40 @@ Visible implementation is blocked until every state maps to an owner artifact:
 | ADD-005 | Responsive phone behavior for every template, including file upload/download/preview | UI qualification |
 | ADD-006 | Billing lifecycle states beyond founding-free view | PKT-09A/B |
 | ADD-007 | Account deletion irreversibility: already submitted employer applications cannot be recalled | PKT-09F |
+| ADD-008 | Does the Display popover persist, or is it session-only? The contract shows no save affordance, and reading it as persistent means inventing a write path | Jobs cutover |
 
 No implementation worker may fill these gaps from taste.
+
+### Recorded deviations
+
+A deviation is a place where the implementation knowingly differs from an authored design
+instruction. It is not a gap and must not be filed as one: an addendum asks the owner to
+author something, a deviation asks them to accept something they already authored. Each
+one names the assertion in the suite that keeps it visible.
+
+### DEV-001 — default row density, a deviation rather than an addendum
+
+**Not an addendum, and the distinction is the point.** An addendum asks the owner to
+author something that does not exist. This asks them to accept something they already
+authored: 01 §8 says "comfortable 40px (default)" and `jobs-handoff.md` says "and flip the
+default". The source answers it twice. Filing it as a gap would have quietly converted a
+known deviation into an open question, which is how a deviation stops being tracked.
+
+So: the app currently renders 32px rows at defaults against a composition that draws 40px.
+Design sign-off stays blocked on it. What is disputed is only **when** the app matches the
+instruction, and that is a cutover question.
+
+`data-density` is a single attribute on `<html>`. `/pipeline` and `/connections` honour it
+and have not cut over to the authored design, so flipping the default today moves two
+surfaces whose composition is still the old one, and invalidates a `main`-owned test whose
+whole point is that migration 0025 moved no pixels. Both heights are built and the popover
+reaches either; only the default is in question.
+
+**Position: keep `dense` until the shared-shell cutover moves every surface together, then
+flip to comfortable as part of that change.** Until then the deviation is asserted in the
+suite naming this deviation, so it is visible rather than hidden — which is the only
+property that makes deferring it honest. The owner may overrule at any time; nothing here is
+expensive to reverse.
 
 ## 5. Discovery and general-market validity decision
 
