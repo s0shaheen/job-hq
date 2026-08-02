@@ -462,8 +462,22 @@ fi
 
 step "Merging PR #${PR_NUM} (${MERGE_METHOD})"
 if ! gh pr merge "$PR_NUM" "--${MERGE_METHOD}" --delete-branch; then
-  refuse 11 "gh pr merge failed for PR #${PR_NUM}." \
-    "Nothing was landed. See ${PR_URL}."
+  # A non-zero exit here does NOT prove the merge failed. `gh pr merge` also
+  # deletes the branch, and that step fails whenever a git worktree still holds
+  # it — which is the normal state in this repo, where every agent works in one.
+  # PRs #122 and #126 both merged cleanly and were reported as failures for
+  # exactly that reason. So: ask GitHub what actually happened rather than
+  # trusting the exit code, and only refuse if the PR really is unmerged. The
+  # origin/BASE verification below is the authoritative check either way.
+  merged_state="$(gh pr view "$PR_NUM" --json state -q .state 2>/dev/null || printf '')"
+  if [ "$merged_state" = "MERGED" ]; then
+    warn "gh pr merge exited non-zero but PR #${PR_NUM} is MERGED — almost"
+    warn "certainly the branch delete failed because a worktree holds it."
+    warn "Clean up with: git worktree remove <path> && git branch -d ${BRANCH}"
+  else
+    refuse 11 "gh pr merge failed for PR #${PR_NUM} (state: ${merged_state:-unknown})." \
+      "Nothing was landed. See ${PR_URL}."
+  fi
 fi
 
 # ------------------------------------------- verify origin/BASE actually moved
