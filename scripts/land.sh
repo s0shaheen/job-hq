@@ -535,6 +535,10 @@ rm -f "$GATE_STAMP"
 printf '\n%s\n' "${_g}${_b}LANDED${_0}"
 info "PR      #${PR_NUM}  ${PR_URL}"
 info "branch  ${BRANCH} @ ${HEAD_SHA:0:8}"
-info "checks  ${pass_n} passed, 0 failing, 0 pending"
+if [ -n "${SKIP_CHECK_WAIT:-}" ]; then
+  info "checks  not waited on (LAND_TIER=${LAND_TIER}) — CI runs on main, red-main.yml pages"
+else
+  info "checks  ${pass_n} passed, 0 failing, 0 pending"
+fi
 info "${BASE}    ${BASE_BEFORE:0:8} -> ${BASE_AFTER:0:8} (merge ${MERGE_SHA:0:8})"
 exit 0
