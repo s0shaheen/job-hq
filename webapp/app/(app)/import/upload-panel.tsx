@@ -77,7 +77,7 @@ export default function UploadPanel({
       );
     } catch {
       setError(
-        "The upload did not finish — check your connection and try again. Sending the same file twice is safe.",
+        "The upload did not finish. Check your connection and try again. Sending the same file twice is safe.",
       );
       return;
     }
@@ -120,13 +120,13 @@ export default function UploadPanel({
           <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" />
           <div className="min-w-0">
             <p>
-              <strong className="font-semibold text-text">Nothing is written until you say so.</strong>{" "}
+              Nothing is written until you say so.{" "}
               The file is read, you say which column is which, and then you see what every row
               would do before a single one is imported. An import can be undone for 24 hours.
             </p>
             <p className="mt-1.5 text-muted">
               .xlsx or .csv, up to {Math.round(maxBytes / (1024 * 1024))} MB and{" "}
-              {maxRows.toLocaleString("en-US")} rows. One sheet per file — a workbook with several
+              {maxRows.toLocaleString("en-US")} rows. One sheet per file. A workbook with several
               sheets of data is refused rather than guessed at. Old .xls files and Apple Numbers
               files need exporting first; upload one and it says how.
             </p>
@@ -165,7 +165,7 @@ export default function UploadPanel({
               data-testid="import-upload"
             >
               <FileUp aria-hidden="true" className="size-3.5" />
-              {busy ? "Reading…" : "Read the file"}
+              {busy ? "Reading" : "Read the file"}
             </Button>
           </div>
         </div>
@@ -199,7 +199,7 @@ export default function UploadPanel({
               onClick={submitPaste}
               data-testid="import-paste-submit"
             >
-              {busy ? "Reading…" : "Read the paste"}
+              {busy ? "Reading" : "Read the paste"}
             </Button>
           </div>
         </div>

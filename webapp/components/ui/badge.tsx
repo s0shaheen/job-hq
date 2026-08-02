@@ -3,7 +3,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Status pills. Every variant pairs a colour with TEXT — colour alone never
+ * Status chips. Every variant pairs a colour with TEXT — colour alone never
  * carries meaning, both for colour-blind readers and for anyone skimming a
  * dense grid where a lone hue is noise.
  */
@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 // container (the pipeline's table cells do); the badge itself must never be
 // wider than the space it is given.
 const badge = cva(
-  "inline-flex min-w-0 max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium break-words",
+  "inline-flex min-w-0 max-w-full items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium break-words",
   {
     variants: {
       tone: {

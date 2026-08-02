@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { CONNECTION_LIST_LIMIT, MAX_CONNECTION_CHUNK } from "@/lib/data/source";
 import type { ConnectionView } from "@/lib/data/view-models";
-import { companyNameKey } from "@/lib/data/view-models";
+import { companyNameKey, NOT_LISTED } from "@/lib/data/view-models";
 import {
   applyConnectionMapping,
   previewConnections,
@@ -179,12 +179,12 @@ export default function ConnectionsSurface({
       {connections.length > 0 ? (
         <section className="mb-5" aria-label="Connection coverage">
           <p className="text-sm text-text">
-            <strong className="font-semibold">{matched}</strong> of the companies you are
+            <span className="tabular">{matched}</span> of the companies you are
             tracking have someone you already know inside.
           </p>
           <p className="mt-0.5 text-xs text-muted">
             {connections.length.toLocaleString("en-US")} connections across{" "}
-            {companies.toLocaleString("en-US")} companies. Re-import any time — matching people
+            {companies.toLocaleString("en-US")} companies. Re-import any time. Matching people
             merge rather than duplicate.
           </p>
           {/* The cap, said where it BITES rather than only in a constant.
@@ -196,9 +196,9 @@ export default function ConnectionsSurface({
               branch is otherwise careful about. */}
           {connections.length >= CONNECTION_LIST_LIMIT ? (
             <p className="mt-1 text-xs text-warn" data-testid="connections-truncated">
-              That is this app&rsquo;s ceiling. Anything past{" "}
+              That is this app's ceiling. Anything past{" "}
               {CONNECTION_LIST_LIMIT.toLocaleString("en-US")} connections, in name order, is
-              stored and not used — so warm paths for people later in the alphabet are
+              stored and not used, so warm paths for people later in the alphabet are
               under-counted. Remove all and re-import a trimmed export to change which ones
               count.
             </p>
@@ -266,14 +266,14 @@ function UploadPanel({ busy, onFile }: { busy: boolean; onFile: (f: File) => voi
       <p className="text-sm font-medium text-text">Import your LinkedIn connections</p>
       <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-xs text-text-2">
         <li>
-          On LinkedIn: Settings &amp; Privacy → Data privacy → Get a copy of your data → pick{" "}
-          <em>Connections</em>.
+          On LinkedIn: Settings &amp; Privacy → Data privacy → Get a copy of your data → pick
+          "Connections".
         </li>
         <li>LinkedIn emails you a zip within about ten minutes. Unzip it.</li>
         <li>Upload the <code>Connections.csv</code> inside.</li>
       </ol>
       <p className="mt-2 text-xs text-muted">
-        This is LinkedIn&rsquo;s own export, downloaded by you. Nothing here connects to LinkedIn,
+        This is LinkedIn's own export, downloaded by you. Nothing here connects to LinkedIn,
         and your file is never sent anywhere but this app.
       </p>
       <div className="mt-3 flex items-center gap-2">
@@ -305,7 +305,7 @@ function UploadPanel({ busy, onFile }: { busy: boolean; onFile: (f: File) => voi
           onClick={() => input.current?.click()}
         >
           <Upload aria-hidden="true" className="size-4" />
-          {busy ? "Reading…" : "Choose file"}
+          {busy ? "Reading" : "Choose file"}
         </Button>
         <span className="text-xs text-muted">.csv or .xlsx, up to 10 MB</span>
       </div>
@@ -339,7 +339,7 @@ function MappingPanel({
     <section className="mt-4" aria-label="Map columns" data-testid="connections-mapping">
       <p className="text-sm font-medium text-text">{parsed.filename}</p>
       <p className="mt-0.5 text-xs text-muted">
-        Row {parsed.headerRow} is the header — {parsed.headerReason}.
+        Row {parsed.headerRow} is the header, {parsed.headerReason}.
         {parsed.encoding !== "utf-8" ? ` Read as ${parsed.encoding}.` : ""}
       </p>
       {parsed.headerUncertain ? (
@@ -397,8 +397,8 @@ function MappingPanel({
                   behind matrix row 25, not decoration: the 0.82 floor stops the
                   mapper INVENTING a mapping, and showing real data is what stops
                   a plausible-looking one from being accepted. */}
-              <span className="min-w-0 truncate text-xs text-muted" title={samples.join(" · ")}>
-                {samples.length ? samples.join(" · ") : "—"}
+              <span className="min-w-0 truncate text-xs text-muted" title={samples.join(", ")}>
+                {samples.length ? samples.join(", ") : NOT_LISTED}
               </span>
             </li>
           );
@@ -407,8 +407,8 @@ function MappingPanel({
 
       {unmapped.length ? (
         <p className="mt-2 text-xs text-muted" data-testid="connections-unmapped">
-          Not imported: {unmapped.join(", ")}. Email addresses are deliberately left out —
-          outreach happens on LinkedIn, so there is nothing here that would use them.
+          Not imported: {unmapped.join(", ")}. Email addresses are deliberately left out.
+          Outreach happens on LinkedIn, so there is nothing here that would use them.
         </p>
       ) : null}
 
@@ -417,7 +417,7 @@ function MappingPanel({
           {preview.distinct.toLocaleString("en-US")} people, {preview.companies} companies
         </p>
         <p className="mt-0.5 text-xs text-text-2" data-testid="connections-preview-matched">
-          <strong className="font-semibold">{preview.matchedCompanies}</strong> of those companies
+          <span className="tabular">{preview.matchedCompanies}</span> of those companies
           are ones you are tracking.
         </p>
         {preview.unnamed > 0 ? (
@@ -435,15 +435,15 @@ function MappingPanel({
           {preview.samples.map((s) => (
             <li key={s.rowNumber} className="truncate">
               {s.fullName}
-              {s.company ? ` · ${s.company}` : ""}
-              {s.title ? ` · ${s.title}` : ""}
+              {s.company ? `, ${s.company}` : ""}
+              {s.title ? `, ${s.title}` : ""}
             </li>
           ))}
         </ul>
       </div>
 
       <p className="mt-3 text-xs text-muted">
-        This import is not resumable — if you close the tab now, upload the file again.
+        This import is not resumable. If you close the tab now, upload the file again.
       </p>
 
       <div className="mt-2 flex flex-wrap gap-2">
@@ -454,7 +454,7 @@ function MappingPanel({
           onClick={onCommit}
           data-testid="connections-commit"
         >
-          {busy ? "Importing…" : `Import ${preview.distinct.toLocaleString("en-US")} people`}
+          {busy ? "Importing" : `Import ${preview.distinct.toLocaleString("en-US")} people`}
         </Button>
         <Button type="button" variant="ghost" disabled={busy} onClick={onCancel}>
           Cancel
@@ -528,8 +528,8 @@ function ConnectionList({
               {c.fullName}
             </a>
             <p className="min-w-0 break-words text-xs text-muted">
-              {c.title ? `${c.title} · ` : ""}
-              {c.company || "no company listed"}
+              {c.title ? `${c.title}, ` : ""}
+              {c.company || NOT_LISTED}
             </p>
           </li>
         ))}

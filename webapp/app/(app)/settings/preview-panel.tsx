@@ -62,7 +62,7 @@ export function PreviewPanel({
         aria-live="polite"
         data-testid="preview-running"
       >
-        Checking the last 30 days…
+        Checking the last 30 days
       </p>
     );
   }
@@ -108,10 +108,10 @@ export function PreviewPanel({
       ) : null}
 
       <p className="text-sm">
-        Of <strong className="tabular">{nf.format(p.corpusTotal)}</strong> postings
+        Of <span className="tabular">{nf.format(p.corpusTotal)}</span> postings
         from the last {p.windowDays} days, these settings would have qualified{" "}
-        <strong className="tabular">{nf.format(p.qualified)}</strong> and skipped{" "}
-        <strong className="tabular">{nf.format(p.filtered)}</strong>.
+        <span className="tabular">{nf.format(p.qualified)}</span> and skipped{" "}
+        <span className="tabular">{nf.format(p.filtered)}</span>.
         {p.needsInfo > 0 ? (
           <>
             {" "}
@@ -138,10 +138,10 @@ export function PreviewPanel({
             </span>
           ) : (
             <span>
-              Only <strong className="tabular">{nf.format(p.titleMatched)}</strong> of
-              those {nf.format(p.corpusTotal)} match your job titles. We have not
-              been sweeping for this kind of role yet. Your first full queue lands
-              after the next couple of sweeps, roughly 24 hours. The number above
+              Only <span className="tabular">{nf.format(p.titleMatched)}</span> of
+              those {nf.format(p.corpusTotal)} match your job titles. Nothing has
+              scanned for this kind of role yet. Your first full queue lands
+              after the next couple of scans, roughly 24 hours. The number above
               is not a verdict on your settings.
             </span>
           )}
@@ -161,7 +161,7 @@ export function PreviewPanel({
             {p.binding.label}
           </button>
           . Loosening that alone would let through{" "}
-          <strong className="tabular">{nf.format(p.binding.recovers)}</strong> more.
+          <span className="tabular">{nf.format(p.binding.recovers)}</span> more.
           {p.binding.sample ? (
             <span className="block text-xs text-muted">
               For example: {p.binding.sample}
@@ -181,8 +181,8 @@ export function PreviewPanel({
           <ul className="mt-1 space-y-0.5 text-xs text-muted">
             {p.samples.qualified.map((s) => (
               <li key={s.key} className="min-w-0 break-words">
-                {s.company} · {s.title}
-                {s.compRange ? ` · ${s.compRange}` : ""}
+                {s.company}, {s.title}
+                {s.compRange ? `, ${s.compRange}` : ""}
               </li>
             ))}
           </ul>
@@ -195,7 +195,7 @@ export function PreviewPanel({
           <ul className="mt-1 space-y-0.5 text-xs text-muted">
             {p.samples.filtered.map((s) => (
               <li key={s.key} className="min-w-0 break-words">
-                {s.company} · {s.title} · {s.explanation}
+                {s.company}, {s.title}, {s.explanation}
               </li>
             ))}
           </ul>

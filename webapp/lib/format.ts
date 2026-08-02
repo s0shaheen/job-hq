@@ -1,8 +1,10 @@
 /**
- * Deterministic date/number formatting. No locale APIs — server- and
+ * Deterministic date/number formatting. No locale APIs: server- and
  * client-rendered output must match byte-for-byte (hydration safety), and the
  * family reads the same strings regardless of machine locale. All in UTC.
  */
+import { NOT_LISTED } from "@/lib/data/view-models";
+
 
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -18,7 +20,7 @@ function parse(iso: string | null | undefined): Date | null {
 /** "Jul 19" (adds the year when it isn't the current one). */
 export function fmtDay(iso: string | null | undefined): string {
   const d = parse(iso);
-  if (!d) return "—";
+  if (!d) return NOT_LISTED;
   const day = `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
   const now = new Date();
   return d.getUTCFullYear() === now.getUTCFullYear()
@@ -29,7 +31,7 @@ export function fmtDay(iso: string | null | undefined): string {
 /** "Jul 19 14:02 UTC" */
 export function fmtStamp(iso: string | null | undefined): string {
   const d = parse(iso);
-  if (!d) return "—";
+  if (!d) return NOT_LISTED;
   const hh = String(d.getUTCHours()).padStart(2, "0");
   const mm = String(d.getUTCMinutes()).padStart(2, "0");
   return `${fmtDay(iso)} ${hh}:${mm} UTC`;
@@ -42,9 +44,9 @@ export function hoursSince(iso: string | null | undefined): number | null {
   return (Date.now() - d.getTime()) / 3_600_000;
 }
 
-/** "0.4 h" / "26 h" — one decimal under 10 h, whole hours above. */
+/** "0.4 h" / "26 h": one decimal under 10 h, whole hours above. */
 export function fmtHours(h: number | null): string {
-  if (h === null) return "—";
+  if (h === null) return NOT_LISTED;
   if (h < 0) return "0 h";
   return h < 10 ? `${h.toFixed(1)} h` : `${Math.round(h)} h`;
 }

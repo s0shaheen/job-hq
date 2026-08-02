@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { FixtureDataSource } from "@/lib/data/fixture-source";
 import { FIXTURE_APPLICATIONS } from "@/lib/data/fixtures";
 import { APPLICATION_COLUMNS } from "@/lib/export/columns";
-import { blankTrim, exportNote, noteAuthorLabel } from "@/lib/data/view-models";
+import { blankTrim, exportNote, noteAuthorLabel, NOT_LISTED } from "@/lib/data/view-models";
 import type { ApplicationView } from "@/lib/data/view-models";
 
 /**
@@ -151,7 +151,8 @@ describe("noteAuthorLabel", () => {
     // `author` has no CHECK for the same reason `companies.source` has none: a
     // future writer may legitimately mint a tag, and hiding it loses provenance.
     expect(noteAuthorLabel("digest-bot")).toBe("digest-bot");
-    expect(noteAuthorLabel("")).toBe("unknown");
+    // One absence word for the whole product; "unknown" was a second one.
+    expect(noteAuthorLabel("")).toBe(NOT_LISTED);
   });
 });
 

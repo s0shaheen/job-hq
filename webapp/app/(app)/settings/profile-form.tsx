@@ -239,17 +239,18 @@ export default function ProfileForm({
                   qualified rows, plus the ones that already were. The plan
                   sanctions the interim ("until then the banner links to a
                   filtered queue"); what is NOT done is pre-selecting them. */}
-              <Link href="/jobs?set=queue" className="underline underline-offset-2">
-                Review them
-              </Link>{" "}
-              ·{" "}
-              <button
-                type="button"
-                onClick={() => setBanner(null)}
-                className="underline underline-offset-2"
-              >
-                Not now
-              </button>
+              <span className="inline-flex items-center gap-2">
+                <Link href="/jobs?set=queue" className="underline underline-offset-2">
+                  Review them
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setBanner(null)}
+                  className="underline underline-offset-2"
+                >
+                  Not now
+                </button>
+              </span>
             </>
           ) : (
             <>
@@ -387,8 +388,7 @@ export default function ProfileForm({
               data-testid="unknown-metros-warning"
               role="status"
             >
-              We have never heard of{" "}
-              <strong>{unknownMetros(criteria).join(", ")}</strong>. Cities are
+              No scanned location matches {unknownMetros(criteria).join(", ")}. Cities are
               matched against a fixed list, so a name that is not on it finds
               nothing. Pick one from the suggestions below, or clear the box to
               search the whole country.
@@ -519,7 +519,7 @@ export default function ProfileForm({
             disabled={busy !== null}
             data-testid="check-button"
           >
-            {busy === "check" ? "Checking…" : fresh ? "Check again" : "Check what this finds"}
+            {busy === "check" ? "Checking" : fresh ? "Check again" : "Check what this finds"}
           </Button>
           <Button
             type="button"
@@ -531,7 +531,7 @@ export default function ProfileForm({
             disabled={busy !== null || preview.kind === "idle" || !answerable}
             data-testid="save-button"
           >
-            {busy === "save" ? "Saving…" : zero ? "Save anyway" : "Save profile"}
+            {busy === "save" ? "Saving" : zero ? "Save anyway" : "Save profile"}
           </Button>
           {preview.kind === "idle" ? (
             <span className="text-xs text-muted">Check first. It writes nothing.</span>

@@ -17,8 +17,8 @@ export default function SetupNotice() {
         </code>
       </pre>
       <p>
-        Both come from the Supabase dashboard: <strong>Project Settings &rarr; API</strong>.
-        The anon (public) key is safe in the browser — row-level security does the
+        Both come from Project Settings, then API, in the Supabase dashboard.
+        The anon (public) key is safe in the browser. Row-level security does the
         authorization. Never configure a service_role key for this app.
       </p>
       <ol>
@@ -32,7 +32,7 @@ export default function SetupNotice() {
         </li>
         <li>
           Sign-in also needs the Google provider enabled in Supabase
-          (Authentication &rarr; Providers &rarr; Google) — see the README.
+          (Authentication &rarr; Providers &rarr; Google). See the README.
         </li>
       </ol>
     </section>

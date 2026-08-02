@@ -61,8 +61,8 @@ export type CompanyPreset = { set: CompanySet; name: string };
 export const COMPANY_PRESETS: CompanyPreset[] = [
   { set: "review", name: "Needs review" },
   { set: "universe", name: "My universe" },
-  { set: "unresolved", name: "Unresolved" },
-  { set: "dismissed", name: "Dismissed" },
+  { set: "unresolved", name: "No board found" },
+  { set: "dismissed", name: "Passed" },
   { set: "all", name: "All companies" },
 ];
 
@@ -202,6 +202,6 @@ export const COMPANY_PERSONAS: CompanyPersona[] = [
     name: "Confirmed boards first",
     set: "universe",
     sort: { field: "tier", dir: "asc" },
-    hint: "Approved companies, verified day-of boards on top.",
+    hint: "Approved companies, confirmed boards on top.",
   },
 ];

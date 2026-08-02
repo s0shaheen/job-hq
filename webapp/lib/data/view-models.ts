@@ -338,41 +338,203 @@ export function resolutionConfidence(company: CompanyView): ResolutionConfidence
   return "asserted";
 }
 
-const CONFIDENCE_LABELS: Record<ResolutionConfidence, string> = {
-  verified: "verified",
-  inferred: "inferred",
-  asserted: "unverified",
-  unresolved: "unresolved",
+/**
+ * ═══ THE DISPLAY DICTIONARY ═══════════════════════════════════════════════════
+ *
+ * Everything from here to `explainReason` is the engine→person translation layer
+ * the design brief calls "the display dictionary", and it has one rule: the
+ * engine vocabulary is correct inside the database and inside `core/schema.py`,
+ * and it STOPS HERE. No surface renders a word this file did not choose.
+ *
+ * That is a real constraint, not a style note. `resolution_method`, `tier`,
+ * `sweep`, `disposition` and `triage` are precise engineering nouns and every one
+ * of them is meaningless-or-wrong to the person reading the screen: "Tier 1"
+ * reads as a quality ranking, "unverified" reads as an accusation, "sweep" is a
+ * word for something the user never sees happen. The words below are what those
+ * facts are called to a person, chosen once, here, so that two surfaces cannot
+ * disagree about what a thing is called.
+ *
+ * The write path, the column names and the status vocabulary are UNTOUCHED by
+ * any of this. Renaming is display-layer, by rule.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/**
+ * Source quality — the four words a person sees where the engine keeps four
+ * confidence buckets.
+ *
+ * `asserted` is an engine confidence, not proof that the person added the row.
+ * Machine-mined Common Crawl and TheirStack rows also use it, so the display
+ * confidence below folds those rows into "Likely". "Added by you" is reserved
+ * for the sources that actually came from a person.
+ */
+const SOURCE_QUALITY_LABELS: Record<ResolutionConfidence, string> = {
+  verified: "Confirmed",
+  inferred: "Likely",
+  asserted: "Added by you",
+  unresolved: "Not found yet",
 };
 
-/** The one word the provenance chip carries beside the tier. */
+/** The one word the source chip carries. */
 export function confidenceLabel(c: ResolutionConfidence): string {
-  return CONFIDENCE_LABELS[c];
+  return SOURCE_QUALITY_LABELS[c];
 }
 
-/** Tier as a person reads it, with the latency that is the point of the tier. */
-export function tierLabel(tier: ReliabilityTier): string {
-  if (tier === 1) return "Tier 1 · day-of";
-  if (tier === 2) return "Tier 2 · lagged";
-  if (tier === 3) return "Tier 3 · manual";
-  return "Unresolved";
+const USER_ADDED_SOURCES: ReadonlySet<string> = new Set(["paste", "manual", "user"]);
+
+/** The confidence bucket a person sees, derived from confidence and authorship. */
+export function sourceQuality(company: CompanyView): ResolutionConfidence {
+  const confidence = resolutionConfidence(company);
+  if (
+    confidence === "asserted" &&
+    !USER_ADDED_SOURCES.has(company.source.trim().toLowerCase())
+  ) {
+    return "inferred";
+  }
+  return confidence;
 }
 
 /**
- * The full sentence behind a row's tier — what the popover says.
+ * How often this company's jobs arrive — the tier's actual meaning, without the
+ * word "tier".
  *
- * Every branch names the EVIDENCE, not the conclusion: "the Greenhouse API
- * answered for slug `x`" rather than "reliable". A reader deciding whether to
- * trust a coverage number needs the former.
+ * The tier number is a reliability RANK in the engine and reads as a quality
+ * grade on screen, which is the specific misreading the design bans it for. What
+ * a person needs from it is the latency, so that is what this says.
+ */
+export function refreshLabel(tier: ReliabilityTier): string {
+  if (tier === 1) return "Jobs arrive the day they post";
+  if (tier === 2) return "Jobs arrive with a lag";
+  if (tier === 3) return "Tracked, not pulled automatically";
+  return "No job board found yet";
+}
+
+/**
+ * A user's decision on a posting.
+ *
+ * `user_postings.triage` stores "" | interested | dismissed | snoozed. The empty
+ * string is the one that matters: it is not "no decision exists", it is "this is
+ * waiting for you", and a blank cell says the first when the truth is the second.
+ */
+const DECISION_LABELS: Record<Triage, string> = {
+  "": "Needs decision",
+  interested: "Interested",
+  dismissed: "Passed",
+  snoozed: "Later",
+};
+
+export function decisionLabel(triage: Triage): string {
+  return DECISION_LABELS[triage] ?? DECISION_LABELS[""];
+}
+
+/**
+ * Whether a posting cleared the user's search.
+ *
+ * The engine calls this the gate and its outcome the disposition; the person
+ * asks "does this match what I asked for". `needs-info` is a TRANSIENT state
+ * (the tag pass has not run), so it says what is happening rather than naming a
+ * bucket.
+ */
+const MATCH_LABELS: Record<Disposition, string> = {
+  qualified: "Matches your search",
+  filtered: "Didn't match your search",
+  "needs-info": "Checking details",
+};
+
+export function dispositionLabel(d: Disposition): string {
+  return MATCH_LABELS[d] ?? MATCH_LABELS["needs-info"];
+}
+
+/**
+ * The discovery scan, from the toggle that controls it.
+ *
+ * "sweep" is the engine's word for the run; "scan" is the product's. The toggle
+ * states its own scope, because a bare on/off leaves "on for what?" unanswered.
+ */
+export const SCAN_INCLUDED = "Include in scans";
+export const SCAN_EXCLUDED = "Not included in scans";
+
+export function watchingLabel(included: boolean): string {
+  return included ? SCAN_INCLUDED : SCAN_EXCLUDED;
+}
+
+/**
+ * A question that ends an application if answered the wrong way.
+ *
+ * The engine calls it a knockout. Nobody outside a recruiting-tools team has
+ * heard that word.
+ */
+export const DEAL_BREAKER = "Deal-breaker";
+export const DEAL_BREAKER_PLURAL = "Deal-breaker questions";
+
+/**
+ * Where a stored answer applies.
+ *
+ * The policy engine stacks layers; a person has answers, and some of them are
+ * different at one company. A company exception is shown INSIDE the answer it
+ * modifies, never as a "layer".
+ */
+export const ANSWER_SCOPE_GLOBAL = "Your answers";
+export const ANSWER_SCOPE_COMPANY = "Company-specific answers";
+
+/** `situation_facts` — the things that are true about the person, not the job. */
+export const ABOUT_YOU = "About you";
+
+/** An imported spreadsheet. The engine batches; a person imports. */
+export const IMPORT_NOUN = "import";
+
+/**
+ * Structural labels, from the design's attested-terms allowlist.
+ *
+ * The rule these exist to satisfy is unusual and worth restating: chrome runs on
+ * an ALLOWLIST, not a banlist. Plain English is not enough — an invented section
+ * header reads as generated even when every word in it is ordinary — so each of
+ * these is attested in at least one named reference product (Jira, Salesforce,
+ * Linear, GitHub, LinkedIn). Adding a new one means finding a product that
+ * already uses it, or deciding the section should not have a header.
+ */
+export const PANE_DETAILS = "Details"; // Jira, Salesforce
+export const PANE_ABOUT_THE_ROLE = "About the role"; // LinkedIn Jobs
+export const PANE_ACTIVITY = "Activity"; // Jira, Linear, GitHub, Salesforce
+export const PANE_SKILLS = "Skills"; // LinkedIn
+/** The `resolution_method` line in the pane. Not a column. */
+export const HOW_IT_WAS_FOUND = "How it was found";
+
+/**
+ * The kind of place a posting came from.
+ *
+ * "ATS" is a category name used by the people who buy them. The person reading
+ * this sees a job board or a company's own careers page.
+ */
+export function boardKindLabel(ats: string): string {
+  const a = (ats ?? "").trim();
+  if (!a) return NOT_LISTED;
+  // The name of the board is real information (a person recognises Greenhouse
+  // from having applied through it); the CATEGORY word is what gets translated.
+  return `${a} job board`;
+}
+
+/**
+ * How this company's job board was found — the sentence the detail pane carries
+ * under `HOW_IT_WAS_FOUND`.
+ *
+ * Every branch names the EVIDENCE, not the conclusion: "the Greenhouse board
+ * answered with live postings" rather than "reliable". A reader deciding whether
+ * to trust a coverage number needs the former.
+ *
+ * Written in the product's vocabulary, not the engine's: no tier, no probe, no
+ * sweep, no verified/inferred/asserted. Those words are what this function
+ * TRANSLATES; leaking them back into its own prose would defeat the point of
+ * having a dictionary at all.
  */
 export function explainResolution(company: CompanyView): string {
   const board = company.ats && company.slug ? `${company.ats}/${company.slug}` : null;
   const m = company.resolutionMethod.trim().toLowerCase();
   if (company.tier === null || !m) {
-    return "Not resolved yet — no board has been found for this company, so nothing is pulled from it.";
+    return "No job board has been found for this company yet, so no jobs are pulled from it.";
   }
   if (m === "workday-redirect") {
-    return `Resolved by following the company's own careers page to ${board ?? "a Workday board"}, then confirming it with a Workday CXS jobs call. Jobs are pulled directly, day-of.`;
+    return `Found by following the company's own careers page to ${board ?? "a Workday board"}, then confirming it answered. Jobs arrive the day they post.`;
   }
   if (VERIFIED_METHODS.has(m)) {
     // The API is named from the ROW's ats, not from the method's suffix. They
@@ -380,38 +542,38 @@ export function explainResolution(company: CompanyView): string {
     // out of the string would let a mismatched pair (a `discover-lever` method on
     // an `ashby` row — a mirror bug, or a hand-edited row) print a confident
     // sentence about a board this company does not have. The ats column is the
-    // one the sweep will actually fetch from.
+    // one the scan will actually fetch from.
     const api = company.ats || m.slice("discover-".length);
-    return `Resolved by probing the ${api} API: ${board ?? "the board"} answered with live postings. Jobs are pulled directly, day-of.`;
+    return `Found on ${api}: ${board ?? "the board"} answered with live postings. Jobs arrive the day they post.`;
   }
   if (m.startsWith("discover-")) {
     // A `discover-*` outside the waterfall's four families. Something named a
-    // board; no probe this app can vouch for confirmed it.
-    return `Recorded as "${company.resolutionMethod}" against ${board ?? "no board"} — that is not one of the four boards the resolver probes (greenhouse, ashby, lever, smartrec), so nothing here confirms the board answered. Treat it as a lead.`;
+    // board; no check this app can vouch for confirmed it.
+    return `Recorded against ${board ?? "no board"}, by a route this app cannot check. Nothing here confirms the board answered. Treat it as a lead.`;
   }
   if (m === "ingested-slug") {
-    return `The board ${board ?? ""} came from a mined corpus and was passed through without being probed. It may be a dead board — treat the tier as unverified until a sweep pulls from it.`;
+    return `The board ${board ?? ""} came from a public index and nothing has checked it since. It may be dead. Treat it as a lead until jobs arrive from it.`;
   }
   if (m === "manual") {
-    return "Added by hand as a name only. Nothing has resolved a board for it, so it is tracked rather than pulled.";
+    return "Added by hand as a name only. No job board has been found for it, so it is tracked rather than pulled.";
   }
   if (m === "aggregator") {
-    return "Covered through the aggregator net rather than a first-party board call — postings arrive, but lagged, and no direct board has been confirmed.";
+    return "Covered through a jobs aggregator rather than the company's own board. Postings arrive, with a lag, and no direct board has been confirmed.";
   }
   if (m === "web-search") {
-    return "The ATS was identified from a web search of the company's careers page, not from a board API that answered. Treat it as a lead, not a confirmation.";
+    return "The board was identified from a web search of the company's careers page, not from a board that answered. Treat it as a lead, not a confirmation.";
   }
-  return `Resolved by "${company.resolutionMethod}" — a method this app does not recognise, so its tier is reported as unverified.`;
+  return "Found by a route this app does not recognise, so nothing here confirms the board answered.";
 }
 
 /** Where a company was discovered, as a person reads it. */
 export function sourceLabel(source: string): string {
   const s = source.trim().toLowerCase();
-  if (!s) return "unknown";
+  if (!s) return NOT_LISTED;
   const labels: Record<string, string> = {
     manual: "added by hand",
     paste: "pasted list",
-    dork: "ATS search",
+    dork: "job-board search",
     commoncrawl: "Common Crawl",
     "common-crawl": "Common Crawl",
     edgar: "SEC EDGAR",
@@ -447,7 +609,7 @@ const NOTE_AUTHOR_LABELS: Record<string, string> = {
 
 export function noteAuthorLabel(author: string): string {
   const a = (author ?? "").trim().toLowerCase();
-  if (!a) return "unknown";
+  if (!a) return NOT_LISTED;
   // Verbatim for an unrecognised tag, for `sourceLabel`'s reason: a future
   // writer may legitimately mint one, and hiding it loses real provenance.
   return NOTE_AUTHOR_LABELS[a] ?? author.trim();
@@ -832,32 +994,53 @@ export function explainReason(reason: string): string {
   const [kind, rest] = [r.split(":")[0], r.split(":").slice(1).join(":")];
   switch (kind) {
     case "geo":
-      return `Located in ${rest}, outside your countries`;
+      return `Location is ${rest}, outside your area`;
     case "geo-unknown":
       return "Location could not be identified";
     case "metro":
       return `In the ${rest} metro, outside the ones you follow`;
     case "metro-unknown":
-      return "Could not be placed in a metro you follow";
+      return "Could not be placed in a city you follow";
     case "yoe": {
       const [asks, max] = rest.split(">");
-      return `Asks for ${asks}+ years; your limit is ${max}`;
+      return `Asks for ${asks}+ years; your profile says ${max}`;
     }
     case "yoe-unknown":
       return "Years of experience not stated";
     case "seniority":
       return `Seniority "${rest}" is above your range`;
-    case "comp":
-      return `Pays below your floor (${rest.replace("<", "under ")})`;
+    case "comp": {
+      // "<120k" is the token; "$120k" is the number the user typed into their
+      // own pay floor, and stating it back is what makes the sentence checkable.
+      const floor = rest.replace(/^</, "");
+      return `Pay is below your ${floor.startsWith("$") ? floor : `$${floor}`} minimum`;
+    }
     case "comp-unknown":
-      return "Compensation not stated";
+      return "Pay not stated";
     case "work-model":
-      return `Work model "${rest}" is one you excluded`;
+    case "work_model":
+      return `${workModelWord(rest)} only; you excluded ${workModelWord(rest).toLowerCase()}`;
+    case "title-exclude":
+    case "title_exclude":
+      return `Title matches your excluded term "${rest}"`;
     case "awaiting-tags":
-      return "Not yet analysed — it will be classified shortly";
+      return "Checking details. This one is classified shortly";
     default:
-      return r;
+      // Never the raw token. A reason this app has not learned to phrase is
+      // still a filter the user's own settings applied, and saying so is true;
+      // printing "geo-newthing:XX" teaches the reader nothing and reads as a
+      // bug. The token stays on `dispositionReason` for anyone debugging.
+      return "Filtered out by your search settings";
   }
+}
+
+/** "onsite" is how the engine spells it; "On-site" is how it is written. */
+function workModelWord(raw: string): string {
+  const w = (raw || "").trim().toLowerCase();
+  if (w === "onsite" || w === "on-site") return "On-site";
+  if (w === "hybrid") return "Hybrid";
+  if (w === "remote") return "Remote";
+  return raw;
 }
 
 /** Which profile setting a filtered row points at, for a deep link. */

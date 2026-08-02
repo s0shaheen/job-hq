@@ -314,7 +314,7 @@ export default function PipelineTable({ initial, reviewItems = [], warm, warmInt
         } catch {
           put(before);
           setBusyId(null);
-          toast.error("Couldn't save that — the server did not answer.", {
+          toast.error("Couldn't save that. The server did not answer.", {
             action: { label: "Retry", onClick: onRetry },
           });
           return false;
@@ -327,12 +327,12 @@ export default function PipelineTable({ initial, reviewItems = [], warm, warmInt
         }
         if (result.kind === "conflict") {
           put(result.current);
-          toast.warning("Changed on another device — showing the latest.");
+          toast.warning("Changed on another device. Showing the latest.");
           return false;
         }
         put(before);
         if (result.kind === "auth") {
-          toast.error("Couldn't save that — your session expired.", {
+          toast.error("Couldn't save that. Your session expired.", {
             description: "Sign in and try again.",
           });
         } else {
@@ -492,7 +492,7 @@ export default function PipelineTable({ initial, reviewItems = [], warm, warmInt
           aria-live="polite"
           className="px-4 py-1 text-2xs text-muted sm:px-6"
         >
-          Saving…
+          Saving
         </p>
       ) : null}
 
@@ -981,15 +981,19 @@ function NeedsReview({ items }: { items: ReviewItem[] }) {
         {items.map((item) => (
           <li key={item.id} data-testid={`review-${item.id}`} className="px-4 py-3 sm:px-6">
             <p className="min-w-0 break-words text-xs text-text">{item.summary}</p>
-            <p className="mt-1 text-2xs text-muted">
-              Could be:{" "}
-              {item.candidates.map((c, i) => (
-                <React.Fragment key={c.id}>
-                  {i > 0 ? " · " : ""}
-                  <span className="text-text-2">{c.label}</span>
-                </React.Fragment>
+            {/* One candidate per line rather than glued together in a sentence.
+                The labels carry their own commas, so any inline separator reads
+                as part of a title — the line break is the separation. */}
+            <p className="mt-1 text-2xs text-muted">Could be:</p>
+            <ul className="mt-0.5 text-2xs text-text-2">
+              {item.candidates.map((c) => (
+                <li key={c.id} className="min-w-0 break-words">
+                  {c.label}
+                </li>
               ))}
-              . Nothing was changed — open the email and set the status yourself.
+            </ul>
+            <p className="mt-1 text-2xs text-muted">
+              Nothing was changed. Open the email and set the status yourself.
             </p>
             {item.evidence ? (
               <a

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { buttonClass } from "@/components/ui/button";
 import AddForm from "./add-form";
 
-export const metadata = { title: "Add companies — Job Search HQ" };
+export const metadata = { title: "Add companies" };
 
 /**
  * /companies/add — the "add companies" bar, at the honest size it can currently be.
@@ -33,7 +33,7 @@ export default function AddCompaniesPage() {
           <div className="min-w-0">
             <h1 className="min-w-0 break-words text-lg font-semibold">Add companies</h1>
             <p className="text-xs text-muted">
-              Paste a list. Everything lands as a proposal for you to review — nothing is
+              Paste a list. Everything lands as a proposal for you to review. Nothing is
               monitored until you approve it.
             </p>
           </div>

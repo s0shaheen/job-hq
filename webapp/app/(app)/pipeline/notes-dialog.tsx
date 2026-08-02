@@ -48,7 +48,7 @@ export function NotesDialog({
         // screen and mean opposite things — the same lesson as matrix row 15.
         setLoadError(
           res.kind === "auth"
-            ? "Your session expired — sign in to see the history."
+            ? "Your session expired. Sign in to see the history."
             : res.message,
         );
         setNotes([]);
@@ -71,7 +71,7 @@ export function NotesDialog({
     >
       <DialogTrigger
         data-testid={`notes-trigger-${app.id}`}
-        aria-label={`Notes for ${app.company} — ${app.title}`}
+        aria-label={`Notes for ${app.company}, ${app.title}`}
         className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-2xs text-muted
                    hover:bg-raised hover:text-text focus-visible:outline-2
                    focus-visible:outline-offset-2 focus-visible:outline-ring"
@@ -82,16 +82,16 @@ export function NotesDialog({
 
       <DialogContent
         title="Notes"
-        description={`${app.company} — ${app.title}`}
+        description={`${app.company}, ${app.title}`}
       >
         <div data-testid={`notes-list-${app.id}`} className="space-y-3">
           {notes === null ? (
-            <p className="text-xs text-muted">Loading…</p>
+            <p className="text-xs text-muted">Loading</p>
           ) : loadError ? (
             <p className="text-xs text-danger">{loadError}</p>
           ) : notes.length === 0 ? (
             <p className="text-xs text-muted">
-              No notes yet. Anything you add here stays — notes are never overwritten.
+              No notes yet. Anything you add here stays. Notes are never overwritten.
             </p>
           ) : (
             <ol className="space-y-3">
@@ -107,7 +107,7 @@ export function NotesDialog({
                     {n.body}
                   </p>
                   <p className="mt-1 text-2xs text-muted">
-                    {noteAuthorLabel(n.author)} · {fmtStamp(n.createdAt)}
+                    {noteAuthorLabel(n.author)}, {fmtStamp(n.createdAt)}
                   </p>
                 </li>
               ))}
@@ -155,7 +155,7 @@ export function NotesDialog({
               disabled={!draft.trim() || saving || busy}
               data-testid={`note-save-${app.id}`}
             >
-              {saving ? "Saving…" : "Add note"}
+              {saving ? "Saving" : "Add note"}
             </Button>
           </div>
         </form>

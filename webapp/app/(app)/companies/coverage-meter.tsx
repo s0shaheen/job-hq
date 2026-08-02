@@ -3,7 +3,7 @@
 import { BadgeCheck, ChevronDown, CircleHelp, Fingerprint, HelpCircle } from "lucide-react";
 import * as React from "react";
 import type { CompanyView, ResolutionConfidence } from "@/lib/data/view-models";
-import { confidenceLabel } from "@/lib/data/view-models";
+import { confidenceLabel, refreshLabel } from "@/lib/data/view-models";
 import { computeCoverage, sharePct, ORACLE_UNMEASURED } from "@/lib/grid/coverage";
 import { rowsForCompanySet } from "@/lib/grid/company-presets";
 import { cn } from "@/lib/utils";
@@ -47,25 +47,25 @@ const STYLE: Record<
     bar: "bg-ok",
     text: "text-ok",
     icon: BadgeCheck,
-    blurb: "a board API answered — jobs have been pulled from here",
+    blurb: "the job board answered, so jobs have arrived from here",
   },
   inferred: {
     bar: "bg-info",
     text: "text-info",
     icon: Fingerprint,
-    blurb: "identified by fingerprint or aggregator, with no board call behind it",
+    blurb: "identified from a careers page or an aggregator, with no board answer behind it",
   },
   asserted: {
     bar: "bg-warn",
     text: "text-warn",
     icon: CircleHelp,
-    blurb: "a slug or name taken on trust and never re-probed",
+    blurb: "a name or board taken on trust and never checked since",
   },
   unresolved: {
     bar: "bg-border-strong",
     text: "text-muted",
     icon: HelpCircle,
-    blurb: "no board found yet, so nothing is pulled",
+    blurb: "no job board found yet, so nothing is pulled",
   },
 };
 
@@ -89,9 +89,9 @@ export default function CoverageMeter({ rows }: { rows: CompanyView[] }) {
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         {/* The headline is the VERIFIED count. Rule 1. */}
         <p className="text-xs text-text">
-          <strong data-testid="coverage-verified" className="tabular font-semibold">
+          <span data-testid="coverage-verified" className="tabular">
             {c.verifiedTier1} of {c.total}
-          </strong>{" "}
+          </span>{" "}
           <span className="text-text-2">
             approved companies have a confirmed day-of board
           </span>
@@ -99,7 +99,8 @@ export default function CoverageMeter({ rows }: { rows: CompanyView[] }) {
         {/* The softer, larger number, explicitly labelled as an expectation. */}
         {tier1.count > c.verifiedTier1 ? (
           <p data-testid="coverage-expected" className="text-2xs text-muted">
-            {tier1.count} are marked Tier 1, so {tier1.count - c.verifiedTier1} of those{" "}
+            {tier1.count} are expected to arrive the day they post, so{" "}
+            {tier1.count - c.verifiedTier1} of those{" "}
             {tier1.count - c.verifiedTier1 === 1 ? "is" : "are"} expected rather than seen
           </p>
         ) : null}
@@ -127,7 +128,7 @@ export default function CoverageMeter({ rows }: { rows: CompanyView[] }) {
         role="img"
         data-testid="coverage-rail"
         aria-label={ORDER.map((k) => `${c.byConfidence[k]} ${confidenceLabel(k)}`).join(", ")}
-        className="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-raised"
+        className="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-sm bg-raised"
       >
         {ORDER.map((k) => {
           const n = c.byConfidence[k];
@@ -171,32 +172,40 @@ export default function CoverageMeter({ rows }: { rows: CompanyView[] }) {
             ))}
           </dl>
 
-          <p className="mt-2 text-2xs text-muted">
-            By tier:{" "}
-            {c.byTier.map((t, i) => (
-              <React.Fragment key={t.tier}>
-                {i > 0 ? " · " : ""}
-                <span className="text-text-2">
-                  Tier {t.tier}: {t.count}
-                </span>
-                {t.count > 0 ? ` (${t.verified} confirmed)` : ""}
-              </React.Fragment>
+          {/* How often jobs arrive, as sentences. This used to be "By tier: Tier
+              1: 42 · Tier 2: 9" — the banned engine word, glued with the banned
+              interpunct. The rank is what the engine stores; the latency is what
+              it means, and rows carry the meaning. */}
+          <dl className="mt-2 space-y-1 text-2xs">
+            {c.byTier.map((t) => (
+              <div key={t.tier} className="flex flex-wrap gap-x-1.5">
+                <dt className="text-text-2">{refreshLabel(t.tier)}</dt>
+                <dd className="tabular min-w-0 flex-1 text-muted">
+                  {t.count}
+                  {t.count > 0 ? `, ${t.verified} confirmed` : ""}
+                </dd>
+              </div>
             ))}
-            {c.unresolved > 0 ? ` · unresolved: ${c.unresolved}` : ""}
-          </p>
+            {c.unresolved > 0 ? (
+              <div className="flex flex-wrap gap-x-1.5">
+                <dt className="text-text-2">{refreshLabel(null)}</dt>
+                <dd className="tabular min-w-0 flex-1 text-muted">{c.unresolved}</dd>
+              </div>
+            ) : null}
+          </dl>
 
-          {/* Rule 3: the oracle's slot, named and empty. */}
+          {/* Rule 3: the coverage denominator's slot, named and empty. */}
           <p
             data-testid="coverage-oracle-slot"
             className="mt-2 border-t border-border pt-2 text-2xs text-muted"
           >
-            <span className="font-medium text-text-2">Recall: not measured.</span> These numbers
-            describe the companies in your universe, not the share of companies that exist. Working
-            out the second needs a facet denominator from the coverage oracle, which runs outside
-            this app —{" "}
+            <span className="font-medium text-text-2">Share of all companies: not measured.</span>{" "}
+            These numbers describe the companies you track, not the share of companies that exist.
+            Working out the second needs a count of every company posting these roles, which is
+            measured outside this app.{" "}
             {ORACLE_UNMEASURED.denominator === null
-              ? "no measurement has been recorded, so none is shown."
-              : `last measured denominator: ${ORACLE_UNMEASURED.denominator}.`}
+              ? "No measurement has been recorded, so none is shown."
+              : `Last measured: ${ORACLE_UNMEASURED.denominator}.`}
           </p>
         </div>
       ) : null}

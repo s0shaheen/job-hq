@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty";
 import { getDataSource } from "@/lib/data/get-source";
 
-export const metadata = { title: "Health — Job Search HQ" };
+export const metadata = { title: "Health" };
 export const dynamic = "force-dynamic";
 
 export default async function HealthPage() {
@@ -44,7 +44,7 @@ export default async function HealthPage() {
                   <th
                     key={h}
                     scope="col"
-                    className="px-3 py-2 text-2xs font-semibold uppercase tracking-wider text-muted whitespace-nowrap"
+                    className="px-3 py-2 text-2xs font-semibold text-muted whitespace-nowrap"
                   >
                     {h}
                   </th>

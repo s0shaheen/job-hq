@@ -137,7 +137,7 @@ function pickSheet(
 ): { rows: Cell[][] } | { error: string } {
   const withData = sheets.filter((s) => hasContent(s.rows));
   if (withData.length === 0) {
-    return { error: "Every sheet in that workbook is empty — there are no rows to import." };
+    return { error: "Every sheet in that workbook is empty. There are no rows to import." };
   }
   if (withData.length > 1) {
     const names = withData.map((s) => `"${s.name}"`).join(", ");
@@ -145,7 +145,7 @@ function pickSheet(
       error:
         `That workbook has ${withData.length} sheets with data in them (${names}), and importing ` +
         `the wrong one is not something you could undo by eye. Copy the sheet you want into its ` +
-        `own file — or save it as a .csv — and upload that.`,
+        `own file, or save it as a .csv, and upload that.`,
     };
   }
   return { rows: withData[0].rows };
@@ -170,7 +170,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     // to find out is exactly what the cap exists to prevent, so it is refused
     // with the reason rather than buffered "just this once".
     return fail(
-      "That upload did not say how big it is, so it was not read. Choose the file again — or, if this came from a script, send a Content-Length header.",
+      "That upload did not say how big it is, so it was not read. Choose the file again. If this came from a script, send a Content-Length header.",
       411,
     );
   }
@@ -239,7 +239,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     try {
       body = JSON.parse(text || "{}") as { paste?: unknown };
     } catch {
-      return fail("The request body was not JSON. Send `{ \"paste\": \"…\" }`.", 400);
+      return fail("The request body was not JSON. Send a paste field with text.", 400);
     }
     if (typeof body.paste !== "string" || body.paste.trim() === "") {
       return fail("Nothing was pasted. Copy the rows out of your spreadsheet and paste them in.", 400);
@@ -269,7 +269,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     .filter((r) => r.cells.some((c) => !isBlankCell(c)));
 
   if (numbered.length === 0) {
-    return fail("There are no rows in that — every line is empty.", 400);
+    return fail("There are no rows in that. Every line is empty.", 400);
   }
   const overRows = tooLarge({ rows: numbered.length });
   if (overRows) return fail(overRows, 413);
@@ -312,7 +312,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       // The batch exists and holds what landed. Say so and where it is, rather
       // than leaving a half-staged import for somebody to find in the list.
       return fail(
-        `Only part of that file was stored (${staged.message}). Open the import from the list and upload the file again — the rows already stored will not be duplicated.`,
+        `Only part of that file was stored (${staged.message}). Open the import from the list and upload the file again. The rows already stored will not be duplicated.`,
         502,
       );
     }

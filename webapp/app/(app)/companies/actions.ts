@@ -166,7 +166,7 @@ function validatePropose(input: ProposeCompaniesInput): string | null {
     return "Paste at least one company name.";
   }
   if (input.names.length > MAX_PASTE_NAMES) {
-    return `That is ${input.names.length} names — the limit is ${MAX_PASTE_NAMES} per paste.`;
+    return `That is ${input.names.length} names. The limit is ${MAX_PASTE_NAMES} per paste.`;
   }
   for (const n of input.names) {
     if (typeof n !== "string" || n.length > MAX_NAME_LENGTH) return "Invalid company name.";

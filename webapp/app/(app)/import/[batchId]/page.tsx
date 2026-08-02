@@ -8,7 +8,7 @@ import PreviewStep from "../preview-step";
 import ReportStep from "../report-step";
 import { grid, headerGuess, mapModel, previewRows, NO_HEADER_ROW } from "../prepare";
 
-export const metadata = { title: "Import — Job Search HQ" };
+export const metadata = { title: "Import" };
 export const dynamic = "force-dynamic";
 
 /**

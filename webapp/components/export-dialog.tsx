@@ -61,7 +61,7 @@ const COPY: Record<ExportDataset, { noun: string; scopes: ScopeOption[] }> = {
         value: "view",
         label: "This view",
         count: (c) => c.view,
-        detail: (c) => `All ${c.view} in your pipeline — the pipeline has no filters yet.`,
+        detail: (c) => `All ${c.view} in your pipeline. The pipeline has no filters yet.`,
       },
       {
         value: "all",
@@ -168,7 +168,7 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
       // Reports what the file actually contains, from the response — not what
       // the dialog predicted before the request went out.
       toast.success(
-        rows ? `Exported ${rows} ${rows === "1" ? "row" : "rows"} — ${name}` : `Exported ${name}`,
+        rows ? `Exported ${rows} ${rows === "1" ? "row" : "rows"}, ${name}` : `Exported ${name}`,
       );
     } catch (err) {
       const message =
@@ -225,7 +225,7 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
               data-testid="export-download"
             >
               {busy
-                ? "Preparing…"
+                ? "Preparing"
                 : rowCount === null
                   ? "Download"
                   : `Download ${rowCount} ${rowCount === 1 ? "row" : "rows"}`}
@@ -234,7 +234,7 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
         }
       >
         <fieldset className="mb-4" data-testid="export-scope">
-          <legend className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-muted">
+          <legend className="mb-1.5 text-2xs font-semibold text-muted">
             What to include
           </legend>
           <RadioGroup.Root
@@ -268,7 +268,7 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
                         accent-subtle the muted token measures 4.28:1 (light) /
                         4.45:1 (dark) — under the AA 4.5 floor for this size. */}
                     <span className="tabular text-xs font-normal text-text-2">
-                      {counts ? `${opt.count(counts)} ${copy.noun}` : "counting…"}
+                      {counts ? `${opt.count(counts)} ${copy.noun}` : "Counting"}
                     </span>
                   </span>
                   {/* The scope is spelled out, including what it leaves behind. */}
@@ -282,7 +282,7 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
         </fieldset>
 
         <fieldset data-testid="export-format">
-          <legend className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-muted">
+          <legend className="mb-1.5 text-2xs font-semibold text-muted">
             Format
           </legend>
           <RadioGroup.Root
@@ -339,7 +339,7 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
             survives forced-colors mode without a token. */}
         {dataset === "applications" ? (
           <fieldset className="mt-4" data-testid="export-round-trip">
-            <legend className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-muted">
+            <legend className="mb-1.5 text-2xs font-semibold text-muted">
               Bringing it back
             </legend>
             <label
@@ -359,24 +359,22 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
                 <span className="block text-sm font-medium text-text">
                   Let this file be imported back
                 </span>
-                {/* Names the columns, because they are visible in the file and an
-                    unexplained `hq_version` reads as a leak rather than a feature.
-                    The last sentence is the honest degradation, not a warning:
-                    deleting them costs the id match, not the import. */}
+                {/* Says two columns appear and what they buy, without printing the
+                    engine's own column names: the dictionary keeps `hq_id` and
+                    `hq_version` out of the UI, and "two tracking columns" is what a
+                    person needs to recognise them in the file. The last sentence is
+                    the honest degradation, not a warning: deleting them costs the id
+                    match, not the import. */}
                 <span className="mt-0.5 block text-xs text-text-2">
-                  Adds two columns at the end — <code className="text-2xs">hq_id</code> and{" "}
-                  <code className="text-2xs">hq_version</code> — so edits you make in Excel go back to
-                  the rows they came from instead of arriving as copies. A row somebody changed in
-                  the meantime asks you which value wins. Delete the columns and the file still
-                  imports; it just matches on the job link.
+                  Two ID columns let you re-import this file without creating duplicates
                 </span>
                 {/* Said here rather than discovered on the way back in. A status
                     this app does not have is one a person typed, the import
                     vocabulary is closed on purpose, and the round trip therefore
                     cannot carry it home. Stated as the limit it is. */}
                 <span className="mt-1 block text-xs text-warn">
-                  A status you invented yourself comes back as Inbox — importing only understands
-                  this app&rsquo;s own stages.
+                  A status you invented yourself comes back as Inbox. Importing only understands
+                  this app's own stages.
                 </span>
               </span>
             </label>

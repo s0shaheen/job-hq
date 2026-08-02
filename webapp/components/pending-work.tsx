@@ -221,7 +221,7 @@ export function PendingWork() {
             <ul className="mt-0.5 space-y-0.5">
               {failed.map((f) => (
                 <li key={f.id}>
-                  <span className="font-medium">{f.label}</span> — {f.message}
+                  <span className="font-medium">{f.label}</span>. {f.message}
                 </li>
               ))}
             </ul>
@@ -256,19 +256,17 @@ export function PendingWork() {
           <span className="min-w-0">
             {needsAuth ? (
               <>
-                <strong className="font-semibold">Your session expired.</strong> {n} {noun}{" "}
+                Your session expired. {n} {noun}{" "}
                 {degraded
-                  ? "are held in this tab — device storage is full, so keep it open. Sign in and they’ll be applied."
-                  : "are saved on this device. Sign in and they’ll be applied."}
+                  ? "are held in this tab. Device storage is full, so keep it open. Sign in and they'll be applied."
+                  : "are saved on this device. Sign in and they'll be applied."}
               </>
             ) : (
               <>
-                <strong className="font-semibold">
-                  {online ? "Couldn't reach the server." : "You're offline."}
-                </strong>{" "}
+                {online ? "Couldn't reach the server." : "You're offline."}{" "}
                 {n} {noun}{" "}
                 {degraded
-                  ? "are held in this tab — device storage is full, so keep it open until they sync."
+                  ? "are held in this tab. Device storage is full, so keep it open until they sync."
                   : "are saved on this device and will sync automatically."}
               </>
             )}
@@ -296,7 +294,7 @@ export function PendingWork() {
                 data-testid="pending-retry"
               >
                 <RefreshCw aria-hidden="true" className="size-3.5" />
-                {flushing ? "Syncing…" : "Retry now"}
+                {flushing ? "Syncing" : "Retry now"}
               </Button>
             )}
           </div>

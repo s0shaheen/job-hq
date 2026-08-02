@@ -26,7 +26,7 @@
  * actually pulled jobs from this board") is computed separately from `tier1`.
  */
 import type { CompanyView, ResolutionConfidence } from "@/lib/data/view-models";
-import { resolutionConfidence } from "@/lib/data/view-models";
+import { sourceQuality } from "@/lib/data/view-models";
 
 export type TierCount = {
   tier: 1 | 2 | 3;
@@ -79,7 +79,7 @@ export function computeCoverage(companies: readonly CompanyView[]): Coverage {
   let resolved = 0;
 
   for (const c of companies) {
-    const confidence = resolutionConfidence(c);
+    const confidence = sourceQuality(c);
     byConfidence[confidence] += 1;
     // A row whose tier is set but whose method is unreadable comes back
     // "unresolved" from resolutionConfidence, and it must NOT be counted into a

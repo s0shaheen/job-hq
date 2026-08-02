@@ -17,7 +17,7 @@
 export default function QueueLoading() {
   return (
     <div className="min-w-0" aria-busy="true" aria-live="polite">
-      <span className="sr-only">Loading your queue…</span>
+      <span className="sr-only">Loading your queue</span>
 
       {/* Mirrors page.tsx's header exactly: title row (with the Export button's
           footprint) above a subtitle line. */}

@@ -5,7 +5,7 @@ import { draftFromPreset } from "@/lib/profile/presets";
 import { DisplayPrefs } from "./display-prefs";
 import ProfileForm from "./profile-form";
 
-export const metadata = { title: "Search profile — Job Search HQ" };
+export const metadata = { title: "Search profile" };
 export const dynamic = "force-dynamic";
 
 /**
@@ -61,9 +61,9 @@ export default async function SettingsPage() {
             Application answers
           </h2>
           <p className="mt-1 text-sm text-muted">
-            What an application form can be filled in with — your situation, and every
+            What an application form can be filled in with: your situation, and every
             question you have answered once. This page decides which jobs reach you; that one
-            decides what we can say on your behalf.
+            decides what this app can say on your behalf.
           </p>
           <Link
             href="/settings/answers"

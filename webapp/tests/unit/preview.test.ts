@@ -137,7 +137,7 @@ describe("computePreview — the binding constraint", () => {
     // …and the example names a comp posting, not one of the five geo rows that
     // fill the sample list. That fallback scan is the half a reader would
     // assume works and would not.
-    expect(p.binding?.sample).toMatch(/below your floor/i);
+    expect(p.binding?.sample).toMatch(/below your \$150k minimum/i);
   });
 
   it("names the metros a local search is refusing", () => {
@@ -232,7 +232,7 @@ describe("computePreview — the binding constraint", () => {
     const rows = [posting({ key: "a", geo: { country: "India" } })];
     const p = computePreview(rows, criteria({ yoe_max: 4 }), OPTS);
     expect(p.binding?.field).toBe("countries");
-    expect(p.binding?.sample).toMatch(/outside your countries/i);
+    expect(p.binding?.sample).toMatch(/outside your area/i);
   });
 
   it("points every relaxable field at an anchor /settings actually has", () => {

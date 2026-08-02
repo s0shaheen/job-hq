@@ -67,13 +67,19 @@ export function rowsForSet(rows: JobView[], set: WorkingSet): JobView[] {
 
 export type GridPreset = { set: WorkingSet; name: string };
 
-/** Switcher order. The names are asserted by unit test AND clicked by role in
- *  the e2e — renaming one is an API change, not a copy tweak. */
+/**
+ * Switcher order. The names are asserted by unit test AND clicked by role in the
+ * e2e — renaming one is an API change, not a copy tweak.
+ *
+ * The SET tokens stay the engine's (`snoozed`, `dismissed`): they are URL state
+ * and stored view state, and renaming those breaks every saved link. Only the
+ * NAMES are translated, which is the display dictionary's whole shape.
+ */
 export const GRID_PRESETS: GridPreset[] = [
   { set: "queue", name: "Queue" },
   { set: "all", name: "All postings" },
-  { set: "snoozed", name: "Snoozed" },
-  { set: "dismissed", name: "Dismissed" },
+  { set: "snoozed", name: "Later" },
+  { set: "dismissed", name: "Passed" },
   { set: "needs-review", name: "Needs review" },
 ];
 

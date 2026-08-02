@@ -63,7 +63,7 @@ test("keyboard triage advances the queue and can be undone", async ({ page }) =>
   const first = await page.locator("article h3").first().innerText();
 
   await page.keyboard.press("i");
-  await expect(page.getByText(/^Saved /)).toBeVisible();
+  await expect(page.getByText(/^Marked interested:/)).toBeVisible();
   await expect(page.locator("article h3").first()).not.toHaveText(first);
 
   await page.getByRole("button", { name: "Undo" }).click();
@@ -81,9 +81,9 @@ test("passing on a role removes it and the count moves", async ({ page }) => {
 test("the queue reaches a finished state rather than trailing off", async ({ page }) => {
   await gotoQueue(page);
   for (let i = 0; i < 25; i++) {
-    if (await page.getByRole("heading", { name: /Triaged all|Nothing found yet/ }).isVisible().catch(() => false)) break;
+    if (await page.getByRole("heading", { name: "You are done for today." }).isVisible().catch(() => false)) break;
     await page.keyboard.press("x");
     await page.waitForTimeout(90);
   }
-  await expect(page.getByRole("heading", { name: /Triaged all|Nothing found yet/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "You are done for today." })).toBeVisible();
 });

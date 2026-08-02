@@ -23,7 +23,7 @@
 import type { ColumnDef, RowData } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 import type { JobView } from "@/lib/data/view-models";
-import { explainReason } from "@/lib/data/view-models";
+import { decisionLabel, explainReason, NOT_LISTED } from "@/lib/data/view-models";
 import { fmtDay } from "@/lib/format";
 import type { SortField } from "@/lib/grid/sort";
 import { cn } from "@/lib/utils";
@@ -50,46 +50,59 @@ export const ROW_PX = 32;
 export const HEADER_PX = 32;
 
 /**
- * How absence reads. The card spells out "Not listed" because it shows four
- * fields with room to explain; a dense grid repeating those words hundreds of
- * times per screen would bury the stated values in boilerplate. The em dash is
- * the console convention (Stripe, Linear) for "nothing stated", it is muted so
- * a scanning eye skips it, and it is still never a zero, an empty cell, or an
- * invented midpoint.
+ * How absence reads: the SAME two words everywhere.
+ *
+ * This used to be a muted em dash, on the argument that a dense grid repeating
+ * "Not listed" hundreds of times per screen buries the stated values in
+ * boilerplate. That argument lost to two rules it cannot answer. The em dash is
+ * banned in interface copy, and one product must have exactly one word for an
+ * absent value — the card said "Not listed" and the grid said "—", which is two
+ * vocabularies for one fact and the reader has to learn both. It is still never
+ * a zero, an empty cell, or an invented midpoint.
  */
-export const DASH = "—";
+export const ABSENT = NOT_LISTED;
 
 export function compText(j: JobView): string {
   // Verbatim, including non-USD bands the sorter cannot parse — a £ range the
   // user can read beats a dash that hides what the posting said.
-  return j.compRange?.trim() || DASH;
+  return j.compRange?.trim() || ABSENT;
 }
 
 export function yoeText(j: JobView): string {
-  if (j.minYoe === null || j.minYoe === undefined) return DASH;
+  if (j.minYoe === null || j.minYoe === undefined) return ABSENT;
   return j.minYoe === 0 ? "Any" : String(j.minYoe);
 }
 
 export function workModelText(j: JobView): string {
-  return j.workModel?.trim() || (j.remote ? "Remote" : DASH);
+  return j.workModel?.trim() || (j.remote ? "Remote" : ABSENT);
 }
 
 export function locationText(j: JobView): string {
-  return j.location?.trim() || (j.remote ? "Remote" : DASH);
+  return j.location?.trim() || (j.remote ? "Remote" : ABSENT);
 }
 
 export function postedText(j: JobView): string {
   return fmtDay(j.posted); // fmtDay already answers null with the dash
 }
 
+/**
+ * The decision word, from the display dictionary.
+ *
+ * It used to print the stored token — `undecided` / `snoozed` / `dismissed` —
+ * which is three engine words in the column a person acts on. "Snoozed" reads as
+ * a reminder that will come back on its own; "Later" is what it is. "Dismissed"
+ * reads as the system dismissing the user.
+ */
 export function decisionText(j: JobView): string {
-  return j.triage === "" ? "undecided" : j.triage;
+  return decisionLabel(j.triage);
 }
 
 export function whyText(j: JobView): string {
-  // Only rows the engine held back have a "why"; explaining "Matches your
-  // search" on every qualified row would drown the rows that need reading.
-  return j.disposition === "qualified" ? DASH : explainReason(j.dispositionReason);
+  // Every row gets its sentence: `explainReason("")` is "Matches your search",
+  // which is the true answer for a row the gate let through. The old branch
+  // returned the absence placeholder here, and "Not listed" is a different claim
+  // — it says nobody stated a reason, when the reason is that it matched.
+  return explainReason(j.dispositionReason);
 }
 
 /** Truncating text cell. The full string rides on title= so truncation hides
@@ -97,8 +110,8 @@ export function whyText(j: JobView): string {
 function Text({ value }: { value: string }) {
   return (
     <span
-      className={cn("truncate", value === DASH && "text-muted")}
-      title={value === DASH ? undefined : value}
+      className={cn("truncate", value === ABSENT && "text-muted")}
+      title={value === ABSENT ? undefined : value}
     >
       {value}
     </span>
@@ -136,7 +149,7 @@ export const GRID_COLUMNS: ColumnDef<JobView>[] = [
   },
   {
     id: "warm",
-    header: "Warm",
+    header: "Warm intro",
     size: 110,
     // THIRD, not last, and the position was measured rather than chosen. The
     // grid scrolls horizontally inside its own container, and at 1280px the
@@ -186,14 +199,14 @@ export const GRID_COLUMNS: ColumnDef<JobView>[] = [
   },
   {
     id: "comp",
-    header: "Comp",
+    header: "Pay",
     size: 160,
     meta: { align: "right", sortField: "comp" },
     cell: ({ row }) => <Text value={compText(row.original)} />,
   },
   {
     id: "minYoe",
-    header: "Min YoE",
+    header: "Min years",
     size: 80,
     meta: { align: "right", sortField: "minYoe" },
     cell: ({ row }) => <Text value={yoeText(row.original)} />,
@@ -223,14 +236,15 @@ export const GRID_COLUMNS: ColumnDef<JobView>[] = [
     size: 110,
     cell: ({ row }) => {
       const t = row.original.triage;
-      // Undecided is the overwhelming majority (it is the Queue set's whole
-      // membership), so it renders as quiet text — colour means state, and a
-      // badge on every row is decoration. Actual decisions get the pill.
-      if (t === "") return <span className="truncate text-muted">undecided</span>;
+      // "Needs decision" is the overwhelming majority (it is the Queue set's
+      // whole membership), so it renders as quiet text — colour means state, and
+      // a badge on every row is decoration. Actual decisions get the pill.
+      if (t === "")
+        return <span className="truncate text-muted">{decisionLabel(t)}</span>;
       const tone = t === "interested" ? "accent" : t === "snoozed" ? "warn" : "neutral";
       return (
         <Badge tone={tone} className="whitespace-nowrap">
-          {t}
+          {decisionLabel(t)}
         </Badge>
       );
     },

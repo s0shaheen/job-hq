@@ -31,8 +31,8 @@ describe("built-in presets", () => {
     expect(GRID_PRESETS.map((p) => p.name)).toEqual([
       "Queue",
       "All postings",
-      "Snoozed",
-      "Dismissed",
+      "Later",
+      "Passed",
       "Needs review",
     ]);
   });
@@ -68,13 +68,13 @@ describe("built-in presets", () => {
     expect(rowsForSet(FIXTURE_JOBS, "all")).toEqual(FIXTURE_JOBS);
   });
 
-  it("Snoozed is exactly the snoozed rows", () => {
+  it("Later is exactly the snoozed rows", () => {
     const expected = FIXTURE_JOBS.filter((j) => j.triage === "snoozed");
     expect(expected.length).toBeGreaterThan(0);
     expect(keys(rowsForSet(FIXTURE_JOBS, "snoozed"))).toEqual(keys(expected));
   });
 
-  it("Dismissed is exactly the dismissed rows", () => {
+  it("Passed is exactly the dismissed rows", () => {
     const expected = FIXTURE_JOBS.filter((j) => j.triage === "dismissed");
     expect(expected.length).toBeGreaterThan(0);
     expect(keys(rowsForSet(FIXTURE_JOBS, "dismissed"))).toEqual(keys(expected));

@@ -178,6 +178,18 @@
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
+    /*
+     * Tabular figures are the DEFAULT, not an opt-in.
+     *
+     * The build conventions say it without a qualifier — "`tabular-nums` on
+     * every element whose text contains a digit" — and an opt-in class cannot
+     * deliver that: it has to be remembered at each of the several dozen places
+     * a digit is painted, and the computed-style sweep found thirty-five that
+     * were not. Inheriting it from `body` is the only spelling where a NEW
+     * surface is compliant before anyone reviews it. `.tabular` stays below for
+     * the call sites that already state the intent.
+     */
+    font-variant-numeric: tabular-nums;
   }
   /* Digits line up wherever they are compared. */
   .tabular {

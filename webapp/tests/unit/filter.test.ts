@@ -330,15 +330,21 @@ describe("chip labels and enum values", () => {
   it("formats each clause kind for the filter bar", () => {
     const cases: Array<[Clause, string]> = [
       [{ kind: "text", field: "company", op: "has", value: "ramp" }, 'Company contains "ramp"'],
-      [{ kind: "text", field: "compRange", op: "empty", value: false }, "Comp stated"],
-      [{ kind: "text", field: "compRange", op: "empty", value: true }, "Comp not stated"],
+      [{ kind: "text", field: "compRange", op: "empty", value: false }, "Pay listed"],
+      [{ kind: "text", field: "compRange", op: "empty", value: true }, "Pay not listed"],
       [{ kind: "enum", field: "workModel", op: "in", values: ["Remote", "Hybrid"] }, "Work model: Remote or Hybrid"],
-      [{ kind: "number", field: "compMax", op: "gte", value: 150 }, "Comp ≥ $150k"],
-      [{ kind: "number", field: "compMax", op: "between", min: 120, max: 200 }, "Comp $120k–$200k"],
-      [{ kind: "number", field: "minYoe", op: "lte", value: 4 }, "Min YoE ≤ 4"],
-      [{ kind: "date", field: "posted", op: "inlast", days: 7 }, "Posted in last 7d"],
+      // MUTATION REASON: put the operator glyphs back (`≥`, `≤`, the en-dash
+      // range) and these four fail. A filter bar is read at a glance to check
+      // that the list on screen is the list that was asked for; a maths glyph
+      // makes the reader translate the machine's notation back into the
+      // sentence they typed.
+      [{ kind: "number", field: "compMax", op: "gte", value: 150 }, "Pay above $150k"],
+      [{ kind: "number", field: "compMax", op: "between", min: 120, max: 200 }, "Pay $120k to $200k"],
+      [{ kind: "number", field: "minYoe", op: "lte", value: 4 }, "Min years below 4"],
+      [{ kind: "date", field: "posted", op: "inlast", days: 7 }, "Posted in the last 7 days"],
+      [{ kind: "enum", field: "triage", op: "in", values: ["undecided", "snoozed"] }, "Decision: Needs decision or Later"],
       [{ kind: "remote", value: "remote" }, "Remote only"],
-      [{ kind: "remote", value: "onsite-hybrid" }, "Onsite or hybrid"],
+      [{ kind: "remote", value: "onsite-hybrid" }, "On-site or hybrid"],
     ];
     for (const [clause, label] of cases) expect(formatClause(clause)).toBe(label);
     expect(
@@ -346,7 +352,7 @@ describe("chip labels and enum values", () => {
         { kind: "number", field: "compMax", op: "gte", value: 150 },
         { kind: "text", field: "compRange", op: "empty", value: true },
       ]),
-    ).toBe("Comp ≥ $150k or Comp not stated");
+    ).toBe("Pay above $150k or Pay not listed");
   });
 
   it("enumValues offers the distinct stated values, and triage its closed set", () => {

@@ -27,7 +27,7 @@ import { deleteViewAction, saveViewAction } from "./view-actions";
 
 /**
  * The view switcher — a quiet dropdown, not a sidebar. One trigger carries the
- * active view's name and a subdued "· edited" when the on-screen state has
+ * active view's name and a subdued "edited" when the on-screen state has
  * drifted from it; the menu holds the built-in presets (code, never
  * deletable), the user's saved views, the persona seeds, the display knobs,
  * and — only when they apply — Save / Save as… / Reset / landing / delete.
@@ -61,7 +61,7 @@ const itemClass =
   "relative flex h-7 min-w-0 cursor-default select-none items-center gap-2 rounded-md pl-6 pr-2 " +
   "text-xs text-text outline-none data-[highlighted]:bg-raised";
 
-const labelClass = "px-2 pb-0.5 pt-1.5 text-2xs font-semibold uppercase tracking-wider text-muted";
+const labelClass = "px-2 pb-0.5 pt-1.5 text-2xs font-semibold text-muted";
 
 function Indicator() {
   return (
@@ -117,17 +117,17 @@ export default function ViewSwitcher(props: ViewSwitcherProps) {
       return;
     }
     if (res.ok) {
-      toast(over?.toastText ?? `Saved “${v.name}”`);
+      toast(over?.toastText ?? `Saved "${v.name}"`);
       props.onSaved(res.view);
       return;
     }
     if (res.kind === "conflict") {
-      toast.warning("This view was changed on another device — showing the latest.");
+      toast.warning("This view was changed on another device. Showing the latest.");
       props.onConflict();
       return;
     }
     if (res.kind === "auth") {
-      toast.error("Couldn't save the view — your session expired.", {
+      toast.error("Couldn't save the view. Your session expired.", {
         description: "Sign in and try again.",
       });
       return;
@@ -153,7 +153,7 @@ export default function ViewSwitcher(props: ViewSwitcherProps) {
       });
     } catch {
       setPending(false);
-      setError("Couldn't reach the server — check your connection and try again.");
+      setError("Couldn't reach the server. Check your connection and try again.");
       return;
     }
     setPending(false);
@@ -161,13 +161,13 @@ export default function ViewSwitcher(props: ViewSwitcherProps) {
       setSaveAsOpen(false);
       setName("");
       setLanding(false);
-      toast(`Saved “${trimmed}”`);
+      toast(`Saved "${trimmed}"`);
       props.onSaved(res.view);
       return;
     }
     // The dialog stays open with the store's own message — a rejected name is
     // a correction to make, not a crash and not a silent overwrite.
-    if (res.kind === "auth") setError("Your session expired — sign in and try again.");
+    if (res.kind === "auth") setError("Your session expired. Sign in and try again.");
     else if (res.kind === "conflict") setError("This view was changed on another device.");
     else setError(res.message);
   };
@@ -189,12 +189,12 @@ export default function ViewSwitcher(props: ViewSwitcherProps) {
     setPending(false);
     setConfirmOpen(false);
     if (res.ok) {
-      toast(`Deleted “${v.name}”`);
+      toast(`Deleted "${v.name}"`);
       props.onDeleted();
       return;
     }
     if (res.kind === "auth") {
-      toast.error("Couldn't delete the view — your session expired.", {
+      toast.error("Couldn't delete the view. Your session expired.", {
         description: "Sign in and try again.",
       });
       return;
@@ -220,7 +220,7 @@ export default function ViewSwitcher(props: ViewSwitcherProps) {
           >
             <Layers aria-hidden="true" className="size-3.5 shrink-0" />
             <span className="max-w-36 truncate">{baseName}</span>
-            {edited ? <span className="font-normal text-muted">· edited</span> : null}
+            {edited ? <span className="ml-1.5 font-normal text-muted">edited</span> : null}
             <ChevronDown aria-hidden="true" className="size-3 shrink-0 text-muted" />
           </button>
         </DropdownMenu.Trigger>
@@ -335,7 +335,7 @@ export default function ViewSwitcher(props: ViewSwitcherProps) {
             ) : null}
             {edited ? (
               <DropdownMenu.Item className={itemClass} onSelect={openDialog(setSaveAsOpen)}>
-                Save as…
+                Save as
               </DropdownMenu.Item>
             ) : null}
             {edited ? (
@@ -352,7 +352,7 @@ export default function ViewSwitcher(props: ViewSwitcherProps) {
                     // the landing page must not smuggle unsaved changes in.
                     state: base.view.state,
                     isDefault: true,
-                    toastText: `“${base.view.name}” is now your landing view`,
+                    toastText: `"${base.view.name}" is now your landing view`,
                   })
                 }
               >
@@ -364,7 +364,7 @@ export default function ViewSwitcher(props: ViewSwitcherProps) {
                 className={`${itemClass} text-danger`}
                 onSelect={openDialog(setConfirmOpen)}
               >
-                Delete view…
+                Delete view
               </DropdownMenu.Item>
             ) : null}
           </DropdownMenu.Content>
@@ -436,7 +436,7 @@ export default function ViewSwitcher(props: ViewSwitcherProps) {
           title="Delete view"
           description={
             base.kind === "view"
-              ? `“${base.view.name}” will be gone from every device. This cannot be undone.`
+              ? `"${base.view.name}" will be gone from every device. This cannot be undone.`
               : undefined
           }
           footer={

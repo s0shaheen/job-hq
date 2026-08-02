@@ -393,7 +393,7 @@ test("a conflict inside the batch applies NOTHING: full revert plus a changed-el
   await other.goto("/queue");
   await expect(other.locator('[data-testid="triage"][data-ready="true"]')).toBeAttached();
   await other.getByTestId("pass").click();
-  await expect(other.getByText(`Passed on ${QUEUE_SORTED[0].company}`, { exact: false })).toBeVisible();
+  await expect(other.getByText(`Passed: ${QUEUE_SORTED[0].company}`, { exact: false })).toBeVisible();
 
   // Tab A: bulk-dismiss a selection that includes the stale row.
   await companyCell(page, QUEUE_SORTED[0].company).click();
@@ -418,7 +418,7 @@ test("a conflict inside the batch applies NOTHING: full revert plus a changed-el
   await expect(companyCell(check, "Mercury")).toHaveCount(0);
 });
 
-test("bulk s snoozes the whole selection with a wake date", async ({ page, context }, testInfo) => {
+test("bulk s saves the whole selection for later with a wake date", async ({ page, context }, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "keyboard-only affordance");
   await gotoJobs(page);
 
@@ -426,7 +426,7 @@ test("bulk s snoozes the whole selection with a wake date", async ({ page, conte
   await companyCell(page, "Mercury").click({ modifiers: ["ControlOrMeta"] });
   await page.keyboard.press("s");
 
-  await expect(page.getByText("Snoozed 2 roles")).toBeVisible();
+  await expect(page.getByText("Saved 2 roles for later")).toBeVisible();
   await expect(companyCell(page, "Chime")).toHaveCount(0);
 
   const check = await context.newPage();

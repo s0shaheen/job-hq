@@ -27,6 +27,7 @@
  */
 import type { GapReason, SituationFact } from "./types";
 import { KNOCKOUT_TOPICS, POLICY_TOPICS, type PolicyTopic } from "./policy";
+import { NOT_LISTED } from "@/lib/data/view-models";
 
 /** Which control a topic's situation is edited with. */
 export type TopicField =
@@ -62,7 +63,7 @@ export const TOPIC_SPECS: Record<PolicyTopic, TopicSpec> = {
     label: "Work authorization",
     question: "Which countries can you work in without permission from an employer?",
     field: "countries",
-    help: "A board asks about one country at a time. If the question names a country that is not on your list, the answer is No; if it names none we can resolve, nobody answers it.",
+    help: "A board asks about one country at a time. If the question names a country that is not on your list, the answer is No; if it names a country this app cannot recognise, nobody answers it.",
   },
   visa_sponsorship: {
     label: "Visa sponsorship",
@@ -101,7 +102,7 @@ export const TOPIC_SPECS: Record<PolicyTopic, TopicSpec> = {
     label: "Relocation",
     question: "Are you open to relocating for a role?",
     field: "boolean",
-    help: "A question about relocation ASSISTANCE — whether the company would pay to move you — is a different fact and is left for you.",
+    help: "A question about relocation ASSISTANCE (whether the company would pay to move you) is a different fact and is left for you.",
   },
   current_location: {
     label: "Where you live",
@@ -150,6 +151,14 @@ export const TOPIC_SPECS: Record<PolicyTopic, TopicSpec> = {
 
 const KNOCKOUT_SET: ReadonlySet<string> = new Set(KNOCKOUT_TOPICS);
 
+/**
+ * The `enum` fact's stored tokens.
+ *
+ * Engine values on the wire, never words on screen — named here so the copy
+ * lint reads the sentences below rather than the token they switch on.
+ */
+const DISCLOSURE_NONE = "none";
+
 /** The topic's own name, or the raw string for a topic this build does not know. */
 export function topicLabel(topic: string): string {
   return TOPIC_SPECS[topic as PolicyTopic]?.label ?? topic;
@@ -169,7 +178,9 @@ export function describeFact(fact: SituationFact | null): string {
     case "boolean":
       return fact.value ? "Yes" : "No";
     case "enum":
-      return fact.value === "none" ? "Nothing to disclose" : "Yes, there is something to disclose";
+      return fact.value === DISCLOSURE_NONE
+        ? "Nothing to disclose"
+        : "Yes, there is something to disclose";
     case "text":
       return fact.value;
     case "countries":
@@ -191,7 +202,7 @@ export function describeFact(fact: SituationFact | null): string {
 
 /** What the engine says about where a value came from, in words. */
 export type SourceDescription = {
-  /** "Your saved answer", "Your rule", "Inferred". */
+  /** "Your saved answer", "Your rule", "Likely". */
   what: string;
   /** The rule's topic, when there is one. */
   topic: string | null;
@@ -231,7 +242,7 @@ export function describeSource(source: string): SourceDescription {
     };
   }
   if (source === "inference") {
-    return { what: "Inferred", topic: null, company: null, direction: null };
+    return { what: "Likely", topic: null, company: null, direction: null };
   }
   if (source.startsWith("policy:")) {
     const rest = source.slice("policy:".length);
@@ -250,7 +261,7 @@ export function describeSource(source: string): SourceDescription {
       direction: DIRECTIONS[direction] ?? "direction not established",
     };
   }
-  return { what: source || "Unknown", topic: null, company: null, direction: null };
+  return { what: source || NOT_LISTED, topic: null, company: null, direction: null };
 }
 
 /**
@@ -295,22 +306,22 @@ export const GAP_COPY: Record<GapReason, GapCopy> = {
   },
   "polarity-unknown": {
     title: "The direction is not clear",
-    body: "We recognised the subject and not which way round it is asked. Replaying a stored word here is how a No becomes a Yes, so nothing was.",
+    body: "The subject was read and not which way round it is asked. Replaying a stored word here is how a No becomes a Yes, so nothing was.",
     answerable: true,
   },
   "situation-mismatch": {
     title: "Your rule does not fit this question",
-    body: "The rule exists and holds a different kind of fact than this question needs — or it names a country the question does not.",
+    body: "The rule exists and holds a different kind of fact than this question needs, or it names a country the question does not.",
     answerable: true,
     fix: "situation",
   },
   "option-mismatch": {
     title: "Your answer is not on the menu",
-    body: "The value we would submit is not one of the options this board offers. Pick one of theirs.",
+    body: "The value that would be submitted is not one of the options this board offers. Pick one of theirs.",
     answerable: true,
   },
   "sensitive-unclassified": {
-    title: "Looks like a knockout question",
+    title: "Looks like a deal-breaker question",
     body: "It names something a wrong answer ends an application over, and nothing here read it well enough to answer. Yours to answer.",
     answerable: true,
   },
@@ -319,8 +330,8 @@ export const GAP_COPY: Record<GapReason, GapCopy> = {
     // once comes back on every board wording the question identically, and
     // Greenhouse's EEO block is federal boilerplate, so identical wording is the
     // common case. The behaviour is the design; the sentence was the lie.
-    title: "Self-identification — yours alone",
-    body: "Nothing fills these in and nothing picks “I don't wish to answer” for you. Both are choices, and they are yours. What you choose is saved against this exact question and comes back on any board that asks it in the same words — a decline included. Remove it under Application answers whenever you want.",
+    title: "Self-identification, yours alone",
+    body: "Nothing fills these in and nothing picks \"I don't wish to answer\" for you. Both are choices, and they are yours. What you choose is saved against this exact question and comes back on any board that asks it in the same words, a decline included. Remove it under Application answers whenever you want.",
     answerable: true,
   },
   "free-response": {
@@ -331,7 +342,7 @@ export const GAP_COPY: Record<GapReason, GapCopy> = {
   },
   attachment: {
     title: "A file upload",
-    body: "Prepare does not attach anything. This is why no real board reaches “ready” — every one of them asks for a resume.",
+    body: "Prepare does not attach anything. This is why no real board reaches \"ready\". Every one of them asks for a resume.",
     answerable: false,
   },
   consent: {
@@ -340,7 +351,7 @@ export const GAP_COPY: Record<GapReason, GapCopy> = {
     answerable: false,
   },
   unsupported: {
-    title: "A field we could not read",
+    title: "A field this app could not read",
     body: "The board asked for something in a shape this parser does not know. Nothing was guessed into it.",
     answerable: false,
   },
@@ -402,6 +413,6 @@ export function kindForField(input: {
 export function layerLabel(layer: "constant" | "policy" | "inference" | null): string {
   if (layer === "constant") return "Saved answer";
   if (layer === "policy") return "Rule";
-  if (layer === "inference") return "Inferred";
+  if (layer === "inference") return "Likely";
   return "Not answered";
 }

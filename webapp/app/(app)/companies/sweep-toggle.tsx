@@ -2,11 +2,11 @@
 
 import { Badge } from "@/components/ui/badge";
 import type { CompanyView } from "@/lib/data/view-models";
-import { DASH, sweepText, sweepTone } from "@/lib/grid/company-columns";
+import { ABSENT, sweepText, sweepTone } from "@/lib/grid/company-columns";
 import { cn } from "@/lib/utils";
 
 /**
- * The Sweep-flag cell, as a control rather than a label.
+ * The Watching cell, as a control rather than a label.
  *
  * It exists because `app_set_company_flags` and `setCompanyFlagsAction` had NO
  * caller. A live security-definer endpoint with nothing behind it is a door
@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
  * hourly watch list is a scheduling decision with its own cost and it has no UI
  * story on this surface yet — sending a value for it here would be inventing one.
  *
- * Unapproved rows render the dash, not a disabled control: the SQL refuses the
+ * Unapproved rows render the absence word, not a disabled control: the SQL refuses the
  * write (`review_state <> 'approved'` raises), and offering a switch that always
  * errors is worse than not offering it. Approving is the gesture that turns the
  * flag on, and the review bar is where that lives.
@@ -34,10 +34,10 @@ export default function SweepToggle({
   onToggle: (company: CompanyView, next: boolean) => void;
 }) {
   const text = sweepText(company);
-  if (text === DASH) {
+  if (text === ABSENT) {
     return (
       <span className="truncate text-muted" data-testid="sweep-none">
-        {DASH}
+        {ABSENT}
       </span>
     );
   }
@@ -52,8 +52,8 @@ export default function SweepToggle({
       // The consequence, stated where the click is. The badge alone says "on";
       // this says what "on" currently buys.
       title={
-        `Sweep flag: ${text}. Click to turn it ${next ? "on" : "off"}. ` +
-        `The flag is recorded here; the discovery sweep does not read it yet.`
+        `${text}. Click to turn it ${next ? "on" : "off"}. ` +
+        `Your choice is recorded here; discovery does not read it yet.`
       }
       onClick={() => onToggle(company, next)}
       className={cn(

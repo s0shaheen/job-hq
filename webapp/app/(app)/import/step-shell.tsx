@@ -58,7 +58,7 @@ export function StepShell({
           up a line in the layout. */}
       {pending > 0 ? (
         <p role="status" aria-live="polite" className="px-4 py-1 text-2xs text-muted sm:px-6">
-          Working…
+          Working
         </p>
       ) : null}
       {children}
@@ -100,7 +100,7 @@ export function StepHeader({
         {actions}
       </div>
       <p className="min-w-0 break-words text-xs text-muted">
-        <span className="tabular">Step {step} of 4</span> · {filename}
+        <span className="tabular">Step {step} of 4</span>, {filename}
       </p>
       {detail ? <div className="mt-1 text-xs text-text-2">{detail}</div> : null}
     </header>

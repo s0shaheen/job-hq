@@ -81,8 +81,8 @@ export default function CommitStep({
         step={3}
         detail={
           <>
-            {COMMIT_CHUNK} rows at a time, each batch on its own. Closing this tab stops it where
-            it is — nothing is half-written, and opening this import again carries on from the
+            {COMMIT_CHUNK} rows at a time, each group on its own. Closing this tab stops it where
+            it is. Nothing is half-written, and opening this import again carries on from the
             same place.
           </>
         }
@@ -90,7 +90,7 @@ export default function CommitStep({
 
       <div className="mx-auto max-w-2xl px-4 py-5 sm:px-6">
         <p className="tabular text-sm font-medium text-text" data-testid="commit-progress">
-          {settled.toLocaleString("en-US")} of {total.toLocaleString("en-US")} rows · {percent}%
+          {settled.toLocaleString("en-US")} of {total.toLocaleString("en-US")} rows, {percent}%
         </p>
         <div
           role="progressbar"
@@ -98,10 +98,10 @@ export default function CommitStep({
           aria-valuemax={total}
           aria-valuenow={settled}
           aria-label="Rows imported"
-          className="mt-2 h-2 w-full overflow-hidden rounded-full bg-raised"
+          className="mt-2 h-2 w-full overflow-hidden rounded-sm bg-raised"
         >
           <div
-            className="h-full rounded-full bg-accent transition-[width] duration-200 motion-reduce:transition-none"
+            className="h-full rounded-sm bg-accent transition-[width] duration-200 motion-reduce:transition-none"
             style={{ width: `${percent}%` }}
           />
         </div>

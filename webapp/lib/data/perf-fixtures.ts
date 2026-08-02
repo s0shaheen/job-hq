@@ -92,7 +92,7 @@ const LOCATIONS: [string, string | null, boolean][] = [
   ["Seattle, WA", "Seattle", false],
 ];
 
-const WORK_MODELS = ["Hybrid", "Remote (US)", "Onsite", "Hybrid — 3 days onsite"];
+const WORK_MODELS = ["Hybrid", "Remote (US)", "Onsite", "Hybrid, 3 days onsite"];
 
 /**
  * Every reason token here maps to a profile setting via `reasonSetting()` —

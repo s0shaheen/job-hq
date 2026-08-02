@@ -241,7 +241,7 @@ export function AnswersSurface({ answers: initialAnswers, rules: initialRules }:
             return;
           }
           if (result.kind === "conflict") {
-            toast.warning("Changed on another device — showing the latest.");
+            toast.warning("Changed on another device. Showing the latest.");
             // The value that LOST must not stay on screen under a toast saying
             // somebody else's landed (matrix row 113). A conflict with no row
             // means it was deleted elsewhere, so the revert is the honest answer.
@@ -252,7 +252,7 @@ export function AnswersSurface({ answers: initialAnswers, rules: initialRules }:
           }
           revert();
           if (result.kind === "auth") {
-            toast.error("Couldn't save that — your session expired.", {
+            toast.error("Couldn't save that. Your session expired.", {
               description: "Sign in and try again.",
             });
             return;
@@ -291,7 +291,7 @@ export function AnswersSurface({ answers: initialAnswers, rules: initialRules }:
             return;
           }
           if (result.kind === "auth") {
-            toast.error("Couldn't remove that — your session expired.", {
+            toast.error("Couldn't remove that. Your session expired.", {
               description: "Sign in and try again.",
             });
             return;
@@ -341,7 +341,7 @@ export function AnswersSurface({ answers: initialAnswers, rules: initialRules }:
             return;
           }
           if (result.kind === "conflict") {
-            toast.warning("Changed on another device — showing the latest.");
+            toast.warning("Changed on another device. Showing the latest.");
             if (result.current) {
               const fresh = result.current;
               const rest = answersRef.current.filter(
@@ -352,7 +352,7 @@ export function AnswersSurface({ answers: initialAnswers, rules: initialRules }:
             return;
           }
           if (result.kind === "auth") {
-            toast.error("Couldn't save that — your session expired.", {
+            toast.error("Couldn't save that. Your session expired.", {
               description: "Sign in and try again.",
             });
             return;
@@ -390,7 +390,7 @@ export function AnswersSurface({ answers: initialAnswers, rules: initialRules }:
             return;
           }
           if (result.kind === "auth") {
-            toast.error("Couldn't remove that — your session expired.", {
+            toast.error("Couldn't remove that. Your session expired.", {
               description: "Sign in and try again.",
             });
             return;
@@ -439,7 +439,7 @@ export function AnswersSurface({ answers: initialAnswers, rules: initialRules }:
     >
       {pending > 0 ? (
         <p role="status" aria-live="polite" className="text-xs text-muted">
-          Saving…
+          Saving
         </p>
       ) : null}
 
@@ -449,9 +449,9 @@ export function AnswersSurface({ answers: initialAnswers, rules: initialRules }:
         blurb={
           <>
             These are questions about you, not about a job, so a board asking any of them in
-            any wording gets the same answer. We store what is true and work out the answer
-            when the question is read — which is how one answer covers “do you need
-            sponsorship?” and “can you work without sponsorship?” without being wrong about
+            any wording gets the same answer. Your situation is stored, and the answer is
+            worked out when the question is read. That is how one answer covers "do you need
+            sponsorship?" and "can you work without sponsorship?" without being wrong about
             one of them.
           </>
         }
@@ -482,7 +482,7 @@ export function AnswersSurface({ answers: initialAnswers, rules: initialRules }:
             <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
               The rest of what a form asks
               <span className="ml-1 text-xs font-normal text-muted">
-                — start date, relocation, how you heard about the job
+                start date, relocation, how you heard about the job
               </span>
             </summary>
             <div className="space-y-2 border-t border-border p-2">
@@ -506,8 +506,8 @@ export function AnswersSurface({ answers: initialAnswers, rules: initialRules }:
         blurb={
           <>
             Everything you have typed into a board once. A question worded the same way on
-            another board is filled in from here — punctuation and capitals do not count, so
-            “Are you 18?” and “ARE YOU 18” are one answer. Some of these apply at one company
+            another board is filled in from here. Punctuation and capitals do not count, so
+            "Are you 18?" and "ARE YOU 18" are one answer. Some of these apply at one company
             only, and say so; a rule under Your situation still wins at the company it names.
           </>
         }
@@ -520,7 +520,7 @@ export function AnswersSurface({ answers: initialAnswers, rules: initialRules }:
         title="Company exceptions"
         blurb={
           <>
-            One company where the truth is different — you did work there, somebody there
+            One company where the truth is different: you did work there, somebody there
             referred you. An exception wins over the rule above it, and turning one off puts
             the general rule back rather than leaving the question unanswered.
           </>
@@ -605,7 +605,7 @@ function TopicRow({
             replace it.
           </span>
         ) : stored === null ? (
-          <span className="text-muted">Not set — every board that asks this waits for you.</span>
+          <span className="text-muted">Not set. Every board that asks this waits for you.</span>
         ) : (
           <span className="font-medium">{describeFact(stored)}</span>
         )}
@@ -696,7 +696,7 @@ function AnswerLibrary({
       {atCeiling ? (
         <p className="rounded-md border border-warn bg-surface p-2 text-xs text-text-2" role="status">
           This page reads the first {APPLY_LIBRARY_LIMIT} answers. You are at that number, so
-          anything past it is stored and not read — including when an application is prepared.
+          anything past it is stored and not read, including when an application is prepared.
         </p>
       ) : null}
 
@@ -781,8 +781,8 @@ function AnswerRow({
       </div>
       {machine ? (
         <p className="mt-1 text-xs text-muted">
-          Not used on work authorization, pay, background or self-identification questions —
-          those take an answer only when you wrote it yourself, on that exact question.
+          Not used on work authorization, pay, background or self-identification questions.
+          Those take an answer only when you wrote it yourself, on that exact question.
         </p>
       ) : null}
       {answer.declined ? (
@@ -963,8 +963,8 @@ function AddAnswer({
         </div>
         {collides ? (
           <p className="text-xs text-warn" data-testid="add-answer-collision" role="status">
-            This replaces your saved answer to “{collides.question}”
-            {collides.companyKey === "" ? "" : ` at ${collides.companyKey}`} — punctuation and
+            This replaces your saved answer to "{collides.question}"
+            {collides.companyKey === "" ? "" : ` at ${collides.companyKey}`}. Punctuation and
             capitals do not make a second answer.
           </p>
         ) : null}
@@ -1009,7 +1009,7 @@ function Exceptions({
               <div className="min-w-0">
                 <p className="text-sm">
                   <span className="font-medium">{r.companyKey}</span>
-                  <span className="text-muted"> — {topicLabel(r.topic)}</span>
+                  <span className="text-muted">, {topicLabel(r.topic)}</span>
                 </p>
                 <p className={cn("text-xs", r.enabled ? "text-text-2" : "text-muted line-through")}>
                   {describeFact(r.fact)}

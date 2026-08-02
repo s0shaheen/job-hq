@@ -180,6 +180,9 @@ test("the round-trip option adds the two machine columns, and only when asked", 
 
   await page.getByTestId("export-open").click();
   await page.getByTestId("format-csv").click();
+  await expect(
+    page.getByText("Two ID columns let you re-import this file without creating duplicates"),
+  ).toBeVisible();
   await page.getByTestId("round-trip-toggle").check();
   const rt = await Promise.all([
     page.waitForEvent("download"),

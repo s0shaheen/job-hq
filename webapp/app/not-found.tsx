@@ -4,7 +4,7 @@ import NavLinks from "@/app/(app)/nav-links";
 import { buttonClass } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty";
 
-export const metadata = { title: "Page not found — Job Search HQ" };
+export const metadata = { title: "Page not found" };
 
 /**
  * The app's own 404.
@@ -24,7 +24,7 @@ export default function NotFound() {
                    lg:border-r lg:border-b-0 lg:sticky lg:top-0"
       >
         <div className="hidden items-center justify-between pb-3 lg:block">
-          <span className="px-1 text-sm font-bold">Job Search HQ</span>
+          <span className="px-1 text-sm font-semibold">Job Search HQ</span>
         </div>
         <NavLinks />
       </aside>
@@ -32,11 +32,11 @@ export default function NotFound() {
       <main className="min-w-0 flex-1">
         <EmptyState
           icon={<SearchX aria-hidden="true" className="size-8" />}
-          title="There’s no page at this address"
-          body="The link may be stale, or the address mistyped. Nothing was lost — everything the app can do is in the navigation."
+          title="There's no page at this address"
+          body="The link may be stale, or the address mistyped. Nothing was lost. Everything the app can do is in the navigation."
           action={
             <Link href="/queue" className={buttonClass({ variant: "primary" })}>
-              Back to triage
+              Go to Today
             </Link>
           }
         />

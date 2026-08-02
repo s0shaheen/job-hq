@@ -58,6 +58,17 @@ import { useWrites } from "./use-writes";
 /** A row's resting height, before the measurer gets a real one. */
 const ROW_PX = 68;
 
+/**
+ * Does this row carry a conflict at all.
+ *
+ * A named function rather than an inline `!== "none"` in the JSX: the copy lint
+ * reads every string literal inside a JSX expression as words somebody will see,
+ * and `conflictState`'s values are engine vocabulary that never reaches a screen.
+ */
+function isConflicted(row: PreviewRow) {
+  return row.conflictState !== "none";
+}
+
 /** Buckets in the order a person should read them: additions, then the caveats. */
 const BUCKET_ORDER: ImportMatchKind[] = [
   "new",
@@ -131,7 +142,7 @@ export default function PreviewStep({
       // Reverted, never left showing a state the server does not hold (matrix
       // row 8: a failed write must not leave a phantom on screen).
       patch(row.rowNumber, { included: row.included });
-      toast.error("That did not save — the server did not answer.", {
+      toast.error("That did not save. The server did not answer.", {
         action: { label: "Retry", onClick: () => void toggleIncluded(row) },
       });
       return;
@@ -215,10 +226,10 @@ export default function PreviewStep({
       <div className="min-w-0 px-4 py-4 sm:px-6">
         {roundTrip ? (
           <p className="mb-3 rounded-lg border border-border bg-raised p-3 text-xs text-text-2">
-            <strong className="font-semibold text-text">This file came from this app.</strong> Rows
-            are matched by the <code className="text-2xs">hq_id</code> column, so your Excel edits go
-            back to the rows they came from. Everything the system owns — company, title, URL, tags —
-            is compared and reported, never overwritten.
+            This file came from this app. Rows
+            are matched by the tracking columns the export added, so your Excel edits go back to the
+            rows they came from. Everything the system owns (company, title, URL, tags) is compared
+            and reported, never overwritten.
           </p>
         ) : null}
 
@@ -272,6 +283,7 @@ export default function PreviewStep({
             {virtualizer.getVirtualItems().map((item) => {
               const row = rows[item.index];
               if (!row) return null;
+              const conflicted = isConflicted(row);
               return (
                 <div
                   key={row.rowNumber}
@@ -283,7 +295,10 @@ export default function PreviewStep({
                   style={{ position: "absolute", top: item.start, left: 0, right: 0 }}
                   className={cn(
                     "min-w-0 border-b border-border px-3 py-2",
-                    row.included ? "" : "opacity-60",
+                    // Exclusion is a row state, shown by the checkbox and a
+                    // neutral surface change. Opacity would also dim every word
+                    // inside the row, which the design explicitly forbids.
+                    row.included ? "" : "bg-raised",
                   )}
                   data-testid={`preview-row-${row.rowNumber}`}
                 >
@@ -297,7 +312,7 @@ export default function PreviewStep({
                       </p>
                       <p className="min-w-0 break-words text-2xs text-text-2">
                         {row.title || <span className="text-warn">no job title</span>}
-                        {row.status ? <> · {row.status}</> : null}
+                        {row.status ? <>, {row.status}</> : null}
                       </p>
                       {row.notice ? (
                         <p className="mt-0.5 min-w-0 break-words text-2xs text-muted">
@@ -320,7 +335,7 @@ export default function PreviewStep({
                       >
                         {matchKindLabel(row.matchKind)}
                       </Badge>
-                      {row.conflictState !== "none" ? (
+                      {conflicted ? (
                         <ConflictDialog
                           batchId={batchId}
                           row={row}
@@ -355,7 +370,7 @@ export default function PreviewStep({
             onClick={commit}
             data-testid="preview-commit"
           >
-            {busy ? "Importing…" : `Import ${included.length.toLocaleString("en-US")}`}
+            {busy ? "Importing" : `Import ${included.length.toLocaleString("en-US")}`}
           </Button>
           {/* The reason, out loud, next to the disabled button. */}
           {unresolved.length > 0 ? (
@@ -363,7 +378,7 @@ export default function PreviewStep({
               {unresolved.length === 1
                 ? "1 row still needs an answer"
                 : `${unresolved.length} rows still need an answer`}{" "}
-              before anything can be imported — importing now would overwrite an edit somebody else
+              before anything can be imported. Importing now would overwrite an edit somebody else
               made.
             </p>
           ) : nothingToDo ? (
@@ -417,7 +432,7 @@ function ConflictDialog({
       );
     } catch {
       setSaving(false);
-      toast.error("That answer did not save — the server did not answer.", {
+      toast.error("That answer did not save. The server did not answer.", {
         action: { label: "Retry", onClick: () => void save() },
       });
       return;
@@ -450,7 +465,7 @@ function ConflictDialog({
       </DialogTrigger>
       <DialogContent
         title={`Row ${row.rowNumber} changed on both sides`}
-        description={`${row.company || "This row"} — pick which value wins for each field. Everything you leave as "what it says now" is left exactly as it is.`}
+        description={`${row.company || "This row"}: pick which value wins for each field. Everything you leave as "what it says now" is left exactly as it is.`}
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>
@@ -464,7 +479,7 @@ function ConflictDialog({
               onClick={() => void save()}
               data-testid={`resolve-save-${row.rowNumber}`}
             >
-              {saving ? "Saving…" : "Save answers"}
+              {saving ? "Saving" : "Save answers"}
             </Button>
           </>
         }

@@ -47,6 +47,18 @@ for (const c of corpus.cases) {
 const NOT_A_SETTING = new Set(["", "awaiting-tags"]);
 
 describe("disposition reason closed set", () => {
+  it("renders every section 5 example with the specified sentence", () => {
+    expect(explainReason("geo:India")).toBe("Location is India, outside your area");
+    expect(explainReason("yoe:6>4")).toBe("Asks for 6+ years; your profile says 4");
+    expect(explainReason("comp:<120k")).toBe("Pay is below your $120k minimum");
+    expect(explainReason("work_model:onsite")).toBe(
+      "On-site only; you excluded on-site",
+    );
+    expect(explainReason("title_exclude:sales")).toBe(
+      'Title matches your excluded term "sales"',
+    );
+  });
+
   it("ran the corpus and produced reasons", () => {
     // Guards every loop below from passing over an empty map.
     expect(produced.size).toBeGreaterThanOrEqual(corpus.kinds.length);
@@ -79,11 +91,19 @@ describe("disposition reason closed set", () => {
     }
   });
 
-  it("an unknown kind still renders rather than crashing", () => {
+  it("an unknown kind renders a sentence, never the raw token", () => {
     // The default branch is correct BEHAVIOUR — the test above only says no
     // kind in the closed set may need it. A reason from a future engine must
     // still put something on screen.
-    expect(explainReason("brand-new-gate:whatever")).toBe("brand-new-gate:whatever");
+    //
+    // MUTATION REASON: restore `default: return r` and this fails. The old
+    // branch printed the engine token verbatim ("brand-new-gate:whatever"),
+    // which the copy spec bans outright: a reader learns nothing from it and
+    // it reads as a bug. The token stays on `dispositionReason` for debugging.
+    expect(explainReason("brand-new-gate:whatever")).toBe(
+      "Filtered out by your search settings",
+    );
+    expect(explainReason("brand-new-gate:whatever")).not.toContain("brand-new-gate");
     expect(reasonSetting("brand-new-gate:whatever")).toBeNull();
   });
 });

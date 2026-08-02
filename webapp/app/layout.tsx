@@ -4,7 +4,11 @@ import { displayAttributes } from "@/lib/display/prefs";
 import { shellDisplayPrefs } from "@/lib/display/server";
 
 export const metadata: Metadata = {
-  title: "Job Search HQ",
+  // A template, so no page has to glue the product name onto its own title
+  // with a separator glyph. Every child sets a plain name ("Today"); the
+  // comma is the one separator the copy spec allows between adjacent pieces
+  // of text.
+  title: { default: "Job Search HQ", template: "%s, Job Search HQ" },
   description: "The human surface for the family job-search system",
   robots: { index: false, follow: false },
 };

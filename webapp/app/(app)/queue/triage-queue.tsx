@@ -28,9 +28,9 @@ const isoDaysFromNow = (days: number) => localIsoDaysFromNow(days);
 /** Flags the exact gaps that caused abandoned shortlists, without auto-rejecting. */
 function mismatchFor(job: JobView, yoeMax: number | null): string | null {
   if (yoeMax !== null && job.minYoe !== null && job.minYoe > yoeMax) {
-    return `Asks for ${job.minYoe}+ years — ${job.minYoe - yoeMax} above your limit of ${yoeMax}.`;
+    return `Asks for ${job.minYoe}+ years; your limit is ${yoeMax}.`;
   }
-  if (job.compRange === null) return "Compensation is not listed — worth checking before you invest time.";
+  if (job.compRange === null) return "Pay is not listed. Worth checking before you invest time.";
   return null;
 }
 
@@ -118,11 +118,11 @@ export default function TriageQueue({
     // user it was undone while the server kept the decision — the screen and
     // the database disagreeing, with nothing on screen admitting it.
     if (undo.kind === "auth") {
-      toast.error("Couldn't undo — your session expired.", {
+      toast.error("Couldn't undo. Your session expired.", {
         description: "Sign in and try again.",
       });
     } else if (undo.kind === "conflict") {
-      toast.warning("Couldn't undo — this was changed somewhere else.");
+      toast.warning("Couldn't undo. This was changed somewhere else.");
     } else {
       toast.error("Couldn't undo that.", { description: undo.message });
     }
@@ -159,8 +159,8 @@ export default function TriageQueue({
         toast(labelFor(triage, job), {
           description:
             reason === "auth"
-              ? "Saved on this device — sign in to apply it."
-              : "Saved on this device — it'll sync when you're back online.",
+              ? "Saved on this device. Sign in to apply it."
+              : "Saved on this device. It'll sync when you're back online.",
           action: {
             label: "Undo",
             onClick: () => {
@@ -247,7 +247,7 @@ export default function TriageQueue({
         // made that a lie and left the card unable to accept another gesture.
         setQueue((q) => [result.current, ...q]);
         setDone((d) => Math.max(0, d - 1));
-        toast.warning("This was changed somewhere else — showing the latest.");
+        toast.warning("This was changed somewhere else. Showing the latest.");
       } else {
         setQueue((q) => [job, ...q]);
         setDone((d) => Math.max(0, d - 1));
@@ -315,8 +315,8 @@ export default function TriageQueue({
       return (
         <EmptyState
           icon={<Check aria-hidden="true" className="size-8" />}
-          title={`Triaged all ${total} — nice.`}
-          body="The queue is clear. New roles arrive with the next sweep."
+          title="You are done for today."
+          body={`Decided all ${total}. New roles arrive with the next scan.`}
         />
       );
     }
@@ -341,7 +341,7 @@ export default function TriageQueue({
       <EmptyState
         icon={<Inbox aria-hidden="true" className="size-8" />}
         title="Nothing found yet"
-        body="Roles land here as the sweeps find them, twice a day. Nothing needs you right now."
+        body="Roles land here as the scans find them, twice a day. Nothing needs you right now."
       />
     );
   }
@@ -391,19 +391,30 @@ export default function TriageQueue({
         </Button>
       </div>
 
-      <p className="mt-4 text-2xs text-muted">
-        <Kbd className="ml-0">j</Kbd> <Kbd>k</Kbd> move · <Kbd>i</Kbd> interested ·{" "}
-        <Kbd>x</Kbd> pass · <Kbd>s</Kbd> later · <Kbd>o</Kbd> open. Every decision can be
-        undone for {UNDO_MS / 1000} seconds.
-      </p>
+      {/* One shortcut per line, no interpunct. The glyph used as universal glue
+          between fragments is the design checklist item this footer was the
+          clearest instance of; a list is what a list should be. */}
+      <ul className="mt-4 space-y-0.5 text-2xs text-muted">
+        <li>
+          <Kbd className="ml-0">j</Kbd> <Kbd>k</Kbd> move
+        </li>
+        <li>
+          <Kbd className="ml-0">i</Kbd> interested, <Kbd>x</Kbd> pass, <Kbd>s</Kbd> later
+        </li>
+        <li>
+          <Kbd className="ml-0">o</Kbd> open. Every decision can be undone for{" "}
+          {UNDO_MS / 1000} seconds.
+        </li>
+      </ul>
     </div>
   );
 }
 
 function labelFor(triage: Triage, job: JobView): string {
-  const who = `${job.company} — ${job.title}`;
-  if (triage === "interested") return `Saved ${who}`;
-  if (triage === "dismissed") return `Passed on ${who}`;
-  if (triage === "snoozed") return `Snoozed ${who}`;
+  const who = `${job.company}, ${job.title}`;
+  // The toast repeats the button's verb, in the past tense (copy spec 6).
+  if (triage === "interested") return `Marked interested: ${who}`;
+  if (triage === "dismissed") return `Passed: ${who}`;
+  if (triage === "snoozed") return `Saved for later: ${who}`;
   return who;
 }

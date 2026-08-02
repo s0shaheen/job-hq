@@ -3,7 +3,7 @@ import { getDataSource } from "@/lib/data/get-source";
 import { bindingConstraint } from "@/lib/data/view-models";
 import TriageQueue from "./triage-queue";
 
-export const metadata = { title: "Triage — Job Search HQ" };
+export const metadata = { title: "Today" };
 export const dynamic = "force-dynamic";
 
 export default async function QueuePage() {
@@ -28,11 +28,11 @@ export default async function QueuePage() {
           non-technical large-text user this app is for. */}
       <header className="border-b border-border px-4 py-3 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          <h1 className="min-w-0 break-words text-lg font-semibold">Today&rsquo;s queue</h1>
+          <h1 className="min-w-0 break-words text-lg font-semibold">Today's queue</h1>
           <ExportDialog dataset="jobs" />
         </div>
         <p className="text-xs text-muted">
-          Roles that match your search and haven&rsquo;t been decided yet.
+          Roles that match your search and haven't been decided yet.
         </p>
       </header>
       <TriageQueue initial={rows} yoeMax={4} constraint={constraint} />

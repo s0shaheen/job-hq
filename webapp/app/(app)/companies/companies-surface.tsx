@@ -51,7 +51,7 @@ function verbLabel(state: ReviewState, rows: CompanyView[]): string {
       ? rows[0].name.trim() || rows[0].slug || "1 company"
       : `${rows.length} companies`;
   if (state === "approved") return `Added ${who} to your universe`;
-  if (state === "dismissed") return `Dismissed ${who}`;
+  if (state === "dismissed") return `Passed on ${who}`;
   return `Moved ${who} back to review`;
 }
 
@@ -142,7 +142,7 @@ export default function CompaniesSurface({ rows }: { rows: CompanyView[] }) {
             expectedUpdatedAt: g.written.map((c) => c.updatedAt),
           });
         } catch {
-          toast.error("Couldn't undo — the server didn't answer.", {
+          toast.error("Couldn't undo. The server didn't answer.", {
             description: "Reload to see where the decision landed.",
           });
           continue;
@@ -152,11 +152,11 @@ export default function CompaniesSurface({ rows }: { rows: CompanyView[] }) {
           continue;
         }
         if (res.kind === "auth") {
-          toast.error("Couldn't undo — your session expired.", {
+          toast.error("Couldn't undo. Your session expired.", {
             description: "Sign in and try again.",
           });
         } else if (res.kind === "conflict") {
-          toast.warning("Couldn't undo — this was changed somewhere else.");
+          toast.warning("Couldn't undo. This was changed somewhere else.");
           router.refresh();
         } else {
           toast.error("Couldn't undo that.", { description: res.message });
@@ -203,7 +203,7 @@ export default function CompaniesSurface({ rows }: { rows: CompanyView[] }) {
         restorePatches(patchSnapshot);
         busyRef.current = false;
         setBusy(false);
-        toast.error("Couldn't save that — you may be offline.", {
+        toast.error("Couldn't save that. You may be offline.", {
           description: "Nothing was changed. Try again when you're back.",
         });
         return;
@@ -219,8 +219,8 @@ export default function CompaniesSurface({ rows }: { rows: CompanyView[] }) {
         setLastBatch({ written, priors });
         clearSelection();
         // What the write ACTUALLY did. The first version of this copy promised
-        // "the next sweep will pull jobs from these" and "discovery won't propose
-        // these again" — neither of which is wired: the sweep is
+        // "the next scan will pull jobs from these" and "discovery won't propose
+        // these again" — neither of which is wired: discovery is
         // `monitor/run.py`, it reads the Companies tab, and nothing on the Python
         // side reads `review_state` or `monitor` out of this table yet. A toast
         // that describes a consequence the system does not produce is the kind of
@@ -228,7 +228,7 @@ export default function CompaniesSurface({ rows }: { rows: CompanyView[] }) {
         toast(verbLabel(state, targets), {
           description:
             state === "approved"
-              ? "Marked for the sweep. Wiring the sweep to honour it comes later."
+              ? "Recorded here. Discovery honouring it comes later."
               : "Recorded, so it stays out of the review pile.",
           action: { label: "Undo", onClick: () => void undoBatch(written, priors) },
           duration: UNDO_MS,
@@ -241,12 +241,12 @@ export default function CompaniesSurface({ rows }: { rows: CompanyView[] }) {
       // selection — see the module comment.
       restorePatches(patchSnapshot);
       if (result.kind === "conflict") {
-        toast.warning("Changed on another device — nothing was applied. Showing the latest.");
+        toast.warning("Changed on another device. Nothing was applied; showing the latest.");
         router.refresh();
         return;
       }
       if (result.kind === "auth") {
-        toast.error("Couldn't save that — your session expired.", {
+        toast.error("Couldn't save that. Your session expired.", {
           description: "Sign in and try again.",
         });
         return;
@@ -292,7 +292,7 @@ export default function CompaniesSurface({ rows }: { rows: CompanyView[] }) {
         restorePatches([[company.key, before]]);
         busyRef.current = false;
         setBusy(false);
-        toast.error("Couldn't change that — you may be offline.", {
+        toast.error("Couldn't change that. You may be offline.", {
           description: "Nothing was changed. Try again when you're back.",
         });
         return;
@@ -310,12 +310,12 @@ export default function CompaniesSurface({ rows }: { rows: CompanyView[] }) {
         // read: a revert to the captured value would put the screen back to a
         // state the store has already moved past.
         patchRows([res.current]);
-        toast.warning("Changed on another device — showing the latest.");
+        toast.warning("Changed on another device. Showing the latest.");
         return;
       }
       restorePatches([[company.key, before]]);
       if (res.kind === "auth") {
-        toast.error("Couldn't change that — your session expired.", {
+        toast.error("Couldn't change that. Your session expired.", {
           description: "Sign in and try again.",
         });
         return;

@@ -260,7 +260,7 @@ export function WarmIntroCell(props: WarmIntroCellProps) {
         if (pinned.length > 0) setPins((prev) => mergePins(prev, pinned));
         toast.error(
           result.kind === "auth"
-            ? "Your session expired — sign in again."
+            ? "Your session expired. Sign in again."
             : result.message || "That didn't work.",
         );
         return false;
@@ -299,7 +299,7 @@ export function WarmIntroCell(props: WarmIntroCellProps) {
       ok: false,
       error:
         result.kind === "auth"
-          ? "Your session expired — sign in again."
+          ? "Your session expired. Sign in again."
           : result.message || "That didn't work.",
     };
   }
@@ -313,7 +313,7 @@ export function WarmIntroCell(props: WarmIntroCellProps) {
       setPins(previous);
       toast.error(
         result.kind === "auth"
-          ? "Your session expired — sign in again."
+          ? "Your session expired. Sign in again."
           : result.message || "Could not remove the pin.",
       );
     }
@@ -533,7 +533,7 @@ function RunningPanel({ company, onCancel }: { company: string; onCancel: () => 
         className="flex min-w-0 items-center gap-1.5 text-xs text-text-2"
       >
         <Loader2 aria-hidden="true" className="size-3.5 shrink-0 animate-spin text-accent" />
-        <span>Looking…</span>
+        <span>Looking for warm paths</span>
       </div>
       <button
         type="button"
@@ -637,7 +637,7 @@ function ResultsPanel({
           disabled={chosen.length === 0 || pinning}
           onClick={pinSelected}
         >
-          {pinning ? "Pinning…" : `Pin selected (${chosen.length})`}
+          {pinning ? "Pinning" : `Pin selected (${chosen.length})`}
         </Button>
       </div>
 
@@ -761,7 +761,7 @@ function FailedPanel({
   return (
     <div data-testid="warm-intro-failed">
       <div className="flex items-start gap-2">
-        <p className="min-w-0 text-xs text-text-2">That search didn&rsquo;t complete.</p>
+        <p className="min-w-0 text-xs text-text-2">That search did not complete.</p>
         <button
           type="button"
           onClick={onClose}
@@ -824,7 +824,7 @@ function AddSomeone({
           data-testid="warm-intro-add"
           disabled={busy || text.trim() === ""}
         >
-          {busy ? "Adding…" : "Add"}
+          {busy ? "Adding" : "Add"}
         </Button>
       </div>
       {error ? (

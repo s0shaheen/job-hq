@@ -32,13 +32,13 @@ test("a triage decision is still gone after a reload", async ({ page, context })
   // The store was a module-scope Map, which Next duplicates across the page,
   // server-action and route-handler bundles. The write was acknowledged into a
   // copy nothing else read, so the card came back on the next page load — with
-  // a "Saved …" toast already shown for it.
+  // a success toast already shown for it.
   await setup(page, context);
   await gotoQueue(page);
   const first = await page.locator("article h3").first().innerText();
 
   await page.getByTestId("interested").click();
-  await expect(page.getByText(/^Saved /)).toBeVisible();
+  await expect(page.getByText(/^Marked interested:/)).toBeVisible();
   await expect(page.locator("article h3").first()).not.toHaveText(first);
 
   await page.reload();
@@ -54,7 +54,7 @@ test("an interested decision reaches the pipeline", async ({ page, context }) =>
   const company = await page.locator("article").first().locator("h3").innerText();
 
   await page.getByTestId("interested").click();
-  await expect(page.getByText(/^Saved /)).toBeVisible();
+  await expect(page.getByText(/^Marked interested:/)).toBeVisible();
 
   await page.goto("/pipeline");
   // `getByTestId("pipeline")`, not `getByRole("table")`: the pipeline became a
@@ -81,7 +81,7 @@ test("the export count matches the screen after triaging", async ({ page, contex
   await page.keyboard.press("Escape");
 
   await page.getByTestId("pass").click();
-  await expect(page.getByText(/^Passed on /)).toBeVisible();
+  await expect(page.getByText(/^Passed:/)).toBeVisible();
 
   await page.getByTestId("export-open").click();
   await expect(button).toHaveText(new RegExp(`Download ${before - 1} rows?`));
@@ -107,12 +107,12 @@ test("triage, undo, then decide again — the card does not lock up", async ({ p
   const first = await page.locator("article h3").first().innerText();
 
   await page.getByTestId("interested").click();
-  await expect(page.getByText(/^Saved /)).toBeVisible();
+  await expect(page.getByText(/^Marked interested:/)).toBeVisible();
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.locator("article h3").first()).toHaveText(first);
 
   await page.getByTestId("pass").click();
-  await expect(page.getByText(/^Passed on /)).toBeVisible();
+  await expect(page.getByText(/^Passed:/)).toBeVisible();
   // The lie the old code told.
   await expect(page.getByText(/changed somewhere else/)).toHaveCount(0);
   await expect(page.locator("article h3").first()).not.toHaveText(first);

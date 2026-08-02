@@ -4,7 +4,7 @@ import { getDataSource } from "@/lib/data/get-source";
 import { companyNameKey } from "@/lib/data/view-models";
 import ConnectionsSurface from "./connections-surface";
 
-export const metadata = { title: "Connections — Job Search HQ" };
+export const metadata = { title: "Connections" };
 export const dynamic = "force-dynamic";
 
 /**

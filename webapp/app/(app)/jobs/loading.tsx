@@ -19,7 +19,7 @@ export default function JobsLoading() {
       aria-live="polite"
       className="flex h-dvh min-w-0 flex-col"
     >
-      <span className="sr-only">Loading postings…</span>
+      <span className="sr-only">Loading postings</span>
 
       {/* Mirrors page.tsx's header: text-lg title (24px line box) over a
           text-xs subtitle (16px). */}

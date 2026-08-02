@@ -78,6 +78,10 @@ test.describe("the Warm cell on /jobs", () => {
 
     await expect(warmChipOn(page, "Ramp")).toHaveText("2 1st-degree");
     await expect(warmChipOn(page, "Ramp")).toHaveAttribute("data-warm-first-degree", "2");
+    await expect(warmChipOn(page, "Ramp")).toHaveAttribute(
+      "aria-label",
+      "You know someone here: Ada Okonkwo, Bo Lindqvist",
+    );
     // Databricks HAS a LinkedIn id and no connections: links, but nobody you
     // know. The third state (no id at all) is asserted on its own below.
     await expect(warmChipOn(page, "Databricks")).toHaveText("Search");

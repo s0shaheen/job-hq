@@ -25,9 +25,9 @@ export default function RouteError({
 
   return (
     <div className="mx-auto max-w-md px-6 py-16 text-center">
-      <h2 className="text-lg font-semibold">This page didn&rsquo;t load</h2>
+      <h2 className="text-lg font-semibold">This page didn't load</h2>
       <p className="mt-1.5 text-sm text-muted">
-        Something went wrong on our side, not yours. Nothing you&rsquo;ve saved is affected.
+        Something went wrong on our side, not yours. Nothing you've saved is affected.
       </p>
       {error.digest ? (
         <p className="mt-2 font-mono text-2xs text-muted">Reference: {error.digest}</p>
@@ -37,7 +37,7 @@ export default function RouteError({
           Try again
         </Button>
         <Button variant="secondary" onClick={() => (window.location.href = "/queue")}>
-          Back to triage
+          Go to Today
         </Button>
       </div>
     </div>

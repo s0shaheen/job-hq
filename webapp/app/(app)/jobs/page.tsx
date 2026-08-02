@@ -7,7 +7,7 @@ import { buildWarmContext, type WarmContext } from "@/lib/referral/match";
 import { buildWarmIntroContext, type WarmIntroContext } from "@/lib/warm/intro-context";
 import JobsGrid from "./jobs-grid";
 
-export const metadata = { title: "Jobs — Job Search HQ" };
+export const metadata = { title: "Jobs" };
 export const dynamic = "force-dynamic";
 
 /**
@@ -94,7 +94,7 @@ export default async function JobsPage({
       <header className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
         <h1 className="min-w-0 break-words text-lg font-semibold">Jobs</h1>
         <p className="text-xs text-muted">
-          Every posting the sweeps have found, in one table.
+          Every posting the scans have found, in one table.
         </p>
       </header>
       <JobsGrid rows={rows} now={now} views={views} warm={warm} warmIntro={warmIntro} />

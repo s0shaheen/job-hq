@@ -173,7 +173,7 @@ test.describe("running a search", () => {
 
     const running = page.getByTestId("warm-intro-running");
     await expect(running).toBeVisible();
-    await expect(running).toContainText("Looking…");
+    await expect(running).toContainText("Looking for warm paths");
     await expect(running).toHaveAttribute(
       "title",
       "Looking for people you may know at Databricks",

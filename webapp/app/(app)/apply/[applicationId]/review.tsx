@@ -29,7 +29,7 @@ import type { FormField, StagedApplication, StagedField } from "@/lib/apply/type
  *   1. **Never fill a gap on the user's behalf.** Every gap control opens with
  *      nothing selected. There is no "accept all", and there is deliberately no
  *      affordance that could reach a knockout question in bulk.
- *   2. **Never pick “I don't wish to answer”.** It is OFFERED, on the
+ *   2. **Never pick "I don't wish to answer".** It is OFFERED, on the
  *      self-identification questions that carry it, because declining is a
  *      choice a person makes. Nothing here makes it for them — and when they DO
  *      make it, it is saved as a refusal (`declined`) rather than as the option's
@@ -141,12 +141,12 @@ export function ReviewSurface({ staged, company, title, boardUrl }: Props) {
             return;
           }
           if (result.kind === "conflict") {
-            toast.warning("You answered this on another device — showing the latest.");
+            toast.warning("You answered this on another device. Showing the latest.");
             router.refresh();
             return;
           }
           if (result.kind === "auth") {
-            toast.error("Couldn't save that — your session expired.", {
+            toast.error("Couldn't save that. Your session expired.", {
               description: "Sign in and try again.",
             });
             return;
@@ -192,7 +192,7 @@ export function ReviewSurface({ staged, company, title, boardUrl }: Props) {
     >
       {pending > 0 ? (
         <p role="status" aria-live="polite" className="text-xs text-muted">
-          Saving…
+          Saving
         </p>
       ) : null}
 
@@ -209,8 +209,8 @@ export function ReviewSurface({ staged, company, title, boardUrl }: Props) {
           {gaps.length > 0 && company.trim() !== "" ? (
             <>
               {" "}
-              An answer you type is saved for every board that asks it in the same words —
-              tick “Only at {company}” to keep it here instead.
+              An answer you type is saved for every board that asks it in the same words.
+              Tick "Only at {company}" to keep it here instead.
             </>
           ) : null}
         </p>
@@ -230,7 +230,7 @@ export function ReviewSurface({ staged, company, title, boardUrl }: Props) {
       <section className="rounded-lg border border-border bg-surface p-4">
         <h2 className="text-sm font-semibold">{filled.length} filled in</h2>
         <p className="mt-1 text-sm text-muted">
-          Where each answer comes from, including which way round we read the question.
+          Where each answer comes from, including which way round the question was read.
         </p>
         <ul className="mt-3 divide-y divide-border" data-testid="filled-list">
           {filled.map((f) => (
@@ -240,7 +240,7 @@ export function ReviewSurface({ staged, company, title, boardUrl }: Props) {
       </section>
 
       <p className="text-xs text-muted">
-        {company} — {title}.{" "}
+        {company}, {title}.{" "}
         {/* A link with no URL is a link back to this page, which is what
             `href=""` renders as — reachable whenever the payload carries no
             `absolute_url` and the row has none either. Plain text instead. */}
@@ -295,7 +295,7 @@ function Readiness({
           {c.answered} of {c.total} answered
         </h2>
         <span className="text-xs text-muted">
-          {c.needsReview > 0 ? `${c.needsReview} suggested · ` : ""}
+          {c.needsReview > 0 ? `${c.needsReview} suggested, ` : ""}
           {c.gaps} unanswered
           {c.blockingGaps > 0 ? ` (${c.blockingGaps} required)` : ""}
         </span>
@@ -304,9 +304,9 @@ function Readiness({
       <p className="mt-2 text-sm text-text-2">
         {staged.readiness === "ready" ? (
           <>
-            Every field here came from something you wrote or a rule you set — no guesses and
-            nothing to draft. That is an opinion about this form, <strong>not permission to
-            send it</strong>: nothing in this app submits an application, and the approve-and-go
+            Every field here came from something you wrote or a rule you set. No guesses and
+            nothing to draft. That is an opinion about this form, not permission to
+            send it: nothing in this app submits an application, and the approve-and-go
             step is not built.
           </>
         ) : staged.readiness === "blocked" ? (
@@ -325,7 +325,7 @@ function Readiness({
       {hasAttachmentGap ? (
         <p className="mt-2 text-xs text-warn" data-testid="attachment-note">
           This form asks for a résumé and nothing here attaches one. That is why no real
-          Greenhouse posting reaches “ready” yet — every one of them asks — and excusing the
+          Greenhouse posting reaches "ready" yet. Every one of them asks, and excusing the
           file from the count would buy a green card that cannot be submitted.
         </p>
       ) : null}
@@ -526,7 +526,7 @@ function GapCard({
                   of the surface says a thing once, at the top. */}
               <span>
                 Only at {company}
-                {scoped ? " — usually different from one company to the next, so it starts here" : ""}
+                {scoped ? ", usually different from one company to the next, so it starts here" : ""}
               </span>
             </label>
           ) : null}
@@ -575,14 +575,14 @@ function FilledRow({ field, source: formField }: { field: StagedField; source?: 
         {shown}
       </p>
       <p className="text-2xs text-muted" data-testid={`field-${field.name}-source`}>
-        {submits ? `submits as ${submits} · ` : ""}
+        {submits ? `submits as ${submits}, ` : ""}
         {source.what}
-        {source.topic ? ` · ${topicLabel(source.topic)}` : ""}
-        {source.company ? ` · only at ${source.company}` : ""}
+        {source.topic ? `, ${topicLabel(source.topic)}` : ""}
+        {source.company ? `, only at ${source.company}` : ""}
         {/* The DIRECTION, never omitted. "We read this as the opposite of your
             rule" is the half a person needs to catch a misread question. */}
-        {source.direction ? ` · ${source.direction}` : ""}
-        {field.citation ? ` · ${field.citation}` : ""}
+        {source.direction ? `, ${source.direction}` : ""}
+        {field.citation ? `, ${field.citation}` : ""}
       </p>
     </li>
   );

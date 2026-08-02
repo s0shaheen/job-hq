@@ -8,7 +8,7 @@ import { importProgress, isUndoable, type ImportBatchView } from "@/lib/import/v
 import { stateCopy } from "./fields";
 import UploadPanel from "./upload-panel";
 
-export const metadata = { title: "Import — Job Search HQ" };
+export const metadata = { title: "Import" };
 export const dynamic = "force-dynamic";
 
 /**
@@ -31,7 +31,7 @@ export default async function ImportLandingPage() {
           <h1 className="min-w-0 break-words text-lg font-semibold">Import</h1>
         </div>
         <p className="text-xs text-muted">
-          Bring a spreadsheet of applications in — yours, or one somebody else keeps for you.
+          Bring a spreadsheet of applications in, yours or one somebody else keeps for you.
         </p>
       </header>
 
@@ -47,8 +47,8 @@ export default async function ImportLandingPage() {
               data-testid="import-empty"
               className="mt-1.5 rounded-lg border border-border border-dashed bg-surface px-3 py-4 text-xs text-muted"
             >
-              Nothing has been imported on this account yet. Choose a .xlsx or .csv above — or
-              paste the rows straight out of a spreadsheet — and the next screen asks which column
+              Nothing has been imported on this account yet. Choose a .xlsx or .csv above, or
+              paste the rows straight out of a spreadsheet, and the next screen asks which column
               is which. Nothing is written until you have seen what every row would do.
             </p>
           ) : (
@@ -106,12 +106,12 @@ function BatchRow({ batch }: { batch: ImportBatchView }) {
               against their own sheet deserves to know which number this is. */}
           {total.toLocaleString("en-US")} {total === 1 ? "row" : "rows"} in the file
           {batch.committedCount > 0 && batch.state !== "committed"
-            ? ` · ${Math.round(progress * 100)}% settled`
+            ? `, ${Math.round(progress * 100)}% settled`
             : ""}
         </span>
-        {batch.createdAt ? <> · {fmtStamp(batch.createdAt)}</> : null}
-        {copy.hint ? <> · {copy.hint}</> : null}
-        {isUndoable(batch) ? <> · can still be undone</> : null}
+        {batch.createdAt ? <>, {fmtStamp(batch.createdAt)}</> : null}
+        {copy.hint ? <>, {copy.hint}</> : null}
+        {isUndoable(batch) ? <>, can still be undone</> : null}
       </p>
     </Link>
   );

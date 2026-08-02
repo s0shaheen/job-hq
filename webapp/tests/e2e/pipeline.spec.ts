@@ -168,7 +168,7 @@ test("a custom status is accepted and survives a reload", async ({ page }) => {
   await gotoPipeline(page);
 
   await page.getByTestId(`status-trigger-${ANTHROPIC}`).click();
-  await page.getByRole("option", { name: "Custom…" }).click();
+  await page.getByRole("option", { name: "Custom" }).click();
   const mark = await writeCount(page);
   const input = page.getByTestId(`custom-status-input-${ANTHROPIC}`);
   await input.fill("waiting on panel");

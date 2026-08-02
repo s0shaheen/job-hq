@@ -45,7 +45,7 @@ test("the skeleton and the loaded page put content in the same place", async ({
     await route.continue();
   });
 
-  await page.getByRole("link", { name: "Triage" }).click();
+  await page.getByRole("link", { name: "Today" }).click();
   await page.locator('[aria-busy="true"]').first().waitFor({ state: "attached", timeout: 10_000 });
 
   const skeletonTop = await page.evaluate(() => {

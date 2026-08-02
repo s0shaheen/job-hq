@@ -6,7 +6,7 @@ import { Popover } from "radix-ui";
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import type { ConnectionView } from "@/lib/data/view-models";
+import { NOT_LISTED, type ConnectionView } from "@/lib/data/view-models";
 import { setLinkedinCompanyIdAction } from "@/lib/referral/actions";
 import {
   connectionUrl,
@@ -93,9 +93,9 @@ function summaryLabel(props: {
   }
   if (props.hasId) return { text: "Search", tone: "plain" };
   if (props.canPaste) return { text: "Add ID", tone: "muted" };
-  // Nothing to offer and nothing to fix from here. An em dash, the grid's own
-  // convention for "nothing stated" — never a button that cannot do anything.
-  return { text: "—", tone: "muted" };
+  // Nothing to offer and nothing to fix from here. "Not listed", the grid's own
+  // word for an absent value. Never a button that cannot do anything.
+  return { text: NOT_LISTED, tone: "muted" };
 }
 
 export function WarmCell(props: WarmCellProps) {
@@ -105,10 +105,10 @@ export function WarmCell(props: WarmCellProps) {
   const canPaste = props.universeId !== null;
   const summary = summaryLabel({ firstDegree, hasId, canPaste });
 
-  if (summary.text === "—") {
+  if (summary.text === NOT_LISTED) {
     return (
       <span className="truncate text-muted" data-testid="warm-none">
-        —
+        {NOT_LISTED}
       </span>
     );
   }
@@ -120,9 +120,13 @@ export function WarmCell(props: WarmCellProps) {
           type="button"
           data-testid="warm-chip"
           data-warm-first-degree={firstDegree}
-          aria-label={`Warm paths at ${props.company}`}
+          aria-label={
+            firstDegree > 0
+              ? `You know someone here: ${props.connections.map((connection) => connection.fullName).join(", ")}`
+              : `Find a warm intro at ${props.company}`
+          }
           className={cn(
-            "inline-flex h-[22px] min-w-0 max-w-full items-center rounded-md border px-1.5 text-left text-xs",
+            "inline-flex h-[22px] min-w-0 max-w-full items-center rounded-md border px-1.5 text-left text-xs tabular",
             "focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-ring",
             summary.tone === "warm"
               ? "border-accent-subtle bg-accent-subtle font-medium text-accent hover:border-accent"
@@ -189,8 +193,8 @@ function WarmPopoverContent(props: WarmCellProps & { onDone: () => void }) {
                       <ExternalLink aria-hidden="true" className="size-3 shrink-0" />
                     </a>
                     {c.title ? (
-                      <span className="ml-1 text-muted" title={c.title}>
-                        · {c.title}
+                      <span className="text-muted" title={c.title}>
+                        , {c.title}
                       </span>
                     ) : null}
                   </li>
@@ -198,7 +202,7 @@ function WarmPopoverContent(props: WarmCellProps & { onDone: () => void }) {
               </ul>
               {overflow > 0 ? (
                 <p className="mt-1 text-xs text-muted">
-                  and {overflow} more — the rest are on{" "}
+                  and {overflow} more. The rest are on{" "}
                   <Link href="/connections" className="text-accent hover:underline">
                     your connections
                   </Link>
@@ -268,11 +272,11 @@ function WarmPopoverContent(props: WarmCellProps & { onDone: () => void }) {
                                focus-visible:outline-2 focus-visible:-outline-offset-1
                                focus-visible:outline-ring"
                   >
-                    {/* States only what is true and wired: the sweep put this number
+                    {/* States only what is true and wired: the scan put this number
                         here, and this is where it gets changed. No claim about how it
                         was found, no promise that a better one exists, no mention of
-                        clearing — the form says that, once it is open. */}
-                    The sweep set this ID — change it
+                        clearing. The form says that, once it is open. */}
+                    The scan set this ID. Change it
                   </button>
                 )
               ) : null}
@@ -288,7 +292,7 @@ function WarmPopoverContent(props: WarmCellProps & { onDone: () => void }) {
         </div>
 
         <p className="mt-3 border-t border-border pt-2 text-xs text-muted">
-          These open LinkedIn&rsquo;s own search in your browser, signed in as you. Nothing is
+          These open LinkedIn's own search in your browser, signed in as you. Nothing is
           fetched from LinkedIn and nothing is sent on your behalf.
         </p>
       </Popover.Content>
@@ -385,7 +389,7 @@ function PasteIdForm(props: {
       setError("Somebody set this on another device. Reload to see their value.");
       return;
     }
-    setError(result.kind === "auth" ? "Your session expired — sign in again." : result.message);
+    setError(result.kind === "auth" ? "Your session expired. Sign in again." : result.message);
   }
 
   return (
@@ -398,14 +402,13 @@ function PasteIdForm(props: {
       <p className="mt-1 text-xs text-muted">
         {correcting ? (
           <>
-            Open the company on LinkedIn, click <em>See all employees</em>, and paste that
-            page&rsquo;s address. Or empty the field to remove the ID — the sweep will not put it
-            back.
+            Open the company on LinkedIn, click "See all employees", and paste that page's
+            address. Or empty the field to remove the ID. The scan will not put it back.
           </>
         ) : (
           <>
-            Open the company on LinkedIn, click <em>See all employees</em>, and paste that
-            page&rsquo;s address here. Once per company.
+            Open the company on LinkedIn, click "See all employees", and paste that page's
+            address here. Once per company.
           </>
         )}
       </p>
@@ -415,7 +418,7 @@ function PasteIdForm(props: {
           name="linkedinId"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="…f_C=1035 or just 1035"
+          placeholder="f_C=1035 or 1035"
           autoComplete="off"
           className="min-w-0 flex-1 rounded-md border border-border bg-raised px-2 py-1 text-xs
                      text-text placeholder:text-muted focus-visible:outline-2
@@ -434,7 +437,7 @@ function PasteIdForm(props: {
             (correcting ? value.trim() === (props.current ?? "").trim() : value.trim() === "")
           }
         >
-          {busy ? "Saving…" : correcting && value.trim() === "" ? "Clear" : "Save"}
+          {busy ? "Saving" : correcting && value.trim() === "" ? "Clear" : "Save"}
         </Button>
       </div>
       {error ? (

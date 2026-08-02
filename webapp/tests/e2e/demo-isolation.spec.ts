@@ -52,7 +52,7 @@ test("two visitors do not share a queue", async ({ browser }) => {
 
     // A triages its first card away.
     await pa.getByTestId("interested").click();
-    await expect(pa.getByText(/^Saved /)).toBeVisible();
+    await expect(pa.getByText(/^Marked interested:/)).toBeVisible();
     await expect(pa.locator("article h3").first()).not.toHaveText(firstA);
 
     // B, reloaded, must still be looking at the untouched queue. If both fell

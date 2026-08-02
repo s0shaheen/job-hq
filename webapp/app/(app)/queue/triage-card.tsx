@@ -69,7 +69,7 @@ export function TriageCard({ job, mismatch }: { job: JobView; mismatch?: string 
             >
               {t.value}
             </dd>
-            <dt className="mt-0.5 text-2xs font-medium uppercase tracking-wider text-muted">
+            <dt className="mt-0.5 text-2xs font-medium text-muted">
               {t.label}
             </dt>
           </div>
@@ -82,7 +82,7 @@ export function TriageCard({ job, mismatch }: { job: JobView; mismatch?: string 
 
       {job.roleFocus ? (
         <div className="mt-4">
-          <p className="text-2xs font-semibold uppercase tracking-wider text-muted">Focus</p>
+          <p className="text-2xs font-semibold text-muted">About the role</p>
           <p className="mt-1 text-sm text-text-2">{job.roleFocus}</p>
         </div>
       ) : null}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FIXTURE_JOBS } from "@/lib/data/fixtures";
 import { clampPerfCount, makePerfJobs, PERF_MAX } from "@/lib/data/perf-fixtures";
-import { reasonSetting } from "@/lib/data/view-models";
+import { reasonSetting, NOT_LISTED } from "@/lib/data/view-models";
 import {
   compText,
   decisionText,
@@ -88,40 +88,51 @@ describe("column definitions", () => {
   });
 });
 
-describe("cell text — absence is a dash, never an invention", () => {
-  it("missing comp is a dash; a non-USD band renders verbatim", () => {
-    expect(compText(job("lever-77c1-4d0a"))).toBe("—"); // Chime, no comp
+describe("cell text — absence is \"Not listed\", never an invention", () => {
+  // MUTATION REASON: set `ABSENT = "—"` back in lib/grid/columns.tsx and every
+  // assertion in this block fails. The product has ONE word for an unstated
+  // value; the grid used to have a second one, which is a vocabulary the
+  // reader has to learn twice.
+  it("missing comp is Not listed; a non-USD band renders verbatim", () => {
+    expect(compText(job("lever-77c1-4d0a"))).toBe(NOT_LISTED); // Chime, no comp
     // The Wise row's £ band parses to null for sorting but must still SHOW —
     // hiding it because it would not parse is the export-column bug in grid form.
     expect(compText(job("workday-R_1472470"))).toBe("£85,000 - £110,000");
   });
 
-  it("missing YoE is a dash; a stated one is the bare number", () => {
-    expect(yoeText(job("smartrec-551209"))).toBe("—"); // Mercury, no YoE
+  it("missing YoE is Not listed; a stated one is the bare number", () => {
+    expect(yoeText(job("smartrec-551209"))).toBe(NOT_LISTED); // Mercury, no YoE
     expect(yoeText(job("greenhouse-8814021"))).toBe("3"); // Ramp
     expect(yoeText({ ...job("greenhouse-8814021"), minYoe: 0 })).toBe("Any");
   });
 
   it("work model and location fall back to Remote only when the row is remote", () => {
-    expect(workModelText(job("eightfold-88201"))).toBe("—"); // Microsoft: neither
+    expect(workModelText(job("eightfold-88201"))).toBe(NOT_LISTED); // Microsoft: neither
     expect(workModelText(job("ashby-3f21a9c4"))).toBe("Remote (US)");
     expect(locationText({ ...job("ashby-3f21a9c4"), location: null })).toBe("Remote");
-    expect(locationText({ ...job("eightfold-88201"), location: null })).toBe("—");
+    expect(locationText({ ...job("eightfold-88201"), location: null })).toBe(NOT_LISTED);
   });
 
-  it("decision text: undecided is spelled out, a triage value passes through", () => {
-    expect(decisionText(job("greenhouse-8814021"))).toBe("undecided");
-    expect(decisionText(job("greenhouse-4410982"))).toBe("interested");
-    expect(decisionText(job("greenhouse-3312876"))).toBe("snoozed");
+  it("decision text speaks the dictionary, never the stored token", () => {
+    // MUTATION REASON: restore `j.triage === "" ? "undecided" : j.triage` and
+    // three of these four fail. The Decision column is the one a person acts
+    // in, and it was printing the database enum.
+    expect(decisionText(job("greenhouse-8814021"))).toBe("Needs decision");
+    expect(decisionText(job("greenhouse-4410982"))).toBe("Interested");
+    expect(decisionText(job("greenhouse-3312876"))).toBe("Later");
+    expect(decisionText({ ...job("greenhouse-3312876"), triage: "dismissed" })).toBe("Passed");
   });
 
-  it("why text: qualified rows dash, filtered rows explain in plain English", () => {
-    expect(whyText(job("greenhouse-8814021"))).toBe("—");
+  it("why text: every row gets its sentence, filtered ones in plain English", () => {
+    // A qualified row used to render the absence placeholder, which is a
+    // different claim: "Not listed" says nobody stated a reason, when the
+    // reason is that it matched.
+    expect(whyText(job("greenhouse-8814021"))).toBe("Matches your search");
     expect(whyText(job("workday-R_1472470"))).toBe(
-      "Located in United Kingdom, outside your countries",
+      "Location is United Kingdom, outside your area",
     );
     expect(whyText(job("radancy-40012"))).toBe(
-      "Not yet analysed — it will be classified shortly",
+      "Checking details. This one is classified shortly",
     );
   });
 });
@@ -204,7 +215,7 @@ describe("perf fixtures — deterministic and honestly shaped", () => {
     // red, and so does the claim that the grid is the only renderer.
     const warm = GRID_COLUMNS.find((c) => c.id === "warm");
     expect(warm, "the Warm column is gone").toBeTruthy();
-    expect(warm!.header).toBe("Warm");
+    expect(warm!.header).toBe("Warm intro");
     expect("cell" in warm!).toBe(false);
     // The layer-2 Warm-intro column is cell-less for the identical reason — the
     // grid renders it itself because `WarmIntroCell` reaches the warm routes and

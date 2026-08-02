@@ -4,7 +4,7 @@ import { getDataSource } from "@/lib/data/get-source";
 import type { CompanyView } from "@/lib/data/view-models";
 import CompaniesSurface from "./companies-surface";
 
-export const metadata = { title: "Companies — Job Search HQ" };
+export const metadata = { title: "Companies" };
 export const dynamic = "force-dynamic";
 
 /**
@@ -35,8 +35,8 @@ export default async function CompaniesPage() {
               and does not read this table. Reviews and flags are recorded here;
               honouring them is the next piece of work, not this one. */}
           <p className="text-xs text-muted">
-            Your company universe, and how reliably each one can be read. Reviews and sweep flags
-            are recorded here — the discovery sweep reads them later.
+            Your company universe, and how reliably each one can be read. Reviews and watch
+            choices are recorded here. Discovery reads them later.
           </p>
         </div>
         <Link

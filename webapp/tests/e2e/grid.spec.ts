@@ -107,7 +107,7 @@ test("All postings shows every row, with the reason a row is not queued", async 
   await page.getByTestId("view-switcher").click();
   await page.getByRole("menuitemradio", { name: "All postings" }).click();
 
-  await expect(page.getByTestId("grid-count")).toContainText(`all ${TOTAL}`);
+  await expect(page.getByTestId("grid-count")).toContainText(`All ${TOTAL}`);
   await expect(page.locator('[role="grid"]')).toHaveAttribute("aria-rowcount", String(TOTAL + 1));
   await expect(page.locator('[role="columnheader"][data-col="why"]')).toHaveCount(1);
 
@@ -117,11 +117,11 @@ test("All postings shows every row, with the reason a row is not queued", async 
     .locator('[role="row"]')
     .filter({ has: companyCell(page, "Wise") });
   await expect(wiseRow.locator('[data-col="why"]')).toHaveText(
-    "Located in United Kingdom, outside your countries",
+    "Location is United Kingdom, outside your area",
   );
 });
 
-test("a value the posting never stated renders as a dash, never an invention", async ({
+test("a value the posting never stated reads Not listed, never an invention", async ({
   page,
 }) => {
   await gotoJobs(page);
@@ -129,12 +129,12 @@ test("a value the posting never stated renders as a dash, never an invention", a
   // Chime states no compensation; Mercury states no years. Zero, an empty
   // cell, or an invented midpoint would all misrepresent the posting.
   const chimeRow = page.locator('[role="row"]').filter({ has: companyCell(page, "Chime") });
-  await expect(chimeRow.locator('[data-col="comp"]')).toHaveText("—");
+  await expect(chimeRow.locator('[data-col="comp"]')).toHaveText("Not listed");
 
   const mercuryRow = page
     .locator('[role="row"]')
     .filter({ has: companyCell(page, "Mercury") });
-  await expect(mercuryRow.locator('[data-col="minYoe"]')).toHaveText("—");
+  await expect(mercuryRow.locator('[data-col="minYoe"]')).toHaveText("Not listed");
 });
 
 test("the long fixture row stays one row tall and keeps its full text reachable", async ({
@@ -341,9 +341,9 @@ test("a comp filter keeps unknown-comp rows and SAYS so; excluding them is an ex
   await page.getByRole("button", { name: "Add filter" }).click();
 
   // The chip states the keep-rule instead of hiding it.
-  await expect(page.getByTestId("filter-chip")).toContainText("Comp ≥ $150k");
+  await expect(page.getByTestId("filter-chip")).toContainText("Pay above $150k");
   await expect(page.getByTestId("filter-chip")).toContainText(
-    `incl. ${unknown.length} unstated`,
+    `plus ${unknown.length} with pay not listed`,
   );
 
   // Unknowns present, honestly-below-floor rows gone.
@@ -359,7 +359,7 @@ test("a comp filter keeps unknown-comp rows and SAYS so; excluding them is an ex
   await page.getByLabel("Filter operator").selectOption("stated");
   await page.getByRole("button", { name: "Add filter" }).click();
 
-  await expect(page.getByTestId("filter-chip").nth(1)).toHaveText(/Comp stated/);
+  await expect(page.getByTestId("filter-chip").nth(1)).toHaveText(/Pay listed/);
   await expect(companyCell(page, "Chime")).toHaveCount(0);
   await expect(companyCell(page, "Microsoft")).toHaveCount(0);
   await expect(companyCell(page, "Wise")).toHaveCount(1);
@@ -375,7 +375,7 @@ test("sort headers cycle asc → desc → off, and unknowns never crown the list
   expect(unknown.length).toBeGreaterThan(0); // Chime — or this test proves nothing
 
   const compHeader = page.locator('[role="columnheader"][data-col="comp"]');
-  const sortComp = page.getByRole("button", { name: "Comp", exact: true });
+  const sortComp = page.getByRole("button", { name: "Pay", exact: true });
 
   await sortComp.click();
   await expect(compHeader).toHaveAttribute("aria-sort", "ascending");
@@ -477,7 +477,7 @@ test("the Why chip opens a popover that names the binding setting and deep-links
   await msRow.locator('[data-col="why"] button').click();
 
   const popover = page.getByTestId("why-popover");
-  await expect(popover).toContainText("Located in India, outside your countries");
+  await expect(popover).toContainText("Location is India, outside your area");
   const change = popover.getByRole("link", { name: /Change your countries/ });
   await expect(change).toHaveAttribute("href", "/settings#countries");
 
@@ -503,7 +503,7 @@ test("? opens the why popover on the active row — and typing in an input never
   const popover = page.getByTestId("why-popover");
   await expect(popover).toContainText(
     ALL_SORTED[0].disposition === "needs-info"
-      ? "Not yet analysed — it will be classified shortly"
+      ? "Checking details. This one is classified shortly"
       : /./,
   );
   await expect(popover.getByRole("link")).toHaveCount(
@@ -519,7 +519,7 @@ test("? opens the why popover on the active row — and typing in an input never
   for (let i = 0; i < msIdx; i++) await page.keyboard.press("j");
   await expect(page.locator('[role="row"][data-active="true"]')).toHaveCount(1);
   await page.keyboard.press("?");
-  await expect(popover).toContainText("Located in India, outside your countries");
+  await expect(popover).toContainText("Location is India, outside your area");
   await expect(popover.getByRole("link", { name: /Change your countries/ })).toHaveAttribute(
     "href",
     "/settings#countries",
@@ -605,5 +605,5 @@ test("when the profile filtered everything, the Queue set points at All postings
   await page.getByRole("button", { name: "Show all postings" }).click();
 
   await expect(page.locator('[role="grid"]')).toHaveAttribute("aria-rowcount", "7");
-  await expect(page.getByTestId("grid-count")).toContainText("all 6");
+  await expect(page.getByTestId("grid-count")).toContainText("All 6");
 });

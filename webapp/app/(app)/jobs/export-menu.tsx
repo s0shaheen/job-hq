@@ -55,7 +55,7 @@ function download(rows: JobView[], columns: Column<JobView>[]): void {
   a.remove();
   URL.revokeObjectURL(url);
   // The dialog's own copy shape: report what the file contains.
-  toast.success(`Exported ${rows.length} ${rows.length === 1 ? "row" : "rows"} — ${name}`);
+  toast.success(`Exported ${rows.length} ${rows.length === 1 ? "row" : "rows"}, ${name}`);
 }
 
 const itemClass =
@@ -110,7 +110,7 @@ export default function ExportMenu(props: ExportMenuProps) {
             data-testid={`${props.testid}-note`}
             className="px-2 pb-1 pt-1.5 text-2xs text-muted"
           >
-            CSV · this view&rsquo;s columns plus the posting URL. Hidden columns are excluded.
+            CSV of this view's columns plus the posting URL. Hidden columns are excluded.
           </p>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

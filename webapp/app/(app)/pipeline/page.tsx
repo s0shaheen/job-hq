@@ -9,7 +9,7 @@ import { buildWarmContext } from "@/lib/referral/match";
 import { buildWarmIntroContext } from "@/lib/warm/intro-context";
 import PipelineTable, { type ReviewItem } from "./pipeline-table";
 
-export const metadata = { title: "Pipeline — Job Search HQ" };
+export const metadata = { title: "Pipeline" };
 export const dynamic = "force-dynamic";
 
 /**
@@ -66,11 +66,11 @@ const DEMO_REVIEW_ITEMS: ReviewItem[] = [
   {
     id: "demo-1",
     summary:
-      'A rejection email matched two applications — "Product Manager, Payments" at Plaid and "Product Manager, Developer Platform" at Anthropic.',
+      'A rejection email matched two applications: "Product Manager, Payments" at Plaid and "Product Manager, Developer Platform" at Anthropic.',
     evidence: "https://mail.google.com/mail/u/0/#inbox/ambiguous1",
     candidates: [
-      { id: 2, label: "Plaid — Product Manager, Payments" },
-      { id: 3, label: "Anthropic — Product Manager, Developer Platform" },
+      { id: 2, label: "Product Manager, Payments at Plaid" },
+      { id: 3, label: "Product Manager, Developer Platform at Anthropic" },
     ],
   },
 ];
@@ -152,7 +152,7 @@ export default async function PipelinePage({
           body="Applications appear here when you mark a role interesting. Emailed status updates land in the spreadsheet today; the pipeline reads them once the capture writes here too."
           action={
             <Link href="/queue" className={buttonClass({ variant: "primary" })}>
-              Go to triage
+              Go to Today
             </Link>
           }
         />

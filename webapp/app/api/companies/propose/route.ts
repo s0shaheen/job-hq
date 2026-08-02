@@ -169,9 +169,9 @@ export async function GET() {
     {
       error: "Use POST.",
       contract: {
-        POST: { names: "string[] | string", source: "string?", idempotencyKey: "string?" },
+        POST: { names: "string array or string", source: "string?", idempotencyKey: "string?" },
         returns: { proposed: "CompanyView[]", added: "number" },
-        notes: `Proposals are written at reliability_tier 3 / resolution_method "manual". Nothing here resolves a board. Max ${MAX_PASTE_NAMES} names, ${MAX_NAME_LENGTH} chars each.`,
+        notes: `Proposals are written at reliability_tier 3 with resolution_method "manual". Nothing here resolves a board. Max ${MAX_PASTE_NAMES} names, ${MAX_NAME_LENGTH} chars each.`,
       },
     },
     { status: 405 },

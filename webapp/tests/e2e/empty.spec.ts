@@ -94,11 +94,11 @@ test.describe("zero rows", () => {
   test("the nav shows no count rather than a zero", async ({ page, context }) => {
     await useSeed(context, "empty");
     await page.goto("/queue");
-    const triage = page.getByRole("link", { name: /^Triage/ });
-    await expect(triage).toBeVisible();
-    // "Triage 0" is noise dressed as information; an absent badge is the
+    const today = page.getByRole("link", { name: /^Today/ });
+    await expect(today).toBeVisible();
+    // "Today 0" is noise dressed as information; an absent badge is the
     // correct rendering of nothing.
-    await expect(triage).toHaveText("Triage");
+    await expect(today).toHaveText("Today");
   });
 });
 

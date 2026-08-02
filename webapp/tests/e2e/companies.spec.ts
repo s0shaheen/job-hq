@@ -8,9 +8,8 @@ import { collectPaintedOverflow, describeOffenders } from "./painted-overflow";
  * The claims worth an E2E rather than a unit test are the ones that only exist once
  * a browser has laid the page out and a server action has round-tripped:
  *
- *   * The provenance column DISTINGUISHES two rows that share a tier. This is the
- *     research pass's central caveat, and it is a rendering claim — "Tier 1" appears
- *     on both rows, and only the chip's other half tells them apart.
+ *   * The source-quality column distinguishes confirmed companies from ones added
+ *     manually, even when their scan coverage is otherwise similar.
  *   * A bulk review really writes, and the row really leaves the review set — a
  *     unit test on the fixture cannot see that the grid re-derives its set.
  *   * The reviewed row SURVIVES A RELOAD. This is the assertion the whole webapp
@@ -49,14 +48,13 @@ const nameCell = (page: Page, name: string) =>
     .locator('[role="gridcell"][data-col="name"]')
     .filter({ hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) });
 
-// ---------------------------------------------------------------- provenance
+// ---------------------------------------------------------------- source quality
 
-test.describe("the provenance column", () => {
-  test("two Tier-1 rows are distinguishable by how they were resolved", async ({ page }) => {
-    // THE assertion this surface exists for. Cboe was resolved by a CXS-verified
-    // Workday redirect; loopreturns is a Common Crawl slug nobody probed. Both are
-    // "Tier 1 · day-of". If the chip showed only the tier they would be identical on
-    // screen, which is exactly the false confidence the research pass warned about.
+test.describe("the source-quality column", () => {
+  test("confirmed and manually added rows are distinguishable", async ({ page }) => {
+    // Cboe was resolved by a CXS-confirmed Workday redirect; loopreturns is a
+    // Common Crawl slug nobody checked. The display language must preserve that
+    // difference without exposing the engine's tier or confidence vocabulary.
     await isolate(page, "prov-distinguish");
     await page.goto("/companies?set=all");
     await ready(page);
@@ -64,10 +62,10 @@ test.describe("the provenance column", () => {
     const chip = (row: string) =>
       page.locator('[role="row"]', { has: nameCell(page, row) }).getByTestId("provenance-chip");
 
-    await expect(chip("Cboe Global Markets")).toHaveText(/Tier 1 · day-of · verified/);
-    await expect(chip("loopreturns (board only)")).toHaveText(/Tier 1 · day-of · unverified/);
+    await expect(chip("Cboe Global Markets")).toHaveText("Confirmed");
+    await expect(chip("loopreturns (board only)")).toHaveText("Likely");
     await expect(chip("Cboe Global Markets")).toHaveAttribute("data-confidence", "verified");
-    await expect(chip("loopreturns (board only)")).toHaveAttribute("data-confidence", "asserted");
+    await expect(chip("loopreturns (board only)")).toHaveAttribute("data-confidence", "inferred");
   });
 
   test("every row's chip names a confidence — none is silently blank", async ({ page }) => {
@@ -81,12 +79,12 @@ test.describe("the provenance column", () => {
       const text = (await chips.nth(i).innerText()).trim();
       expect(text.length, `chip ${i} is empty`).toBeGreaterThan(3);
       // An unresolved row is the one case with no confidence word, and it says
-      // "Unresolved" rather than nothing.
-      expect(text).toMatch(/verified|unverified|inferred|Unresolved/);
+      // "Not found yet" rather than nothing.
+      expect(text).toMatch(/Confirmed|Likely|Added by you|Not found yet/);
     }
   });
 
-  test("the popover states the evidence and the raw method", async ({ page }) => {
+  test("the popover explains the evidence and source in plain language", async ({ page }) => {
     await isolate(page, "prov-popover");
     await page.goto("/companies?set=all");
     await ready(page);
@@ -97,11 +95,10 @@ test.describe("the provenance column", () => {
 
     const pop = page.getByTestId("provenance-popover");
     await expect(pop).toBeVisible();
-    // The honest sentence: this corpus contains dead boards.
-    await expect(pop).toContainText(/dead board/i);
-    // And the token the engine actually wrote, for whoever has to debug it.
-    await expect(pop).toContainText("ingested-slug");
+    await expect(pop).toContainText(/may be dead/i);
     await expect(pop).toContainText(/Common Crawl/);
+    await expect(pop).toContainText("How it was found");
+    await expect(pop).not.toContainText("ingested-slug");
 
     await page.keyboard.press("Escape");
     await expect(pop).toBeHidden();
@@ -144,7 +141,7 @@ test.describe("the two review verbs", () => {
     await expect(nameCell(page, third)).toHaveCount(1);
   });
 
-  test("an approved row reads as swept; a dismissed one does not", async ({ page }) => {
+  test("an approved row is included in scans; a dismissed one is not", async ({ page }) => {
     await isolate(page, "verbs-sweep");
     await page.goto("/companies");
     await ready(page);
@@ -156,10 +153,9 @@ test.describe("the two review verbs", () => {
 
     await page.goto("/companies?set=universe");
     await ready(page);
-    // Approving turns monitor ON — an approval that did not put the company into the
-    // sweep would have done nothing, and the SQL guarantees the pairing.
+    // Approving includes the company in scans. The SQL guarantees that pairing.
     const row = page.locator('[role="row"]', { has: nameCell(page, approved) });
-    await expect(row.locator('[data-col="sweep"]')).toHaveText(/on|watching/);
+    await expect(row.locator('[data-col="sweep"]')).toHaveText("In scans");
   });
 
   test("dismissing keeps the row, in its own set", async ({ page }) => {
@@ -170,7 +166,7 @@ test.describe("the two review verbs", () => {
     const target = (await cells.nth(1).innerText()).trim();
     await cells.nth(1).click();
     await page.getByTestId("bulk-dismiss-company").click();
-    await expect(page.getByText(/Dismissed/)).toBeVisible();
+    await expect(page.getByText(/Passed/)).toBeVisible();
 
     await page.reload();
     await page.goto("/companies?set=dismissed");
@@ -329,7 +325,7 @@ test.describe("the per-row sweep flag", () => {
       .locator('[role="row"]', { has: nameCell(page, name) })
       .getByTestId("sweep-toggle");
     await expect(toggle).toHaveAttribute("data-enabled", "false");
-    await expect(toggle).toHaveText("paused");
+    await expect(toggle).toHaveText("Paused");
 
     await page.reload();
     await ready(page);
@@ -346,7 +342,7 @@ test.describe("the per-row sweep flag", () => {
     await page.goto("/companies?set=all");
     await ready(page);
     const proposed = page.locator('[role="row"]', {
-      has: page.locator('[data-col="review"]', { hasText: "proposed" }),
+      has: page.locator('[data-col="review"]', { hasText: "Waiting for you" }),
     });
     await expect(proposed.first()).toBeVisible();
     await expect(proposed.first().getByTestId("sweep-toggle")).toHaveCount(0);
@@ -419,8 +415,8 @@ test.describe("the coverage meter", () => {
     await page.getByTestId("coverage-toggle").click();
     const slot = page.getByTestId("coverage-oracle-slot");
     await expect(slot).toBeVisible();
-    await expect(slot).toContainText(/Recall: not measured/);
-    await expect(slot).toContainText(/no measurement has been recorded/);
+    await expect(slot).toContainText(/Share of all companies: not measured/);
+    await expect(slot).toContainText(/No measurement has been recorded/);
     // And no invented percentage anywhere in it.
     expect(await slot.innerText()).not.toMatch(/\d+\s?%/);
   });
@@ -549,7 +545,7 @@ test.describe("working sets and the URL", () => {
     await ready(page);
     const rows = await page.locator('[role="row"][data-key]').count();
     const text = await page.getByTestId("company-count").innerText();
-    expect(text).toMatch(new RegExp(`all ${rows} companies`));
+    expect(text).toMatch(new RegExp(`All ${rows} companies`));
   });
 
   test("a zero-result search offers a way back", async ({ page }) => {
@@ -596,7 +592,7 @@ test.describe("adding companies by paste", () => {
     }
   });
 
-  test("a pasted row is Tier 3 and unverified — never a day-of claim", async ({ page }) => {
+  test("a pasted row is marked added by you, never as confirmed", async ({ page }) => {
     // The load-bearing claim of the whole path. Nothing in this app resolves a board,
     // so a pasted name may not carry a reliability promise.
     await isolate(page, "paste-tier");
@@ -610,7 +606,8 @@ test.describe("adding companies by paste", () => {
     const chip = page
       .locator('[role="row"]', { has: nameCell(page, "Wintrust Financial") })
       .getByTestId("provenance-chip");
-    await expect(chip).toHaveText(/Tier 3 · manual · unverified/);
+    await expect(chip).toHaveText("Added by you");
+    await expect(chip).toHaveAttribute("data-confidence", "asserted");
   });
 
   test("re-pasting the same names adds nothing and says so", async ({ page }) => {

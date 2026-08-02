@@ -32,7 +32,10 @@ type NavItem = {
 };
 
 const PRIMARY: readonly NavItem[] = [
-  { href: "/queue", label: "Triage", icon: Inbox },
+  // "Today", not "Triage". Triage is the engine's word for the pass the gate
+  // makes over new postings; the surface a person opens is the day's work, and
+  // the verb on it is decide.
+  { href: "/queue", label: "Today", icon: Inbox },
   { href: "/jobs", label: "Jobs", icon: LayoutGrid },
   { href: "/pipeline", label: "Pipeline", icon: ListChecks },
   // Not marked `soon`: /companies is a live surface. It sits after Pipeline because
@@ -116,8 +119,12 @@ export default function NavLinks({ counts = {} }: { counts?: NavCounts }) {
       className="flex gap-0.5 overflow-x-auto lg:flex-col lg:overflow-x-visible"
     >
       {PRIMARY.map(item)}
-      {/* A group heading only reads as a heading in a vertical list. */}
-      <p className="hidden px-2.5 pt-4 pb-1 text-2xs font-semibold uppercase tracking-wider text-muted lg:block">
+      {/* A group heading only reads as a heading in a vertical list.
+          Sentence case, no letter-spacing, no text-transform: an uppercase
+          letter-spaced label is one of the most common generated-UI tells in
+          the design audit this product is built against, and it had shipped
+          right here. */}
+      <p className="hidden px-2.5 pt-4 pb-1 text-2xs font-semibold text-muted lg:block">
         Account
       </p>
       {SECONDARY.map(item)}

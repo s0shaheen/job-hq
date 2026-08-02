@@ -22,6 +22,7 @@
  * sends untagged rows to needs-info rather than guessing, and so do we.
  */
 import type { JobView } from "@/lib/data/view-models";
+import { decisionLabel } from "@/lib/data/view-models";
 
 export const TEXT_FIELDS = ["company", "title", "location", "compRange"] as const;
 export const ENUM_FIELDS = ["workModel", "seniority", "status", "triage"] as const;
@@ -66,13 +67,13 @@ export const FIELD_LABELS: Record<string, string> = {
   company: "Company",
   title: "Title",
   location: "Location",
-  compRange: "Comp",
+  compRange: "Pay",
   workModel: "Work model",
   seniority: "Seniority",
   status: "Status",
   triage: "Decision",
-  minYoe: "Min YoE",
-  compMax: "Comp",
+  minYoe: "Min years",
+  compMax: "Pay",
   posted: "Posted",
   firstSeen: "First seen",
   remote: "Remote",
@@ -81,8 +82,9 @@ export const FIELD_LABELS: Record<string, string> = {
 const textOf = (j: JobView, f: TextFieldId): string | null =>
   f === "company" ? j.company : f === "title" ? j.title : f === "location" ? j.location : j.compRange;
 
-/** Triage "" surfaces as "undecided": an empty token cannot ride in a URL and
- *  reads as nothing in a chip. */
+/** Triage "" surfaces as the token "undecided": an empty string cannot ride in
+ *  a URL and reads as nothing in a chip. The WORD the chip shows comes from
+ *  `decisionLabel`; this is the value, not the label. */
 const enumOf = (j: JobView, f: EnumFieldId): string | null =>
   f === "workModel"
     ? j.workModel
@@ -174,7 +176,16 @@ export function hasCompClause(filter: GridFilter): boolean {
   return filter.some((g) => g.some((c) => c.kind === "number" && c.field === "compMax"));
 }
 
-/** Chip text. Compact and stable — e2e asserts these strings. */
+/**
+ * Chip text. Compact and stable — e2e asserts these strings.
+ *
+ * PLAIN LANGUAGE, not operators. The chips used to render the comparison the way
+ * the clause stores it: "Pay >= $120k", "Posted <= 7d". Mathematical glyphs are
+ * the machine's notation for a rule the person stated in words, and a filter bar
+ * is read at a glance by somebody checking whether the list in front of them is
+ * the list they asked for. "Pay above $120k" is that sentence; the glyph is a
+ * translation the reader has to do.
+ */
 export function formatClause(clause: Clause): string {
   const label = FIELD_LABELS[clause.kind === "remote" ? "remote" : clause.field] ?? "";
   switch (clause.kind) {
@@ -182,27 +193,43 @@ export function formatClause(clause: Clause): string {
       if (clause.op === "empty") {
         // compRange gets the domain wording: "stated" is how the triage card
         // and the spec talk about comp, and "Comp is empty" reads like a bug.
-        if (clause.field === "compRange") return clause.value ? "Comp not stated" : "Comp stated";
+        if (clause.field === "compRange") return clause.value ? "Pay not listed" : "Pay listed";
         return clause.value ? `${label} is empty` : `${label} is filled`;
       }
       return clause.op === "has"
         ? `${label} contains "${clause.value}"`
         : `${label} is "${clause.value}"`;
-    case "enum":
+    case "enum": {
+      // The DECISION field stores engine tokens (`undecided`, `snoozed`,
+      // `dismissed`); the chip has to read them back in the product's words, or
+      // the filter bar becomes the one surface still speaking the database's
+      // vocabulary.
+      const shown =
+        clause.field === "triage" ? clause.values.map(decisionValueLabel) : clause.values;
       return clause.op === "in"
-        ? `${label}: ${clause.values.join(" or ")}`
-        : `${label}: not ${clause.values.join(", ")}`;
+        ? `${label}: ${shown.join(" or ")}`
+        : `${label}: not ${shown.join(", ")}`;
+    }
     case "number": {
       const fmt = (n: number) => (clause.field === "compMax" ? `$${n}k` : String(n));
-      if (clause.op === "between") return `${label} ${fmt(clause.min)}–${fmt(clause.max)}`;
-      return `${label} ${clause.op === "gte" ? "≥" : "≤"} ${fmt(clause.value)}`;
+      // The en dash stays HERE and only here: the copy spec allows it inside a
+      // numeric range, which is exactly what this is.
+      if (clause.op === "between") return `${label} ${fmt(clause.min)} to ${fmt(clause.max)}`;
+      return `${label} ${clause.op === "gte" ? "above" : "below"} ${fmt(clause.value)}`;
     }
     case "date":
-      if (clause.op === "inlast") return `${label} in last ${clause.days}d`;
-      return `${label} ${clause.op} ${clause.value}`;
+      if (clause.op === "inlast")
+        return `${label} in the last ${clause.days} ${clause.days === 1 ? "day" : "days"}`;
+      return `${label} ${clause.op === "before" ? "before" : "after"} ${clause.value}`;
     case "remote":
-      return clause.value === "remote" ? "Remote only" : "Onsite or hybrid";
+      return clause.value === "remote" ? "Remote only" : "On-site or hybrid";
   }
+}
+
+/** A stored decision token, in the product's words. "" and "undecided" are the
+ *  same state wearing two spellings — the URL cannot carry an empty one. */
+function decisionValueLabel(value: string): string {
+  return decisionLabel(value === "undecided" ? "" : (value as "interested"));
 }
 
 export function formatGroup(group: OrGroup): string {

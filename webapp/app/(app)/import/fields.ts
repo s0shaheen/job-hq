@@ -48,7 +48,7 @@ const FIELD_COPY: Record<string, FieldCopy> = {
   },
   appliedDate: {
     label: "Applied",
-    help: "The date you applied. Year-first (2026-03-04) — see the note below.",
+    help: "The date you applied. Year-first (2026-03-04). See the note below.",
     date: true,
   },
   nextAction: { label: "Next action", help: "What this application needs from you next." },

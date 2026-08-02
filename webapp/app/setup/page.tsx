@@ -2,7 +2,7 @@ import Link from "next/link";
 import SetupNotice from "@/components/setup-notice";
 import { getSupabaseEnv } from "@/lib/env";
 
-export const metadata = { title: "Setup — Job Search HQ" };
+export const metadata = { title: "Setup" };
 
 export default function SetupPage() {
   if (getSupabaseEnv()) {

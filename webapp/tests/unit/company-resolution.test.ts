@@ -3,9 +3,11 @@ import { FIXTURE_COMPANIES } from "@/lib/data/company-fixtures";
 import {
   confidenceLabel,
   explainResolution,
+  refreshLabel,
   resolutionConfidence,
+  sourceQuality,
   sourceLabel,
-  tierLabel,
+  NOT_LISTED,
   type CompanyView,
 } from "@/lib/data/view-models";
 
@@ -124,28 +126,57 @@ describe("resolutionConfidence", () => {
 });
 
 describe("labels", () => {
-  it("names a tier with the latency that is the point of the tier", () => {
-    expect(tierLabel(1)).toBe("Tier 1 · day-of");
-    expect(tierLabel(2)).toBe("Tier 2 · lagged");
-    expect(tierLabel(3)).toBe("Tier 3 · manual");
-    expect(tierLabel(null)).toBe("Unresolved");
+  it("reserves Added by you for rows that actually came from the person", () => {
+    expect(
+      sourceQuality(co({ source: "commoncrawl", resolutionMethod: "ingested-slug" })),
+    ).toBe("inferred");
+    expect(
+      sourceQuality(
+        co({ source: "paste", tier: 3, ats: "", slug: "", resolutionMethod: "manual" }),
+      ),
+    ).toBe("asserted");
   });
 
-  it("spells 'asserted' to the reader as 'unverified'", () => {
-    // The internal word is a category; the word on screen has to be the one a
-    // person acts on. "Asserted" reads as neutral; "unverified" reads as a caveat.
-    expect(confidenceLabel("asserted")).toBe("unverified");
-    expect(confidenceLabel("verified")).toBe("verified");
-    expect(confidenceLabel("inferred")).toBe("inferred");
-    expect(confidenceLabel("unresolved")).toBe("unresolved");
+  it("states the latency a reliability rank means, and never the rank", () => {
+    // MUTATION REASON: restore `return `Tier ${tier}`` inside refreshLabel and
+    // the "never the word tier" loop below is what fails. The rank is an engine
+    // fact; on screen it reads as a quality grade, which is the exact misreading
+    // the display dictionary exists to stop.
+    expect(refreshLabel(1)).toBe("Jobs arrive the day they post");
+    expect(refreshLabel(2)).toBe("Jobs arrive with a lag");
+    expect(refreshLabel(3)).toBe("Tracked, not pulled automatically");
+    expect(refreshLabel(null)).toBe("No job board found yet");
+    for (const t of [1, 2, 3, null] as const) {
+      expect(refreshLabel(t).toLowerCase()).not.toContain("tier");
+      // The interpunct as glue, banned by the design checklist and shipped
+      // inside this very function ("Tier 1 \u00B7 day-of").
+      expect(refreshLabel(t)).not.toContain("\u00B7");
+    }
+  });
+
+  it("renders the four source-quality words, never the engine confidences", () => {
+    // MUTATION REASON: revert SOURCE_QUALITY_LABELS to the identity mapping
+    // (verified -> "verified") and every line here fails. The engine four are a
+    // category system; these four are what a person acts on.
+    expect(confidenceLabel("verified")).toBe("Confirmed");
+    expect(confidenceLabel("inferred")).toBe("Likely");
+    expect(confidenceLabel("asserted")).toBe("Added by you");
+    expect(confidenceLabel("unresolved")).toBe("Not found yet");
+    for (const c of ["verified", "inferred", "asserted", "unresolved"] as const) {
+      expect(confidenceLabel(c).toLowerCase()).not.toMatch(
+        /verified|inferred|asserted|unresolved/,
+      );
+    }
   });
 
   it("names a source in English and falls back to the raw tag", () => {
     expect(sourceLabel("commoncrawl")).toBe("Common Crawl");
     expect(sourceLabel("edgar")).toBe("SEC EDGAR");
-    expect(sourceLabel("")).toBe("unknown");
-    // An unrecognised tag shows verbatim rather than as "unknown" — the engine may
-    // add a source before this map does, and hiding it would lose real provenance.
+    // ONE absence word for the whole product. "unknown" was a second one.
+    expect(sourceLabel("")).toBe(NOT_LISTED);
+    // An unrecognised tag shows verbatim rather than as the absence word: the
+    // engine may add a source before this map does, and hiding it would lose a
+    // real origin.
     expect(sourceLabel("new-ingester")).toBe("new-ingester");
   });
 });
@@ -153,11 +184,34 @@ describe("labels", () => {
 describe("explainResolution", () => {
   it("names the evidence, not the conclusion", () => {
     const s = explainResolution(co({ resolutionMethod: "discover-greenhouse" }));
-    expect(s).toContain("greenhouse API");
+    expect(s).toContain("Found on greenhouse");
     expect(s).toContain("greenhouse/co");
   });
 
-  it("names the API from the ROW's ats, not from the method's suffix", () => {
+  it("speaks the product vocabulary, not the engine one, on every branch", () => {
+    // MUTATION REASON: put "tier" back into any branch of explainResolution and
+    // this fails. The function whose whole job is TRANSLATING the engine words
+    // was itself written in them: tier, probe, sweep, verified, ATS.
+    const banned = /\btiers?\b|\bprobed?\b|\bsweeps?\b|\bverified\b|\bunverified\b|\bATS\b/i;
+    for (const c of FIXTURE_COMPANIES) {
+      expect(explainResolution(c), `${c.id} ${c.name}`).not.toMatch(banned);
+    }
+    for (const m of [
+      "discover-greenhouse",
+      "workday-redirect",
+      "discover-icims",
+      "ingested-slug",
+      "manual",
+      "aggregator",
+      "web-search",
+      "vendor-hint-2026",
+      "",
+    ]) {
+      expect(explainResolution(co({ resolutionMethod: m })), m).not.toMatch(banned);
+    }
+  });
+
+  it("names the board from the ROW's ats, not from the method's suffix", () => {
     // They agree today because `_resolve()` writes `discover-<ats>`. Reading the
     // word out of the method string instead would let a mismatched pair — a mirror
     // bug, a hand-edited row — print a confident sentence about a board this
@@ -166,32 +220,33 @@ describe("explainResolution", () => {
     const s = explainResolution(
       co({ ats: "ashby", slug: "ramp", resolutionMethod: "discover-lever" }),
     );
-    expect(s).toContain("ashby API");
+    expect(s).toContain("Found on ashby");
     expect(s).toContain("ashby/ramp");
-    expect(s).not.toContain("lever API");
+    expect(s).not.toContain("Found on lever");
   });
 
-  it("says an unrecognised discover-* was never probed by the waterfall", () => {
+  it("says an unrecognised discover-* was never checked by the waterfall", () => {
     const s = explainResolution(co({ ats: "icims", slug: "aon", resolutionMethod: "discover-icims" }));
-    expect(s).toContain("discover-icims");
+    expect(s).toContain("icims/aon");
     expect(s.toLowerCase()).toContain("lead");
-    expect(s).not.toContain("day-of");
+    expect(s.toLowerCase()).toContain("cannot check");
   });
 
   it("says out loud that a mined slug may be a dead board", () => {
     const s = explainResolution(co({ slug: "loopreturns", resolutionMethod: "ingested-slug" }));
-    expect(s.toLowerCase()).toContain("dead board");
-    expect(s.toLowerCase()).toContain("unverified");
+    expect(s.toLowerCase()).toContain("may be dead");
+    expect(s.toLowerCase()).toContain("lead");
   });
 
   it("says an unresolved row is not being pulled from", () => {
     const s = explainResolution(co({ tier: null, ats: "", slug: "", resolutionMethod: "" }));
-    expect(s.toLowerCase()).toContain("nothing is pulled");
+    expect(s.toLowerCase()).toContain("no jobs are pulled");
   });
 
-  it("admits when it does not recognise the method", () => {
+  it("admits when it does not recognise the route, without printing the token", () => {
     const s = explainResolution(co({ resolutionMethod: "vendor-hint-2026" }));
-    expect(s).toContain("vendor-hint-2026");
+    // The raw engine token never reaches the screen (terminology spec 5).
+    expect(s).not.toContain("vendor-hint-2026");
     expect(s.toLowerCase()).toContain("does not recognise");
   });
 

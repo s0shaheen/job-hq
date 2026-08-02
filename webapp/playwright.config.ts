@@ -5,7 +5,16 @@ import { defineConfig, devices } from "@playwright/test";
  * is byte-identical every run — which is what makes visual snapshots stable
  * rather than a source of daily false alarms.
  */
-const PORT = 3210;
+/**
+ * 3210 unless told otherwise. The override exists because two git worktrees of
+ * this repo cannot both hold the port, and the second run silently attaches to
+ * the FIRST worktree's server (`reuseExistingServer`) and reports the other
+ * branch's UI as this branch's result. Overriding is how a parallel run stays
+ * honest; CI never sets it, so nothing about the shipped run changes.
+ *
+ * Specs that need an absolute origin (cookie `url`s) build it from this.
+ */
+const PORT = Number(process.env.HQ_E2E_PORT ?? 3210);
 
 export default defineConfig({
   testDir: "./tests/e2e",

@@ -328,14 +328,12 @@ export default function MapStep({
           <p className="min-w-0 break-words">
             {noHeaderRow ? (
               <>
-                <strong className="font-semibold text-text">Treating every row as data.</strong>{" "}
+                Treating every row as data.{" "}
                 The columns are named by position below.
               </>
             ) : (
               <>
-                <strong className="font-semibold text-text">
-                  Row {model.headerRowIndex + 1} holds the column names.
-                </strong>{" "}
+                Row {model.headerRowIndex + 1} holds the column names.{" "}
                 {/* The evidence, labelled. `sniffHeaderRow`'s reasons are lowercase
                     fragments ("row 1 names every column…"), and running one on
                     straight after the headline read as a stutter. */}
@@ -410,16 +408,16 @@ export default function MapStep({
           ) : statusColumn.values.length === 0 ? (
             <p data-testid="status-too-many" className="mt-1.5 text-2xs text-warn">
               That column holds {statusColumn.distinct.toLocaleString("en-US")} different values,
-              which is too many to be a list of stages — it looks like the wrong column. Imported
-              rows will start at Inbox with the file&rsquo;s own word kept in their notes.
+              which is too many to be a list of stages. It looks like the wrong column. Imported
+              rows will start at Inbox with the file's own word kept in their notes.
             </p>
           ) : (
             <>
               <p className="mt-1 text-2xs text-muted">
-                One row per value found in &ldquo;{model.headers[statusIndex]}&rdquo;. Anything this
-                app does not recognise starts at <strong className="text-text-2">Inbox</strong> and
-                the word your file used is added to that application&rsquo;s notes, so nothing is
-                lost — an import may not invent a stage, because an invented one would freeze the
+                One row per value found in "{model.headers[statusIndex]}". Anything this
+                app does not recognise starts at Inbox and
+                the word your file used is added to that application's notes, so nothing is
+                lost. An import may not invent a stage, because an invented one would freeze the
                 row against every update that follows.
               </p>
               <ul className="mt-2 space-y-1.5">
@@ -469,14 +467,14 @@ export default function MapStep({
             onClick={() => void submit()}
             data-testid="map-continue"
           >
-            {busy ? "Saving…" : "Continue"}
+            {busy ? "Saving" : "Continue"}
           </Button>
           {blocked.length > 0 ? (
             // The reason, said out loud beside the disabled control. A disabled
             // button with no explanation is a dead end somebody has to guess at.
             <p role="status" data-testid="map-blocked" className="min-w-0 text-2xs text-warn">
-              {blocked.map((f) => fieldCopy(f).label).join(" and ")} must be mapped —{" "}
-              {blocked.length === 1 ? "it is" : "they are"} how a row is identified, and a row
+              {blocked.map((f) => fieldCopy(f).label).join(" and ")} must be mapped.{" "}
+              {blocked.length === 1 ? "It is" : "They are"} how a row is identified, and a row
               without {blocked.length === 1 ? "it" : "them"} cannot be imported at all.
             </p>
           ) : null}

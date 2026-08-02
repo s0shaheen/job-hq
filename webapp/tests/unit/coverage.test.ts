@@ -50,18 +50,18 @@ describe("computeCoverage", () => {
     const c = computeCoverage([
       co({ id: 1, resolutionMethod: "discover-greenhouse" }),           // T1 verified
       co({ id: 2, ats: "workday", resolutionMethod: "workday-redirect" }), // T1 verified
-      co({ id: 3, resolutionMethod: "ingested-slug" }),                 // T1 asserted
+      co({ id: 3, source: "commoncrawl", resolutionMethod: "ingested-slug" }), // T1 likely
       co({ id: 4, tier: 2, resolutionMethod: "aggregator" }),           // T2 inferred
-      co({ id: 5, tier: 3, resolutionMethod: "manual" }),               // T3 asserted
+      co({ id: 5, source: "paste", tier: 3, resolutionMethod: "manual" }), // T3 added by user
       co({ id: 6, tier: null, resolutionMethod: "" }),                  // unresolved
     ]);
     expect(c.total).toBe(6);
     expect(c.resolved).toBe(5);
     expect(c.unresolved).toBe(1);
-    expect(c.byTier[0]).toEqual({ tier: 1, count: 3, verified: 2, inferred: 0, asserted: 1 });
+    expect(c.byTier[0]).toEqual({ tier: 1, count: 3, verified: 2, inferred: 1, asserted: 0 });
     expect(c.byTier[1]).toEqual({ tier: 2, count: 1, verified: 0, inferred: 1, asserted: 0 });
     expect(c.byTier[2]).toEqual({ tier: 3, count: 1, verified: 0, inferred: 0, asserted: 1 });
-    expect(c.byConfidence).toEqual({ verified: 2, inferred: 1, asserted: 2, unresolved: 1 });
+    expect(c.byConfidence).toEqual({ verified: 2, inferred: 2, asserted: 1, unresolved: 1 });
   });
 
   it("reports verified tier 1 SEPARATELY from tier 1", () => {

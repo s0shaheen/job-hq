@@ -355,7 +355,7 @@ describe("Undo after a background delivery", () => {
 
     await waitFor(() =>
       expect(toastMock.warning).toHaveBeenCalledWith(
-        "Couldn't undo — this was changed somewhere else.",
+        "Couldn't undo. This was changed somewhere else.",
       ),
     );
   });

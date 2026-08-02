@@ -37,7 +37,7 @@ const itemClass =
   "relative flex min-h-7 min-w-0 cursor-default select-none items-center gap-2 rounded-md pl-6 pr-2 " +
   "py-1 text-xs text-text outline-none data-[highlighted]:bg-raised";
 
-const labelClass = "px-2 pb-0.5 pt-1.5 text-2xs font-semibold uppercase tracking-wider text-muted";
+const labelClass = "px-2 pb-0.5 pt-1.5 text-2xs font-semibold text-muted";
 
 function Indicator() {
   return (
@@ -83,7 +83,7 @@ export default function ViewSwitcher({
   // "· sorted" rather than /jobs' "· edited": there is no saved view here for the
   // state to have drifted FROM, so claiming an edit would be describing a baseline
   // that does not exist. What it can honestly say is that an order is applied.
-  const sortNote = sort ? `· ${sort.field} ${sort.dir === "asc" ? "↑" : "↓"}` : null;
+  const sortNote = sort ? `${sort.field} ${sort.dir === "asc" ? "↑" : "↓"}` : null;
 
   return (
     <DropdownMenu.Root open={open} onOpenChange={setOpen}>

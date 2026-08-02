@@ -81,7 +81,7 @@ export default function FilterBar(props: FilterBarProps) {
               // here?" never needs asking. Excluding them is its own clause
               // (Comp → "is stated"), never a quiet side effect of this one.
               <span className="whitespace-nowrap text-muted">
-                · incl. {props.compUnknown} unstated
+                , plus {props.compUnknown} with pay not listed
               </span>
             ) : null}
             <button
@@ -121,7 +121,7 @@ export default function FilterBar(props: FilterBarProps) {
           onChange={(e) => props.onGroupChange(e.target.value === "company" ? "company" : null)}
           className={control}
         >
-          <option value="">None</option>
+          <option value="">No grouping</option>
           <option value="company">Company</option>
         </select>
       </label>

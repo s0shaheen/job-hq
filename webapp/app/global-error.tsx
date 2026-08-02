@@ -20,7 +20,7 @@ export default function GlobalError({ reset }: { error: Error; reset: () => void
         }}
       >
         <div style={{ textAlign: "center", padding: "2rem", maxWidth: "26rem" }}>
-          <h1 style={{ fontSize: "1.1rem", margin: 0 }}>Job Search HQ couldn&rsquo;t start</h1>
+          <h1 style={{ fontSize: "1.1rem", margin: 0 }}>Job Search HQ couldn't start</h1>
           <p style={{ fontSize: "0.85rem", color: "#78786f", marginTop: "0.5rem" }}>
             This is a fault on our side. Your data is untouched.
           </p>

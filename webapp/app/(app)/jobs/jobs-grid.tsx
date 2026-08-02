@@ -107,10 +107,10 @@ const SNOOZE_DAYS = 3;
  *  export dialog's copy, so the two surfaces do not name rows differently. */
 function bulkLabel(triage: Triage, jobs: JobView[]): string {
   const who =
-    jobs.length === 1 ? `${jobs[0].company} — ${jobs[0].title}` : `${jobs.length} roles`;
+    jobs.length === 1 ? `${jobs[0].company}, ${jobs[0].title}` : `${jobs.length} roles`;
   if (triage === "interested") return `Saved ${who}`;
   if (triage === "dismissed") return `Passed on ${who}`;
-  if (triage === "snoozed") return `Snoozed ${who}`;
+  if (triage === "snoozed") return `Saved ${who} for later`;
   return `Restored ${who}`;
 }
 
@@ -164,7 +164,7 @@ export default function JobsGrid({
     toastedFor.current = searchKey;
     const n = ctx.dropped.length;
     toast.warning(`Ignored ${n} unrecognized filter${n === 1 ? "" : "s"} from this link`, {
-      description: ctx.dropped.join(" · "),
+      description: ctx.dropped.join(", "),
     });
   }, [ctx, searchKey]);
 
@@ -175,7 +175,7 @@ export default function JobsGrid({
   React.useEffect(() => {
     if (!ctx.staleViewId || staleToastFor.current === searchKey) return;
     staleToastFor.current = searchKey;
-    toast.warning("That saved view no longer exists — showing the built-in set instead.", {
+    toast.warning("That saved view no longer exists. Showing the built-in set instead.", {
       description: "It may have been deleted on another device.",
     });
   }, [ctx, searchKey]);
@@ -443,7 +443,7 @@ export default function JobsGrid({
     } catch {
       // Clipboard access is permission-gated; a copy that silently did nothing
       // would be pasted-into-a-sheet as an empty surprise.
-      toast.error("Couldn't copy — the browser blocked clipboard access.");
+      toast.error("Couldn't copy. The browser blocked clipboard access.");
       return;
     }
     toast(`Copied ${picked.length} ${picked.length === 1 ? "row" : "rows"}`);
@@ -484,11 +484,11 @@ export default function JobsGrid({
         return;
       }
       if (undo.kind === "auth") {
-        toast.error("Couldn't undo — your session expired.", {
+        toast.error("Couldn't undo. Your session expired.", {
           description: "Sign in and try again.",
         });
       } else if (undo.kind === "conflict") {
-        toast.warning("Couldn't undo — this was changed somewhere else.");
+        toast.warning("Couldn't undo. This was changed somewhere else.");
       } else {
         toast.error("Couldn't undo that.", { description: undo.message });
       }
@@ -554,11 +554,11 @@ export default function JobsGrid({
           continue;
         }
         if (res.kind === "auth") {
-          toast.error("Couldn't undo — your session expired.", {
+          toast.error("Couldn't undo. Your session expired.", {
             description: "Sign in and try again.",
           });
         } else if (res.kind === "conflict") {
-          toast.warning("Couldn't undo — this was changed somewhere else.");
+          toast.warning("Couldn't undo. This was changed somewhere else.");
           router.refresh();
         } else {
           toast.error("Couldn't undo that.", { description: res.message });
@@ -629,8 +629,8 @@ export default function JobsGrid({
         toast(label, {
           description:
             reason === "auth"
-              ? "Saved on this device — sign in to apply it."
-              : "Saved on this device — it'll sync when you're back online.",
+              ? "Saved on this device. Sign in to apply it."
+              : "Saved on this device. It'll sync when you're back online.",
           action: {
             label: "Undo",
             onClick: () => {
@@ -698,7 +698,7 @@ export default function JobsGrid({
       restorePatches(patchSnapshot);
       setSelRaw(selSnapshot);
       if (result.kind === "conflict") {
-        toast.warning("Changed on another device — nothing was applied. Showing the latest.");
+        toast.warning("Changed on another device. Nothing was applied; showing the latest.");
         router.refresh();
         return;
       }
@@ -936,14 +936,14 @@ export default function JobsGrid({
   const countText = narrowed
     ? `${sorted.length} of ${setRows.length} postings match your filters`
     : state.set === "queue"
-      ? `${sorted.length} of ${rows.length} postings — qualified and undecided${state.sort ? "" : ", newest first"}`
+      ? `${sorted.length} of ${rows.length} postings, qualified and needing a decision${state.sort ? "" : ", newest first"}`
       : state.set === "all"
-        ? `all ${rows.length} postings — including filtered and already-decided rows`
+        ? `All ${rows.length} postings, including filtered and already-decided rows`
         : state.set === "snoozed"
-          ? `${sorted.length} of ${rows.length} postings — snoozed for later`
+          ? `${sorted.length} of ${rows.length} postings, saved for later`
           : state.set === "dismissed"
-            ? `${sorted.length} of ${rows.length} postings — passed on`
-            : `${sorted.length} of ${rows.length} postings — awaiting analysis`;
+            ? `${sorted.length} of ${rows.length} postings, passed on`
+            : `${sorted.length} of ${rows.length} postings, checking details`;
 
   const headers = table.getHeaderGroups()[0]?.headers ?? [];
   const colCount = table.getVisibleLeafColumns().length;
@@ -1034,7 +1034,7 @@ export default function JobsGrid({
             <EmptyState
               icon={<Inbox aria-hidden="true" className="size-8" />}
               title="No postings yet"
-              body="The sweeps haven't found anything for you yet. Rows land here twice a day once they do."
+              body="The scans haven't found anything for you yet. Rows land here twice a day once they do."
             />
           ) : state.set === "snoozed" || state.set === "dismissed" || state.set === "needs-review" ? (
             // An empty preset is a quiet fact about the data, not the queue's
@@ -1044,17 +1044,17 @@ export default function JobsGrid({
               icon={<Inbox aria-hidden="true" className="size-8" />}
               title={
                 state.set === "snoozed"
-                  ? "Nothing snoozed right now"
+                  ? "Nothing saved for later right now"
                   : state.set === "dismissed"
-                    ? "Nothing dismissed yet"
-                    : "Nothing awaiting analysis"
+                    ? "Nothing passed on yet"
+                    : "Nothing waiting on details"
               }
               body={
                 state.set === "snoozed"
-                  ? "Postings you snooze wait here until their wake date."
+                  ? "Roles you save for later wait here until their date comes round."
                   : state.set === "dismissed"
-                    ? "Postings you pass on land here, in case you change your mind."
-                    : "Rows the engine couldn't classify wait here for the next tagging pass."
+                    ? "Roles you pass on land here, in case you change your mind."
+                    : "Roles whose details are still being checked wait here for the next pass."
               }
               action={
                 <Button variant="primary" onClick={() => switchSet("all")}>
@@ -1068,7 +1068,7 @@ export default function JobsGrid({
             // working set, where the Why column explains each row.
             <EmptyState
               icon={<Filter aria-hidden="true" className="size-8" />}
-              title="Nothing undecided right now"
+              title="Nothing needs a decision right now"
               body={`All ${rows.length} postings here are filtered out or already decided. All postings shows every one, with the reason it isn't in the queue.`}
               action={
                 <Button variant="primary" onClick={() => switchSet("all")}>
@@ -1105,7 +1105,7 @@ export default function JobsGrid({
           // the opt-out block in globals.css.
           data-type-scale-scope="own"
           className={cn(
-            "min-h-0 flex-1 overflow-auto bg-surface focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+            "min-h-0 flex-1 overflow-auto bg-surface tabular focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
             // Type scale: the container's font-size cascades into every cell
             // (cells set no size of their own). Never html { font-size } —
             // that would fight the 200%-zoom test and rescale the chrome.
@@ -1154,7 +1154,7 @@ export default function JobsGrid({
                     aria-sort={dir ? (dir === "asc" ? "ascending" : "descending") : undefined}
                     style={colStyle(h.column, colScale)}
                     className={cn(
-                      "flex min-w-0 items-center overflow-hidden px-3 text-2xs font-semibold uppercase tracking-wider text-muted",
+                      "flex min-w-0 items-center overflow-hidden px-3 text-2xs font-semibold text-muted",
                       meta?.align === "right" && "justify-end",
                       meta?.sticky &&
                         "sticky left-0 z-10 border-r border-border bg-raised",
@@ -1169,7 +1169,7 @@ export default function JobsGrid({
                         onClick={() => cycleSort(sortField)}
                         title={`Sort by ${String(h.column.columnDef.header)}`}
                         className={cn(
-                          "flex min-w-0 items-center gap-1 uppercase tracking-wider hover:text-text",
+                          "flex min-w-0 items-center gap-1 hover:text-text",
                           dir && "text-text",
                         )}
                       >
@@ -1403,9 +1403,9 @@ export default function JobsGrid({
           className="hidden shrink-0 items-center justify-end gap-x-1 whitespace-nowrap border-t
                      border-border px-4 py-1 text-2xs text-muted sm:flex sm:px-6"
         >
-          <Kbd className="ml-0">j</Kbd> <Kbd>k</Kbd> rows · <Kbd>Space</Kbd> select ·{" "}
-          <Kbd>⇧j</Kbd> <Kbd>⇧k</Kbd> extend · <Kbd>i</Kbd> <Kbd>x</Kbd> <Kbd>s</Kbd> decide
-          selection · <Kbd>⌘C</Kbd> copy · <Kbd>?</Kbd> why
+          <Kbd className="ml-0">j</Kbd> <Kbd>k</Kbd> rows, <Kbd>Space</Kbd> select,{" "}
+          <Kbd>⇧j</Kbd> <Kbd>⇧k</Kbd> extend, <Kbd>i</Kbd> <Kbd>x</Kbd> <Kbd>s</Kbd> decide
+          selection, <Kbd>⌘C</Kbd> copy, <Kbd>?</Kbd> why
         </p>
       ) : null}
 

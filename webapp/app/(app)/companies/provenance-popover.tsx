@@ -6,9 +6,11 @@ import * as React from "react";
 import {
   confidenceLabel,
   explainResolution,
-  resolutionConfidence,
+  refreshLabel,
+  sourceQuality,
   sourceLabel,
-  tierLabel,
+  HOW_IT_WAS_FOUND,
+  NOT_LISTED,
   type CompanyView,
   type ResolutionConfidence,
 } from "@/lib/data/view-models";
@@ -21,18 +23,23 @@ import { cn } from "@/lib/utils";
  * cause").
  *
  * What changed in the re-skin is the CLAIM the chip makes, and it is the reason
- * this component exists at all rather than the tier being a plain badge:
+ * this component exists at all rather than the reliability rank being a plain
+ * badge:
  *
- *   the chip states the tier AND how the tier was established
- *   the popover states the EVIDENCE — which waterfall step, against which board
+ *   the chip states HOW WELL THE SOURCE IS KNOWN, in one word
+ *   the popover states the EVIDENCE: which route found it, against which board
  *
  * docs/plans/COMPANY-DISCOVERY-RESEARCH.md's critical UX caveat is that a meter or
  * a column built on `reliability_tier` alone "would render T1's soft estimate as
- * if measured". Two rows can both read "Tier 1 · day-of" while one had a Greenhouse
- * API answer and the other is an unprobed Common Crawl slug from a corpus the same
- * research found "contains dead boards". Those are not the same fact, and a person
+ * if measured". Two rows can share a rank while one had a Greenhouse API answer
+ * and the other is an unchecked Common Crawl slug from a corpus the same research
+ * found "contains dead boards". Those are not the same fact, and a person
  * deciding whether to trust a coverage number needs to be able to tell them apart
  * at a glance — hence the word on the chip, not only inside the popover.
+ *
+ * The words themselves come from `lib/data/view-models.ts` (the display
+ * dictionary), never from the engine's own vocabulary. Renaming the component to
+ * SourceChip belongs to the Coverage surface build; the labels did not wait.
  *
  * The chip is a button rather than text for why-popover's reason: the cell already
  * states the conclusion, and the click adds the actionable half.
@@ -67,11 +74,18 @@ const STYLE: Record<
   },
 };
 
-/** The one-line label: tier, then how we know. */
+/**
+ * The one word on the chip.
+ *
+ * It used to be `tierLabel(tier) · confidenceLabel(confidence)` — "Tier 1 ·
+ * day-of · verified" — which broke three rules at once: the banned engine word
+ * "tier", the interpunct used as glue, and the engine's own confidence
+ * vocabulary. All three now come from the display dictionary, which is where the
+ * product's words are chosen. The latency the tier used to carry is not lost: it
+ * is a plain sentence in the popover, where there is room for it.
+ */
 export function provenanceText(company: CompanyView): string {
-  const confidence = resolutionConfidence(company);
-  if (confidence === "unresolved") return tierLabel(null);
-  return `${tierLabel(company.tier)} · ${confidenceLabel(confidence)}`;
+  return confidenceLabel(sourceQuality(company));
 }
 
 /** The chip in the Resolution column. */
@@ -82,7 +96,7 @@ export function ProvenanceChip({
   company: CompanyView;
   onClick: () => void;
 }) {
-  const confidence = resolutionConfidence(company);
+  const confidence = sourceQuality(company);
   const style = STYLE[confidence];
   const Icon = style.icon;
   const text = provenanceText(company);
@@ -90,7 +104,7 @@ export function ProvenanceChip({
     <button
       type="button"
       onClick={onClick}
-      title={`${text} — click for how this was resolved`}
+      title={`${text}. Click for how it was found`}
       data-testid="provenance-chip"
       data-confidence={confidence}
       className={cn(
@@ -107,7 +121,7 @@ export function ProvenanceChip({
 
 /** The popover body — rendered inside the grid's controlled Popover.Root. */
 export function ProvenancePopoverContent({ company }: { company: CompanyView }) {
-  const confidence = resolutionConfidence(company);
+  const confidence = sourceQuality(company);
   const style = STYLE[confidence];
   const name = company.name.trim() || company.slug || "this company";
   return (
@@ -131,26 +145,23 @@ export function ProvenancePopoverContent({ company }: { company: CompanyView }) 
         <dl className="mt-2.5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 border-t border-border pt-2 text-2xs">
           <dt className="text-muted">Company</dt>
           <dd className="min-w-0 break-words text-text-2">{name}</dd>
-          <dt className="text-muted">Board</dt>
+          <dt className="text-muted">Job board</dt>
           <dd className="min-w-0 break-words text-text-2">
-            {company.ats && company.slug ? `${company.ats}/${company.slug}` : "none resolved"}
+            {company.ats && company.slug ? `${company.ats}/${company.slug}` : NOT_LISTED}
           </dd>
-          <dt className="text-muted">Found via</dt>
+          <dt className="text-muted">Source</dt>
           <dd className="min-w-0 break-words text-text-2">{sourceLabel(company.source)}</dd>
-          {/* The raw token, verbatim. The sentence above is the translation; an
-              operator debugging why a row landed in the wrong bucket needs the
-              value the engine actually wrote, and paraphrasing it away is how a
-              provenance UI stops being useful to the person who can fix it. */}
-          <dt className="text-muted">Method</dt>
-          <dd className="min-w-0 break-words font-mono text-text-2">
-            {company.resolutionMethod || "—"}
-          </dd>
+          {/* The latency the chip no longer states. A sentence rather than a
+              rank: "Tier 1" reads as a grade, and what a person needs from it is
+              when the jobs turn up. */}
+          <dt className="text-muted">{HOW_IT_WAS_FOUND}</dt>
+          <dd className="min-w-0 break-words text-text-2">{refreshLabel(company.tier)}</dd>
         </dl>
 
         {confidence === "asserted" || confidence === "inferred" ? (
           <p className="mt-2 border-t border-border pt-2 text-2xs text-muted">
-            A sweep pulling from this board is what would turn this into “verified”.
-            Until then its tier is what we expect, not what we have seen.
+            Jobs arriving from this board is what would make this Confirmed. Until then it
+            is what this app expects, not what it has seen.
           </p>
         ) : null}
       </Popover.Content>

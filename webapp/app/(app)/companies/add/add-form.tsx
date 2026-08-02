@@ -57,7 +57,7 @@ export default function AddForm() {
       });
     } catch {
       setPending(false);
-      setError("Couldn't reach the server — check your connection and try again.");
+      setError("Couldn't reach the server. Check your connection and try again.");
       return;
     }
     setPending(false);
@@ -66,7 +66,7 @@ export default function AddForm() {
       // it is a correction to make to the text the user still has on screen.
       setError(
         res.kind === "auth"
-          ? "Your session expired — sign in and try again."
+          ? "Your session expired. Sign in and try again."
           : res.message,
       );
       return;
@@ -112,19 +112,19 @@ export default function AddForm() {
         <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" />
         <div className="min-w-0">
           <p>
-            <strong className="font-semibold text-text">This adds names, not boards.</strong>{" "}
-            Pasted companies are recorded at Tier&nbsp;3 — tracked, not pulled. Nothing here probes
-            an ATS. When the discovery resolver later grounds one of these names it upgrades
-            <em> this</em> row in place, so it becomes a real board and your subscription comes
-            with it. Paste a company it has already resolved and you get that board straight away.
-            One case still stalls: if the board it grounds to already belongs to another row here
-            (a second spelling, say &ldquo;Aon PLC&rdquo; next to &ldquo;Aon&rdquo;), merging them
-            would move your subscription, so nothing is changed and the row stays at Tier&nbsp;3.
-            It is recorded in your activity trail, not flagged on the row yet.
+            This adds names, not boards.{" "}
+            Pasted companies are tracked, not pulled. Nothing here looks for a job board. When
+            discovery later finds one for a name, it upgrades that row in place, so the row
+            becomes a real board and your subscription comes with it. Paste a company whose board
+            is already known and you get that board straight away. One case still stalls: if the
+            board it finds already belongs to another row here (a second spelling, say "Aon PLC"
+            next to "Aon"), merging them would move your subscription, so nothing is changed and
+            the row stays as a name only. That is recorded in your activity trail, not flagged on
+            the row yet.
           </p>
           <p className="mt-1.5 text-muted">
-            Describing a universe in words (&ldquo;Chicago finance, treasury roles&rdquo;) is not
-            wired up here yet — that path runs through the discovery agent, on the same schedule.
+            Describing a universe in words ("Chicago finance, treasury roles") is not wired up
+            here yet. That path runs through the discovery agent, on the same schedule.
           </p>
         </div>
       </div>
@@ -178,14 +178,14 @@ export default function AddForm() {
           {droppedLong > 0 ? (
             <p className="mt-2 text-2xs text-warn">
               {droppedLong} {droppedLong === 1 ? "line was" : "lines were"} longer than{" "}
-              {MAX_NAME_LENGTH} characters and {droppedLong === 1 ? "was" : "were"} left out —
-              trimming one to a name would invent a company.
+              {MAX_NAME_LENGTH} characters and {droppedLong === 1 ? "was" : "were"} left out.
+              Trimming one to a name would invent a company.
             </p>
           ) : null}
           {overLimit ? (
             <p role="alert" className="mt-2 text-2xs text-danger">
-              That is {names.length} names; the limit is {MAX_PASTE_NAMES} per paste. Split it into
-              batches.
+              That is {names.length} names; the limit is {MAX_PASTE_NAMES} per paste. Split it
+              into smaller pastes.
             </p>
           ) : null}
         </div>
@@ -205,14 +205,14 @@ export default function AddForm() {
           data-testid="paste-submit"
         >
           {pending
-            ? "Adding…"
+            ? "Adding"
             : `Add ${names.length || ""} ${names.length === 1 ? "company" : "companies"}`.trim()}
         </Button>
         <Link
           href="/companies?set=review"
           className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
         >
-          Review what&rsquo;s waiting
+          Review what's waiting
           <ArrowRight aria-hidden="true" className="size-3" />
         </Link>
       </div>

@@ -65,7 +65,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {/* The wordmark is a full row on desktop; on a phone that is another
             line of chrome above the content, so it sits inline with the nav. */}
         <div className="hidden items-center justify-between pb-3 lg:block">
-          <span className="px-1 text-sm font-bold">Job Search HQ</span>
+          <span className="px-1 text-sm font-semibold">Job Search HQ</span>
         </div>
         <NavLinks counts={{ "/queue": queueCount }} />
         {email ? (

@@ -79,6 +79,8 @@ jobs:
       # given up is the strict in-sync assertion, which here only ever fired
       # as a false alarm.
       - run: npm install --no-audit --no-fund
+      - run: npm run lint:copy
+        if: matrix.shard == 1
       - run: npm run typecheck
       - run: npm run build
         env:
@@ -92,6 +94,20 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('webapp/package-lock.json') }}
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
+      # The design law, enforced against the RENDERED page.
+      #
+      # `lint:copy` above reads source strings; this reads computed styles, and
+      # the two catch disjoint sets — a text-transform inherited from a parent,
+      # a gradient arriving through a stylesheet, an em dash that came in with
+      # the data. Named as its own step rather than left to the sharded run
+      # below purely for legibility: this is the first gate in the integration
+      # order, and "design law violated" has to be readable without paging
+      # through a thousand functional tests. ~25s, shard 1 only.
+      - name: Anti-slop computed-style sweep
+        if: matrix.shard == 1
+        run: npx playwright test tests/e2e/slop.spec.ts
+        env:
+          HQ_DEMO: "1"
       # The layout suite is the guarantee that no page ever scrolls sideways,
       # at six widths on three pages. Visual snapshots are skipped until Linux
       # baselines are recorded (see tests/e2e/visual.spec.ts).

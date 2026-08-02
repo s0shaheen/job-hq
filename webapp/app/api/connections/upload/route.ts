@@ -154,7 +154,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
     const withData = sheets.filter((s) => s.rows.some((r) => r.some((c) => !isBlankCell(c))));
     if (withData.length === 0) {
-      return fail("Every sheet in that workbook is empty — there is nothing to import.", 415);
+      return fail("Every sheet in that workbook is empty. There is nothing to import.", 415);
     }
     if (withData.length > 1) {
       // Guessed silently, this is somebody's Archive tab becoming their
@@ -178,7 +178,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   // "the row below" point at nothing.
   const nonEmpty = cells.filter((r) => r.some((c) => !isBlankCell(c)));
   if (nonEmpty.length === 0) {
-    return fail("There are no rows in that file — every line is empty.", 400);
+    return fail("There are no rows in that file. Every line is empty.", 400);
   }
 
   const header = sniffHeaderRow(nonEmpty);
@@ -202,7 +202,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     // said. The refusal now names the real ceiling instead of offering a
     // workaround that does not work.
     return fail(
-      `That export has ${dataRows.length.toLocaleString("en-US")} connections and this app holds ${MAX_ROWS.toLocaleString("en-US")}. Splitting the file does not help — the extra rows would be stored and never shown. Trim the export to your ${MAX_ROWS.toLocaleString("en-US")} most useful connections and upload that.`,
+      `That export has ${dataRows.length.toLocaleString("en-US")} connections and this app holds ${MAX_ROWS.toLocaleString("en-US")}. Splitting the file does not help. The extra rows would be stored and never shown. Trim the export to your ${MAX_ROWS.toLocaleString("en-US")} most useful connections and upload that.`,
       413,
     );
   }

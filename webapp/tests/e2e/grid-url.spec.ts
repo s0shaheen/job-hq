@@ -104,8 +104,8 @@ test("back/forward replays filter and sort decisions, one per step (criterion 22
   const afterTwo = afterOne.filter((j) => j.minYoe !== null && j.minYoe <= 3);
   await expect(companyCells(page)).toHaveText(afterTwo.map((j) => j.company));
 
-  // Decision 3: sort by comp.
-  await page.getByRole("button", { name: "Comp", exact: true }).click();
+  // Decision 3: sort by pay.
+  await page.getByRole("button", { name: "Pay", exact: true }).click();
   await expect(page).toHaveURL(/sort=comp\.asc/);
   const fullUrl = page.url();
 

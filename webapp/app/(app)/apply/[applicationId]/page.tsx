@@ -12,7 +12,7 @@ import { prepareApplication } from "@/lib/apply/prepare";
 import { engineAnswers, engineRules } from "@/lib/apply/views";
 import { ReviewSurface } from "./review";
 
-export const metadata = { title: "Prepare — Job Search HQ" };
+export const metadata = { title: "Prepare" };
 export const dynamic = "force-dynamic";
 
 /**
@@ -82,7 +82,7 @@ export default async function ApplyPage({
       </p>
       <h1 className="text-lg font-semibold">{application.title}</h1>
       <p className="text-xs text-muted">
-        {application.company} — every question this form will ask, answered from what you
+        {application.company}. Every question this form will ask, answered from what you
         have already told this app. Nothing is submitted from here.
       </p>
     </header>
@@ -150,7 +150,7 @@ export default async function ApplyPage({
             title="The board answered with something this app could not read"
             body={
               <>
-                {err instanceof Error ? err.message : "The payload was not a job posting."}{" "}
+                {err instanceof Error ? err.message : "What came back was not a job posting."}{" "}
                 Nothing was staged. A form this parser cannot describe unambiguously is not one
                 to prepare against.
               </>
@@ -221,8 +221,8 @@ function NotPreparable({ target, url }: { target: ApplyTarget; url: string | nul
         title={`Prepare does not read ${target.ats} yet`}
         body={
           <>
-            Greenhouse is the only ATS with a question schema that can be read without opening a
-            browser, which is why it is the one this works on — it is 43% of the companies this
+            Greenhouse is the only job board whose questions can be read without opening a
+            browser, which is why it is the one this works on. It is 43% of the companies this
             system tracks. Ashby, Lever and SmartRecruiters have hosted forms that have to be
             parsed page by page, and that is not built. Nothing about this posting was guessed
             at.{" "}
@@ -242,7 +242,7 @@ function NotPreparable({ target, url }: { target: ApplyTarget; url: string | nul
         title="This link does not say which board it belongs to"
         body={
           <>
-            The question schema is keyed by the company&apos;s board token and the job id, and
+            The question list is keyed by the company's board token and the job id, and
             this URL carries only one of them
             {target.jobId ? ` (job ${target.jobId})` : ""}. That is what an embedded form, or a
             company careers page carrying <code>?gh_jid=</code>, looks like. Open the posting,
@@ -270,7 +270,7 @@ function NotPreparable({ target, url }: { target: ApplyTarget; url: string | nul
             </Link>
           </>
         ) : (
-          "This row has no posting key and no link at all — it was typed in or imported from a spreadsheet, so there is no form to read."
+          "This row has no posting key and no link at all. It was typed in or imported from a spreadsheet, so there is no form to read."
         )
       }
     />

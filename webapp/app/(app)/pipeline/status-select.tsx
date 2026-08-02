@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
  * keyboard user when it does not — matrix row 118 is exactly "the popover renders
  * off-screen or cannot be reached by keyboard".
  *
- * `Custom…` is the last item, and it is not a status: it opens a text field,
+ * `Custom` is the last item, and it is not a status: it opens a text field,
  * because the sheet allows an invented status and `statusRank` ranks one highest
  * by construction. Refusing one here would make this control strictly less
  * capable than the cell it replaces.
@@ -101,12 +101,12 @@ export function StatusSelect({
         aria-label={`Status for application ${applicationId}`}
         data-testid={`status-trigger-${applicationId}`}
         className={cn(
-          "inline-flex min-w-0 max-w-full items-center gap-1 rounded-full outline-none",
+          "inline-flex min-w-0 max-w-full items-center gap-1 rounded-md outline-none",
           "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
           "disabled:opacity-60",
         )}
       >
-        {/* The pill IS the trigger, so the table reads the same whether or not a
+        {/* The chip IS the trigger, so the table reads the same whether or not a
             row is editable — a separate chrome-heavy control per row turns a
             scannable list into a form. */}
         <Badge tone={statusTone(status)} className="whitespace-nowrap">
@@ -138,7 +138,7 @@ export function StatusSelect({
             ))}
             <Select.Separator className="my-1 h-px bg-border" />
             <Select.Item value={CUSTOM} className={itemClass}>
-              <Select.ItemText>Custom…</Select.ItemText>
+              <Select.ItemText>Custom</Select.ItemText>
             </Select.Item>
           </Select.Viewport>
         </Select.Content>

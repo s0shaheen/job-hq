@@ -247,13 +247,13 @@ const UTF8_BOM = [0xef, 0xbb, 0xbf];
  *
  * Measured on Node v24.11.1 / ICU 77.1: the decoder reports
  * `encoding === "windows-1252"` and then decodes 0x92 to U+0092, a C1 control
- * character, instead of U+2019 (’). It is ISO-8859-1 wearing the windows-1252
+ * character, instead of U+2019 ('). It is ISO-8859-1 wearing the windows-1252
  * label — every alias (`cp1252`, `latin1`, `iso-8859-1`) resolves to the same
  * table. Browsers get this right, which is how it survives unnoticed.
  *
- * That matters more than it sounds. Excel autocorrects `'` to `’` as you type,
+ * That matters more than it sounds. Excel autocorrects `'` to `'` as you type,
  * so a curly apostrophe is in half the company names anyone exports from
- * Windows — `O’Reilly Media` would have imported as `O<U+0092>Reilly Media`:
+ * Windows — `O'Reilly Media` would have imported as `O<U+0092>Reilly Media`:
  * invisible in every UI, unsearchable, and wrong in the database forever.
  *
  * Doing it here also removes the ICU dependency. A Node built with small-icu

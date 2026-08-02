@@ -18,7 +18,7 @@ export default function CompaniesLoading() {
       aria-live="polite"
       className="flex h-dvh min-w-0 flex-col"
     >
-      <span className="sr-only">Loading companies…</span>
+      <span className="sr-only">Loading companies</span>
 
       {/* Mirrors page.tsx's header: text-lg title (24px line box) over a text-xs
           subtitle (16px), with the h-7 "Add companies" button on the right. */}
@@ -46,7 +46,7 @@ export default function CompaniesLoading() {
           this comment can be specific). */}
       <div className="shrink-0 border-b border-border px-4 py-2 sm:px-6">
         <div className="h-6 w-72 max-w-full animate-pulse rounded bg-raised" />
-        <div className="mt-1.5 h-1.5 w-full animate-pulse rounded-full bg-raised" />
+        <div className="mt-1.5 h-1.5 w-full animate-pulse rounded-sm bg-raised" />
         <div className="mt-1.5 h-4 w-64 max-w-full animate-pulse rounded bg-raised" />
       </div>
 

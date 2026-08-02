@@ -366,16 +366,16 @@ export default function CompaniesGrid({
   const searching = q.trim() !== "";
   const noun = (n: number) => (n === 1 ? "company" : "companies");
   const countText = searching
-    ? `${leaves.length} of ${setRows.length} ${noun(setRows.length)} match “${q.trim()}”`
+    ? `${leaves.length} of ${setRows.length} ${noun(setRows.length)} match "${q.trim()}"`
     : state.set === "review"
-      ? `${leaves.length} of ${rows.length} ${noun(rows.length)} — proposed, awaiting your decision`
+      ? `${leaves.length} of ${rows.length} ${noun(rows.length)}, proposed and awaiting your decision`
       : state.set === "universe"
-        ? `${leaves.length} of ${rows.length} ${noun(rows.length)} — approved and in your universe`
+        ? `${leaves.length} of ${rows.length} ${noun(rows.length)}, approved and in your universe`
         : state.set === "unresolved"
-          ? `${leaves.length} of ${rows.length} ${noun(rows.length)} — no board resolved, so nothing is pulled`
+          ? `${leaves.length} of ${rows.length} ${noun(rows.length)}, no job board found, so nothing is pulled`
           : state.set === "dismissed"
-            ? `${leaves.length} of ${rows.length} ${noun(rows.length)} — declined`
-            : `all ${rows.length} ${noun(rows.length)} — every review state`;
+            ? `${leaves.length} of ${rows.length} ${noun(rows.length)}, declined`
+            : `All ${rows.length} ${noun(rows.length)}, every review state`;
 
   const headers = table.getHeaderGroups()[0]?.headers ?? [];
 
@@ -395,7 +395,7 @@ export default function CompaniesGrid({
           <input
             value={q}
             onChange={(e) => onQChange(e.target.value)}
-            placeholder="Search name, board, source…"
+            placeholder="Search name, board, or source"
             data-testid="company-search"
             className="h-7 w-40 min-w-0 rounded-md border border-border-strong bg-surface px-2 text-xs
                        text-text placeholder:text-muted focus-visible:outline-2
@@ -418,7 +418,7 @@ export default function CompaniesGrid({
             <EmptyState
               icon={<SearchX aria-hidden="true" className="size-8" />}
               title="Nothing matches that search"
-              body={`No company in this set matches “${q.trim()}”.`}
+              body={`No company in this set matches "${q.trim()}".`}
               action={
                 <Button variant="primary" onClick={clearSearch}>
                   Clear search
@@ -429,7 +429,7 @@ export default function CompaniesGrid({
             <EmptyState
               icon={<Inbox aria-hidden="true" className="size-8" />}
               title="No companies yet"
-              body="Your universe is empty. Paste a list of companies to start it — nothing is monitored until you approve it."
+              body="Your universe is empty. Paste a list of companies to start it. Nothing is monitored until you approve it."
               // The copy says "paste a list", so the button has to be here: an
               // empty state that names the next step without offering it makes the
               // user go and find it (empty.tsx — "nothing yet needs an explanation",
@@ -455,15 +455,15 @@ export default function CompaniesGrid({
                     ? "Nothing approved yet"
                     : state.set === "unresolved"
                       ? "Every company has a board"
-                      : "Nothing dismissed"
+                      : "Nothing passed on"
               }
               body={
                 state.set === "review"
                   ? "Proposals land here for a yes or no. Discovery adds them; so does pasting a list."
                   : state.set === "universe"
-                    ? "Approve a proposal and it starts being swept for jobs."
+                    ? "Approve a proposal and its jobs start arriving in the scans."
                     : state.set === "unresolved"
-                      ? "Every company here resolved to a board the sweep can pull from."
+                      ? "Every company here has a job board the scans can read."
                       : "Companies you decline stay here, so discovery does not propose them again."
               }
               action={
@@ -495,7 +495,7 @@ export default function CompaniesGrid({
             role="region"
             aria-label="Company universe, scrollable"
             tabIndex={0}
-            className="min-h-0 flex-1 overflow-auto bg-surface focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+            className="min-h-0 flex-1 overflow-auto bg-surface tabular focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
           >
             {/* w-max: the grid is as wide as its columns and the CONTAINER
                 scrolls; min-w-full stretches it when the viewport is wider. */}
@@ -525,7 +525,7 @@ export default function CompaniesGrid({
                       aria-sort={dir ? (dir === "asc" ? "ascending" : "descending") : undefined}
                       style={colStyle(h.column)}
                       className={cn(
-                        "flex min-w-0 items-center overflow-hidden px-3 text-2xs font-semibold uppercase tracking-wider text-muted",
+                        "flex min-w-0 items-center overflow-hidden px-3 text-2xs font-semibold text-muted",
                         meta?.sticky && "sticky left-0 z-10 border-r border-border bg-raised",
                       )}
                     >
@@ -535,7 +535,7 @@ export default function CompaniesGrid({
                           onClick={() => cycleSort(sortField)}
                           title={`Sort by ${String(h.column.columnDef.header)}`}
                           className={cn(
-                            "flex min-w-0 items-center gap-1 uppercase tracking-wider hover:text-text",
+                            "flex min-w-0 items-center gap-1 hover:text-text",
                             dir && "text-text",
                           )}
                         >
@@ -632,8 +632,8 @@ export default function CompaniesGrid({
                             )}
                           >
                             {cell.column.id === "resolution" ? (
-                              // The chip, not plain text: the cell states the tier
-                              // AND how it was established, and the CLICK adds the
+                              // The chip, not plain text: the cell states how well
+                              // the source is known, and the CLICK adds the
                               // evidence behind it.
                               <ProvenanceChip
                                 company={company}

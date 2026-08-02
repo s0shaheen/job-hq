@@ -91,7 +91,7 @@ export const FIXTURE_JOBS: JobView[] = [
     key: "greenhouse-8814021", company: "Ramp", title: "Product Manager, Core Platform",
     location: "New York, NY", metro: "New York", workModel: "Hybrid",
     compRange: "$165,000 - $210,000", compMinK: 165, compMaxK: 210,
-    minYoe: 3, seniority: "PM", industry: "Fintech — spend management",
+    minYoe: 3, seniority: "PM", industry: "Fintech, spend management",
     roleFocus: "Ledger, billing and money movement",
     skills: ["Payments", "Platform / APIs", "SQL", "Experimentation"],
     posted: daysAgo(2), firstSeen: daysAgo(1),
@@ -118,7 +118,7 @@ export const FIXTURE_JOBS: JobView[] = [
     // deliberately long title + long company: the layout must not overflow
     key: "greenhouse-9920117", company: "Northwestern Mutual Investment Services",
     title: "Senior Product Manager, Enterprise Data Platform & Reporting Infrastructure",
-    location: "Chicago, IL", metro: "Chicago", workModel: "Hybrid — 3 days onsite",
+    location: "Chicago, IL", metro: "Chicago", workModel: "Hybrid, 3 days onsite",
     compRange: "$150,000 - $195,000", compMinK: 150, compMaxK: 195,
     minYoe: 4, seniority: "PM", industry: "Financial services",
     roleFocus: "Internal data platform and regulatory reporting",

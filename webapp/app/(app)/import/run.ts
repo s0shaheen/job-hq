@@ -197,13 +197,13 @@ export function undoSummary(result: UndoOk): string {
     const ids = result.keptIds.length > 0 ? ` (${result.keptIds.map((id) => `#${id}`).join(", ")})` : "";
     text +=
       ` ${result.kept === 1 ? "1 row was" : `${result.kept} rows were`} left exactly as they are${ids}` +
-      " — they changed after the import, and putting them back would throw away that change.";
+      ". They changed after the import, and putting them back would throw away that change.";
   } else {
     text += " Nothing was left behind: no imported row had been touched since.";
   }
 
   if (result.notesKept > 0) {
-    text += ` ${result.notesKept === 1 ? "1 imported note stays" : `${result.notesKept} imported notes stay`} in the history — notes are only ever added, never deleted.`;
+    text += ` ${result.notesKept === 1 ? "1 imported note stays" : `${result.notesKept} imported notes stay`} in the history. Notes are only ever added, never deleted.`;
   }
   return text;
 }

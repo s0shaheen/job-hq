@@ -44,8 +44,8 @@ describe("working sets", () => {
     expect(COMPANY_PRESETS.map((p) => p.name)).toEqual([
       "Needs review",
       "My universe",
-      "Unresolved",
-      "Dismissed",
+      "No board found",
+      "Passed",
       "All companies",
     ]);
     expect(companyPresetName("review")).toBe("Needs review");

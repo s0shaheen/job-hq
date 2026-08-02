@@ -4,7 +4,7 @@ import { draftFromPreset } from "@/lib/profile/presets";
 import { clampStep, decodeDraft, DRAFT_PARAM, LAST_STEP } from "@/lib/profile/draft";
 import Wizard from "./wizard";
 
-export const metadata = { title: "Set up your search — Job Search HQ" };
+export const metadata = { title: "Set up your search" };
 export const dynamic = "force-dynamic";
 
 /**

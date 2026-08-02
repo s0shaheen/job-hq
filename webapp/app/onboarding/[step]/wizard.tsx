@@ -543,7 +543,7 @@ export default function Wizard({
                 disabled={busy !== null}
                 data-testid="check-button"
               >
-                {busy === "check" ? "Checking…" : "Check again"}
+                {busy === "check" ? "Checking" : "Check again"}
               </Button>
             ) : null}
           </div>
@@ -605,7 +605,7 @@ export default function Wizard({
             }
             data-testid="finish-button"
           >
-            {busy === "save" ? "Saving…" : zero ? "Finish anyway" : "Finish"}
+            {busy === "save" ? "Saving" : zero ? "Finish anyway" : "Finish"}
           </Button>
         )}
       </div>

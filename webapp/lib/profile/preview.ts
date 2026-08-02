@@ -387,7 +387,7 @@ function bindingSample(
   for (let i = 0; i < rows.length; i += 1) {
     const [disposition, reason] = dispose(rows[i], config);
     if (disposition === "filtered" && matches(reason)) {
-      return `${corpus[i].title} — ${explainReason(reason)}`;
+      return `${corpus[i].title}. ${explainReason(reason)}`;
     }
   }
   return "";

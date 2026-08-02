@@ -85,7 +85,7 @@ export default function ReportStep({
           <>
             {batch.committedCount.toLocaleString("en-US")} of {total.toLocaleString("en-US")} rows
             settled
-            {batch.committedAt ? <> · {fmtStamp(batch.committedAt)}</> : null}.
+            {batch.committedAt ? <>, {fmtStamp(batch.committedAt)}</> : null}.
           </>
         }
         actions={
@@ -109,7 +109,7 @@ export default function ReportStep({
             {undone ? null : (
               <>
                 {" "}
-                Rows that had been edited since the import were left as they are — an undo never
+                Rows that had been edited since the import were left as they are. An undo never
                 overwrites work done after it.
               </>
             )}
@@ -130,7 +130,7 @@ export default function ReportStep({
               }
             >
               <RotateCcw aria-hidden="true" className="size-3.5" />
-              {pending > 0 ? "Undoing…" : "Undo this import"}
+              {pending > 0 ? "Undoing" : "Undo this import"}
             </Button>
             <p className="min-w-0 text-2xs text-muted">
               Removes the rows it added and puts the rows it changed back. Available until{" "}

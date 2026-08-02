@@ -92,7 +92,7 @@ describe("bindingConstraint", () => {
     // popover says "Change your experience limit" and links to `#yoeMax`, so a
     // label that drifts from the heading reads as the wrong link.
     expect(c?.label).toBe("experience limit");
-    expect(c?.example).toBe("Asks for 8+ years; your limit is 4");
+    expect(c?.example).toBe("Asks for 8+ years; your profile says 4");
   });
 
   it("keeps the first setting on a tie, so the message does not flip", () => {

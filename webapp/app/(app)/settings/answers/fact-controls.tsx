@@ -27,6 +27,14 @@ import type { SituationFact } from "@/lib/apply/types";
 
 export type FactDraft = SituationFact | null;
 
+/**
+ * The `enum` fact's stored tokens.
+ *
+ * Engine values, never words on screen: the labels beside them are the copy a
+ * person reads, and naming the tokens here keeps the two apart.
+ */
+const DISCLOSURE = { none: "none", has: "has" } as const;
+
 /** Does this control commit on change, or on an explicit Save? */
 export function commitsImmediately(field: TopicField): boolean {
   return field === "boolean" || field === "history";
@@ -80,12 +88,12 @@ export function FactControl({
             onChange={(next) => onChange({ kind: "enum", value: next })}
             options={[
               {
-                value: "none",
+                value: DISCLOSURE.none,
                 label: "Nothing to disclose",
                 body: "A question asking whether you have one is answered No.",
               },
               {
-                value: "has",
+                value: DISCLOSURE.has,
                 label: "There is something to disclose",
                 body: "Answered Yes, and the detail stays yours to write on the board.",
               },
@@ -152,8 +160,8 @@ export function FactControl({
             }
           />
           <p className="mt-1 text-xs text-muted">
-            Lower case, and spelled the way the list below spells them. A name we do not
-            recognise is stored and only matches a posting that states the same country.
+            Lower case, and spelled the way the list below spells them. A name this app does
+            not recognise is stored and only matches a posting that states the same country.
           </p>
         </div>
       );

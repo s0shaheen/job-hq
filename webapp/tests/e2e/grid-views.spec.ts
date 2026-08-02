@@ -92,10 +92,10 @@ test("the built-in presets navigate to their working sets and show exactly their
     "true",
   );
 
-  // Snoozed — exactly the snoozed fixtures, derived not hardcoded.
+  // Later — exactly the snoozed fixtures, derived not hardcoded.
   const snoozed = FIXTURE_JOBS.filter((j) => j.triage === "snoozed");
   expect(snoozed.length).toBeGreaterThan(0);
-  await page.getByRole("menuitemradio", { name: "Snoozed" }).click();
+  await page.getByRole("menuitemradio", { name: "Later" }).click();
   await expect(page).toHaveURL(/set=snoozed/);
   await expect(companyCells(page)).toHaveText(
     snoozed.map((j) => j.company),
@@ -113,10 +113,10 @@ test("the built-in presets navigate to their working sets and show exactly their
   await expect(companyCells(page)).toHaveText(needsInfo.map((j) => j.company));
   await expect(page.locator('[role="columnheader"][data-col="why"]')).toHaveCount(1);
 
-  // Dismissed.
+  // Passed.
   const dismissed = FIXTURE_JOBS.filter((j) => j.triage === "dismissed");
   await openSwitcher(page);
-  await page.getByRole("menuitemradio", { name: "Dismissed" }).click();
+  await page.getByRole("menuitemradio", { name: "Passed" }).click();
   await expect(companyCells(page)).toHaveText(dismissed.map((j) => j.company));
 
   // Presets are code, not rows — nothing offers to delete one.
