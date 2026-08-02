@@ -248,7 +248,11 @@ def test_deliberate_no_suite_paths_are_printed_not_hidden() -> None:
     "path,expected",
     [
         ("webapp/lib/grid/sort.ts", {"typecheck", "vitest"}),
-        ("db/migrations/0029_x.sql", {"py-db", "py-migrations"}),
+        # `vitest` belongs to a migration change: webapp/tests/unit/
+        # types-contract.test.ts PARSES db/migrations/*.sql to derive the row
+        # types, so a migration-only edit can turn it red with no webapp file
+        # touched. Commit d3aef9e is that failure, and it got past this lane.
+        ("db/migrations/0029_x.sql", {"py-db", "py-migrations", "vitest"}),
         ("infra/render/render.py", {"py-render", "py-infra"}),
         (".github/workflows/ci.yml", {"py-workflows", "sysmap"}),
         ("monitor/fetchers/lever.py", {"py-monitor"}),

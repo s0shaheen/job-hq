@@ -109,6 +109,33 @@ Legal transitions:
 
 `outcome_unknown` never transitions directly to `executing` or `failed_retryable`.
 
+### A receipt filed against the wrong stage has no correction path yet
+
+Recorded here rather than as a schema change, and it is not a blocker for the staging
+migration. It is an obligation on whoever builds the executor, because it becomes
+reachable the moment the executor can file a receipt.
+
+The staging schema protects a receipt by its EXISTENCE: a stage that holds one cannot be
+deleted and cannot become `cancelled`, `failed_retryable` or `failed_terminal`. That is
+the right rule — evidence exists, so the honest answer is `submitted` — but it has a
+consequence at `outcome_unknown` specifically. That state's two exits are `submitted` and
+`failed_terminal`; a receipt filed while `outcome_unknown` closes the second, leaving
+`submitted` as the only exit. Meanwhile the stage keeps the application's slot in the
+one-live-attempt unique index, and receipts are append-only and undeletable.
+
+So a receipt filed against the wrong stage — wrong application, wrong attempt, a
+mis-parsed provider response — permanently locks that application out of ever being
+staged again, and the refusal's hint currently says "a receipt filed in error is a
+correction with its own record, not a state change". **That correction mechanism does not
+exist.** There is no correcting record, no supersede, no operator path, in this migration
+or anywhere else. The hint describes the intended design, not a shipped one.
+
+What the executor packet has to deliver before it may file receipts: a
+correction/supersede record with its own audit and authority, of the same append-only
+shape as the receipt it corrects, plus the evidence class that justifies filing one. A
+receipt is only safe to write once the mistake it can encode is reversible by a recorded
+act rather than by a manual database edit.
+
 ## Required adversarial proof
 
 Concurrent double-click/devices, same role/provider identity, timeout before/after

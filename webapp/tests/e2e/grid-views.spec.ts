@@ -94,8 +94,13 @@ test("the built-in presets navigate to their working sets and show exactly their
 
   // Needs review, reached by URL because it has no TAB. 03 §4 names five tabs
   // and this is a sixth working set that old links still carry, so the strip
-  // renders with nothing current rather than growing an invented sixth tab
-  // (ADD-009). The set still has to resolve, which is what this asserts — plus
+  // renders with nothing current rather than growing an invented sixth tab.
+  // Filed as ADD-009 during the cutover and WITHDRAWN on review: the bundle's
+  // SavedViewTabs is a plain equality map, so an active set outside `views`
+  // renders nothing current by construction — the design answers it, and this
+  // is conforming behaviour rather than an open question. The number was later
+  // reused for a different addendum, which is why the citation is gone rather
+  // than repointed. The set still has to resolve, which is what this asserts — plus
   // that the Why column stayed retired; its sentence lives in the pane now.
   const needsInfo = FIXTURE_JOBS.filter((j) => j.disposition === "needs-info");
   expect(needsInfo.length).toBeGreaterThan(0);

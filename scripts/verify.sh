@@ -125,9 +125,18 @@ path_map=(
   "webapp/playwright.config.ts        = e2e,e2e-visual"
 
   # ── database
-  "db/migrations/*                    = py-db,py-migrations"
-  "db/*                               = py-db,py-migrations"
-  "supabase/*                         = py-db,py-migrations"
+  #
+  # `vitest` is in these rows because webapp/tests/unit/types-contract.test.ts
+  # PARSES db/migrations/*.sql — it derives the TypeScript row types from the
+  # CREATE TABLE bodies, so a migration-only change can turn it red with no
+  # webapp file touched. Commit d3aef9e exists for exactly that: a block comment
+  # inside a table body was read as column definitions and the test failed
+  # ("unmapped SQL type \"by\" on column computed") after the change-scoped lane
+  # had already reported a pass. A rule that maps the input of a test to
+  # everything BUT that test is the gap, not the test.
+  "db/migrations/*                    = py-db,py-migrations,vitest"
+  "db/*                               = py-db,py-migrations,vitest"
+  "supabase/*                         = py-db,py-migrations,vitest"
 
   # ── python packages
   # core/ is imported by monitor, tracker and the db write path, so a change

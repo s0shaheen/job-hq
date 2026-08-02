@@ -66,8 +66,35 @@ Visible implementation is blocked until every state maps to an owner artifact:
 | ADD-006 | Billing lifecycle states beyond founding-free view | PKT-09A/B |
 | ADD-007 | Account deletion irreversibility: already submitted employer applications cannot be recalled | PKT-09F |
 | ADD-008 | Whether the Jobs Display popover WRITES its four knobs to `profiles`, or is per-session only. Migration 0025 made density, type size and keyboard hints a durable per-user record, and Settings persists them; `DisplayPopover.d.ts` carries no save affordance, no dirty state and no "applies to this session" line, and 04 §3 lists the control without saying which it is. The two readings are visibly different products — change density in Jobs, reload, and the row height either holds or reverts — so the surface keeps today's per-session behavior until the owner says | Jobs surface build |
+| ADD-011 | Un-triage, bulk un-triage, import undo and digest undo against a job autopilot has already submitted: the gesture is refused, and no authored state shows a refused undo | PKT-07 autopilot surface |
 
 No implementation worker may fill these gaps from taste.
+
+### ADD-009 — an undo that is refused, and why it is a design gap and not a bug
+
+`20260802_094615_autopilot_staging.sql` makes a stage that holds provider evidence
+undeletable while its owner exists. That is the correct refusal — the alternative is
+"undo" erasing the only proof an application was submitted — but it is a **user-visible
+behaviour change to four shipped gestures**: `app_set_triage`, `app_set_triage_bulk`,
+`app_import_undo` and `hq_digest_set_triage` all reach `delete from public.applications`.
+
+What ships in the database now, so the refusal is not raw:
+
+- both refusals lead with a sentence a person can read — "this application was already
+  submitted by autopilot, so it cannot be removed" — with the stage id and state moved
+  into the error's `DETAIL`, where PostgREST does not put them in `error.message`;
+- the existing `{ ok: false, kind: "error", message }` path in `supabase-source.ts`
+  therefore surfaces that sentence rather than a table name or a `42501`.
+
+What is NOT decided, and is why this is an addendum rather than a fix: there is no
+authored state for "this gesture is refused because the job was applied to". The honest
+product answer is probably not an error banner at all — it is the row telling the user it
+was submitted, with the undo affordance absent. That is a design question, and no worker
+may invent it.
+
+Not urgent in the ordering sense: no stage can reach `submitted` or hold a receipt until
+the executor exists, and PKT-07A (execution host) is unsigned. It must be answered before
+the executor ships, not before this migration lands.
 
 ### Recorded deviations
 
