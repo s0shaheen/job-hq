@@ -220,6 +220,24 @@ def land(tmp_path: Path) -> Land:
     )
 
 
+def test_stdout_carries_only_the_result_not_the_narration(land: Land) -> None:
+    """`land.sh > out` must leave `out` holding the summary and nothing else.
+
+    Two ways this was false: the script's own `step`/`info`/`ok` wrote to stdout,
+    and — less obviously — the gate command it invokes inherited stdout, so a
+    successful land handed the caller a full verify.sh report where the summary
+    should have been. The second survived the first fix, which is why this
+    asserts over the WHOLE stream rather than the absence of one phrase.
+    """
+    r = land.run(GH_CHECKS_FILE=land.checks(PASSING_CHECKS),
+                 LAND_GATES="echo GATE-NOISE-ON-STDOUT; true")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "GATE-NOISE-ON-STDOUT" not in r.stdout, "the gate's output leaked into the result"
+    assert "GATE-NOISE-ON-STDOUT" in r.stderr, "the gate's output has to go somewhere"
+    for line in r.stdout.splitlines():
+        assert not line.startswith("==> "), f"a step header reached stdout: {line!r}"
+
+
 def refusal(r: subprocess.CompletedProcess[str]) -> str:
     return r.stderr
 

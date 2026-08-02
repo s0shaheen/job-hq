@@ -242,7 +242,13 @@ run_gates() {
   fi
 
   info "\$ ${cmd}"
-  if ! ( eval "$cmd" ); then
+  # The gate's own output is narration FROM HERE, whatever it is standing alone,
+  # so it goes to stderr with the rest. Without this the stream contract above is
+  # only half true: land.sh says nothing on stdout and then hands the whole
+  # verify.sh report to it, so `land.sh > out` still gets a page of test output
+  # instead of the summary. Measured on the run that landed this file's previous
+  # commit.
+  if ! ( eval "$cmd" 1>&2 ); then
     rm -f "$GATE_STAMP"
     refuse 4 "Local gates failed." \
       "Fix the failure and re-run scripts/land.sh. Do not weaken the test."
