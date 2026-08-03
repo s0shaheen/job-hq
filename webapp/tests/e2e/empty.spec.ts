@@ -154,8 +154,15 @@ test.describe("an empty queue stays accessible", () => {
   for (const seed of ["empty", "filtered"] as const) {
     test(seed, async ({ page, context }) => {
       // An empty state is a page of muted secondary text on a plain
-      // background with one heading. Contrast and heading-order regressions
-      // hide here precisely because there is nothing else on screen.
+      // background with one heading. Contrast regressions hide here precisely
+      // because there is nothing else on screen.
+      //
+      // This scan does NOT see heading order, and an earlier version of this
+      // comment claimed it did. `heading-order` and `page-has-heading-one` are
+      // axe best-practice rules at `moderate` impact, so the tag filter below
+      // drops them and the impact filter drops them again. The outline is
+      // gated by `heading-outline.spec.ts`, which walks it directly and also
+      // catches a duplicate h1 — something axe has no rule for at any setting.
       await useSeed(context, seed);
       await page.goto("/queue");
       await expect(page.getByTestId("empty-state")).toBeVisible();

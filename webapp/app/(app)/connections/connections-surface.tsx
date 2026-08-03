@@ -288,6 +288,11 @@ function UploadPanel({ busy, onFile }: { busy: boolean; onFile: (f: File) => voi
           aria-label="LinkedIn Connections.csv file"
           accept=".csv,.txt,.xlsx"
           className="sr-only"
+          // WCAG 2.2 SC 2.5.8 measures this input at 1x1 and it is a real
+          // pointer target, so `target-size.spec.ts` flagged it. The criterion's
+          // "equivalent" exception is the right answer rather than a bigger box:
+          // the visible Button beside it opens the same picker at 110x32.
+          data-target-size-exception="equivalent: the visible Choose file button beside this input opens the same picker and is 110x32"
           data-testid="connections-file"
           onChange={(e) => {
             const f = e.target.files?.[0];
