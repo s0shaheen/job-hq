@@ -127,6 +127,38 @@ suite naming this deviation, so it is visible rather than hidden — which is th
 property that makes deferring it honest. The owner may overrule at any time; nothing here is
 expensive to reverse.
 
+### DEV-002 — the live lane's seam refusals are not in the pinned-mutant ledger
+
+**The instruction.** The coordinator asked, on the live-data lane's review round, that the
+`fixtureSeamCookies` refusals be added to `tests/mutants/manifest.toml` — the pinned-mutant
+ledger being the right home for exactly this defect class.
+
+**Why they are not.** Three independent blockers, none of which the author can clear from a
+`main`-based branch:
+
+1. **The ledger is not on `main`.** It lives on `feat/mutant-ledger` (unmerged as of
+   2026-08-02). Adding a `[[mutant]]` from here means either rebasing onto an unmerged
+   branch or writing a file that does not exist in this branch's base.
+2. **The runner refuses the patch by design.** `scripts/mutants.py`'s `_is_test_path`
+   returns true for any path with `tests` in its parts, and the guard lives at
+   `webapp/tests/e2e/support/mode.ts`. The manifest's own rule — "a patch touching
+   `tests/**` is REFUSED at load time" — exists because the cheapest way to satisfy the
+   ledger is to break a test file, which proves nothing. The rule is right; this guard is
+   simply not the kind of thing it can host.
+3. **There is no `vitest` runner.** The manifest accepts `pytest`, `pytest312` and
+   `playwright`. The killing test is a vitest case, because that is the layer at which the
+   refusal is reachable at all.
+
+**What was done instead, so the substance is not lost.** The refusal was extracted from
+`becomeAccount` into the pure `fixtureSeamCookies`, which is what made it drivable, and
+`webapp/tests/unit/live-lane.test.ts` kills it: deleting the refusal reddens two cases,
+demonstrated. The review's own mutation — fall through to `active` — was run and is red.
+So the guard is proven; only its *registration* in the ledger is outstanding.
+
+**What the integrator should do.** When `feat/mutant-ledger` lands, either add a `vitest`
+runner and register these, or record here that vitest guards are proven in-suite and stay
+out of the ledger by design. This deviation is the tracking record either way.
+
 ## 5. Discovery and general-market validity decision
 
 The architecture packet MUST define:

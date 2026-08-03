@@ -1,0 +1,126 @@
+# The live-data browser lane (`docs/pilot-launch/17-ui-verification-standard.md` §5).
+#
+# The only thing in this estate that drives the real UI against real Postgres:
+# real Supabase sessions, real `entitlements` rows, real RLS. Everything else in
+# CI runs `HQ_DEMO=1` against `FixtureDataSource`.
+#
+# NOT ON PULL REQUESTS, and that is §5's instruction rather than a shortcut. It
+# needs the test project's service_role key, and a workflow that hands a
+# database-destroying credential to code from a fork is a supply-chain hole. It
+# is also slow: a build, a seed, a teardown. Fixture mode stays the fast inner
+# loop; this runs after the merge and before a release.
+name: live e2e
+
+on:
+  push:
+    branches: [main]
+    # Only when something that can break the live path moved. The lane costs a
+    # seed and a teardown against a shared project, and running it for a docs
+    # commit buys nothing while making two merges collide over the same four
+    # synthetic users.
+    paths:
+      - "webapp/**"
+      - "db/migrations/**"
+      - ".github/workflows/live-e2e.yml"
+  # Before a release, and for a deliberate re-run after provisioning.
+  workflow_dispatch: {}
+
+concurrency:
+  # NOT cancel-in-progress. A cancelled run skips its teardown and leaves four
+  # synthetic users on the project; the next run's seed would then fail on the
+  # unique-email constraint with a message about identity merging that has
+  # nothing to do with the change being tested. Queue instead.
+  group: live-e2e
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: live-data lane
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # `main` only, restated as a condition. `push.branches` already says so, but
+    # `workflow_dispatch` does not, and this job holds a service_role key.
+    if: github.ref == 'refs/heads/main'
+    defaults:
+      run:
+        working-directory: webapp
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - run: npm install --no-audit --no-fund
+
+      # THE REFUSAL, BEFORE ANYTHING ELSE.
+      #
+      # `readLiveEnv` throws on a missing secret and on a URL or key naming the
+      # production project, and Playwright resolves it at config load — so the
+      # run below already cannot proceed unsafely. This step exists so the
+      # failure is READABLE: "the secret is not set" rather than a stack trace
+      # inside a config file, on the one workflow whose misconfiguration is
+      # destructive.
+      - name: Refuse to run unconfigured or against production
+        env:
+          HQ_LIVE_E2E: "1"
+          HQ_LIVE_SUPABASE_URL: ${{ secrets.HQ_LIVE_SUPABASE_URL }}
+          HQ_LIVE_SUPABASE_ANON_KEY: ${{ secrets.HQ_LIVE_SUPABASE_ANON_KEY }}
+          HQ_LIVE_SUPABASE_SERVICE_KEY: ${{ secrets.HQ_LIVE_SUPABASE_SERVICE_KEY }}
+          HQ_LIVE_SEED_PASSWORD: ${{ secrets.HQ_LIVE_SEED_PASSWORD }}
+        # `--list` loads the very config the real run loads, which is where
+        # `readLiveEnv` lives. Reusing the shipped path rather than a parallel
+        # copy of the check is the point: a preflight with its own idea of the
+        # rules is a preflight that can disagree with the thing it gates.
+        run: npx playwright test --list
+
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('webapp/package-lock.json') }}
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      # Seeding, the run, and teardown are all inside `playwright test`:
+      # `globalSetup` seeds and mints sessions, `globalTeardown` deletes them.
+      # Teardown runs on failure too, and seeding tears down first, so an
+      # abandoned run costs a message rather than a manual cleanup.
+      - name: Run the live-data lane
+        env:
+          HQ_LIVE_E2E: "1"
+          HQ_LIVE_SUPABASE_URL: ${{ secrets.HQ_LIVE_SUPABASE_URL }}
+          HQ_LIVE_SUPABASE_ANON_KEY: ${{ secrets.HQ_LIVE_SUPABASE_ANON_KEY }}
+          HQ_LIVE_SUPABASE_SERVICE_KEY: ${{ secrets.HQ_LIVE_SUPABASE_SERVICE_KEY }}
+          HQ_LIVE_SEED_PASSWORD: ${{ secrets.HQ_LIVE_SEED_PASSWORD }}
+        run: npx playwright test
+
+      # A lane that runs zero tests and exits 0 is the failure this whole branch
+      # exists to prevent, and Playwright exits 0 on an empty run. The report is
+      # read back and the count asserted, so "green" cannot mean "nothing ran".
+      - name: The lane actually ran something
+        if: always()
+        run: node scripts/live-postflight.mjs live-report.json
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: live-e2e-traces
+          path: webapp/test-results/
+          retention-days: 7
+
+      # Same page as every other main-branch alarm. A silent failure here means
+      # the estate quietly stops verifying the live path — which is the state it
+      # was in before this lane existed, and the state nobody noticed.
+      - name: Page the ops topic on failure
+        if: failure()
+        env:
+          HQ_OPS_NTFY_TOPIC: ${{ secrets.HQ_OPS_NTFY_TOPIC }}
+        run: |
+          if [ -z "${HQ_OPS_NTFY_TOPIC}" ]; then
+            echo "::error title=Cannot page::HQ_OPS_NTFY_TOPIC is unset, so a failed live lane is silent"
+            exit 1
+          fi
+          curl -fsS -H "Title: live-data lane failed on main" -H "Priority: high" \
+            -d "The live-data browser lane failed on main. RLS, entitlement or the real session path may be broken: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "https://ntfy.sh/${HQ_OPS_NTFY_TOPIC}" || true

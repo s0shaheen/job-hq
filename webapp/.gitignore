@@ -5,6 +5,11 @@ out/
 .vercel
 *.tsbuildinfo
 
+# The live-data lane. `.auth/` holds real refresh tokens for the dedicated test
+# project and `live-report.json` is a run artifact; neither may reach a commit.
+/tests/live/.auth/
+/live-report.json
+
 # Playwright
 /test-results/
 /playwright-report/

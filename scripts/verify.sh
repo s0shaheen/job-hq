@@ -116,6 +116,13 @@ path_map=(
   # new missing cell. Mapped to coverage-ledger alone, a change to report.ts
   # regenerated the ledger and never ran the test that watches the gate work.
   "webapp/tests/coverage/*            = coverage-ledger,typecheck,vitest"
+  # The live-data lane's harness. `vitest` is the load-bearing entry, not
+  # `typecheck`: tests/unit/live-lane.test.ts is what proves the production
+  # refusal and the demanded-but-missing error can FAIL, and the lane itself
+  # cannot run here — it needs a Supabase project this box does not have. `e2e`
+  # because playwright.config.ts imports tests/live/env.ts at config load, so a
+  # syntax error there breaks the fixture lane too.
+  "webapp/tests/live/*                = typecheck,vitest,e2e"
   "webapp/scripts/*                   = lint-copy,coverage-ledger"
   "webapp/package.json                = typecheck,vitest,build,e2e,e2e-visual"
   "webapp/package-lock.json           = typecheck,vitest,build,e2e,e2e-visual"

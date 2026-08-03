@@ -412,7 +412,7 @@ Each line is a hole that already existed when the gate was switched on. Baseline
 
 | Cell | Why it is missing |
 |---|---|
-| `* | * | live` | No browser test has ever touched the live data path: the whole Playwright suite runs HQ_DEMO=1 against FixtureDataSource, so RLS, entitlement, real sessions and SupabaseDataSource have no rendered-journey coverage. |
+| `* | * | live` | The live lane is built and its Supabase project is provisioned, but the lane has never executed: it runs on merge to main and this work is still on a branch. So RLS, entitlement, real sessions and SupabaseDataSource have no OBSERVED rendered-journey coverage. |
 | `* | Reduced motion | fixture` | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
 | `applications | Session expired | fixture` | Session expiry is asserted from /queue only; no spec expires a session mid-journey on /pipeline or /apply. |
 | `coverage | Session expired | fixture` | No spec expires a session on /companies or /health. |

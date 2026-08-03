@@ -480,11 +480,29 @@ export interface Baseline {
 export const BASELINE_MISSING: Baseline = {
   date: "2026-08-02",
   entries: [
-    // Mode. One entry, because the live lane does not exist at all yet.
+    // Mode. Still one entry, and it stays until the lane has actually RUN.
+    //
+    // BOTH HALVES NOW EXIST AND THE CELLS ARE STILL NOT EARNED. The harness is
+    // built — `webapp/tests/live/`, the `live-desktop`/`live-mobile` projects,
+    // and `tests/e2e/entry-journey.spec.ts` running in both modes. The project
+    // is provisioned too: `job-hq-e2e` (`ehpngcdtymqxmqrcfpby`), all 28
+    // migrations applied from empty, `allowed_emails` deliberately empty
+    // (`18-deployment-readiness.md`). What has not happened is a RUN. Not one
+    // live cell has been observed green, because `.github/workflows/live-e2e.yml`
+    // fires on merge to main and this work is still on a branch.
+    //
+    // Retiring 189 cells on the strength of a harness that has never executed
+    // would be the exact vacuous coverage claim `17 §10` exists to prevent —
+    // and provisioning makes that MORE tempting, not less, because it feels like
+    // the blocker cleared. It did not. "Runnable" is not "run".
+    //
+    // WHAT UNBLOCKS IT: land this branch, let the workflow run green on main,
+    // then fill the cells from that report. The evidence is a report, never an
+    // intention.
     {
       key: "* | * | live",
       reason:
-        "No browser test has ever touched the live data path: the whole Playwright suite runs HQ_DEMO=1 against FixtureDataSource, so RLS, entitlement, real sessions and SupabaseDataSource have no rendered-journey coverage.",
+        "The live lane is built and its Supabase project is provisioned, but the lane has never executed: it runs on merge to main and this work is still on a branch. So RLS, entitlement, real sessions and SupabaseDataSource have no OBSERVED rendered-journey coverage.",
     },
 
     // Reduced motion — nothing in the estate asserts it on any surface.
