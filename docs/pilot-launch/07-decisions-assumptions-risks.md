@@ -41,6 +41,15 @@ security/privacy analysis, rollout, reversibility, and evidence.
 | ADR-013 | Submission receipt evidence classes, screenshot prohibition/redaction, access, retention | Receipt storage/classification |
 | ADR-014 | Resume feature matrix: imports, RenderCV schema/themes/fonts, job-specific AI tailoring, lossy behavior | Resume design/build |
 | ADR-015 | Stripe test ownership and later commercialization policy | Billing integration |
+| ADR-017 | ntfy topic rotation: the committed topic literals are live credentials and one of them is the `resume.yml` fallback that broadcasts rendered resumes to a public broker. Owner must create replacements, and decide whether already-broadcast material is treated as exposed | RM-40 Step 1; any public repository visibility |
+| ADR-018 | Third-party personal data: `users/dad/` and `users/roommate/` are two other people's job-search profiles, in history and in every clone. Deletion does not retract them. Decide whether those individuals are notified | RM-40 Step 6 |
+| ADR-019 | Legacy resume pipeline disposition: vaulting `resume/base.yaml` breaks the single-tenant `editor/` app, `resume.yml`, and `scripts/publish_to_drive.py`. Retire, repoint, or keep them outside the product repository | RM-40 Step 5 |
+| ADR-020 | Migration comments name individuals (`0010_pipeline.sql:557`, `0013_referral.sql:323`). Migrations are append-only and keyed by filename; editing re-runs them. Accept the deviation or fold into the history packet | RM-40 Step 4 |
+
+RM-40 findings, classification, and the sequenced split are in
+`20-personal-vault-audit.md`. ADR-004 additionally blocks RM-40 Step 5: vaulting
+`users/*/profile.yaml` destroys the input to the one-time import path if the owner
+chooses import over a clean start.
 
 Unattended Autopilot is not silently deferred or silently included. Until ADR-002 is
 signed, implementation may build exact Prepare/Review and explicit-approval submission
@@ -199,6 +208,12 @@ candidate-fit analysis MUST:
 | Risk | Stop/mitigation |
 |---|---|
 | Git contains a Postgres dump | Stop writer, incident inventory, encrypted restore, coordinated history decision |
+| Live ntfy topics committed in seven files, one as a workflow fallback that attaches rendered resumes | ADR-017; rotate to secrets and delete the literal fallback. Already-broadcast material is irreversibly exposed |
+| Untracked `interview-prep/` and a recruiter-screen audio file sit in the working tree uncovered by `.gitignore` | RM-40 Step 0: one `git add -A` commits them permanently |
+| Owner role defaults are the silent fallback for every profile write and every worker sweep | RM-40 Step 4; the fix is an explicit unset state, not a different default |
+| Demo fixtures carry the owner's identity and a compensation figure | RM-40 Step 3; demo mode is the surface a prospective user is shown |
+| Third-party personal data is in history and in every clone | ADR-018; deletion does not retract it |
+| Repository visibility is the only control holding most findings shut | Treat any visibility change, transfer, or fork as requiring RM-40 Steps 1–5 complete first |
 | `0021` address validation misses link-local/alternate forms | Table-driven SSRF corpus and mutation proof |
 | `0022` unsafe Gmail review enters launch | Exclude branch/migration from launch unless a hard dependency and complete unreachable proof exist |
 | `0027` defaults allow below middleware | Database/RPC/storage/worker default-deny mutation |
