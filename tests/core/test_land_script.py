@@ -392,6 +392,63 @@ def test_failed_gates_clear_the_stamp_so_a_rerun_reruns_them(land: Land) -> None
     assert not stamp.exists(), "a failed gate run must remove the stamp"
 
 
+def _verify_lane(land: Land, image_present: bool) -> Path:
+    """Give the throwaway checkout a scripts/verify.sh and a `docker` that
+    answers whether the verification image exists. Returns the file the fake
+    verify.sh writes its argv into."""
+    argv = land.root / "verify-argv"
+    lane = land.work / "scripts"
+    lane.mkdir(exist_ok=True)
+    (lane / "verify.sh").write_text(
+        f'#!/usr/bin/env bash\nprintf "%s\\n" "$*" > {argv}\nexit 0\n'
+    )
+    (lane / "verify.sh").chmod(0o755)
+    (land.stub / "docker").write_text(
+        "#!/usr/bin/env bash\n"
+        f'[ "$1" = "image" ] && exit {0 if image_present else 1}\nexit 0\n'
+    )
+    (land.stub / "docker").chmod(0o755)
+    return argv
+
+
+def test_the_default_gate_asks_for_the_image_when_it_is_built(land: Land) -> None:
+    """Without --image the lane has no DATABASE_URL, so every database gate
+    REFUSES rather than self-skipping into a meaningless green. That refusal is
+    correct of verify.sh and useless here: on 2026-08-03 it turned PRs #141 and
+    #142 — both ready, both green in CI — into exit-4 refusals whose only defect
+    was that land.sh was standing outside the image."""
+    argv = _verify_lane(land, image_present=True)
+    r = land.run("--dry-run", LAND_GATES="",
+                 GH_CHECKS_FILE=land.checks(PASSING_CHECKS))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert argv.read_text().strip() == "--image", "the gate ran without --image"
+
+
+def test_the_default_gate_says_so_rather_than_asking_for_an_absent_image(
+    land: Land,
+) -> None:
+    """`docker run` against an image that is not built fails in a way that reads
+    as a gate failure. Degrade to the host lane and say which gates that costs."""
+    argv = _verify_lane(land, image_present=False)
+    r = land.run("--dry-run", LAND_GATES="",
+                 GH_CHECKS_FILE=land.checks(PASSING_CHECKS))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert argv.read_text().strip() == "", "asked for an image that is not built"
+    assert "image is not built" in r.stderr
+    assert "infra/test-image/build.sh" in r.stderr
+
+
+def test_land_gates_still_wins_over_the_image_default(land: Land) -> None:
+    """The override exists so a caller can run something narrower. A default
+    that quietly outranked it would make LAND_GATES a lie."""
+    argv = _verify_lane(land, image_present=True)
+    r = land.run("--dry-run", LAND_GATES=f"touch {land.gate_marker}",
+                 GH_CHECKS_FILE=land.checks(PASSING_CHECKS))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert land.gate_marker.exists()
+    assert not argv.exists(), "LAND_GATES was set and verify.sh ran anyway"
+
+
 # ───────────────────────────────────────────── exit 8: a failing/cancelled check
 
 def test_failing_check_refuses_with_8(land: Land) -> None:

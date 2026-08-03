@@ -233,8 +233,22 @@ run_gates() {
   elif [ -x "${REPO_ROOT}/scripts/verify.sh" ]; then
     # The fast verification lane, when it exists. land.sh must not hard-depend
     # on it: it is built separately and may not have landed yet.
-    cmd="${REPO_ROOT}/scripts/verify.sh"
-    info "using scripts/verify.sh"
+    #
+    # Prefer --image. Without it the lane has no DATABASE_URL, and every gate
+    # that needs one REFUSES rather than self-skipping into a meaningless
+    # green — which is correct of verify.sh and useless here: on 2026-08-03 it
+    # turned two ready, CI-green pull requests (#141, #142) into exit-4
+    # refusals whose only defect was where land.sh was standing. The image is
+    # where Postgres 16 already is, so ask for it when it is actually there.
+    if docker image inspect "${HQ_TEST_IMAGE_TAG:-hq-test:latest}" >/dev/null 2>&1; then
+      cmd="${REPO_ROOT}/scripts/verify.sh --image"
+      info "using scripts/verify.sh --image"
+    else
+      cmd="${REPO_ROOT}/scripts/verify.sh"
+      warn "the verification image is not built, so database gates cannot run here."
+      warn "Build it with infra/test-image/build.sh; until then CI is the only db gate."
+      info "using scripts/verify.sh"
+    fi
   else
     warn "scripts/verify.sh not present — falling back to the pytest gate."
     warn "This is the degraded lane: webapp gates are left to CI."
