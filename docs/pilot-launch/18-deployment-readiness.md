@@ -116,6 +116,20 @@ Exposure is bounded — the repository is private — but this history also carr
 production database dumps until 2026-08-02, so anything that ever leaked the history
 leaked the topics with it.
 
+**The jobs topic is the more urgent of the two, which is the opposite of how it was
+treated.** Until 2026-08-03 `resume.yml` carried `${{ secrets.HQ_NTFY_TOPIC || 'literal' }}`,
+and the step holding that fallback PUTs the owner's rendered resume preview to the topic.
+So the literal did not publish a notification channel; it published a route to the resume
+itself, to every reader of this repository. The guard that was supposed to prevent this
+existed and passed — it named `secrets.HQ_OPS_NTFY_TOPIC` alone, on the recorded reasoning
+that the jobs topic was informational rather than a page. That reasoning was wrong about
+what the step sends, and the rule now covers every ntfy publish.
+
+Note that `HQ_NTFY_TOPIC` is **not currently set as a repository secret at all**, so step 4
+below CREATES it rather than updating it. Until it exists, the resume phone ping skips with
+a warning instead of publishing to an empty topic — that is deliberate, and it is the
+failure you should expect to see on the next resume render.
+
 **This is deliberately NOT done automatically, because it needs you.** Rotating breaks the
 phone's existing subscriptions until you re-subscribe, and for the ops topic that failure
 is invisible: silence is the healthy state, so a rotated-but-unsubscribed ops topic looks
