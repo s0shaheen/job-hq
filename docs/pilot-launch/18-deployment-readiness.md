@@ -104,3 +104,31 @@ project costs nothing.
   service_role key is the combination a URL-only check waves through.
 - Keep its schema current the same way production's is kept current: apply migrations to
   it whenever they land, or the lane starts testing an older product than the one shipping.
+
+## 8. Owner action: rotate the ntfy topics
+
+Both slugs are committed in the repository — `hq.config.yaml`, `docs/ACTIVATION.md`, and the
+generated `docs/SYSTEM.md`. An ntfy topic is a bearer secret: whoever knows the slug can
+both READ every push and PUBLISH to the phone. Removing the literal from one workflow does
+not un-publish it; only rotation does.
+
+Exposure is bounded — the repository is private — but this history also carried committed
+production database dumps until 2026-08-02, so anything that ever leaked the history
+leaked the topics with it.
+
+**This is deliberately NOT done automatically, because it needs you.** Rotating breaks the
+phone's existing subscriptions until you re-subscribe, and for the ops topic that failure
+is invisible: silence is the healthy state, so a rotated-but-unsubscribed ops topic looks
+exactly like a system with nothing wrong.
+
+Order matters:
+
+1. Pick two new slugs with real entropy (`openssl rand -hex 12`), not guessable names.
+2. **Subscribe the phone to both new topics FIRST**, before anything publishes to them.
+3. Update `hq.config.yaml` through its owning tool — never by hand; `bootstrap`/`selfheal`
+   own that file.
+4. Update the GitHub secrets `HQ_OPS_NTFY_TOPIC` and `HQ_NTFY_TOPIC`, and the SSM
+   parameter `/job-hq/MONITOR_OPS_NTFY_TOPIC`.
+5. Update `docs/ACTIVATION.md`, then regenerate `docs/SYSTEM.md` with `scripts/sysmap.py`.
+6. Send one test push to each and confirm the phone receives it, THEN unsubscribe from the
+   old topics. Verifying before unsubscribing is what stops a silent alarm.
