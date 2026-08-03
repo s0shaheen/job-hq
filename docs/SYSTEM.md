@@ -149,9 +149,11 @@ Symptom → cause → fix: `docs/RUNBOOK.md`. AWS setup and ops detail: `infra/R
   from `handler.JOBS` and pinned to it by `tests/test_runjob.py`. Two of those jobs have no
   EventBridge schedule and only ever run by hand: `selfheal` (the nightly Actions workflow owns
   that lane, because its product is a commit) and `simplify` (expiring session cookies; Gmail
-  capture sees the same applications). The old hourly priority watch has no lane at all now — the
-  twice-daily sweep covers every company, and `python -m monitor.priority` is still there if a
-  genuine priority tier is ever defined by something better than a hand-maintained flag.
+  capture sees the same applications). The old hourly priority watch is **gone** (RM-12): the
+  twice-daily sweep covers every company, nothing dispatched `monitor.priority`, and a module that
+  opens the spreadsheet but no lane can reach is a Sheet dependency nobody is counting. If a
+  genuine priority tier is ever defined by something better than a hand-maintained flag, it gets
+  built against Postgres.
 - **One Config-tab knob to check** (`docs/RUNBOOK.md` § Changing behavior): `run_budget_min`
   defaults to 30, from the Actions era; Lambda's hard ceiling is 15 minutes. #59's deadline clamp
   means an over-budget sweep now stops cleanly rather than being killed mid-flight, but #58 still
@@ -243,7 +245,7 @@ aws lambda invoke --function-name job-hq-bots \
 | CSV → S3 (Lambda) | the same tab CSVs | `s3://$HQ_BACKUP_S3_BUCKET/snapshots/<user>/<tab>.csv` (versioned bucket) | `cron(53 8 * * ? *)` (~03:53 CT) | `heartbeat_snapshot_s3` | a failed upload **raises**, so `handler.py` names the job in an ops push; staleness pages from the digest |
 | Schema + gid re-pin (Actions) | re-asserted headers/dropdowns/protections and the re-pinned `hq.config.yaml` | a git commit on `main` | `23 8 * * *` (~03:23 CT) | `heartbeat_selfheal` | same as the git CSV lane |
 | Feed JSON (best effort) | `monitor.run`'s feed history | `monitor/snapshots/*.json` in git on a **Run a bot** dispatch; `feeds/<label>.json` in S3 when the FS is read-only | with each sweep | none | prints a warning and never fails a completed sweep — the CSV lanes are the Feed tab's real backup |
-| PG dump | `pg_dump --schema=public` of the Supabase store | `snapshots/pg/hq.sql.gz` + commit | `pgdump.yml`, nightly — but the job is gated on the `PGDUMP_ENABLED` repo variable, so it runs only once that is `true` | pg lane `pgdump` in `channel_runs` (written by `python -m tracker.beat pgdump` as the job's last step) | the digest pages **HQ backups stale** naming `pgdump (pg)` — including while the lane has never run, which is what makes “pg is load-bearing and has no backup” visible the morning after `HQ_PG_WRITES=first_class` is set |
+| PG dump | `pg_dump --schema=public` of the Supabase store | nowhere — **the lane is hard-disabled** | `pgdump.yml` has no schedule and its job unconditionally exits 1; the `PGDUMP_ENABLED` repo variable is deliberately ignored (FP-OPS-001, `docs/pilot-launch/instances/PKT-DUMP-DISABLE.md`) | pg lane `pgdump` in `channel_runs` (written by `python -m tracker.beat pgdump` as the job's last step) | the digest pages **HQ backups stale** naming `pgdump (pg)`, permanently, because the lane cannot run — which is exactly the state “pg is load-bearing and has no git backup” should be in until RM-01 lands an encrypted replacement |
 
 The git and S3 CSV lanes are deliberately independent copies on independent schedulers, each with its **own** heartbeat: one shared beat would let the nightly Actions run keep it fresh while the S3 copy had been dead for a week. The PG dump lane is the same doctrine for the store the sheet is being replaced by. Restore procedure (the CSV lanes plus Sheets' own version history): `docs/RUNBOOK.md` § Restoring the sheet.
 <!-- sysmap:end backup-lanes -->

@@ -66,7 +66,6 @@ from core.jobkeys import is_strong, job_key
 from core.sheets import HQ, RowNotFound, today as _today
 from monitor import gates, geo
 from monitor.filtering import title_matches
-from monitor.priority import known_keys, priority_companies
 
 ACTOR_ID = "memo23/apify-hiring-cafe-scraper"
 MAX_TERMS = 6
@@ -87,6 +86,37 @@ TS_UNFENCED_MAX_AGE_DAYS = 30
 CAFE_RUN_TIMEOUT = 120      # seconds the actor run may take, server-side
 CAFE_WAIT = 150             # seconds we will wait for it before giving up
 PUSH_MAX_LINES = 12
+
+#: Sheet-checkbox truth, the same parse the monitor has always used — byte-identical
+#: to `monitor/gates.py:39` and `monitor/sheet.py:34`, and to the set `monitor/priority.py`
+#: carried before RM-12 moved these helpers here. Widening it is not a cleanup: it widens
+#: the company fence `priority_companies` builds for the TheirStack lane below, which is
+#: billed per job returned.
+_TRUEISH = ("TRUE", "1", "YES")
+
+
+def _truthy(v: str | None) -> bool:
+    return str(v or "").strip().upper() in _TRUEISH
+
+
+def known_keys(hq) -> set[str]:
+    """Keys already tracked anywhere — Feed ∪ Pipeline. Uses key_index so a
+    duplicate key aborts loudly: dedupe is the backbone, never guess past it.
+
+    Lived in `monitor/priority.py` until RM-12 deleted that module. This sweep was
+    its only caller, and a retired lane is not a home for a helper the live lane
+    needs — it was the reason a module no schedule could reach kept opening the
+    spreadsheet.
+    """
+    keys = set(hq.tab("feed").key_index())
+    keys.update(hq.tab("pipeline").key_index())
+    return keys
+
+
+def priority_companies(hq) -> list[dict]:
+    """Companies flagged both `monitor` and `priority` on the Companies tab."""
+    return [r for r in hq.tab("companies").records()
+            if _truthy(r.get("monitor")) and _truthy(r.get("priority"))]
 
 
 def _beat(sources: tuple[str, ...]) -> str:

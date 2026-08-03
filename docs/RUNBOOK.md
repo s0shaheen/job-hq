@@ -36,7 +36,7 @@ heartbeat older than **2× its cadence**; a job that never ran shows "no heartbe
 |---|---|---|---|
 | `heartbeat_capture` | Apps Script (Gmail) | 15 min trigger (cadence 1.5 h) | 3 h → **ops alert** from digest |
 | `heartbeat_tracker` | `tracker.join` (5th of 6 in the chain; `outbox` runs after it and writes no beat of its own) | every 2 h | 4 h |
-| `heartbeat_priority` | `monitor.priority` | retired — local runs only, no workflow | not watched |
+| `heartbeat_priority` | none — `monitor.priority` was deleted (RM-12) | never | not watched; an old beat may still sit in the tab |
 | `heartbeat_monitor` | `monitor.run` | daily 07:00 CT | 48 h |
 | `heartbeat_review` | `monitor.review` | daily 10:00 CT | 48 h |
 | `heartbeat_cafe` | `monitor.wide --source cafe` | daily 08:30 CT | 48 h |
@@ -47,9 +47,8 @@ heartbeat older than **2× its cadence**; a job that never ran shows "no heartbe
 | `heartbeat_snapshot_s3` | `tracker.snapshot`, **S3 mode** | nightly 03:53 CT (Lambda, → S3) | 48 h → **ops alert** "HQ backups stale" |
 | `heartbeat_digest` | `tracker.digest` | daily 06:40 CT | (digest is the watchdog; its workflow alert covers it) |
 
-Deliberate heartbeat gaps (so the watchdog can catch real death): `priority` is unscheduled and unwatched; the old note below applies only if it is re-scheduled — `priority` skips its
-heartbeat when *every* company fetch failed; `wide` skips it when no source swept;
-`simplify` skips it on auth failure. A clean "not activated / disabled" skip DOES
+Deliberate heartbeat gaps (so the watchdog can catch real death): `wide` skips its
+heartbeat when no source swept; `simplify` skips it on auth failure. A clean "not activated / disabled" skip DOES
 heartbeat — pre-activation silence is healthy, failure is not.
 
 **The backup heartbeats page, they don't just print.** `heartbeat_snapshot_s3` is written by the
@@ -143,10 +142,12 @@ idempotent (keys dedupe), so a partial run followed by a full run is safe.
 
 ## Priority watch failed
 
-**Retired, and now unreachable from any workflow.** `monitor.priority` has no cron (since
-2026-07-21 the twice-daily sweep covers every company), no Lambda job, and — since the workflow
-cleanup — no dispatch either. The module still works: `python -m monitor.priority` locally. Keep
-this section only because an old alert can still be in your history.
+**Deleted.** `monitor.priority` was retired from every workflow on 2026-07-21, when the
+twice-daily sweep began covering every company, and RM-12 removed the module itself —
+it had no cron, no Lambda job and no dispatch, but it still opened the spreadsheet for
+anyone who ran it by hand. `python -m monitor.priority` is now a `ModuleNotFoundError`;
+there is nothing to run and nothing to fix. Keep this section only because an old alert
+can still be in your history.
 
 **Symptom:** either ops push "Priority watch failed" (crash) or "Priority watch: every
 company failed" (all fetches errored). `heartbeat_priority` goes stale in the second case
@@ -223,8 +224,8 @@ fails ops-pushes **HQ outbox write failed** rather than swallowing the notificat
 **Turning quiet hours off:** Config tab, `notify_quiet_hours` = `off`.
 
 **Why the tab is usually empty.** Only two events have a Python producer today: `digest`
-(`tracker.digest`) and `new_roles` (`monitor.run`, `monitor.wide`, and `monitor.priority`,
-which is retired to local runs — it is in no workflow and no `handler.JOBS` chain). The
+(`tracker.digest`) and `new_roles` (`monitor.run` and `monitor.wide`; the third producer,
+`monitor.priority`, was deleted by RM-12). The
 other three knobs are reserved. Every one of the scheduled ones composes between
 06:40 and 18:00 CT in daylight time — outside the default window — and the flush re-asks the
 policy before delivering, so it cannot send inside the window either. The crons are fixed

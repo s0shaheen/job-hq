@@ -420,13 +420,14 @@ def sec_backup_lanes() -> str:
         f"git on a **Run a bot** dispatch; `{s['feed_key']}` in S3 when the FS is read-only | with "
         "each sweep | none | prints a warning and never fails a completed sweep — the CSV lanes are "
         "the Feed tab's real backup |",
-        "| PG dump | `pg_dump --schema=public` of the Supabase store | `snapshots/pg/hq.sql.gz` + "
-        "commit | `pgdump.yml`, nightly — but the job is gated on the `PGDUMP_ENABLED` repo "
-        "variable, so it runs only once that is `true` | pg lane `pgdump` in `channel_runs` "
+        "| PG dump | `pg_dump --schema=public` of the Supabase store | nowhere — **the lane is "
+        "hard-disabled** | `pgdump.yml` has no schedule and its job unconditionally exits 1; the "
+        "`PGDUMP_ENABLED` repo variable is deliberately ignored (FP-OPS-001, "
+        "`docs/pilot-launch/instances/PKT-DUMP-DISABLE.md`) | pg lane `pgdump` in `channel_runs` "
         "(written by `python -m tracker.beat pgdump` as the job's last step) | the digest pages "
-        "**HQ backups stale** naming `pgdump (pg)` — including while the lane has never run, which "
-        "is what makes “pg is load-bearing and has no backup” visible the morning after "
-        "`HQ_PG_WRITES=first_class` is set |",
+        "**HQ backups stale** naming `pgdump (pg)`, permanently, because the lane cannot run — "
+        "which is exactly the state “pg is load-bearing and has no git backup” should be in until "
+        "RM-01 lands an encrypted replacement |",
         "",
         "The git and S3 CSV lanes are deliberately independent copies on independent schedulers, "
         "each with its **own** heartbeat: one shared beat would let the nightly Actions run keep it "

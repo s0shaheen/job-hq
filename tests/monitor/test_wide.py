@@ -333,6 +333,42 @@ def test_theirstack_skipped_without_priority_companies(monkeypatch):
     assert any(r["action"] == "theirstack_skip" for r in hq.tab("log").records())
 
 
+def test_the_priority_flag_parse_is_the_monitors_and_only_the_monitors(monkeypatch):
+    """`priority_companies` builds the company fence for a lane billed per job
+    RETURNED, so which cells count as checked is a spend decision.
+
+    RM-12 moved this helper out of `monitor/priority.py`, and only the exact parse it
+    carried there keeps that move behaviour-preserving. A wider set does not merely
+    admit more companies: with no `wide_location_ids` configured, an empty fence is
+    what makes the lane log `theirstack_skip` and buy nothing. Widen the set and a
+    hand-marked `Y` or `x` silently turns a free skip into a budgeted query, twice a
+    day, unattended, against the live spreadsheet.
+
+    KILLED BY: adding "Y", "X", "ON" or a checkmark to `wide._TRUEISH`.
+    """
+    checked = [{"name": f"On{i}", "ats": "lever", "slug": f"on{i}",
+                "monitor": v, "seeded": "TRUE", "priority": v}
+               for i, v in enumerate(("TRUE", "true", " yes ", "1"))]
+    unchecked = [{"name": f"Off{i}", "ats": "lever", "slug": f"off{i}",
+                  "monitor": v, "seeded": "TRUE", "priority": v}
+                 for i, v in enumerate(("Y", "x", "ON", "✓", "FALSE", ""))]
+    hq = _hq(companies=checked + unchecked)
+    got = [c["name"] for c in wide.priority_companies(hq)]
+    assert got == [c["name"] for c in checked], got
+
+    # and the fence is what decides whether credits move at all
+    monkeypatch.setenv("APIFY_TOKEN", "tok")
+    monkeypatch.setenv("THEIRSTACK_API_KEY", "tsk")
+    only_loose = _hq(companies=unchecked,
+                     config=[{"key": "wide_cursor", "value": CURSOR}])
+    session = FakeSession()
+    s = _run(only_loose, FakeApify(items=[]), session=session)
+    assert s.ok
+    assert session.calls == [], "a loosely-marked Companies row bought TheirStack credits"
+    assert any(r["action"] == "theirstack_skip"
+               for r in only_loose.tab("log").records())
+
+
 def test_total_actor_failure_skips_heartbeat(monkeypatch):
     monkeypatch.setenv("APIFY_TOKEN", "tok")
     monkeypatch.delenv("THEIRSTACK_API_KEY", raising=False)

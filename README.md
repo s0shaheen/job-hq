@@ -27,7 +27,6 @@ anything, and a nightly self-heal + CSV snapshot makes any catastrophe a git res
 | Subsystem | Entrypoint | When | What |
 |---|---|---|---|
 | Discovery monitor | `python -m monitor.run` | 07:00 + 18:00 CT | full sweep, reconcile Feed, Health tab, YoE-gated push |
-| Priority watch | `python -m monitor.priority` | retired — local runs only | handpicked companies → push within the hour; the 2×/day sweep replaced it |
 | Tagging review | `python -m monitor.review` | daily 10:00 CT | Haiku-tags any Feed row discovery couldn't tag inline |
 | Wide sweep | `python -m monitor.wide` | daily 08:30 + 08:50 CT | hiring.cafe (Apify) + TheirStack safety net |
 | Tracker chain | `python -m tracker.promote` → `quickadd` → `scout` → `stale` → `join` | every 2 h | ★-promotions, URL enrich, scout sync + flags, stale flags, email-event join |

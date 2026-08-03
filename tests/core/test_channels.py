@@ -194,22 +194,6 @@ def _drive_monitor(user, title, recorder, _mp):
     return s.new_count
 
 
-def _drive_priority(user, title, recorder, _mp):
-    from monitor.models import Job
-    from monitor.priority import run as priority_run
-
-    hq = fake_hq()
-    hq.user = user
-    hq.tab("companies").append_records([{"name": "Plaid", "ats": "greenhouse",
-                                         "slug": "plaid", "monitor": "TRUE",
-                                         "seeded": "TRUE", "priority": "TRUE"}])
-    hq.tab("config").append_records([{"key": "titles_include", "value": title}])
-    job = Job("greenhouse", "11", "Plaid", title, "Chicago, IL", "http://11")
-    s = priority_run(hq, fetch=lambda *a, **k: [job], tagger=None, today=TODAY,
-                     session=recorder)
-    return s.new
-
-
 def _drive_wide(user, title, recorder, monkeypatch):
     from monitor.wide import run as wide_run
     from tests.monitor.test_wide import FakeApify, cafe_item
@@ -235,8 +219,10 @@ def _drive_digest(user, _title, _recorder, _mp):
     return 1 if out["body"] else 0
 
 
-DRIVERS = {"monitor": _drive_monitor, "priority": _drive_priority,
-           "wide": _drive_wide, "digest": _drive_digest}
+# `priority` was a fourth leg until RM-12 deleted `monitor/priority.py`: a retired
+# lane no schedule could reach, still opening the spreadsheet. The enforcement point
+# it exercised is the same one these three drive.
+DRIVERS = {"monitor": _drive_monitor, "wide": _drive_wide, "digest": _drive_digest}
 # each user's own matching title — a role the profile does not match would make
 # the whole test vacuous
 TITLES = {"dad": "Senior Financial Analyst", "salman": "Senior Product Manager"}
@@ -244,14 +230,14 @@ TITLES = {"dad": "Senior Financial Analyst", "salman": "Senior Product Manager"}
 
 @pytest.mark.parametrize("job", sorted(DRIVERS))
 def test_no_job_pushes_to_an_email_only_user(job, blocked_ntfy, monkeypatch):
-    """AC24 / matrix row 34, per job. Four jobs, one enforcement point."""
+    """AC24 / matrix row 34, per job. Three jobs, one enforcement point."""
     produced = DRIVERS[job]("dad", TITLES["dad"], blocked_ntfy, monkeypatch)
     assert produced > 0, f"{job} produced nothing pushable — test is vacuous"
     assert _jobs_posts(blocked_ntfy) == [], f"{job} pushed to an email-only user"
 
 
 @pytest.mark.parametrize("job", sorted(DRIVERS))
-def test_the_same_four_jobs_do_push_for_a_push_user(job, blocked_ntfy, monkeypatch):
+def test_the_same_three_jobs_do_push_for_a_push_user(job, blocked_ntfy, monkeypatch):
     """The mutation canary for the test above: same drivers, a ntfy user, and now
     a push MUST land. Without this pair, a driver that quietly stopped pushing
     would make every AC24 assertion pass for the wrong reason."""

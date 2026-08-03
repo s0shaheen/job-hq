@@ -1,5 +1,10 @@
 # Sheet sunset — Postgres becomes the system of record, for everyone
 
+> **This file is the intent. `docs/plans/SHEET-INVENTORY.md` is the fact.** That file is
+> the RM-12 inventory, built by reading the code in August 2026, and several rows of the
+> table below turned out stale against it. Where the two disagree, the inventory wins,
+> and it is pinned by `tests/core/test_sheet_containment.py` so it cannot drift again.
+
 **Owner decision, 2026-07-27, verbatim intent:** the Google Sheet becomes obsolete by way of
 the web app. Everyone — Salman included — runs on pg through the webapp. Nothing sheet-reliant
 survives except file import/export. This doc is the map from here to there.

@@ -318,20 +318,8 @@ def test_the_digest_hands_push_its_outbox(hq, night, blocked_ntfy):
     assert _lost(blocked_ntfy) == []
 
 
-def test_the_priority_watch_hands_push_its_outbox(hq, night, blocked_ntfy):
-    from monitor.models import Job
-    from monitor.priority import run as priority_run
-
-    hq.tab("companies").append_records([{"name": "Plaid", "ats": "greenhouse",
-                                         "slug": "plaid", "monitor": "TRUE",
-                                         "seeded": "TRUE", "priority": "TRUE"}])
-    job = Job("greenhouse", "11", "Plaid", "Senior Product Manager",
-              "Chicago, IL", "http://11")
-    s = priority_run(hq, fetch=lambda *a, **k: [job], tagger=None,
-                     today="2026-07-20", session=blocked_ntfy)
-    assert s.pushes == 1, "driver produced nothing pushable — test is vacuous"
-    assert [r["event"] for r in _open_rows(hq)] == ["new_roles"]
-    assert _lost(blocked_ntfy) == []
+# The priority watch was a fourth caller here until RM-12 deleted
+# `monitor/priority.py`. The wide sweep below covers the same new_roles path.
 
 
 def test_the_wide_sweep_hands_push_its_outbox(hq, night, blocked_ntfy, monkeypatch):
