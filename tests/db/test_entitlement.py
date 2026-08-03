@@ -205,7 +205,7 @@ def test_a_second_identity_claiming_a_taken_email_is_refused_and_changes_nothing
         conn.execute(
             "insert into auth.users (id, email) values (%s, %s)", (str(uuid.uuid4()), email)
         )
-    assert "refusing to merge" in str(exc.value).lower()
+    assert "refusing to merge" in exc.value.diag.message_primary.lower()
 
     assert ent(conn, first) == before
     assert conn.execute(
@@ -223,7 +223,7 @@ def test_an_auth_user_with_no_email_is_refused(conn):
             conn.execute(
                 "insert into auth.users (id, email) values (%s, %s)", (str(uuid.uuid4()), blank)
             )
-        assert "no email" in str(exc.value).lower(), blank
+        assert "no email" in exc.value.diag.message_primary.lower(), blank
 
 
 def test_an_entitlement_row_that_arrives_without_a_status_is_not_entitled(conn):

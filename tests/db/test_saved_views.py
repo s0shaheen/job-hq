@@ -77,7 +77,7 @@ def test_a_nameless_view_is_refused(conn):
     as_user(conn, user)
     with pytest.raises(psycopg.errors.Error) as exc:
         save(conn, name="   ")
-    assert "needs a name" in str(exc.value).lower()
+    assert "needs a name" in exc.value.diag.message_primary.lower()
 
 
 def test_a_duplicate_name_is_refused_case_insensitively(conn):
@@ -136,7 +136,7 @@ def test_a_stale_expected_updated_at_conflicts(conn):
     # A second device still holding the original version.
     with pytest.raises(psycopg.errors.Error) as exc:
         save(conn, vid=v1["id"], name="V", state='{"q":"y"}', expected=v1["updated_at"])
-    assert "conflict" in str(exc.value).lower()
+    assert "conflict" in exc.value.diag.message_primary.lower()
 
 
 # ---------------------------------------------------------------- idempotency
@@ -178,7 +178,7 @@ def test_deleting_another_users_view_is_refused(conn):
     as_user(conn, attacker)
     with pytest.raises(psycopg.errors.Error) as exc:
         conn.execute("select public.app_delete_view(%s,%s)", (v["id"], str(uuid.uuid4())))
-    assert "no such view" in str(exc.value).lower()
+    assert "no such view" in exc.value.diag.message_primary.lower()
     # And it is still there for its owner.
     as_user(conn, owner)
     assert len(rows(conn, owner)) == 1
@@ -188,4 +188,4 @@ def test_an_unauthenticated_caller_cannot_save(conn):
     conn.execute("select set_config('hq.test_user', '', false)")
     with pytest.raises(psycopg.errors.Error) as exc:
         save(conn, name="Nope")
-    assert "not authenticated" in str(exc.value).lower()
+    assert "not authenticated" in exc.value.diag.message_primary.lower()

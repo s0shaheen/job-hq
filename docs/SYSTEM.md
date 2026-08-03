@@ -245,7 +245,7 @@ aws lambda invoke --function-name job-hq-bots \
 | CSV → S3 (Lambda) | the same tab CSVs | `s3://$HQ_BACKUP_S3_BUCKET/snapshots/<user>/<tab>.csv` (versioned bucket) | `cron(53 8 * * ? *)` (~03:53 CT) | `heartbeat_snapshot_s3` | a failed upload **raises**, so `handler.py` names the job in an ops push; staleness pages from the digest |
 | Schema + gid re-pin (Actions) | re-asserted headers/dropdowns/protections and the re-pinned `hq.config.yaml` | a git commit on `main` | `23 8 * * *` (~03:23 CT) | `heartbeat_selfheal` | same as the git CSV lane |
 | Feed JSON (best effort) | `monitor.run`'s feed history | `monitor/snapshots/*.json` in git on a **Run a bot** dispatch; `feeds/<label>.json` in S3 when the FS is read-only | with each sweep | none | prints a warning and never fails a completed sweep — the CSV lanes are the Feed tab's real backup |
-| PG dump | `pg_dump --schema=public` of the Supabase store | nowhere — **the lane is hard-disabled** | `pgdump.yml` has no schedule and its job unconditionally exits 1; the `PGDUMP_ENABLED` repo variable is deliberately ignored (FP-OPS-001, `docs/pilot-launch/instances/PKT-DUMP-DISABLE.md`) | pg lane `pgdump` in `channel_runs` (written by `python -m tracker.beat pgdump` as the job's last step) | the digest pages **HQ backups stale** naming `pgdump (pg)`, permanently, because the lane cannot run — which is exactly the state “pg is load-bearing and has no git backup” should be in until RM-01 lands an encrypted replacement |
+| PG dump | `pg_dump --schema=public` of the Supabase store | nowhere — **the lane is hard-disabled** | `pgdump.yml` has no schedule and its job unconditionally exits 1; the `PGDUMP_ENABLED` repo variable is deliberately ignored (FP-OPS-001, `docs/pilot-launch/instances/PKT-DUMP-DISABLE.md`) | pg lane `pgdump` in `channel_runs` — **never written**, because the job exits before anything could write it | the digest pages **HQ backups stale** naming `pgdump (pg)`, permanently, because the lane cannot run — which is exactly the state “pg is load-bearing and has no git backup” should be in until RM-01 lands an encrypted replacement |
 
 The git and S3 CSV lanes are deliberately independent copies on independent schedulers, each with its **own** heartbeat: one shared beat would let the nightly Actions run keep it fresh while the S3 copy had been dead for a week. The PG dump lane is the same doctrine for the store the sheet is being replaced by. Restore procedure (the CSV lanes plus Sheets' own version history): `docs/RUNBOOK.md` § Restoring the sheet.
 <!-- sysmap:end backup-lanes -->
@@ -276,7 +276,7 @@ Backup beats watched as a set: `selfheal`, `snapshot`, `snapshot_s3`, `pgdump`. 
 | `snapshot` | 24 h | `tracker.snapshot` (git mode, `selfheal.yml`) | **pages** — “HQ backups stale”, naming the lane and the store |
 | `snapshot_s3` | 24 h | `tracker.snapshot` (S3 mode, the `snapshot` Lambda job) | **pages** — “HQ backups stale”, naming the lane and the store |
 | `digest` | 24 h | `tracker.digest`, after the briefing is composed and sent | briefing line only |
-| `pgdump` | 24 h | `python -m tracker.beat pgdump`, last step of `pgdump.yml` | **pages** — “HQ backups stale”, naming the lane and the store |
+| `pgdump` | 24 h | **nobody** — the lane is hard-disabled, so this beat never arrives | **pages** — “HQ backups stale”, naming the lane and the store |
 <!-- sysmap:end watchdogs -->
 
 ## Alerting topology

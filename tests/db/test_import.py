@@ -453,7 +453,7 @@ def test_a_stale_round_trip_version_blocks_the_whole_commit(conn, user):
 
     with pytest.raises(psycopg.errors.Error) as exc:
         commit(conn, batch)
-    assert "unresolved" in str(exc.value)
+    assert "unresolved" in exc.value.diag.message_primary
 
     assert conn.execute(
         "select status from public.applications where id = %s", (app_id,)
@@ -665,7 +665,7 @@ def test_undo_is_idempotent_on_its_key_and_refuses_a_second_gesture(conn, user):
     # undo did something.
     with pytest.raises(psycopg.errors.Error) as exc:
         undo(conn, batch)
-    assert "already been undone" in str(exc.value)
+    assert "already been undone" in exc.value.diag.message_primary
 
 
 def test_undo_refuses_once_the_window_has_closed(conn, user):
@@ -680,7 +680,7 @@ def test_undo_refuses_once_the_window_has_closed(conn, user):
     )
     with pytest.raises(psycopg.errors.Error) as exc:
         undo(conn, batch)
-    assert "undo window" in str(exc.value)
+    assert "undo window" in exc.value.diag.message_primary
     assert len(apps(conn, user)) == 1, "a refused undo deleted rows anyway"
 
 
@@ -1034,7 +1034,7 @@ def test_a_mapping_that_missed_rows_is_refused(conn, user):
     stage(conn, batch, [(1, {"n": "1"}), (2, {"n": "2"})])
     with pytest.raises(psycopg.errors.Error) as exc:
         apply_mapping(conn, batch, [(1, {"company": "Ramp", "title": "PM"}, GH(8300), "strong")])
-    assert "never got a mapping" in str(exc.value)
+    assert "never got a mapping" in exc.value.diag.message_primary
 
 
 def test_a_second_tab_remapping_the_same_batch_conflicts(conn, user):
@@ -1050,7 +1050,7 @@ def test_a_second_tab_remapping_the_same_batch_conflicts(conn, user):
             [(1, {"company": "Other", "title": "PM"}, GH(8401), "strong")],
             expected=stale,
         )
-    assert "conflict" in str(exc.value)
+    assert "conflict" in exc.value.diag.message_primary
 
 
 def test_a_committed_batch_cannot_be_remapped(conn, user):
@@ -1059,7 +1059,7 @@ def test_a_committed_batch_cannot_be_remapped(conn, user):
     ])
     with pytest.raises(psycopg.errors.Error) as exc:
         apply_mapping(conn, batch, [(1, {"company": "Nope", "title": "PM"}, GH(8501), "strong")])
-    assert "no longer be re-mapped" in str(exc.value)
+    assert "no longer be re-mapped" in exc.value.diag.message_primary
 
 
 def test_an_excluded_row_is_not_written(conn, user):
@@ -1085,13 +1085,13 @@ def test_an_excluded_row_is_not_written(conn, user):
 def test_a_file_over_the_row_cap_is_refused_by_name(conn, user):
     with pytest.raises(psycopg.errors.Error) as exc:
         create_batch(conn, rows=5001)
-    assert "the limit is 5000" in str(exc.value)
+    assert "the limit is 5000" in exc.value.diag.message_primary
 
 
 def test_an_unsupported_source_kind_is_refused(conn, user):
     with pytest.raises(psycopg.errors.Error) as exc:
         create_batch(conn, kind="numbers")
-    assert "unsupported import source" in str(exc.value)
+    assert "unsupported import source" in exc.value.diag.message_primary
 
 
 def test_a_resolver_choice_outside_the_writable_set_is_refused(conn, user):
@@ -1108,7 +1108,7 @@ def test_a_resolver_choice_outside_the_writable_set_is_refused(conn, user):
             "select public.app_import_resolve(%s, %s, %s)",
             (batch, 1, json.dumps({"company": "theirs"})),
         )
-    assert "not one an import may write" in str(exc.value)
+    assert "not one an import may write" in exc.value.diag.message_primary
 
 
 def test_the_batch_is_not_content_addressed_so_a_file_can_be_reimported(conn, user):
@@ -1164,7 +1164,7 @@ def test_a_committed_import_cannot_be_discarded(conn, user):
     ])
     with pytest.raises(psycopg.errors.Error) as exc:
         conn.execute("select public.app_import_discard(%s, %s)", (batch, str(uuid.uuid4())))
-    assert "undo it instead" in str(exc.value)
+    assert "undo it instead" in exc.value.diag.message_primary
     assert len(apps(conn, user)) == 1
 
 
@@ -1175,7 +1175,7 @@ def test_the_in_progress_cap_is_escapable(conn, user):
     batches = [create_batch(conn, rows=0) for _ in range(20)]
     with pytest.raises(psycopg.errors.Error) as exc:
         create_batch(conn, rows=0)
-    assert "still in progress" in str(exc.value)
+    assert "still in progress" in exc.value.diag.message_primary
     conn.execute("select public.app_import_discard(%s, %s)", (batches[0], str(uuid.uuid4())))
     assert create_batch(conn, rows=0)
 

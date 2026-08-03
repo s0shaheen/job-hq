@@ -198,7 +198,7 @@ def test_a_bot_write_cannot_change_a_status_a_human_chose(conn):
         conn.execute(
             "update public.applications set status = 'Rejected' where id = %s", (app,)
         )
-    assert "locked" in str(exc.value).lower()
+    assert "locked" in exc.value.diag.message_primary.lower()
     assert app_row(conn, app)["status"] == "Offer"
 
 
@@ -218,7 +218,7 @@ def test_the_human_flag_does_not_leak_past_the_statement_that_set_it(conn):
         # Same transaction, immediately after a legitimate human write.
         with pytest.raises(psycopg.errors.Error) as exc:
             c.execute("update public.applications set status='Rejected' where id=%s", (app,))
-        assert "locked" in str(exc.value).lower()
+        assert "locked" in exc.value.diag.message_primary.lower()
         c.rollback()
 
 
@@ -272,7 +272,7 @@ def test_setting_status_actor_in_the_same_write_is_NOT_enough(conn):
                   set status = 'Rejected', status_actor = 'user' where id = %s""",
             (app,),
         )
-    assert "locked" in str(exc.value).lower()
+    assert "locked" in exc.value.diag.message_primary.lower()
     assert app_row(conn, app)["status"] == "Offer"
 
 
@@ -354,7 +354,7 @@ def test_an_idempotency_key_is_required_and_bounded(conn):
     for bad in ("", "k" * 201):
         with pytest.raises(psycopg.errors.Error) as exc:
             set_status(conn, app, "Interview", idem=bad)
-        assert "idempotency" in str(exc.value).lower()
+        assert "idempotency" in exc.value.diag.message_primary.lower()
 
 
 def test_replaying_a_status_key_returns_the_first_result_and_writes_once(conn):
@@ -409,7 +409,7 @@ def test_a_stale_version_token_is_a_conflict(conn):
         set_status(conn, app, "Offer", expected=stale)
     # The word is load-bearing: supabase-source.ts matches /conflict|stale/i to
     # choose the conflict path over a generic "Couldn't save that".
-    assert "conflict" in str(exc.value).lower()
+    assert "conflict" in exc.value.diag.message_primary.lower()
     assert app_row(conn, app)["status"] == "Interview"
 
 
@@ -419,7 +419,7 @@ def test_another_users_application_is_invisible_to_this_one(conn):
     as_user(conn, b)
     with pytest.raises(psycopg.errors.Error) as exc:
         set_status(conn, app, "Interview")
-    assert "no such application" in str(exc.value).lower()
+    assert "no such application" in exc.value.diag.message_primary.lower()
 
 
 # ---------------------------------------------------------------- reopen
@@ -435,7 +435,7 @@ def test_reopening_without_a_note_is_refused_by_the_database(conn):
     for empty in (None, "", "   "):
         with pytest.raises(psycopg.errors.Error) as exc:
             set_status(conn, app, "Applied", note=empty)
-        assert "note" in str(exc.value).lower()
+        assert "note" in exc.value.diag.message_primary.lower()
     assert app_row(conn, app)["status"] == "Rejected"
     assert notes_of(conn, app) == []
 
@@ -616,7 +616,7 @@ def test_a_note_cannot_be_edited_or_deleted_even_by_an_authenticated_session(con
                      "delete from public.application_notes"):
             with pytest.raises(psycopg.errors.Error) as exc:
                 conn.execute(stmt)
-            assert "permission denied" in str(exc.value).lower()
+            assert "permission denied" in exc.value.diag.message_primary.lower()
     finally:
         conn.execute("reset role")
     assert notes_of(conn, app) == [("original", "user")]
@@ -966,7 +966,7 @@ def test_the_lock_defends_its_own_latch(conn):
         conn.execute(
             "update public.applications set status_actor = 'system' where id = %s", (app,)
         )
-    assert "locked" in str(exc.value).lower()
+    assert "locked" in exc.value.diag.message_primary.lower()
     assert app_row(conn, app)["status_actor"] == "user"
 
     # And the two-step version is refused at the first step, so the second never
@@ -1031,7 +1031,7 @@ def test_un_ending_a_finished_search_needs_a_reason(conn):
         as_user(conn, user)
         with pytest.raises(psycopg.errors.Error) as exc:
             set_status(conn, app, "Applied")
-        assert "note" in str(exc.value).lower(), finished
+        assert "note" in exc.value.diag.message_primary.lower(), finished
         assert app_row(conn, app)["status"] == finished
         # With a reason it goes through, so the rule is a prompt and not a wall.
         set_status(conn, app, "Applied", note=f"reopened from {finished}")

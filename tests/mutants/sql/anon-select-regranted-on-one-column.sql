@@ -1,0 +1,23 @@
+-- Give `anon` back SELECT on ONE COLUMN of one table.
+--
+-- This is the mutant a TABLE-level check cannot see, and it is the leaking
+-- direction of the gap #149 closed in `gated_tables`: there the catalog said a
+-- guard was attached while `tgenabled = 'D'` meant it was not; here
+-- `has_table_privilege(anon, t, 'select')` says FALSE — because it is only true
+-- when EVERY column is readable — while anon reads this column perfectly well
+-- over `/rest/v1/postings?select=title`.
+--
+-- Measured on this schema before the guard was written:
+--
+--     grant select (secret) on t to anon
+--     has_table_privilege ('select')          -> False
+--     has_column_privilege('secret','select') -> True
+--     anon actually SELECTs the column        -> yes
+--
+-- So a version of the guard that asked `has_table_privilege` would report the
+-- schema clean with this applied. It must ask `has_column_privilege` over
+-- pg_attribute, and this entry is what holds it to that.
+--
+-- `title` rather than a key column on purpose: nothing about this leak needs the
+-- primary key, and a job title is real user-visible content.
+grant select (title) on public.postings to anon;

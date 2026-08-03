@@ -280,7 +280,7 @@ def test_a_blank_answer_cannot_reach_the_library(conn, user):
             "insert into public.answers (user_id, question, answer) values (%s, %s, %s)",
             (user, "direct write", "\n\t"),
         )
-    assert "answers_answer_is_not_blank" in str(exc.value)
+    assert "answers_answer_is_not_blank" in exc.value.diag.message_primary
 
 
 # ═══════════════════════════════════════ authorship: the review's four exploits

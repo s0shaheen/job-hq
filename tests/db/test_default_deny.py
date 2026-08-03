@@ -472,7 +472,7 @@ def test_a_non_entitled_session_cannot_write_through_the_definer_rpcs(conn, stat
     ):
         with pytest.raises(psycopg.errors.Error) as exc:
             conn.execute(call, args)
-        assert "not entitled" in str(exc.value) or "not authenticated" in str(exc.value), (
+        assert "not entitled" in exc.value.diag.message_primary or "not authenticated" in exc.value.diag.message_primary, (
             f"{state}: {call.split('(')[0]} was not refused — {exc.value}")
     _system(conn)
 
@@ -494,7 +494,7 @@ def test_an_entitled_session_cannot_write_a_row_it_does_not_own(conn, states):
         conn.execute(
             "insert into public.saved_views (user_id, name, surface, state) "
             "values (%s, 'stolen', 'queue', '{}'::jsonb)", (b,))
-    assert "may not write" in str(exc.value)
+    assert "may not write" in exc.value.diag.message_primary
     _system(conn)
     assert conn.execute(
         "select count(*) from public.saved_views where user_id = %s and name = 'stolen'",
@@ -521,6 +521,260 @@ def test_the_engine_still_writes_everything(conn, states):
     assert conn.execute(
         "select count(*) from public.user_postings where user_id = %s", (states["pending"],)
     ).fetchone()[0] == 1
+
+
+# ═══════════════════════════════════════════════ `anon` holds no read privilege
+
+#: Every relation kind PostgREST can serve a GET from. `p` (partitioned) is here
+#: because a partitioned parent is what a browser would actually query.
+_READABLE_RELKINDS = ("r", "v", "m", "p")
+
+#: Relations `authenticated` cannot read EITHER, with the reason. Asserted exact
+#: in both directions by the differential in
+#: `test_anon_holds_select_on_nothing_in_public`, like `UNGATED_TABLES` above: a
+#: table that stops needing its entry fails until the line is deleted, and a new
+#: one cannot join the set silently. That second direction is the important one —
+#: it is what stops somebody quieting a failed differential by adding a name here.
+AUTHENTICATED_CANNOT_READ: dict[str, str] = {
+    "capture_tokens":
+        "credential material. 0018 revokes ALL from `public, anon, authenticated` "
+        "and gives the table no policy of any kind: a token digest is a bearer "
+        "secret and the browser has no question that needs it. Only the service "
+        "role reads it, through `security definer` minting and verification.",
+}
+
+
+def relations_in_public(conn) -> list[str]:
+    """Every relation in `public`, with NO privilege filter.
+
+    The population the privilege walk below runs over. Kept as its own query with
+    the identical FROM/WHERE so the two cannot drift: if this returns the schema
+    and that returns nothing, the difference is the privilege, which is the only
+    thing the test is entitled to conclude.
+    """
+    return [
+        r[0]
+        for r in conn.execute(
+            """
+            select c.relname
+              from pg_class c join pg_namespace n on n.oid = c.relnamespace
+             where n.nspname = 'public' and c.relkind = any(%s)
+             order by c.relname""",
+            (list(_READABLE_RELKINDS),),
+        ).fetchall()
+    ]
+
+
+def relations_role_can_read(conn, role: str) -> list[str]:
+    """Every relation in `public` that `role` holds SELECT on, out of pg_catalog.
+
+    Derived, not listed, for the same reason as everything else in this file: a
+    hand-maintained list of ~27 tables is a list somebody forgets to append to,
+    and the table it does not mention is exactly the one that ships wrong.
+
+    Parametrised by role so the SAME query can be pointed at `authenticated`,
+    which still holds the grant. An assertion that `anon` reads nothing is worth
+    very little on its own — it is equally true of a query that is broken, scoped
+    to the wrong schema, or run against a database where nothing exists. Pointing
+    the identical query at a role that DOES hold the privilege is what turns
+    "empty" into a measurement.
+
+    COLUMN privileges, not table privileges, and this is the whole correctness of
+    the helper. `has_table_privilege(role, oid, 'select')` is true only when the
+    role may select EVERY column, so a `grant select (email) on public.users to
+    anon` reports FALSE there — while anon can read that column over
+    `/rest/v1/users?select=email` perfectly well. Measured, on this schema:
+
+        grant select (secret) on t to anon
+        has_table_privilege ('select')          -> False   <- what a table check asks
+        has_column_privilege('secret','select') -> True
+        anon actually SELECTs the column        -> yes
+
+    That is the same shape #149 fixed in `gated_tables`, where a bare
+    `exists (select 1 from pg_trigger …)` could not tell an attached guard from a
+    disabled one: the catalog answered yes and the mechanism answered no. Here it
+    is the other way round and leaks rather than over-reports, which is worse.
+    `has_column_privilege` subsumes the table-level check — a table-wide grant
+    makes every column readable — so this one condition is strictly stronger and
+    there is nothing left for a separate `has_table_privilege` call to add.
+    """
+    return [
+        r[0]
+        for r in conn.execute(
+            """
+            select c.relname
+              from pg_class c join pg_namespace n on n.oid = c.relnamespace
+             where n.nspname = 'public' and c.relkind = any(%s)
+               and exists (
+                     select 1
+                       from pg_attribute a
+                      where a.attrelid = c.oid
+                        and a.attnum > 0
+                        and not a.attisdropped
+                        and has_column_privilege(%s, c.oid, a.attnum, 'select'))
+             order by c.relname""",
+            (list(_READABLE_RELKINDS), role),
+        ).fetchall()
+    ]
+
+
+def relations_anon_can_read(conn) -> list[str]:
+    """The `anon` case, which is the one the guard is about."""
+    return relations_role_can_read(conn, "anon")
+
+
+def test_anon_holds_select_on_nothing_in_public(conn):
+    """`anon` — the signed-out role — can read no relation in `public`.
+
+    Supabase's bootstrap grants `anon` full table privileges on every relation in
+    `public` so that RLS is the decider rather than the privilege system. That is
+    a reasonable platform default and a poor final answer: it means one policy
+    authored `using (true)`, or one policy dropped mid-debug and not restored, is
+    immediately a world-readable table over `/rest/v1/**`. The browser holds the
+    anon key and never has to involve the web app.
+
+    Nothing legitimately depends on it. Every read the product performs runs as
+    `authenticated` (server-side, with the user's session cookie) or as
+    `service_role`; the only browser-side Supabase call in the app is an OAuth
+    redirect. So the grant is pure surface, and this asserts it is gone —
+    schema-wide and derived, so a table added next month is covered without
+    anyone remembering this file exists.
+
+    WHY THIS IS NOT `assert readable == []` AND NOTHING ELSE. An empty set is the
+    weakest evidence in the repo: it is equally produced by a working revoke, by a
+    query scoped to the wrong schema, by a typo in the relkind filter, and by a
+    database where `public` is empty because the migrations never ran. Every one
+    of those reads as a pass. So the absence is bracketed by three positives, and
+    each one fails on a different way of being wrong:
+
+      1. POPULATION — the walk sees the schema at all, and sees all of it.
+      2. DIFFERENTIAL — the identical query, pointed at `authenticated`, returns
+         essentially the whole schema. This is the one that matters: it proves
+         the mechanism `anon` lost is a mechanism that still demonstrably exists,
+         so "anon: nothing" is a measured difference between two roles rather
+         than a fact about a query that finds nothing for anybody.
+      3. DETECTOR — a control relation with the grant deliberately restored is
+         FOUND, and stops being found when it is revoked. That is the direct
+         proof that this query can report a violation, built the way
+         `test_the_cross_check_catches_an_unprotected_surface` builds its own.
+    """
+    population = relations_in_public(conn)
+    readable = relations_anon_can_read(conn)
+    by_authenticated = relations_role_can_read(conn, "authenticated")
+
+    # 1. POPULATION. Bound low but not at zero: the exact table count changes with
+    #    every migration and pinning it would make this test a chore, but "the
+    #    schema has at least twenty relations" fails loudly on an empty or
+    #    wrong-schema walk, which is the failure mode being excluded.
+    assert len(population) >= 20, (
+        f"the walk found only {len(population)} relation(s) in public "
+        f"({', '.join(population) or 'none at all'}). The emptiness assertion below "
+        "would pass trivially on this database, so it is not evidence about the "
+        "revoke — it is evidence the schema is not there."
+    )
+
+    # 2. DIFFERENTIAL. `authenticated` is the role every real read runs as and it
+    #    keeps the bootstrap grant, so the same query must find the whole schema
+    #    for it apart from the named carve-outs. If BOTH roles came back empty,
+    #    the query is broken and the assertion in (4) would be meaningless.
+    #    A carve-out naming a relation that no longer exists subtracts nothing and
+    #    would sit here forever, so the set is pinned to the live schema first.
+    stale = set(AUTHENTICATED_CANNOT_READ) - set(population)
+    assert not stale, (
+        f"AUTHENTICATED_CANNOT_READ names {', '.join(sorted(stale))}, which is not a "
+        "relation in public. Delete the entry — a carve-out for something that does "
+        "not exist silently weakens the differential below."
+    )
+    expected_authenticated = set(population) - set(AUTHENTICATED_CANNOT_READ)
+    assert set(by_authenticated) == expected_authenticated, (
+        "the identical privilege query returns "
+        f"{len(by_authenticated)} of an expected {len(expected_authenticated)} relations "
+        "for `authenticated`, which is the role EVERY product read runs as. Either a "
+        "revoke hit the wrong role — which breaks the app — or this query does not "
+        "measure what it claims, in which case the anon result below means nothing.\n"
+        f"  unexpectedly unreadable: "
+        f"{', '.join(sorted(expected_authenticated - set(by_authenticated))) or 'none'}\n"
+        f"  readable but listed in AUTHENTICATED_CANNOT_READ (delete the entry): "
+        f"{', '.join(sorted(set(by_authenticated) & set(AUTHENTICATED_CANNOT_READ))) or 'none'}"
+    )
+
+    # 3. DETECTOR. Restore the grant on a control relation through the real path
+    #    and require this query to say so. An assertion that never reports a
+    #    violation is an assertion nobody has watched work.
+    conn.execute(
+        "create table public.hq_anon_grant_detector (id bigserial primary key, secret text)")
+    try:
+        conn.execute("revoke select on public.hq_anon_grant_detector from anon")
+
+        conn.execute("grant select on public.hq_anon_grant_detector to anon")
+        assert "hq_anon_grant_detector" in relations_anon_can_read(conn), (
+            "the query did NOT report a table that anon demonstrably holds SELECT "
+            "on, so it cannot report a real violation either and the emptiness "
+            "assertion below is vacuous."
+        )
+        conn.execute("revoke select on public.hq_anon_grant_detector from anon")
+        assert "hq_anon_grant_detector" not in relations_anon_can_read(conn), (
+            "the query still reports a table whose grant was revoked, so it is "
+            "reading something other than the live privilege."
+        )
+
+        # The COLUMN case, which a table-level check cannot see and which leaks a
+        # real column over /rest/v1. This is the detector that would have been
+        # missing if this helper had asked `has_table_privilege`.
+        conn.execute("grant select (secret) on public.hq_anon_grant_detector to anon")
+        assert "hq_anon_grant_detector" in relations_anon_can_read(conn), (
+            "a COLUMN-level grant to anon was not reported. `has_table_privilege` "
+            "is false whenever one column is unreadable, so a table check reads "
+            "clean while anon selects that column over /rest/v1 — the leaking "
+            "direction of the same catalog-vs-mechanism gap #149 closed in "
+            "gated_tables. This helper must ask has_column_privilege."
+        )
+    finally:
+        conn.execute("drop table if exists public.hq_anon_grant_detector")
+
+    # 4. And now the property itself, which the three above have earned.
+    assert readable == [], (
+        "anon (the signed-out role) holds SELECT on: "
+        + ", ".join(readable)
+        + ". Supabase's bootstrap grants this by default; 20260802_205716_anon_select_revoke"
+        " takes it back for existing relations AND alters the default privileges so new"
+        " ones never carry it. A relation here means one of those two halves missed it."
+    )
+
+
+def test_a_new_table_cannot_arrive_carrying_the_anon_grant(conn):
+    """The half that matters in six weeks: table 28.
+
+    Revoking on the ~27 relations that exist today is the easy half and the one
+    that decays — the next `create table` re-acquires the grant from the
+    bootstrap's default privileges and nothing says a word. So this creates a
+    table the way a migration does (same role, no explicit grants) and asserts
+    the default no longer includes SELECT for `anon`.
+
+    The `authenticated` assertion is the positive control, and it is not
+    decoration: without it this test would pass just as happily in a harness
+    where the bootstrap default privileges were never applied at all, i.e. where
+    it is measuring nothing.
+    """
+    conn.execute("create table public.hq_new_table_grant_probe (id bigserial primary key)")
+    try:
+        anon_reads, authed_reads = conn.execute(
+            """select has_table_privilege('anon', 'public.hq_new_table_grant_probe', 'select'),
+                      has_table_privilege('authenticated',
+                                          'public.hq_new_table_grant_probe', 'select')"""
+        ).fetchone()
+        assert authed_reads, (
+            "positive control failed: `authenticated` did NOT inherit SELECT on a brand-new "
+            "table, so the bootstrap default privileges are not in force here and the anon "
+            "assertion below is vacuous. Fix db/test-harness.sql before trusting this file."
+        )
+        assert not anon_reads, (
+            "a NEW table arrived carrying SELECT for `anon`. The schema-wide revoke covered "
+            "the relations that existed when it ran; the `alter default privileges ... revoke "
+            "select on tables from anon` half is what covers this one, and it did not."
+        )
+    finally:
+        conn.execute("drop table if exists public.hq_new_table_grant_probe")
 
 
 # ═══════════════════════════════════ the counterexample: can this file fail at all

@@ -574,7 +574,7 @@ def test_a_suspended_session_can_neither_read_nor_write_a_resume(conn, user):
         # exists to kill. Measured, both ways: with the triggers attached the
         # message names `public.resume_documents` / `_versions` / `_artifacts`;
         # with them dropped it names `public.events` for all four.
-        assert f"not entitled to write public.{table}" in str(exc.value), (
+        assert f"not entitled to write public.{table}" in exc.value.diag.message_primary, (
             f"a SUSPENDED session was not refused AT {table} by "
             f"{call.split('(')[0].strip()} — {exc.value}"
         )

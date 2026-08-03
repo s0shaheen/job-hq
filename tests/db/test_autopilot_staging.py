@@ -2348,6 +2348,10 @@ def test_mutation_dropping_only_the_stages_guard_is_caught(conn):
             "drop trigger autopilot_stages_entitlement_guard on public.autopilot_stages")
         with pytest.raises(AssertionError) as exc:
             test_a_non_entitled_account_is_refused_by_name(conn, "suspended")
+        # NOT `.diag.message_primary`: this `exc` is the AssertionError raised by
+        # the inner test, not a psycopg error, and has no `diag`. The whole string
+        # is the right target precisely because there is no CONTEXT block to be
+        # fooled by — the text being matched is one this file authored.
         assert "did not name autopilot_stages" in str(exc.value), (
             f"the by-name test failed for a different reason, so this proves "
             f"nothing about the assertion: {exc.value}")

@@ -102,7 +102,7 @@ def test_a_conflict_on_one_row_rolls_back_the_whole_batch(conn):
 
     with pytest.raises(psycopg.errors.Error) as exc:
         bulk(conn, keys, "dismissed", expected=expected)
-    assert "conflict" in str(exc.value).lower()
+    assert "conflict" in exc.value.diag.message_primary.lower()
 
     # None of the earlier keys were left dismissed, though the loop reached them.
     for k in keys[:-1]:
@@ -113,7 +113,7 @@ def test_an_unknown_key_in_the_batch_rolls_it_all_back(conn):
     user, keys = seed(conn, 2)
     with pytest.raises(psycopg.errors.Error) as exc:
         bulk(conn, keys + ["greenhouse-does-not-exist"], "dismissed")
-    assert "no such posting" in str(exc.value).lower()
+    assert "no such posting" in exc.value.diag.message_primary.lower()
     for k in keys:
         assert triage_of(conn, user, k) == ""
 
@@ -140,7 +140,7 @@ def test_an_empty_selection_is_refused(conn):
     seed(conn, 1)
     with pytest.raises(psycopg.errors.Error) as exc:
         bulk(conn, [], "dismissed")
-    assert "no postings selected" in str(exc.value).lower()
+    assert "no postings selected" in exc.value.diag.message_primary.lower()
 
 
 @pytest.mark.parametrize("bad", ["maybe", "INTERESTED", "'; drop table users;--"])
@@ -148,7 +148,7 @@ def test_an_invalid_triage_value_is_refused(conn, bad):
     _, keys = seed(conn, 1)
     with pytest.raises(psycopg.errors.Error) as exc:
         bulk(conn, keys, bad)
-    assert "invalid triage" in str(exc.value).lower()
+    assert "invalid triage" in exc.value.diag.message_primary.lower()
 
 
 def test_a_user_cannot_bulk_triage_another_users_postings(conn):
@@ -157,7 +157,7 @@ def test_a_user_cannot_bulk_triage_another_users_postings(conn):
     as_user(conn, attacker)
     with pytest.raises(psycopg.errors.Error) as exc:
         bulk(conn, keys, "dismissed")
-    assert "no such posting" in str(exc.value).lower()
+    assert "no such posting" in exc.value.diag.message_primary.lower()
     as_user(conn, owner)
     for k in keys:
         assert triage_of(conn, owner, k) == ""

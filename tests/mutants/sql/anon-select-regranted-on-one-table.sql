@@ -1,0 +1,11 @@
+-- Give `anon` back its SELECT on ONE table, and nothing else.
+--
+-- The word "one" is the mutant. This is what a careless `grant select on
+-- public.postings to anon` in a later migration looks like — the shape somebody
+-- reaches for when a read "mysteriously" 403s and the quickest way to green is
+-- to hand the privilege back. It is also what a partial revoke leaves behind.
+--
+-- The guard must be derived from pg_catalog over EVERY relation, not from a
+-- hand-maintained list: a list is exactly what fails to mention the one table
+-- somebody re-granted.
+grant select on public.postings to anon;

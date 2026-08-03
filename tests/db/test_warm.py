@@ -446,7 +446,7 @@ def test_attach_refuses_a_malformed_run_list(conn, user, runs):
     s = start(conn, idem=uuid.uuid4().hex)["id"]
     with pytest.raises(psycopg.errors.InvalidParameterValue) as exc:
         attach(conn, s, runs)
-    assert "run_id" in str(exc.value).lower() or "array" in str(exc.value).lower()
+    assert "run_id" in exc.value.diag.message_primary.lower() or "array" in exc.value.diag.message_primary.lower()
     # Nothing attached: the search kept its empty default.
     assert db_search(conn, s)[1] == []
 
@@ -493,7 +493,7 @@ def test_complete_accepts_up_to_sixty_results_and_refuses_sixty_one(conn, user):
     s2 = start(conn, idem=uuid.uuid4().hex)["id"]
     with pytest.raises(psycopg.errors.InvalidParameterValue) as exc:
         complete(conn, s2, [{"full_name": f"P{i:02d}"} for i in range(61)])
-    assert "at most 60" in str(exc.value).lower()
+    assert "at most 60" in exc.value.diag.message_primary.lower()
     assert db_search(conn, s2)[0] == "running", "an over-cap complete moved the row anyway"
 
 
@@ -659,7 +659,7 @@ def test_a_nameless_pin_is_refused(conn, user, blank):
     of one NBSP or zero-width space is blank too."""
     with pytest.raises(psycopg.errors.InvalidParameterValue) as exc:
         pin(conn, full_name=blank)
-    assert "a pin needs a name" in str(exc.value).lower()
+    assert "a pin needs a name" in exc.value.diag.message_primary.lower()
     assert n_pins(conn, user) == 0
 
 
@@ -676,7 +676,7 @@ def test_a_non_linkedin_profile_url_is_refused_at_the_door(conn, user, bad_url):
     column CHECK."""
     with pytest.raises(psycopg.errors.InvalidParameterValue) as exc:
         pin(conn, full_name="Ada", profile_url=bad_url)
-    assert "a profile link must be a linkedin address" in str(exc.value).lower()
+    assert "a profile link must be a linkedin address" in exc.value.diag.message_primary.lower()
     assert n_pins(conn, user) == 0
 
 
@@ -684,7 +684,7 @@ def test_an_unknown_pin_source_is_refused(conn, user):
     """`source` is a reporting dimension, closed to the two tags this app writes."""
     with pytest.raises(psycopg.errors.InvalidParameterValue) as exc:
         pin(conn, full_name="Ada", source="scraped-from-somewhere")
-    assert "unknown pin source" in str(exc.value).lower()
+    assert "unknown pin source" in exc.value.diag.message_primary.lower()
     assert n_pins(conn, user) == 0
 
 

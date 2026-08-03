@@ -298,7 +298,7 @@ def test_a_conflict_on_one_row_rolls_back_the_whole_batch(conn):
 
     with pytest.raises(psycopg.errors.Error) as exc:
         review(conn, ids, "approved", expected=expected)
-    assert "conflict" in str(exc.value).lower()
+    assert "conflict" in exc.value.diag.message_primary.lower()
 
     for cid in ids[:-1]:
         assert row_of(conn, user, cid)[0] == "proposed", f"{cid} was left written after a conflict"
@@ -308,7 +308,7 @@ def test_an_unknown_company_in_the_batch_rolls_it_all_back(conn):
     user, ids = seed(conn, 2)
     with pytest.raises(psycopg.errors.Error) as exc:
         review(conn, ids + [999_999_999], "approved")
-    assert "no such company" in str(exc.value).lower()
+    assert "no such company" in exc.value.diag.message_primary.lower()
     for cid in ids:
         assert row_of(conn, user, cid)[0] == "proposed"
 
@@ -324,7 +324,7 @@ def test_another_users_company_is_not_reviewable(conn):
     user, ids = seed(conn, 1)
     with pytest.raises(psycopg.errors.Error) as exc:
         review(conn, ids + [other_cid], "approved")
-    assert "no such company" in str(exc.value).lower()
+    assert "no such company" in exc.value.diag.message_primary.lower()
     assert row_of(conn, other, other_cid)[0] == "proposed"
     assert row_of(conn, user, ids[0])[0] == "proposed"
 
@@ -391,7 +391,7 @@ def test_a_batch_past_the_bound_is_refused(conn):
     user, ids = seed(conn, 1)
     with pytest.raises(psycopg.errors.Error) as exc:
         review(conn, ids * 1001, "approved")
-    assert "too many companies in one batch" in str(exc.value).lower()
+    assert "too many companies in one batch" in exc.value.diag.message_primary.lower()
     assert row_of(conn, user, ids[0])[0] == "proposed"
 
 
@@ -410,7 +410,7 @@ def test_a_short_token_array_is_refused_rather_than_skipping_the_tail(conn):
     for bad in (tokens[:1], tokens + [tokens[0]], []):
         with pytest.raises(psycopg.errors.Error) as exc:
             review(conn, ids, "approved", expected=bad)
-        assert "row for row" in str(exc.value).lower(), bad
+        assert "row for row" in exc.value.diag.message_primary.lower(), bad
     for cid in ids:
         assert row_of(conn, user, cid)[0] == "proposed"
 
@@ -428,7 +428,7 @@ def test_a_malformed_version_token_reads_as_a_conflict(conn):
     user, ids = seed(conn, 2)
     with pytest.raises(psycopg.errors.Error) as exc:
         review(conn, ids, "approved", expected=["not-a-timestamp", None])
-    assert "conflict" in str(exc.value).lower()
+    assert "conflict" in exc.value.diag.message_primary.lower()
     assert "invalid input syntax" not in str(exc.value).lower()
     for cid in ids:
         assert row_of(conn, user, cid)[0] == "proposed"
@@ -647,7 +647,7 @@ def test_the_row_every_gesture_returns_carries_the_version_token(conn):
     flags(conn, ids[0], False, False, expected=flagged["updated_at"])
     with pytest.raises(psycopg.errors.Error) as exc:
         flags(conn, ids[0], True, False, expected=reviewed["updated_at"])
-    assert "conflict" in str(exc.value).lower()
+    assert "conflict" in exc.value.diag.message_primary.lower()
 
 
 # ------------------------------------------------------------------ idempotency / no-op
@@ -695,7 +695,7 @@ def test_flags_refuse_a_company_that_was_never_approved(conn):
     user, ids = seed(conn, 1)
     with pytest.raises(psycopg.errors.Error) as exc:
         flags(conn, ids[0], True, False)
-    assert "not approved" in str(exc.value).lower()
+    assert "not approved" in exc.value.diag.message_primary.lower()
     assert row_of(conn, user, ids[0])[1] is False
 
 
@@ -711,7 +711,7 @@ def test_flags_conflict_on_a_stale_version(conn):
     assert row_of(conn, user, ids[0])[3] > stale
     with pytest.raises(psycopg.errors.Error) as exc:
         flags(conn, ids[0], False, False, expected=stale)
-    assert "conflict" in str(exc.value).lower()
+    assert "conflict" in exc.value.diag.message_primary.lower()
 
 
 # ------------------------------------------------------------------ propose (paste)
@@ -847,7 +847,7 @@ def test_an_unknown_source_tag_is_refused(conn):
         assert propose(conn, [f"Src {tag} {uuid.uuid4().hex[:6]}"], source=tag)["added"] == 1
     with pytest.raises(psycopg.errors.Error) as exc:
         propose(conn, ["Novelist Co"], source="a-novel-about-provenance")
-    assert "unknown source tag" in str(exc.value).lower()
+    assert "unknown source tag" in exc.value.diag.message_primary.lower()
 
 
 def test_the_review_backlog_has_a_ceiling(conn):
@@ -872,8 +872,8 @@ def test_the_review_backlog_has_a_ceiling(conn):
     as_user(conn, user)
     with pytest.raises(psycopg.errors.Error) as exc:
         propose(conn, ["One More Please"])
-    assert "backlog is full" in str(exc.value).lower()
-    assert "2000" in str(exc.value)
+    assert "backlog is full" in exc.value.diag.message_primary.lower()
+    assert "2000" in exc.value.diag.message_primary
     # Nothing was written: the refusal is not a partial paste.
     assert conn.execute(
         "select count(*) from public.companies where name = 'One More Please'"
@@ -899,7 +899,7 @@ def test_a_paste_past_the_bound_is_refused(conn):
     as_user(conn, user)
     with pytest.raises(psycopg.errors.Error) as exc:
         propose(conn, [f"Co {i}" for i in range(501)])
-    assert "too many companies" in str(exc.value).lower()
+    assert "too many companies" in exc.value.diag.message_primary.lower()
 
 
 def test_propose_replays_under_one_key(conn):
@@ -924,4 +924,4 @@ def test_an_unauthenticated_caller_writes_nothing(conn):
     ):
         with pytest.raises(psycopg.errors.Error) as exc:
             call()
-        assert "not authenticated" in str(exc.value).lower()
+        assert "not authenticated" in exc.value.diag.message_primary.lower()

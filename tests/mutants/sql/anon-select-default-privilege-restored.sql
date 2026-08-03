@@ -1,0 +1,12 @@
+-- Put Supabase's bootstrap default back, WITHOUT touching any existing table.
+--
+-- This is the half that decays silently. Revoking on the ~27 relations that
+-- exist today is the visible half and it stays correct forever; the default
+-- privilege is what governs table 28, and a migration that did only the first
+-- half looks completely clean — every existing table is locked down, the
+-- schema-wide assertion is green, and the next `create table` quietly hands
+-- `anon` SELECT again with nobody watching.
+--
+-- So this mutant leaves every current grant exactly as the migration left it.
+-- The only test that may go red is the one that creates a NEW table.
+alter default privileges in schema public grant select on tables to anon;

@@ -466,7 +466,7 @@ def test_a_stale_expected_updated_at_is_a_conflict(conn):
     with pytest.raises(psycopg.errors.Error) as exc:
         set_triage(conn, key, "interested", idem=str(uuid.uuid4()), expected=stale)
     # supabase-source.ts matches /conflict|stale/i to choose the conflict path.
-    assert "conflict" in str(exc.value).lower()
+    assert "conflict" in exc.value.diag.message_primary.lower()
 
 
 def test_the_expectation_round_trips_as_the_string_the_client_actually_sends(conn):
@@ -521,7 +521,7 @@ def test_a_millisecond_truncated_expectation_is_caught_as_a_conflict(conn):
 
     with pytest.raises(psycopg.errors.Error) as exc:
         set_triage(conn, key, "interested", idem=str(uuid.uuid4()), expected=truncated)
-    assert "conflict" in str(exc.value).lower()
+    assert "conflict" in exc.value.diag.message_primary.lower()
 
 
 def test_a_null_expectation_is_allowed(conn):
@@ -664,7 +664,7 @@ def test_an_unauthenticated_caller_is_refused(conn):
     conn.execute("select set_config('hq.test_user', '', false)")
     with pytest.raises(psycopg.errors.Error) as exc:
         set_triage(conn, key, "interested", idem=str(uuid.uuid4()))
-    assert "not authenticated" in str(exc.value).lower()
+    assert "not authenticated" in exc.value.diag.message_primary.lower()
 
 
 def test_a_user_cannot_triage_another_users_row(conn):
@@ -678,7 +678,7 @@ def test_a_user_cannot_triage_another_users_row(conn):
     as_user(conn, attacker)
     with pytest.raises(psycopg.errors.Error) as exc:
         set_triage(conn, key, "dismissed", idem=str(uuid.uuid4()))
-    assert "no such posting" in str(exc.value).lower()
+    assert "no such posting" in exc.value.diag.message_primary.lower()
 
     assert conn.execute(
         "select triage from public.user_postings where user_id=%s and posting_key=%s",
@@ -716,7 +716,7 @@ def test_an_invalid_triage_value_is_refused(conn, bad):
     as_user(conn, user)
     with pytest.raises(psycopg.errors.Error) as exc:
         set_triage(conn, key, bad, idem=str(uuid.uuid4()))
-    assert "invalid triage" in str(exc.value).lower()
+    assert "invalid triage" in exc.value.diag.message_primary.lower()
 
 
 def test_snoozing_without_a_wake_date_is_refused(conn):
@@ -728,7 +728,7 @@ def test_snoozing_without_a_wake_date_is_refused(conn):
     as_user(conn, user)
     with pytest.raises(psycopg.errors.Error) as exc:
         set_triage(conn, key, "snoozed", idem=str(uuid.uuid4()))
-    assert "wake date" in str(exc.value).lower()
+    assert "wake date" in exc.value.diag.message_primary.lower()
 
 
 def test_clearing_a_snooze_clears_its_wake_date(conn):

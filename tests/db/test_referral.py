@@ -259,7 +259,7 @@ def test_a_non_digit_linkedin_id_is_refused(conn, user, watched, bad):
     set_linkedin(conn, watched, "1035")
     with pytest.raises(psycopg.errors.InvalidParameterValue) as exc:
         set_linkedin(conn, watched, bad)
-    assert "digits only" in str(exc.value).lower()
+    assert "digits only" in exc.value.diag.message_primary.lower()
     # And nothing was written: the refusal is not a partial paste.
     assert company_of(conn, watched)[0] == "1035"
 
@@ -284,7 +284,7 @@ def test_a_blank_idempotency_key_is_refused_by_the_blank_trim_door(conn, user, w
     """
     with pytest.raises(psycopg.errors.InvalidParameterValue) as exc:
         set_linkedin(conn, watched, "1035", idem=bad)
-    assert "idempotency key" in str(exc.value).lower()
+    assert "idempotency key" in exc.value.diag.message_primary.lower()
 
     # The control, so this cannot pass for a function that refuses every key.
     assert set_linkedin(conn, watched, "1035", idem=uuid.uuid4().hex)["company_id"] == watched
@@ -327,7 +327,7 @@ def test_a_stale_expectation_conflicts_and_writes_nothing(conn, user, watched):
     before_events = len(events(conn, user))
     with pytest.raises(psycopg.errors.SerializationFailure) as exc:
         set_linkedin(conn, watched, "9999", expected=stale)
-    assert "conflict" in str(exc.value).lower()
+    assert "conflict" in exc.value.diag.message_primary.lower()
 
     assert company_of(conn, watched)[0] == "1035", "a conflicted write landed anyway"
     assert len(events(conn, user)) == before_events, (
@@ -350,7 +350,7 @@ def test_a_caller_who_does_not_watch_the_company_is_refused(conn, user):
     orphan = make_company(conn)
     with pytest.raises(psycopg.errors.InvalidParameterValue) as exc:
         set_linkedin(conn, orphan, "1035")
-    assert "no such company for this user" in str(exc.value).lower()
+    assert "no such company for this user" in exc.value.diag.message_primary.lower()
     assert company_of(conn, orphan)[0] == ""
 
     # The positive control, in the same breath: the identical call succeeds the
@@ -500,7 +500,7 @@ def test_an_unauthenticated_caller_cannot_paste_an_id(conn, user, watched):
     conn.execute("select set_config('hq.test_user', '', false)")
     with pytest.raises(psycopg.errors.Error) as exc:
         set_linkedin(conn, watched, "1035")
-    assert "not authenticated" in str(exc.value).lower()
+    assert "not authenticated" in exc.value.diag.message_primary.lower()
 
 
 # ============================================================== connections
@@ -1101,7 +1101,7 @@ def test_a_blank_import_idempotency_key_is_refused(conn, user, bad):
     """
     with pytest.raises(psycopg.errors.InvalidParameterValue) as exc:
         imp(conn, [{"full_name": "Ada"}], idem=bad)
-    assert "idempotency key" in str(exc.value).lower()
+    assert "idempotency key" in exc.value.diag.message_primary.lower()
     # The control, so this cannot pass for a function that refuses every key.
     assert imp(conn, [{"full_name": "Ada"}], idem=uuid.uuid4().hex)["inserted"] == 1
 
@@ -1115,7 +1115,7 @@ def test_a_chunk_past_the_bound_is_refused(conn, user):
     """
     with pytest.raises(psycopg.errors.InvalidParameterValue) as exc:
         imp(conn, [{"full_name": f"P{i}"} for i in range(1001)])
-    assert "too many connections in one call" in str(exc.value).lower()
+    assert "too many connections in one call" in exc.value.diag.message_primary.lower()
     assert rows_of(conn, user) == []
 
     # The control: one under the bound is accepted, so the refusal is about SIZE.
@@ -1137,7 +1137,7 @@ def test_an_unknown_source_tag_is_refused(conn, user):
 
     with pytest.raises(psycopg.errors.InvalidParameterValue) as exc:
         imp(conn, [{"full_name": "Nope"}], source="a-novel-about-provenance")
-    assert "unknown source tag" in str(exc.value).lower()
+    assert "unknown source tag" in exc.value.diag.message_primary.lower()
 
 
 @pytest.mark.parametrize("payload", ['{"full_name": "Ada"}', "null", '"a string"', "42", "true"])
@@ -1153,7 +1153,7 @@ def test_a_non_array_rows_argument_is_refused(conn, user, payload):
             "select public.app_import_connections(%s::jsonb, 'manual', %s)",
             (payload, uuid.uuid4().hex),
         )
-    assert "rows must be an array" in str(exc.value).lower()
+    assert "rows must be an array" in exc.value.diag.message_primary.lower()
 
     # The control: the same call with a real array lands.
     assert imp(conn, [{"full_name": "Ada"}])["inserted"] == 1
@@ -1164,7 +1164,7 @@ def test_an_unauthenticated_caller_cannot_import_or_clear(conn, user):
     for call in (lambda: imp(conn, [{"full_name": "Ghost"}]), lambda: clear(conn)):
         with pytest.raises(psycopg.errors.Error) as exc:
             call()
-        assert "not authenticated" in str(exc.value).lower()
+        assert "not authenticated" in exc.value.diag.message_primary.lower()
 
 
 # ------------------------------------------------------------ ordered locking
@@ -1321,7 +1321,7 @@ def test_a_blank_clear_idempotency_key_is_refused(conn, user, bad):
     imp(conn, [{"full_name": "Ada Lovelace"}])
     with pytest.raises(psycopg.errors.InvalidParameterValue) as exc:
         clear(conn, idem=bad)
-    assert "idempotency key" in str(exc.value).lower()
+    assert "idempotency key" in exc.value.diag.message_primary.lower()
     assert len(rows_of(conn, user)) == 1
     # The control.
     assert clear(conn, idem=uuid.uuid4().hex) == {"deleted": 1}

@@ -1,0 +1,75 @@
+-- 20260802_205716_anon_select_revoke.sql
+--
+-- Revoke SELECT from `anon` on every table in `public`, and stop new tables
+-- from arriving with it.
+--
+-- WHAT `anon` IS. Supabase's bootstrap grants `anon` and `authenticated` full
+-- table privileges on `public` so that RLS, not the privilege system, decides
+-- who sees which rows (db/test-harness.sql reproduces this deliberately, and
+-- explains why: without the grants a "user A cannot read user B" test passes
+-- because A can read nothing, and keeps passing with every policy dropped).
+-- `anon` is the role PostgREST runs a request as when the anon key carries NO
+-- user JWT — a signed-out visitor. A signed-in browser is `authenticated`.
+--
+-- WHY THIS IS DEFENCE IN DEPTH AND NOT A FIX. `anon` reads nothing today. Every
+-- table's policies are owner-scoped on `auth.uid()`, which is null for `anon`,
+-- and 0027/0028 layer restrictive entitlement policies on top. This migration
+-- does not close an open hole; it removes the privilege a future mistake would
+-- need in order to become one. The exposure it forecloses is a policy authored
+-- `using (true)` on a lookup-shaped table, or a policy dropped during a
+-- debugging session and not restored: today either of those is instantly a
+-- world-readable table over `/rest/v1/**`, because the browser holds the anon
+-- key and does not have to go through the web app at all. After this, the
+-- privilege system refuses first and the policy is never consulted.
+--
+-- WHY SCHEMA-WIDE AND NOT THREE TABLES. The grant is uniform across all ~27
+-- tables — it comes from one bootstrap statement, not from per-table intent —
+-- so a per-table revoke would be cosmetic: it would fix the tables somebody
+-- happened to look at and leave the mechanism that granted all of them fully
+-- intact, including for table 28.
+--
+-- WHAT WAS VERIFIED BEFORE WRITING THIS. The browser never performs a table
+-- SELECT as `anon`. `webapp/lib/supabase/client.ts` is the only anon-key browser
+-- client and its sole caller (`app/login/page.tsx`) uses it exclusively for
+-- `auth.signInWithOAuth`, a GoTrue call, never PostgREST. Every `.from(...)`
+-- read runs server-side with the user's session cookie (role `authenticated`)
+-- or with the service role, and middleware's `entitlements` read is unreachable
+-- without claims. No public route, no pre-sign-in RPC, and no test depends on a
+-- logged-out read.
+--
+-- SCOPE. SELECT only, and `anon` only.
+--   * `authenticated` keeps every grant it has: that is the role every real read
+--     runs as, and revoking there would break the app.
+--   * `anon`'s INSERT/UPDATE/DELETE are left alone. They are already refused by
+--     the restrictive entitlement policies and guard triggers that
+--     `tests/db/test_default_deny.py` holds shut over the whole catalog, and
+--     widening this migration to writes would change what those tests measure.
+--     Read exposure is the one that leaks without a second step.
+--   * `service_role` is untouched (it holds `bypassrls`; it is the engine).
+--
+-- OWNERSHIP / SEARCH PATH / RLS: no objects are created, so there is nothing to
+-- own and no `search_path` to pin. No policy is added, dropped, or altered —
+-- every RLS decision in the schema is exactly what it was before this ran.
+
+-- 1. Existing relations. `all tables in schema public` expands at execution time
+--    to the relations that exist NOW — and in Postgres this phrase does cover
+--    views and materialized views as well as ordinary tables. Which is why (2)
+--    is not optional: it is the half that governs what does not exist yet.
+revoke select on all tables in schema public from anon;
+
+-- 2. Relations that do not exist yet.
+--
+--    ALTER DEFAULT PRIVILEGES is scoped to the role that CREATES the object, so
+--    this covers relations created by the role running migrations — the role
+--    every relation in this schema is created by, since `db/apply.sh` is the only
+--    path one arrives through. A relation created by some other role would not
+--    be covered here; that is what the pg_catalog cross-check in
+--    `tests/db/test_default_deny.py` exists to catch. It derives its expectation
+--    from the catalog rather than from this file, so it cannot be fooled by a
+--    relation that skipped this default.
+--
+--    This is a REVOKE of a default, not a GRANT: it subtracts SELECT from the
+--    bootstrap's `grant all on tables to anon`, leaving that grant's other
+--    privileges and the `authenticated` / `service_role` grants untouched.
+alter default privileges in schema public revoke select on tables from anon;
+

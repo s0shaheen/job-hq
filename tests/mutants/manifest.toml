@@ -213,6 +213,87 @@ needs = ["database"]
 tests = ["tests/db/test_autopilot_staging.py::test_a_non_entitled_account_reads_nothing"]
 failing = 2
 
+# The next three pin the `anon` SELECT revoke (`*_anon_select_revoke.sql`). The
+# first two are a PAIR on purpose: that migration has two halves which fail
+# independently, and either half alone leaves a guard that looks complete and is
+# not. The third pins the QUESTION the guard asks rather than a half of the
+# migration.
+#
+# All three set `restore`, because re-applying the autopilot migration would not
+# put a revoked grant back — the exact "a restore that names the wrong file is
+# not a restore" failure recorded at DEFAULT_SQL_RESTORE.
+#
+# That the restore is SOUND was measured rather than assumed: `revoke select on
+# all tables in schema public from anon` does clear a column-level grant
+# (has_column_privilege True -> False across it). Had it not, the column mutant
+# below would survive its own restore and poison every later test in the session
+# while still reporting `restored = true`.
+
+[[mutant]]
+id = "anon-select-regranted-on-one-table"
+tier = "T3"
+kind = "sql"
+sql = "sql/anon-select-regranted-on-one-table.sql"
+restore = "*_anon_select_revoke.sql"
+guard = "revoke select on all tables in schema public from anon"
+property = """
+The signed-out role can read NO relation in public, and the check is derived \
+from pg_catalog over every relation — so one table re-granted anywhere in the \
+schema is caught, without a hand-maintained list to forget to update."""
+runner = "pytest"
+needs = ["database"]
+tests = [
+  "tests/db/test_default_deny.py::test_anon_holds_select_on_nothing_in_public",
+]
+failing = 1
+# Only ONE test may redden. `test_a_new_table_cannot_arrive_carrying_the_anon_grant`
+# must stay green here: this mutant does not touch the default privilege, and a
+# guard that reddens on the wrong mutation is not measuring what it claims.
+
+[[mutant]]
+id = "anon-select-default-privilege-restored"
+tier = "T3"
+kind = "sql"
+sql = "sql/anon-select-default-privilege-restored.sql"
+restore = "*_anon_select_revoke.sql"
+guard = "alter default privileges in schema public revoke select on tables from anon"
+property = """
+A table that does not exist yet cannot arrive carrying anon's SELECT: the \
+revoke covers the relations that exist, and the default-privilege half is what \
+covers table 28 — the half whose absence is invisible until somebody adds one."""
+runner = "pytest"
+needs = ["database"]
+tests = [
+  "tests/db/test_default_deny.py::test_a_new_table_cannot_arrive_carrying_the_anon_grant",
+]
+failing = 1
+# The mirror of the note above: the schema-wide test must stay GREEN under this
+# mutant, because no existing grant changed. That is what makes the pair
+# evidence about two distinct halves rather than one guard counted twice.
+
+[[mutant]]
+id = "anon-select-regranted-on-one-column"
+tier = "T3"
+kind = "sql"
+sql = "sql/anon-select-regranted-on-one-column.sql"
+restore = "*_anon_select_revoke.sql"
+guard = "relations_role_can_read() asks has_column_privilege, not has_table_privilege"
+property = """
+A COLUMN-level grant to anon is caught. `has_table_privilege(anon, t, 'select')` \
+is FALSE whenever one column is unreadable, so a table-level check reads clean \
+while anon selects that column over /rest/v1 — the leaking direction of the \
+catalog-vs-mechanism gap #149 closed in gated_tables."""
+runner = "pytest"
+needs = ["database"]
+tests = [
+  "tests/db/test_default_deny.py::test_anon_holds_select_on_nothing_in_public",
+]
+failing = 1
+# The restore is sound and was measured, not assumed: `revoke select on all
+# tables in schema public from anon` DOES clear a column-level grant
+# (has_column_privilege True -> False across it). Had it not, re-applying the
+# migration would leave this mutation in place and poison every later test.
+
 # ═══════════════════════════════════════════════════════════ 2. the web app
 
 [[mutant]]

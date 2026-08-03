@@ -221,7 +221,7 @@ def test_an_authenticated_user_has_no_direct_write_to_bot_runs(conn, two_users):
     ):
         with pytest.raises(psycopg.errors.Error) as exc:
             conn.execute(stmt, args)
-        assert "permission denied" in str(exc.value).lower() or "policy" in str(
+        assert "permission denied" in exc.value.diag.message_primary.lower() or "policy" in str(
             exc.value
         ).lower(), stmt
 
@@ -296,7 +296,7 @@ def test_an_authenticated_user_cannot_rewrite_or_delete_an_audit_row(conn, two_u
     ):
         with pytest.raises(psycopg.errors.Error) as exc:
             conn.execute(sql, (u["a"],))
-        assert "permission denied" in str(exc.value).lower(), sql
+        assert "permission denied" in exc.value.diag.message_primary.lower(), sql
 
 
 def test_an_authenticated_user_cannot_truncate_the_audit_trail(conn, two_users):
@@ -312,7 +312,7 @@ def test_an_authenticated_user_cannot_truncate_the_audit_trail(conn, two_users):
     as_authenticated(conn, u["a"])
     with pytest.raises(psycopg.errors.Error) as exc:
         conn.execute("truncate public.events")
-    assert "permission denied" in str(exc.value).lower()
+    assert "permission denied" in exc.value.diag.message_primary.lower()
 
     conn.execute("reset role")
     assert count(conn, "select count(*) from public.events where user_id = %s", u["a"]) > 0
@@ -356,7 +356,7 @@ def test_a_user_cannot_triage_a_posting_they_cannot_see(conn, two_users):
             "select public.app_set_triage(%s,'dismissed',null,'',%s,null)",
             (u["kb"], str(uuid.uuid4())),
         )
-    assert "no such posting" in str(exc.value).lower()
+    assert "no such posting" in exc.value.diag.message_primary.lower()
 
     conn.execute("reset role")
     assert conn.execute(
@@ -428,7 +428,7 @@ def test_an_authenticated_user_has_no_direct_write_to_profiles(conn, two_users):
             "insert into public.profiles (user_id, criteria) values (%s, '{\"yoe_max\": 99}'::jsonb)",
             (u["a"],),
         )
-    assert "policy" in str(exc.value).lower() or "permission denied" in str(exc.value).lower()
+    assert "policy" in exc.value.diag.message_primary.lower() or "permission denied" in exc.value.diag.message_primary.lower()
 
 
 def test_the_preview_corpus_does_not_leak_another_users_triage(conn, two_users):
@@ -465,7 +465,7 @@ def test_an_authenticated_user_has_no_direct_write_to_saved_views(conn, two_user
             "insert into public.saved_views (user_id, name) values (%s, 'sneaky')",
             (u["a"],),
         )
-    assert "policy" in str(exc.value).lower() or "permission denied" in str(exc.value).lower()
+    assert "policy" in exc.value.diag.message_primary.lower() or "permission denied" in exc.value.diag.message_primary.lower()
 
 # ------------------------------------------------------- application notes (0010)
 
@@ -524,7 +524,7 @@ def test_an_authenticated_user_has_no_direct_write_to_application_notes(conn, tw
     ):
         with pytest.raises(psycopg.errors.Error) as exc:
             conn.execute(stmt, args)
-        assert "permission denied" in str(exc.value).lower() or "policy" in str(
+        assert "permission denied" in exc.value.diag.message_primary.lower() or "policy" in str(
             exc.value
         ).lower(), stmt
     assert app_id is None  # nothing above was supposed to return a row
@@ -677,7 +677,7 @@ def test_an_authenticated_user_has_no_direct_write_to_connections(conn, two_user
     ):
         with pytest.raises(psycopg.errors.Error) as exc:
             conn.execute(stmt, args)
-        assert "permission denied" in str(exc.value).lower() or "policy" in str(
+        assert "permission denied" in exc.value.diag.message_primary.lower() or "policy" in str(
             exc.value
         ).lower(), stmt
 
@@ -759,6 +759,6 @@ def test_an_authenticated_user_has_no_direct_write_to_the_import_tables(conn, tw
     ):
         with pytest.raises(psycopg.errors.Error) as exc:
             conn.execute(stmt, args)
-        assert "permission denied" in str(exc.value).lower() or "policy" in str(
+        assert "permission denied" in exc.value.diag.message_primary.lower() or "policy" in str(
             exc.value
         ).lower(), stmt

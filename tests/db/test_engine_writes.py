@@ -389,7 +389,7 @@ def test_no_bot_may_write_a_human_only_ending(conn):
     for ending in ("Offer-Accepted", "Offer-Declined"):
         with pytest.raises(psycopg.errors.Error) as exc:
             apply_event(conn, user, key, status=ending)
-        assert "human-only" in str(exc.value)
+        assert "human-only" in exc.value.diag.message_primary
     assert app_of(conn, user, key)["status"] == "Offer"
 
 
@@ -751,7 +751,7 @@ def test_a_human_only_ending_seeds_only_as_a_human_claim(conn):
     key = make_posting(conn, f"greenhouse-{uuid.uuid4().hex[:10]}")
     with pytest.raises(psycopg.errors.Error) as exc:
         seed_row(conn, user, key, status="Offer-Accepted", status_actor="")
-    assert "human-only" in str(exc.value)
+    assert "human-only" in exc.value.diag.message_primary
     assert app_of(conn, user, key) is None
 
     assert seed_row(conn, user, key, status="Offer-Accepted",
@@ -792,7 +792,7 @@ def test_the_function_refuses_an_event_with_no_idempotency_key(conn):
     user, key, _app = gated_app(conn)
     with pytest.raises(psycopg.errors.Error) as exc:
         apply_event(conn, user, key, event_id="   ")
-    assert "idempotency key required" in str(exc.value)
+    assert "idempotency key required" in exc.value.diag.message_primary
 
 
 def test_the_function_refuses_a_blank_posting_key(conn):

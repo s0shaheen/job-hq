@@ -336,10 +336,10 @@ def selfheal_cron() -> str:
     return _need(m and m.group(1), "selfheal.yml cron")
 
 
-# There is no pgdump_cron(): `pgdump.yml` was deleted with the rest of the migration scaffolding
-# (it was gated OFF and had no database behind it). Its row in the backup-lanes table below is a
-# literal, not a parse — resurrect the workflow from git history and re-add a parser here if a
-# live Supabase ever exists.
+# There is no pgdump_cron() because there is no pgdump cron. `pgdump.yml` was NOT deleted — it is a
+# tombstone: no schedule, and its one job prints an error and exits 1 (FP-OPS-001). Its row in the
+# backup-lanes table below is a literal describing a CLOSED lane, not a parse. The replacement lane
+# is a new workflow shipping with RM-01, and it gets a parser here then.
 
 
 # ------------------------------------------------------------------ section renderers
@@ -424,7 +424,7 @@ def sec_backup_lanes() -> str:
         "hard-disabled** | `pgdump.yml` has no schedule and its job unconditionally exits 1; the "
         "`PGDUMP_ENABLED` repo variable is deliberately ignored (FP-OPS-001, "
         "`docs/pilot-launch/instances/PKT-DUMP-DISABLE.md`) | pg lane `pgdump` in `channel_runs` "
-        "(written by `python -m tracker.beat pgdump` as the job's last step) | the digest pages "
+        "— **never written**, because the job exits before anything could write it | the digest pages "
         "**HQ backups stale** naming `pgdump (pg)`, permanently, because the lane cannot run — "
         "which is exactly the state “pg is load-bearing and has no git backup” should be in until "
         "RM-01 lands an encrypted replacement |",
@@ -478,7 +478,7 @@ def sec_watchdogs() -> str:
         "snapshot": "`tracker.snapshot` (git mode, `selfheal.yml`)",
         "snapshot_s3": "`tracker.snapshot` (S3 mode, the `snapshot` Lambda job)",
         "digest": "`tracker.digest`, after the briefing is composed and sent",
-        "pgdump": "`python -m tracker.beat pgdump`, last step of `pgdump.yml`",
+        "pgdump": "**nobody** — the lane is hard-disabled, so this beat never arrives",
     }
     for name, hours in d["pg_cadence"]:
         h = float(hours)
