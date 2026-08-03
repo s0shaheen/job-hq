@@ -640,3 +640,32 @@ class TestSemaphore:
             f"it claims to — most likely the stub is not blocking long enough for "
             f"the runs to overlap."
         )
+
+
+def test_a_linked_worktree_mounts_the_parent_gitdir_so_git_resolves() -> None:
+    """A worktree's `.git` is a FILE holding `gitdir: <abs path>`, so git inside
+    the container follows that pointer straight out of the /repo mount.
+
+    The harness's comment used to say nothing in there needed git. #166 made
+    that false: `test_no_absolute_symlinks.py` shells out to `git ls-tree` —
+    correctly, since a symlink's target IS its committed content — and refuses
+    to pass on a tree it cannot read. The effect was that `--full --image` could
+    not pass from ANY linked worktree, i.e. from any delegated agent, for a
+    reason no branch could fix, on a run where every other suite was green.
+    That is the shape that produces a "green apart from an unrelated failure"
+    claim, which had already happened twice that day."""
+    src = SCRIPT.read_text()
+    assert "gitmount=()" in src, "the parent gitdir mount was removed"
+    assert 'sed -n \'s/^gitdir: //p\'' in src, (
+        "the pointer must be read from the .git FILE, not guessed"
+    )
+    assert '"$parent_git:$parent_git:ro"' in src, (
+        "the parent .git must be mounted at the SAME absolute path the pointer "
+        "names — anywhere else and the pointer still does not resolve — and "
+        "read-only, because nothing in the container may write to it"
+    )
+    # The mount must actually reach docker. A block that computes it and never
+    # appends it is the same bug wearing a helpful comment.
+    assert 'args+=("${gitmount[@]+"${gitmount[@]}"}")' in src, (
+        "gitmount is computed but never added to the docker arguments"
+    )

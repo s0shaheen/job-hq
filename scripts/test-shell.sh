@@ -62,9 +62,36 @@ vol="hq-test-node-modules-$want"
 # is a function of the lockfile, which the hash already covers.
 checkout_key="$(printf '%s' "$repo" | shasum -a 256 | cut -c1-12)"
 
-# A worktree's .git is a FILE pointing into the parent checkout, so git inside the
-# container would fail. Nothing here needs git — scripts/verify.sh resolves the
-# changed paths on the host and passes them in through HQ_VERIFY_PATHS.
+# A worktree's `.git` is a FILE holding `gitdir: <abs path into the parent>`, so
+# git inside the container resolves that pointer and lands outside the /repo
+# mount. This block makes the pointer resolve.
+#
+# It used to be true that nothing in here needed git — verify.sh resolves the
+# changed paths on the host and passes them in through HQ_VERIFY_PATHS, and that
+# is still the rule for the LANE. It stopped being true for the SUITE in #166,
+# which added tests/core/test_no_absolute_symlinks.py: it shells out to
+# `git ls-tree -r HEAD` because a symlink's target is its committed content, and
+# it deliberately refuses to pass on a tree it cannot read. Correct of the test.
+# The result was that `--full --image` could not pass from ANY linked worktree —
+# i.e. from any delegated agent — for a reason no branch could fix, on a run
+# where everything else was green. That is exactly the shape that tempts a
+# "green apart from an unrelated failure" summary, which is how two false gate
+# claims were made earlier the same day.
+#
+# So: mount the parent `.git` at the SAME absolute path the pointer names, and
+# read-only, because nothing in the container has any business writing to it.
+gitmount=()
+if [[ -f "$repo/.git" ]]; then
+  parent_gitdir="$(sed -n 's/^gitdir: //p' "$repo/.git")"
+  # `.git/worktrees/<name>` → the parent repository's `.git`.
+  parent_git="${parent_gitdir%/worktrees/*}"
+  if [[ -n "$parent_git" && -d "$parent_git" ]]; then
+    gitmount=(-v "$parent_git:$parent_git:ro")
+  else
+    echo "[test-shell] WARNING: $repo/.git points at '$parent_gitdir', which is not" >&2
+    echo "[test-shell] a worktree gitdir. Suites that shell out to git will fail." >&2
+  fi
+fi
 # ─────────────────────────────────────────────────── reap what died before us
 #
 # `--rm` removes a container when it EXITS. It does nothing for a container
@@ -275,6 +302,7 @@ args=(--rm --init
   -e "HQ_VISUAL=${HQ_VISUAL:-}"
   -e "HQ_E2E_PORT=${HQ_E2E_PORT:-}"
 )
+args+=("${gitmount[@]+"${gitmount[@]}"}")
 [[ -t 0 && -t 1 ]] && args+=(-it)
 
 # Deliberately NOT `exec`. This shell has to outlive the container so its EXIT
