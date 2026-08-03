@@ -64,3 +64,13 @@ interview-prep/
 *.m4a
 *.mp3
 *.wav
+
+# Machine-specific symlinks. Both of these were TRACKED, with absolute paths
+# baked into the blob: `webapp/node_modules` -> this checkout (committed by
+# accident in #141), and `applications` -> a Google Drive folder whose path
+# carries the owner's email address. On any other machine, or in a fresh clone,
+# a tracked absolute symlink is a broken path where a real directory is
+# expected — it cost two test runs a MODULE_NOT_FOUND before anyone looked.
+# tests/core/test_no_absolute_symlinks.py fails the build if one returns.
+webapp/node_modules
+/applications
