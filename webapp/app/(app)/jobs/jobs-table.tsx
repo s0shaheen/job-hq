@@ -92,6 +92,7 @@ import {
   type DisplayPrefs,
 } from "@/lib/grid/display-prefs";
 import { rowsForSet, type WorkingSet } from "@/lib/grid/presets";
+import { ROW_CURSOR, STICKY_CELL_PAINT, rowPaint } from "@/lib/grid/row-paint";
 import {
   clearSelection,
   EMPTY_SELECTION,
@@ -893,12 +894,13 @@ export default function JobsTable({
                       // sticking.
                       className={cn(
                         "group absolute inset-x-0 flex border-b border-border",
-                        isSelected
-                          ? "bg-selected [&_.text-muted]:text-text-2"
-                          : isPaneSubject
-                            ? "bg-raised"
-                            : "hover:bg-raised",
-                        isActive && "ring-1 ring-inset ring-ring",
+                        // One decision, published to the cells as `--row-bg`.
+                        // Muted text is promoted to text-2 on a selected row: a
+                        // tint strong enough to read as selection is too dark
+                        // for #707067 to clear AA on.
+                        rowPaint({ selected: isSelected, paneSubject: isPaneSubject }),
+                        isSelected && "[&_.text-muted]:text-text-2",
+                        isActive && ROW_CURSOR,
                       )}
                       style={{ height: rowPx, top: vi.start }}
                     >
@@ -915,10 +917,10 @@ export default function JobsTable({
                               "flex min-w-0 items-center overflow-hidden px-2",
                               id === SELECT_COLUMN_ID && "justify-center px-0",
                               meta?.align === "right" && "justify-end tabular-nums",
-                              meta?.sticky &&
-                                (isSelected
-                                  ? "sticky left-0 z-10 bg-selected"
-                                  : "sticky left-0 z-10 bg-surface group-hover:bg-raised"),
+                              // Opaque, or the columns scrolling underneath show
+                              // through it. The colour is the ROW's, read from
+                              // `--row-bg` rather than re-enumerated here.
+                              meta?.sticky && `sticky left-0 z-10 ${STICKY_CELL_PAINT}`,
                             )}
                           >
                             {id === SELECT_COLUMN_ID ? (

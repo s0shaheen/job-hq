@@ -16,6 +16,7 @@ import { Button, buttonClass } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty";
 import type { CompanyView } from "@/lib/data/view-models";
 import { COMPANY_GRID_COLUMNS, COMPANY_HEADER_PX, COMPANY_ROW_PX } from "@/lib/grid/company-columns";
+import { ROW_CURSOR, STICKY_CELL_PAINT, rowPaint } from "@/lib/grid/row-paint";
 import {
   companyPresetName,
   rowsForCompanySet,
@@ -598,14 +599,15 @@ export default function CompaniesGrid({
                       // (matrix row 48).
                       className={cn(
                         "group absolute inset-x-0 flex border-b border-border",
-                        // Selection is the tint, the cursor is the inset ring.
+                        // Selection is the tint, the cursor is the ring. Both
+                        // come from `lib/grid/row-paint.ts`, which is also where
+                        // the reason the cursor cannot be an inset ring lives.
                         // Muted text is promoted to text-2 on a selected row: a
                         // tint strong enough to read as selection is too dark for
                         // #707067 to clear AA on (matrix row 82).
-                        isSelected
-                          ? "bg-selected [&_.text-muted]:text-text-2"
-                          : "hover:bg-raised",
-                        isActive && "ring-1 ring-inset ring-ring",
+                        rowPaint({ selected: isSelected }),
+                        isSelected && "[&_.text-muted]:text-text-2",
+                        isActive && ROW_CURSOR,
                       )}
                       style={{ height: COMPANY_ROW_PX, top: vi.start }}
                     >
@@ -621,14 +623,17 @@ export default function CompaniesGrid({
                             className={cn(
                               "flex min-w-0 items-center overflow-hidden px-3",
                               meta?.sticky &&
-                                // Opaque, and re-tinted on row hover — a sticky
-                                // cell with a transparent background shows the
-                                // scrolled columns through itself, and its tint
-                                // must match the row or the pinned column reads as
-                                // a different selection than the rest.
-                                (isSelected
-                                  ? "sticky left-0 z-10 border-r border-border bg-selected"
-                                  : "sticky left-0 z-10 border-r border-border bg-surface group-hover:bg-raised"),
+                                // Opaque — a sticky cell with a transparent
+                                // background shows the scrolled columns through
+                                // itself — and its tint must match the row or the
+                                // pinned column reads as a different selection
+                                // than the rest. It reads the row's `--row-bg`
+                                // rather than re-enumerating the states.
+                                //
+                                // The `border-r` is this surface's own: the
+                                // authored Coverage template draws a rule at the
+                                // pinned column's edge and the Jobs one does not.
+                                `sticky left-0 z-10 border-r border-border ${STICKY_CELL_PAINT}`,
                             )}
                           >
                             {cell.column.id === "resolution" ? (
