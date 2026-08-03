@@ -114,11 +114,33 @@ def test_finish_with_no_run_at_all_records_nothing(monkeypatch):
     runlog.finish(None, ok=False, error="-: ValueError: unknown job 'nope'")
 
 
-def test_finish_swallows_a_pg_failure(monkeypatch):
+def test_finish_swallows_a_pg_failure(monkeypatch, capsys):
+    """"No raise" alone cannot tell a SWALLOWED write from a write that was
+    never attempted: gate the close on anything false and the assertion-free
+    body stayed green while the try/except it names was never entered. So the
+    attempt is asserted, and so is the log — `runlog`'s contract is to swallow
+    every error AND say so, and a silent swallow is what makes a missing
+    Activity row undiagnosable."""
+    attempts = []
+
+    def down(*a, **k):
+        attempts.append("patch")
+        raise RuntimeError("pg down")
+
     _enable(monkeypatch)
-    monkeypatch.setattr("core.pg.patch",
-                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("pg down")))
+    monkeypatch.setattr("core.pg.patch", down)
+    monkeypatch.setattr("core.pg.insert",
+                        lambda *a, **k: pytest.fail("inserted a second row for one run"))
+
     runlog.finish(runlog.Run("monitor", id=1), ok=True)          # no raise
+
+    assert attempts == ["patch"], (
+        f"the swallow was never reached — the close was never attempted: {attempts}"
+    )
+    out = capsys.readouterr().out
+    assert "[runlog]" in out and "'monitor'" in out and "pg down" in out, (
+        f"the recorder ate a pg outage without saying so: {out!r}"
+    )
 
 
 def test_finish_without_pg_writes_nothing(monkeypatch):
@@ -228,20 +250,47 @@ def test_a_hanging_database_does_not_reach_the_bot(monkeypatch, capsys):
     )
 
 
-def test_a_missing_table_before_the_migration_is_swallowed(monkeypatch):
+def test_a_missing_table_before_the_migration_is_swallowed(monkeypatch, capsys):
     """The pre-migration window: the engine deploys before 0023 is applied, so
     PostgREST answers 404 and core.pg raises PgError. Every bot would fail on its
-    first invocation if that reached the handler."""
+    first invocation if that reached the handler.
+
+    Asserted the same way as the hung-database case above and for the same
+    reason: an assertion-free body could not distinguish "the 404 was eaten"
+    from "the recorder never asked", so it would have gone on passing against a
+    runlog that had stopped writing entirely. The 404 is also the ONE clue an
+    operator gets that a migration is missing, so it has to survive into the
+    log rather than being eaten twice over.
+    """
     from core import pg
+
+    attempts = []
+
+    def boom(name):
+        def _boom(*a, **k):
+            attempts.append(name)
+            raise pg.PgError("insert bot_runs -> HTTP 404: relation does not exist")
+        return _boom
 
     _enable(monkeypatch)
     monkeypatch.setattr("core.pgwrites.user_id", lambda: UID)
-    boom = lambda *a, **k: (_ for _ in ()).throw(  # noqa: E731
-        pg.PgError("insert bot_runs -> HTTP 404: relation does not exist"))
-    monkeypatch.setattr("core.pg.insert_returning", boom)
-    monkeypatch.setattr("core.pg.patch", boom)
-    monkeypatch.setattr("core.pg.insert", boom)
-    runlog.finish(runlog.start("monitor"), ok=True)          # no raise
+    monkeypatch.setattr("core.pg.insert_returning", boom("insert_returning"))
+    monkeypatch.setattr("core.pg.patch", boom("patch"))
+    monkeypatch.setattr("core.pg.insert", boom("insert"))
+
+    run = runlog.start("monitor")
+    runlog.finish(run, ok=True)                              # no raise
+
+    # The open write 404s, so there is no id, and finish falls back to insert:
+    # both of the invocation's writes are attempted and both are eaten.
+    assert attempts == ["insert_returning", "insert"], (
+        f"the swallow was never reached — the missing table was never asked: {attempts}"
+    )
+    assert run.id is None, "a 404'd open write must still hand back a usable handle"
+    out = capsys.readouterr().out
+    assert out.count("[runlog]") == 2 and out.count("relation does not exist") == 2, (
+        f"the 404 — the operator's only clue the migration is missing — was eaten: {out!r}"
+    )
 
 
 # ---------------------------------------------------------------- warm container

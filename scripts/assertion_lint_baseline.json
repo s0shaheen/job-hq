@@ -144,18 +144,8 @@
     },
     {
       "file": "tests/core/test_runlog.py",
-      "test": "test_a_missing_table_before_the_migration_is_swallowed",
-      "rule": "no-assertions"
-    },
-    {
-      "file": "tests/core/test_runlog.py",
       "test": "test_an_empty_error_string_stores_null",
       "rule": "absence-only"
-    },
-    {
-      "file": "tests/core/test_runlog.py",
-      "test": "test_finish_swallows_a_pg_failure",
-      "rule": "no-assertions"
     },
     {
       "file": "tests/core/test_runlog.py",
