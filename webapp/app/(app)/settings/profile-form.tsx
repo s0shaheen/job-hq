@@ -208,7 +208,14 @@ export default function ProfileForm({
     // on a phone, so without a safe area the confirmation covers the button that
     // produced it (matrix row 100).
     <div
-      className="mx-auto max-w-2xl space-y-3 px-4 pb-40 pt-5 sm:px-6"
+      // No `mx-auto max-w-2xl px-4` any more: `SettingsShell` owns the column
+      // and its 640px bound, and a second centred container inside it would sit
+      // the form off-centre from the section heading above it.
+      //
+      // `pb-40` stays, and its reason is unchanged: the toast sits bottom-centre
+      // and this page is close to one screen on a phone, so without a safe area
+      // the confirmation covers the button that produced it (matrix row 100).
+      className="mt-6 min-w-0 space-y-3 pb-40"
       data-testid="profile-form"
       data-hydrated={hydrated ? "true" : "false"}
     >

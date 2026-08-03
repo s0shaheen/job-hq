@@ -31,6 +31,16 @@ const PAGES = [
   // cannot wrap pushes the page sideways, which is the owner's stated fear
   // arriving through a text field (matrix row 88).
   "/settings",
+  // The four sibling sections of the rail. Named individually rather than
+  // assumed covered by `/settings`, because they are four routes and matrix row
+  // 170 is what happens when a sweep is credited with a screen it never loaded:
+  // Preferences is five controls with their own help lines, Account carries an
+  // address of arbitrary length, Data holds the leave block, and Plan is the one
+  // section whose value comes from `entitlements`.
+  "/settings/preferences",
+  "/settings/data",
+  "/settings/account",
+  "/settings/plan",
   // Sixteen rule cards, a country chip list, a company name somebody pastes, and
   // a stored answer up to 8,000 characters long — the widest free text in the app
   // after the profile, on a surface whose whole job is holding what a person

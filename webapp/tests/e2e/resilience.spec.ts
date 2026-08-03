@@ -13,6 +13,16 @@ const PAGES = [
   "/companies/add",
   "/import",
   "/settings",
+  // The four sibling sections of the rail. Named individually rather than
+  // assumed covered by `/settings`, because they are four routes and matrix row
+  // 170 is what happens when a sweep is credited with a screen it never loaded:
+  // Preferences is five controls with their own help lines, Account carries an
+  // address of arbitrary length, Data holds the leave block, and Plan is the one
+  // section whose value comes from `entitlements`.
+  "/settings/preferences",
+  "/settings/data",
+  "/settings/account",
+  "/settings/plan",
   // Its own route, so its own sweep. It carries the two colour claims axe is
   // most likely to catch on a new surface — a warn-toned badge on every knockout
   // rule, and muted body text inside a selected radio card, which is exactly the

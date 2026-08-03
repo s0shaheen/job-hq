@@ -37,7 +37,22 @@ const DEMO_COOKIE = "hq_demo_id";
  * name on this list and, more importantly, pins that the two token endpoints are
  * on it.
  */
-const PUBLIC_PREFIXES = ["/login", "/auth", "/setup", "/api/capture", "/d"];
+const PUBLIC_PREFIXES = [
+  "/login",
+  "/auth",
+  "/setup",
+  "/api/capture",
+  "/d",
+  // The two documents the auth column's legal line points at (04 §4.5). They
+  // are the third kind of entry on this list and the safest: static pages that
+  // read no session, no profile and no store at all, so there is nothing on them
+  // to leak and nothing for the gate to protect. Gating them would send a
+  // signed-out visitor who clicked "Privacy" straight back to the page they
+  // clicked it from, which is the loop the gate exists to avoid rather than to
+  // create.
+  "/terms",
+  "/privacy",
+];
 
 /**
  * Exact match, or a `/`-delimited prefix. The delimiter is load-bearing: a bare
@@ -217,7 +232,13 @@ export async function updateSession(request: NextRequest) {
     // not allowed to be on.
     const read = await readEntitlement(reader, sub);
     const blocked = read.kind === "ok" && !isActive(read.entitlement);
-    return redirectTo(request, blocked ? PENDING_PATH : "/queue");
+    // `/` and not `/queue`: the Landing view preference (0025) says which
+    // surface opens when somebody signs in, and `app/page.tsx` is the one place
+    // that reads it. Sending an authenticated visitor straight to the queue from
+    // here would make the setting unreachable on the only path it describes.
+    // Middleware cannot read it itself without a second query on every request,
+    // and `/` is already gated by this same function.
+    return redirectTo(request, blocked ? PENDING_PATH : "/");
   }
 
   if (claims && !isPendingAllowedPath(pathname)) {

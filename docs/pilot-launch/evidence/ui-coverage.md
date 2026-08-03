@@ -16,15 +16,15 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 
 | | Cells |
 |---|---:|
-| covered | 114 |
+| covered | 116 |
 | n/a | 48 |
 | blocked on an ADD item | 134 |
-| missing, baselined 2026-08-02 | 208 |
+| missing, baselined 2026-08-02 | 206 |
 | missing, new (fails) | 0 |
 | on an unbuilt surface (not enforced) | 126 |
 | total | 504 |
 
-**Baselined is not covered.** 208 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
+**Baselined is not covered.** 206 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
 
 ## Matrix, fixture mode
 
@@ -38,7 +38,7 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 | jobs | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | gap | yes | yes | yes | yes | yes | yes | gap | yes |
 | operator-admin | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | resume | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
-| settings-auth-onboarding | gap | yes | yes | n/a | yes | yes | yes | yes | gap | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | gap | n/a |
+| settings-auth-onboarding | yes | yes | yes | n/a | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | gap | n/a |
 | shared-shell-and-components | n/a | yes | yes | n/a | n/a | gap | n/a | yes | yes | n/a | yes | yes | yes | n/a | gap | n/a | yes | yes | yes | gap | n/a |
 | system-and-mobile | n/a | yes | n/a | n/a | n/a | yes | n/a | yes | yes | n/a | yes | yes | yes | n/a | gap | n/a | yes | yes | add | gap | n/a |
 | today | yes | yes | yes | yes | yes | gap | n/a | yes | yes | yes | yes | yes | gap | add | yes | gap | yes | yes | yes | gap | yes |
@@ -292,13 +292,13 @@ No route exists. Listed as unbuilt; contributes no enforced cell.
 
 ### settings-auth-onboarding
 
-Routes: `/settings`, `/settings/answers`, `/onboarding/[step]`, `/login`, `/pending`, `/setup`, `/auth/*`
+Routes: `/settings`, `/settings/preferences`, `/settings/data`, `/settings/account`, `/settings/plan`, `/settings/answers`, `/onboarding/[step]`, `/login`, `/terms`, `/privacy`, `/pending`, `/setup`, `/auth/*`
 
-The entry path is covered as journeys in entry-path.spec.ts: /login, /pending, /setup and /auth/* render in a browser on both projects, under the pending, suspended and active entitlements, with an axe pass on each new page state. Two things are deliberately NOT covered and are not faked. The Google button on /login renders only when getSupabaseEnv() is non-null and NEXT_PUBLIC_SUPABASE_* are inlined at build time, so under HQ_DEMO the login page is the unconfigured deployment's login page and the OAuth hand-off belongs to the live lane. And /pending is provisional by its own header comment — the designed Auth surface lands later — so it carries behaviour and data-absence assertions and no visual baseline.
+The entry path is covered as journeys in entry-path.spec.ts: /login, /pending, /setup and /auth/* render in a browser on both projects, under the pending, suspended and active entitlements, with an axe pass on each new page state. The five Settings sections are covered in settings.spec.ts, which drives each section's OWN route rather than crediting one to another. Three things are deliberately NOT covered and are not faked. The Google button on /login renders only when getSupabaseEnv() is non-null and NEXT_PUBLIC_SUPABASE_* are inlined at build time, so under HQ_DEMO the login page is the unconfigured deployment's login page and the OAuth hand-off belongs to the live lane. /pending is unauthored design (ADD-020), so it carries behaviour and data-absence assertions and no visual baseline. And the six other authored auth screens — signup, verification, reset request, reset sent, set new password, password saved — do not exist to test (DEV-014).
 
 | State | Fixture | Evidence or reason |
 |---|---|---|
-| Loading | gap | Neither settings surface nor the wizard has a skeleton assertion. |
+| Loading | yes | `tests/e2e/settings.spec.ts` "a slow profile read shows the section's own skeleton, not a spinner" |
 | Populated | yes | `tests/e2e/profile.spec.ts` "the profile renders what is saved, not empty fields" |
 | Natural empty | yes | `tests/e2e/answers.spec.ts` "with nothing saved, the surface says so instead of rendering blank cards" |
 | Filter empty | n/a | neither settings surface filters a list; the answers library lists every stored rule |
@@ -306,7 +306,7 @@ The entry path is covered as journeys in entry-path.spec.ts: /login, /pending, /
 | Partial/degraded | yes | `tests/e2e/answers.spec.ts` "a rule stored in an unreadable shape says so instead of showing an answer" |
 | Validation error | yes | `tests/e2e/profile.spec.ts` "save is refused until the settings have been checked at least once" |
 | Write pending | yes | `tests/e2e/profile.spec.ts` "double-clicking Save leaves one change and no error" |
-| Offline write disabled | gap | Saving the profile or an answer is never exercised offline. |
+| Offline write disabled | yes | `tests/e2e/settings.spec.ts` "a write that is refused leaves the controls usable and queues nothing" |
 | Conflict | yes | `tests/e2e/profile.spec.ts` "an autosaved preference does not make the profile form report a conflict" |
 | Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for settings or the onboarding wizard lands on the holding page"; `tests/e2e/entry-path.spec.ts` "is refused in different words from a pending one, and the page does not guess"; `tests/e2e/entry-path.spec.ts` "the holding page's only action is a real way out, and it works without client JS" |
 | Session expired | yes | `tests/e2e/entry-path.spec.ts` "the typed draft survives the refusal, and lands once the session is back" |
@@ -316,9 +316,9 @@ The entry path is covered as journeys in entry-path.spec.ts: /login, /pending, /
 | High volume | gap | No spec drives the answers library at hundreds of stored rules. |
 | Large type | yes | `tests/e2e/layout.spec.ts` "nothing paints past the edge at the large type scale" |
 | 200% zoom | yes | `tests/e2e/resilience.spec.ts` "the page survives a 200% text zoom" |
-| Narrow viewport | yes | `tests/e2e/layout.spec.ts` "nothing paints past the page edge" |
+| Narrow viewport | yes | `tests/e2e/settings.spec.ts` "the section rail absorbs its own overflow at 280px" |
 | Reduced motion | gap | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
-| Provider image failure | n/a | the settings surfaces render no provider imagery |
+| Provider image failure | n/a | the settings surfaces render no provider imagery: the Google connected-account row uses a monogram rather than the template's favicon fetch, so there is no third-party image request to fail |
 
 ### shared-shell-and-components
 
@@ -424,12 +424,10 @@ Each line is a hole that already existed when the gate was switched on. Baseline
 | `applications | Offline write disabled | fixture` | A status change or note written while offline is never exercised. |
 | `coverage | Offline write disabled | fixture` | Approve and dismiss are never exercised offline. |
 | `find-intro | Offline write disabled | fixture` | Starting or pinning an intro is never exercised offline. |
-| `settings-auth-onboarding | Offline write disabled | fixture` | Saving the profile or an answer is never exercised offline. |
 | `billing-landing-email-import-export | Offline write disabled | fixture` | Commit is never exercised offline. |
 | `coverage | Conflict | fixture` | No spec simulates a second device reviewing the same company batch. |
 | `find-intro | Conflict | fixture` | No spec simulates a second device pinning the same connection. |
 | `find-intro | Loading | fixture` | /connections has no skeleton assertion. |
-| `settings-auth-onboarding | Loading | fixture` | Neither settings surface nor the wizard has a skeleton assertion. |
 | `billing-landing-email-import-export | Loading | fixture` | The wizard has no skeleton assertion. |
 | `today | Partial/degraded | fixture` | A queue rendered with the engine's scoring unavailable is never exercised. |
 | `shared-shell-and-components | Partial/degraded | fixture` | The shell with a dependency named as unavailable is never rendered. |

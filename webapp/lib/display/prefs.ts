@@ -125,6 +125,41 @@ export function parseDisplayPrefs(raw: unknown): DisplayPrefs {
   };
 }
 
+/**
+ * The landing view, as the label a person picks and the path it resolves to.
+ *
+ * `Settings.dc.html` lists exactly four: Today, Jobs, Applications, Coverage.
+ * The stored values are the surface keys `KNOWN_LANDING_VIEWS` already carries,
+ * which are the ROUTE names and disagree with three of the four labels — the
+ * `Applications` destination has lived at `/pipeline` since the redesign began,
+ * for `components/ds/app-shell.tsx`'s reason: the word a person reads and the
+ * path a router matches are allowed to disagree, and moving the route is the
+ * Applications cutover's job.
+ *
+ * `""` is "wherever the app would send you anyway" and is not offered as an
+ * option: a select whose first entry means the same as its second is a choice
+ * with no consequence. It resolves to `/queue`, which is what the app does
+ * today, so an account that never touched this setting lands exactly where it
+ * always did.
+ */
+export const LANDING_VIEW_OPTIONS: readonly { value: string; label: string; path: string }[] = [
+  { value: "queue", label: "Today", path: "/queue" },
+  { value: "jobs", label: "Jobs", path: "/jobs" },
+  { value: "pipeline", label: "Applications", path: "/pipeline" },
+  { value: "companies", label: "Coverage", path: "/companies" },
+];
+
+/**
+ * Where a stored landing view sends somebody.
+ *
+ * Unrecognised resolves to `/queue` rather than to a 404, which is the same
+ * direction `parseDisplayPrefs` falls: a preference is decoration and must never
+ * be the thing that turns the front door into an error page.
+ */
+export function landingPath(landingView: string): string {
+  return LANDING_VIEW_OPTIONS.find((o) => o.value === landingView)?.path ?? "/queue";
+}
+
 export function displayPrefsEqual(a: DisplayPrefs, b: DisplayPrefs): boolean {
   return (
     a.density === b.density &&

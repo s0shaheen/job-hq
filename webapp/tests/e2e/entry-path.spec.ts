@@ -142,7 +142,14 @@ test.describe("signed out", () => {
     page.on("pageerror", (e) => errors.push(String(e)));
 
     await page.goto("/login");
-    await expect(page.getByRole("heading", { name: "Job Search HQ" })).toBeVisible();
+    // "Log in", not "Job Search HQ". RM-34 replaced the hand-rolled login box
+    // with `Auth.dc.html`'s 360px column, where the product name is a wordmark
+    // beside the mark and the page's one heading names the SCREEN. 06 §C also
+    // took away the tagline that sat under the old title: an auth page carries
+    // no marketing, and a decorative subtitle is the one thing this surface's
+    // standard names outright.
+    await expect(page.getByRole("heading", { name: "Log in", level: 1 })).toBeVisible();
+    await expect(page.getByTestId("login")).toContainText("Job HQ");
 
     // The build carries no Supabase credentials, so this is the unconfigured
     // deployment's login page. It must say so and point somewhere, rather than
@@ -186,7 +193,7 @@ test.describe("signed out", () => {
 
   test("the login page passes axe", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByRole("heading", { name: "Job Search HQ" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Log in", level: 1 })).toBeVisible();
     const failures = await axeFailures(page);
     expect(failures, failures.join("\n\n")).toEqual([]);
   });
@@ -309,7 +316,7 @@ test.describe("an account that is not turned on", () => {
 
     await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/login$/);
-    await expect(page.getByRole("heading", { name: "Job Search HQ" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Log in", level: 1 })).toBeVisible();
   });
 
   test("the holding page passes axe for a pending account", async ({ page, context, baseURL }) => {
@@ -465,7 +472,7 @@ test.describe("setup", () => {
 
     await page.goto("/login");
     await expect(page).toHaveURL(/\/login$/);
-    await expect(page.getByRole("heading", { name: "Job Search HQ" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Log in", level: 1 })).toBeVisible();
   });
 
   test("the setup page passes axe", async ({ page }) => {
@@ -502,7 +509,7 @@ test.describe("auth routes", () => {
     // person somewhere that explains itself.
     await page.goto("/auth/callback");
     await expect(page).toHaveURL(/\/login\?error=auth$/);
-    await expect(page.getByRole("heading", { name: "Job Search HQ" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Log in", level: 1 })).toBeVisible();
     await expect(page.getByText("Sign-in didn't complete. Try again.")).toBeVisible();
   });
 

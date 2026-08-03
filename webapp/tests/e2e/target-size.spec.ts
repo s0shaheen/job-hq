@@ -33,6 +33,18 @@ const PAGES = [
   "/connections",
   "/health",
   "/settings",
+  // The four sibling sections of the RM-34 rail, plus the entry column. Named
+  // individually rather than assumed covered by `/settings`, because they are
+  // separate routes and a sweep credited with a screen it never loaded is the
+  // failure matrix row 170 records. `/login` and `/terms` carry the one piece of
+  // raw hex in the app (Google's button, in Google's own rendering) and the
+  // legal line, which is the smallest text on any surface.
+  "/settings/preferences",
+  "/settings/data",
+  "/settings/account",
+  "/settings/plan",
+  "/login",
+  "/terms",
   "/settings/answers",
   "/apply/1",
   "/import",

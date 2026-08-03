@@ -1354,23 +1354,25 @@ test("the settings toggle is what actually sets the display cookie", async ({ pa
   // reasoning: a cookie toggle needs no store. This is the control, end to end,
   // and it is the difference between a shipped preference and a documented one.
   await isolate(page, "settings-display");
-  await page.goto("/settings");
+  // The control lives on the Preferences section of the rail now
+  // (`Settings.dc.html`), not on the single-column `/settings` it shipped on.
+  await page.goto("/settings/preferences");
 
-  const large = page.getByTestId("display-large");
-  await expect(large).toBeVisible();
-  await expect(large).not.toBeChecked();
+  const typeScale = page.getByTestId("prefs-type-scale");
+  await expect(typeScale).toBeVisible();
+  await expect(typeScale).toHaveValue("default");
 
-  await large.check();
+  await typeScale.selectOption("large");
   // It reloads to re-apply before paint, so wait for the applied attribute.
   await expect(page.locator("html")).toHaveAttribute("data-type-scale", "large");
-  await expect(page.getByTestId("display-large")).toBeChecked();
+  await expect(page.getByTestId("prefs-type-scale")).toHaveValue("large");
 
   // And it reaches the pipeline, which is the point of a per-USER preference.
   await gotoPipeline(page);
   await expect(page.locator("html")).toHaveAttribute("data-type-scale", "large");
 
-  // Off again, from the pipeline's own nav — the toggle is not one-way.
-  await page.goto("/settings");
-  await page.getByTestId("display-large").uncheck();
+  // Off again, from the pipeline's own nav — the control is not one-way.
+  await page.goto("/settings/preferences");
+  await page.getByTestId("prefs-type-scale").selectOption("default");
   await expect(page.locator("html")).not.toHaveAttribute("data-type-scale", "large");
 });

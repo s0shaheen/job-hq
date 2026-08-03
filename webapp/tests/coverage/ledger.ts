@@ -377,11 +377,28 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
   },
 
   "settings-auth-onboarding": {
-    routes: ["/settings", "/settings/answers", "/onboarding/[step]", "/login", "/pending", "/setup", "/auth/*"],
+    routes: [
+      "/settings",
+      "/settings/preferences",
+      "/settings/data",
+      "/settings/account",
+      "/settings/plan",
+      "/settings/answers",
+      "/onboarding/[step]",
+      "/login",
+      "/terms",
+      "/privacy",
+      "/pending",
+      "/setup",
+      "/auth/*",
+    ],
     note:
-      "The entry path is covered as journeys in entry-path.spec.ts: /login, /pending, /setup and /auth/* render in a browser on both projects, under the pending, suspended and active entitlements, with an axe pass on each new page state. Two things are deliberately NOT covered and are not faked. The Google button on /login renders only when getSupabaseEnv() is non-null and NEXT_PUBLIC_SUPABASE_* are inlined at build time, so under HQ_DEMO the login page is the unconfigured deployment's login page and the OAuth hand-off belongs to the live lane. And /pending is provisional by its own header comment — the designed Auth surface lands later — so it carries behaviour and data-absence assertions and no visual baseline.",
+      "The entry path is covered as journeys in entry-path.spec.ts: /login, /pending, /setup and /auth/* render in a browser on both projects, under the pending, suspended and active entitlements, with an axe pass on each new page state. The five Settings sections are covered in settings.spec.ts, which drives each section's OWN route rather than crediting one to another. Three things are deliberately NOT covered and are not faked. The Google button on /login renders only when getSupabaseEnv() is non-null and NEXT_PUBLIC_SUPABASE_* are inlined at build time, so under HQ_DEMO the login page is the unconfigured deployment's login page and the OAuth hand-off belongs to the live lane. /pending is unauthored design (ADD-020), so it carries behaviour and data-absence assertions and no visual baseline. And the six other authored auth screens — signup, verification, reset request, reset sent, set new password, password saved — do not exist to test (DEV-014).",
     fixture: {
-      [ST.loading]: MISSING,
+      [ST.loading]: e2e(
+        "settings",
+        "a slow profile read shows the section's own skeleton, not a spinner",
+      ),
       [ST.populated]: e2e("profile", "the profile renders what is saved, not empty fields"),
       [ST.naturalEmpty]: e2e("answers", "with nothing saved, the surface says so instead of rendering blank cards"),
       [ST.filterEmpty]: na("neither settings surface filters a list; the answers library lists every stored rule"),
@@ -389,7 +406,10 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.degraded]: e2e("answers", "a rule stored in an unreadable shape says so instead of showing an answer"),
       [ST.validation]: e2e("profile", "save is refused until the settings have been checked at least once"),
       [ST.writePending]: e2e("profile", "double-clicking Save leaves one change and no error"),
-      [ST.offline]: MISSING,
+      [ST.offline]: e2e(
+        "settings",
+        "a write that is refused leaves the controls usable and queues nothing",
+      ),
       [ST.permission]: e2e(
         "entry-path",
         "asking for settings or the onboarding wizard lands on the holding page",
@@ -407,9 +427,16 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.highVolume]: MISSING,
       [ST.largeType]: e2e("layout", "nothing paints past the edge at the large type scale"),
       [ST.zoom]: e2e("resilience", "the page survives a 200% text zoom"),
-      [ST.narrow]: e2e("layout", "nothing paints past the page edge"),
+      // The generic sweep reaches all five section routes now, but the narrow
+      // claim this surface actually owes is about its OWN second-level rail: a
+      // 200px column beside a gutter at a 280px viewport, and whether it opted
+      // into the bounded frame that caused #121. That is a specific assertion
+      // and it gets a specific citation.
+      [ST.narrow]: e2e("settings", "the section rail absorbs its own overflow at 280px"),
       [ST.reducedMotion]: MISSING,
-      [ST.providerImage]: na("the settings surfaces render no provider imagery"),
+      [ST.providerImage]: na(
+        "the settings surfaces render no provider imagery: the Google connected-account row uses a monogram rather than the template's favicon fetch, so there is no third-party image request to fail",
+      ),
     },
   },
 
@@ -571,7 +598,6 @@ export const BASELINE_MISSING: Baseline = {
     { key: "applications | Offline write disabled | fixture", reason: "A status change or note written while offline is never exercised." },
     { key: "coverage | Offline write disabled | fixture", reason: "Approve and dismiss are never exercised offline." },
     { key: "find-intro | Offline write disabled | fixture", reason: "Starting or pinning an intro is never exercised offline." },
-    { key: "settings-auth-onboarding | Offline write disabled | fixture", reason: "Saving the profile or an answer is never exercised offline." },
     { key: "billing-landing-email-import-export | Offline write disabled | fixture", reason: "Commit is never exercised offline." },
 
     // Conflict, where no second writer is simulated.
@@ -580,7 +606,6 @@ export const BASELINE_MISSING: Baseline = {
 
     // Loading skeletons.
     { key: "find-intro | Loading | fixture", reason: "/connections has no skeleton assertion." },
-    { key: "settings-auth-onboarding | Loading | fixture", reason: "Neither settings surface nor the wizard has a skeleton assertion." },
     { key: "billing-landing-email-import-export | Loading | fixture", reason: "The wizard has no skeleton assertion." },
 
     // Degraded and missing-fact holes.

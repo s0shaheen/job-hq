@@ -51,6 +51,23 @@ async function gotoSettings(page: Page) {
   await expect(page.getByTestId("profile-form")).toHaveAttribute("data-hydrated", "true");
 }
 
+/**
+ * Preferences is its OWN route now (`Settings.dc.html`'s section rail), so the
+ * display knobs are no longer on the same page as the profile form. Same rule,
+ * same reason, different flag: `data-hydrated` on the preferences control.
+ *
+ * `toBeVisible` is NOT enough and this branch measured why. A `select` rendered
+ * by the server is visible and enabled before React attaches anything, and
+ * `selectOption` into that gap moves the DOM value and fires a change event
+ * nothing is listening for — so the option looks chosen, no write is sent, and
+ * the failure surfaces 15 seconds later as an attribute that never arrived. The
+ * two-knob test passed alone and failed under parallel load on exactly that.
+ */
+async function gotoPreferences(page: Page) {
+  await page.goto("/settings/preferences");
+  await expect(page.getByTestId("preferences-form")).toHaveAttribute("data-hydrated", "true");
+}
+
 async function version(page: Page): Promise<string> {
   return (await page.locator("[data-profile-version]").getAttribute("data-profile-version")) ?? "";
 }
@@ -107,7 +124,11 @@ async function check(page: Page) {
 test("the profile renders what is saved, not empty fields", async ({ page }) => {
   await isolate(page, "render");
   await gotoSettings(page);
-  await expect(page.getByRole("heading", { name: "Search profile" })).toBeVisible();
+  // The page title is "Settings" and this section's title is "Profile & search"
+  // — the rail's first entry, which lives at `/settings` itself so the six
+  // `reasonSetting()` deep links keep landing on a page that carries them.
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Profile & search" })).toBeVisible();
   // The demo profile is Salman's, from users/salman/profile.yaml. A page that
   // opened on blank chips could not show somebody what they already chose.
   await expect(page.getByTestId("titles_include-chips")).toContainText("product manager");
@@ -351,7 +372,13 @@ async function isolateFresh(page: Page, id: string) {
  */
 async function displaySettled(page: Page, attr: string, value: string) {
   await expect(page.locator("html")).toHaveAttribute(attr, value, { timeout: 15_000 });
-  await expect(page.getByTestId("profile-form")).toHaveAttribute("data-hydrated", "true");
+  // The second wait is on the PREFERENCES control now, not on the profile form:
+  // the section rail moved the display knobs to `/settings/preferences`, so the
+  // profile form is not on this page at all and waiting for it would time out
+  // for a reason that has nothing to do with what settled. The property is
+  // unchanged — the reloaded document is interactive again — and the element
+  // that carries it is the one that will receive the next gesture.
+  await expect(page.getByTestId("preferences-form")).toHaveAttribute("data-hydrated", "true");
 }
 
 // ------------------------------------------------------ display preferences
@@ -370,17 +397,18 @@ test("a display preference autosaves, survives a reload, and reaches every surfa
   // "landed" can only mean the server answers differently afterwards; and the
   // attribute is set by a DIFFERENT layout from the page that wrote it.
   await isolateFresh(page, "display-prefs");
-  await gotoSettings(page);
+  await gotoPreferences(page);
 
   await expect(page.locator("html")).not.toHaveAttribute("data-type-scale", "large");
-  await page.getByTestId("display-large").check();
+  await page.getByTestId("prefs-type-scale").selectOption("large");
 
-  // The control reloads once the server confirms — display-prefs.tsx states why
-  // a reload rather than a re-render. Waiting on the ATTRIBUTE rather than on
-  // the checkbox is the point: the checkbox is client state and would flip the
-  // instant it was clicked, whether or not anything was stored.
+  // The control reloads once the server confirms — preferences-form.tsx states
+  // why a reload rather than a re-render, for the three knobs the document
+  // itself is rendered against. Waiting on the ATTRIBUTE rather than on the
+  // select is the point: the select is client state and would move the instant
+  // it was changed, whether or not anything was stored.
   await displaySettled(page, "data-type-scale", "large");
-  await expect(page.getByTestId("display-large")).toBeChecked();
+  await expect(page.getByTestId("prefs-type-scale")).toHaveValue("large");
 
   // A hard reload, because the assertion this suite once lacked everywhere is
   // "did it actually persist" — a write into a store nothing else reads passes
@@ -397,14 +425,14 @@ test("a display preference autosaves, survives a reload, and reaches every surfa
 test("turning one knob does not revert the other", async ({ page }) => {
   // The reason every value in `SetDisplayPrefsInput` is optional. A control that
   // sent all five would replay whatever it last READ into the other four, so the
-  // second gesture would quietly undo the first — and both checkboxes would
-  // still LOOK right until a reload, which is why this asserts after one.
+  // second gesture would quietly undo the first — and both selects would still
+  // LOOK right until a reload, which is why this asserts after one.
   await isolateFresh(page, "display-both");
-  await gotoSettings(page);
+  await gotoPreferences(page);
 
-  await page.getByTestId("display-large").check();
+  await page.getByTestId("prefs-type-scale").selectOption("large");
   await displaySettled(page, "data-type-scale", "large");
-  await page.getByTestId("display-comfortable").check();
+  await page.getByTestId("prefs-density").selectOption("comfortable");
   await displaySettled(page, "data-density", "comfortable");
 
   await page.reload();
@@ -414,23 +442,36 @@ test("turning one knob does not revert the other", async ({ page }) => {
 
 test("an autosaved preference does not make the profile form report a conflict", async ({
   page,
+  context,
 }) => {
-  // The bug 0025's trigger clause exists for, driven the way a person hits it:
-  // both controls live on ONE page, `updated_at` is the Search Profile's version
-  // token, and 0001 bumped it on every write to the row. So ticking a preference
-  // and then pressing Save would have raised "this profile changed since you
-  // read it" over a gesture that touched nothing the form edits — every time, on
-  // the one page that carries both.
+  // The bug 0025's trigger clause exists for. `updated_at` is the Search
+  // Profile's version token, and 0001 bumped it on every write to the row — so a
+  // preference write would have raised "this profile changed since you read it"
+  // over a gesture that touched nothing the form edits.
+  //
+  // DRIVEN ACROSS TWO PAGES, because the section rail moved Preferences to its
+  // own route and the two controls are no longer on one screen. That is the
+  // STRONGER version of the same claim, not a weaker one: the form here holds a
+  // token read before the preference write, keeps a typed draft across it, and
+  // must still save. A single-page version could only ever prove the token was
+  // untouched in one render.
   await isolateFresh(page, "display-no-conflict");
   await gotoSettings(page);
   const before = await versionOnce(page);
 
-  await page.getByTestId("display-comfortable").check();
-  await displaySettled(page, "data-density", "comfortable");
+  const prefs = await context.newPage();
+  await prefs.goto("/settings/preferences");
+  await expect(prefs.getByTestId("preferences-form")).toBeVisible();
+  await prefs.getByTestId("prefs-density").selectOption("comfortable");
+  await expect(prefs.locator("html")).toHaveAttribute("data-density", "comfortable", {
+    timeout: 15_000,
+  });
+  await prefs.close();
 
   // The token the form holds is untouched by the preference write — the
   // server-side half of the claim, read off the same attribute every other test
-  // in this file waits on.
+  // in this file waits on, and read WITHOUT reloading, because a reload would
+  // fetch a fresh token and prove nothing about the one the form is holding.
   expect(await version(page)).toBe(before);
 
   await addChip(page, "metros", "Miami");

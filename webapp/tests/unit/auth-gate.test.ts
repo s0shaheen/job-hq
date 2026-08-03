@@ -58,7 +58,17 @@ describe("the auth gate's public paths", () => {
   });
 
   it("lets a signed-out person reach the pages they must", () => {
-    for (const p of ["/login", "/auth/callback", "/setup", "/setup/finish"]) {
+    for (const p of [
+      "/login",
+      "/auth/callback",
+      "/setup",
+      "/setup/finish",
+      // The auth column's legal line (04 §4.5). Gated, these two would bounce a
+      // signed-out visitor who clicked "Privacy" back to the page they clicked
+      // it from — a loop with no error and no way out of it.
+      "/terms",
+      "/privacy",
+    ]) {
       expect(isPublicPath(p), p).toBe(true);
     }
   });

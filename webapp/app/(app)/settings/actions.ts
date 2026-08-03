@@ -189,7 +189,7 @@ export async function setDisplayPrefsAction(
   if (result.ok && result.changed) {
     // The ROOT layout renders these as `<html>` attributes, so the whole tree
     // is downstream of them — `"layout"` scope, not the settings page alone.
-    // The control reloads anyway (see display-prefs.tsx for why a reload rather
+    // The control reloads anyway (see preferences-form.tsx for why a reload rather
     // than a re-render), and revalidating is what makes that reload cheap
     // rather than a second read of stale cache.
     revalidatePath("/", "layout");

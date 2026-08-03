@@ -2,13 +2,34 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { AuthColumn, AuthTitle, GoogleButton } from "@/components/auth-column";
 import { getSupabaseEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * One button: Google sign-in via Supabase Auth (PKCE — the @supabase/ssr
- * default). The code lands on /auth/callback, which exchanges it for a
- * session cookie.
+ * `/login`, in the authored entry column.
+ *
+ * WHAT CHANGED. The page was a hand-rolled `.login-wrap` / `.login-box` with a
+ * product tagline and a Google button drawn from a 48px viewBox. It is now
+ * `templates/auth/Auth.dc.html`'s login screen: the 360px column, the mark, "Log
+ * in" at 20/28, Google's own button rendering, and the quiet legal line. The
+ * tagline is gone because 06 §C forbids marketing on an auth page, and because
+ * "the family job-search cockpit" described a different product from the one
+ * this is becoming.
+ *
+ * WHAT IS NOT HERE, AND WHY IT IS RECORDED RATHER THAN INVENTED. The design also
+ * draws an "or" divider, an email and password pair, "Forgot password", and a
+ * "Create an account" footer link, with signup, verification and reset as their
+ * own screens. None of that ships in this change, and the reason is DEV-014:
+ * there is no password identity in this deployment, the verification screen is
+ * authored as a six-digit code that Supabase's default confirmation template
+ * does not send, and every one of those flows needs a sender identity ADR-011
+ * has not decided. A divider under a single button, or a password field that
+ * always fails, would each be worse than the button alone.
+ *
+ * The behaviour underneath is unchanged: `signInWithOAuth({provider:"google"})`
+ * over PKCE, the code landing on `/auth/callback`. The scopes are Supabase's
+ * defaults, which are identity only.
  */
 export default function LoginPage() {
   const [busy, setBusy] = useState(false);
@@ -25,6 +46,10 @@ export default function LoginPage() {
       // is not on the allowlist and no amount of retrying will change that. The
       // database refuses at the door (0001's signup trigger) and this is that
       // refusal in plain English, with the only action that can actually help.
+      //
+      // Migration 0027 made this branch rare rather than dead: a deployment on
+      // 0027 lets any address create an account and holds it at `/pending`, so
+      // this now fires only against a database that has not been migrated yet.
       setError(
         "That Google account isn't on the invite list for this app. " +
           "Ask whoever set it up to add your address, then sign in again.",
@@ -42,7 +67,15 @@ export default function LoginPage() {
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=/queue`,
+          // No `scopes` option, deliberately and permanently. Supabase asks for
+          // identity by default; adding a scope here is the only way this app
+          // could ever request access to somebody's mail, and DEC-002 says it
+          // never does.
+          //
+          // No `next` either: the callback now defaults to `/`, which resolves
+          // the Landing view preference. Naming `/queue` here would pin every
+          // sign-in to the queue and make that setting unreachable.
+          redirectTo: `${window.location.origin}/auth/callback`,
         },
       });
       if (oauthError) {
@@ -57,44 +90,31 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="login-wrap">
-      <div className="login-box">
-        <h1>Job Search HQ</h1>
-        <p>The family job-search cockpit. Sign in to see your queue.</p>
-        {envReady ? (
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={signInWithGoogle}
-            disabled={busy}
-          >
-            <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
-              <path
-                fill="#EA4335"
-                d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
-              />
-              <path
-                fill="#4285F4"
-                d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
-              />
-              <path
-                fill="#34A853"
-                d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
-              />
-            </svg>
-            {busy ? "Redirecting" : "Sign in with Google"}
-          </button>
-        ) : (
-          <p>
-            Supabase isn't configured yet. See <Link href="/setup">setup</Link>.
-          </p>
-        )}
-        {error ? <p className="login-error">{error}</p> : null}
-      </div>
-    </div>
+    <AuthColumn testId="login">
+      <AuthTitle>Log in</AuthTitle>
+
+      {envReady ? (
+        <GoogleButton
+          testId="google-signin"
+          label={busy ? "Redirecting" : "Continue with Google"}
+          onClick={signInWithGoogle}
+          disabled={busy}
+        />
+      ) : (
+        <p className="mt-6 text-sm text-text-2">
+          Supabase is not configured yet. See{" "}
+          <Link href="/setup" className="underline">
+            setup
+          </Link>
+          .
+        </p>
+      )}
+
+      {error ? (
+        <p role="status" data-testid="login-error" className="mt-4 text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+    </AuthColumn>
   );
 }

@@ -167,8 +167,11 @@ describe("an account that IS turned on", () => {
     }
   });
 
-  it("still goes from /login to the queue", async () => {
-    expect((await decide("/login")).location).toMatch(/\/queue$/);
+  it("still leaves /login for the app's front door", async () => {
+    // `/` and not `/queue`: the front door resolves the Landing view
+    // preference (`app/page.tsx`). What this pins is that an ACTIVE account
+    // leaves the login page for the app rather than for the holding page.
+    expect((await decide("/login")).location).toMatch(/localhost\/$/);
   });
 });
 
@@ -182,7 +185,7 @@ describe("when the store cannot answer", () => {
     // KILLED BY: treating `unreadable` as blocked in middleware.
     state.answer = { data: null, error: { message: "connection reset" } };
     expect((await decide("/queue")).location).toBeNull();
-    expect((await decide("/login")).location).toMatch(/\/queue$/);
+    expect((await decide("/login")).location).toMatch(/localhost\/$/);
   });
 });
 

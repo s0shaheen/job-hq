@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { safeNextPath } from "@/lib/auth/next-path";
 import { getSupabaseEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 
@@ -9,9 +10,11 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const nextParam = searchParams.get("next") ?? "/queue";
-  // Only ever redirect within this app.
-  const next = nextParam.startsWith("/") ? nextParam : "/queue";
+  // Only ever redirect within this app, and see `safeNextPath` for why the
+  // obvious `startsWith("/")` was not that. Its default is `/`, which resolves
+  // the Landing view preference — the surface a person said should open when
+  // they sign in, and this is that moment.
+  const next = safeNextPath(searchParams.get("next"));
 
   if (code && getSupabaseEnv()) {
     const supabase = await createClient();

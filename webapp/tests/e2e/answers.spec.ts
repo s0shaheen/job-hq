@@ -351,7 +351,26 @@ test("a failed write leaves nothing on screen that the server does not have", as
 
   const before = await writeCount(page);
   await page.getByTestId("topic-age_eligibility-edit").click();
-  await page.getByTestId("topic-age_eligibility-boolean").getByRole("radio", { name: "Yes" }).check();
+  // `.click()`, NOT `.check()`, and the difference is this test's whole premise.
+  //
+  // `check()` retries the click until the control reads `checked` and throws if
+  // it never does. On the SUCCESS path (the save-rule test above) that is
+  // correct, because the radio really does settle checked. Here the write is
+  // armed to FAIL, and this test's own comment four lines down says the
+  // optimistic frame is never applied — the row settles on the server's answer
+  // or on nothing. So the radio is not expected to stay checked, and `check()`
+  // was asserting the opposite of what the test documents.
+  //
+  // It passed anyway on a fast machine, where the click flips `checked` before
+  // the failed round-trip reverts it, and failed on a loaded CI runner where the
+  // revert lands inside the verification window. Found on this branch because
+  // adding four routes to the sweep lists moved the shard boundary and changed
+  // what runs beside it; the defect is older than the branch.
+  //
+  // Nothing is weakened. Every assertion that follows is untouched: the write
+  // was attempted, the failure is on screen, and the value is still unset after
+  // a reload.
+  await page.getByTestId("topic-age_eligibility-boolean").getByRole("radio", { name: "Yes" }).click();
   await wroteMore(page, before);
 
   await expect(page.getByText("Couldn't save that.")).toBeVisible();

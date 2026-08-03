@@ -39,7 +39,21 @@ const PAGES = [
   "/connections",
   "/health",
   "/settings",
+  // The four sibling sections of the rail. Four routes, four sweeps: this list
+  // is static and auditable on purpose, and a section not named here is a
+  // section the design law never looked at.
+  "/settings/preferences",
+  "/settings/data",
+  "/settings/account",
+  "/settings/plan",
   "/settings/answers",
+  // The entry column, which is where the one piece of raw hex in this app lives
+  // (Google's button, in Google's own rendering — `components/auth-column.tsx`
+  // states why it is not tokenised). The sweep reads computed styles, so it is
+  // the thing that proves the exception did not bring a gradient or an oversized
+  // radius in with it.
+  "/login",
+  "/terms",
   "/apply/1",
   "/import",
 ];

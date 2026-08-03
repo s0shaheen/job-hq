@@ -228,6 +228,9 @@ Visible implementation is blocked until every state maps to an owner artifact:
 | ADD-017 | **The multi-select range key.** 04 §2 names "shift-click and an x-range"; `x` is already Pass. Shift-click is implemented and no range key was invented | Today surface build |
 | ADD-018 | **How a touch user reaches a Today row's actions.** See the note below — this one needs a decision with named acceptance criteria, not just a flag | Today surface build |
 | ADD-019 | Applications phone composition. The authored row is a four-column grid whose minimum total is 690px; the template authors no frame below that width, and 04 §0.2 requires every state as a frame. The build preserves the shipped stacked row under `md` rather than inventing one — a preserved behavior, not an authored one | Applications surface build |
+| ADD-020 | The holding and suspension surfaces. `Auth.dc.html` authors login, signup, verification, reset request, reset sent, set-new password and password saved. `SystemSurfaces.dc.html` authors 404, offline and 500. Neither authors what a signed-in account that is `pending` or `suspended` sees, yet 04 §4.5 requires both states to use exact approved copy | RM-34 entry surfaces |
+| ADD-021 | The public landing page. `Landing.dc.html` composes a hero, a three-crop "how it works", a trust section and a Free/Pro pricing table. The third crop and the entire trust section are the Gmail status loop, which DEC-002 excludes; the pricing table is a commercial lifecycle ADD-006 has not approved. What the page IS once both are removed is a composition decision, not a deletion | RM-34 landing |
+| ADD-022 | Settings → Preferences → Email. The authored block is three toggles: New matching roles, Status updates, Submission record. Two of the three govern capabilities the pilot does not have — status updates are Gmail-derived (DEC-002) and the submission record is an autopilot receipt (RM-52, unbuilt) — so shipping the block as drawn puts two controls on screen that nothing performs | RM-34 settings, RM-71 |
 
 No implementation worker may fill these gaps from taste.
 
@@ -306,6 +309,223 @@ A deviation is a place where the implementation knowingly differs from an author
 instruction. It is not a gap and must not be filed as one: an addendum asks the owner to
 author something, a deviation asks them to accept something they already authored. Each
 one names the assertion in the suite that keeps it visible.
+
+### DEV-017 — account export and deletion ship findable but not operable
+
+04 §4.5 requires, of this surface: **"Account export/delete is findable and fully
+operable."** Settings → Data ships both as *disabled* controls with the reason attached to
+each one. That is a deviation from a standard, not merely from a mock, and it is recorded
+here rather than argued in a comment.
+
+Why not operable: both are T4 in `14-work-packet-standard.md` §4 and neither exists.
+Deletion has to stop sessions, workers, queued commands, notifications and provider tokens
+before it removes anything, and needs a deletion ledger so a restored backup cannot
+reactivate the account (RM-72). The archive has to span every object class in that same
+requirement. Building either inside a T2 surface packet is precisely the thing the tier
+table forbids.
+
+Why disabled rather than enabled-and-refusing: a control that looks live and then says no
+has already taken the decision away from the person, because they have pressed the button
+that deletes their account.
+
+Findable is met — both are on the rail's Data section, where 06 §A puts the leave block.
+Operable is not, and the standard says both. The owner may prefer the controls removed
+until RM-72 lands; that is a smaller change than this one and reversible either way.
+
+Kept visible by `tests/e2e/settings.spec.ts` "nothing on the Data section can delete an
+account or start an archive", which asserts all three controls stay disabled AND that each
+carries an `aria-describedby` reason. That test fails the day somebody enables one without
+building the thing behind it.
+
+### DEV-018 — `system` cannot clear a stale theme on another device
+
+`app/layout.tsx` resolves the palette as profile, then `localStorage`, then the OS. The
+server renders `data-theme-pref` only for an explicit `light` or `dark`: `system` is the
+absence of a choice, and rendering it as a value would be indistinguishable from a
+signed-out browser or a profile read that failed open — both of which must fall through to
+the device's own answer, which is what `tests/e2e/theme.spec.ts` "a stored choice beats the
+OS" pins.
+
+The consequence: choosing `system` on device A clears A's stored key, but device B keeps
+whatever explicit value it last wrote, because nothing in the markup outranks it. B follows
+its old choice instead of its OS until somebody touches the control on B.
+
+Closing this needs the server to distinguish "explicitly system" from "no answer", which is
+a new stored value, which is a migration — serial work, and not a surface packet's to open.
+The bounded half is done: the control clears the key on the device where the choice is
+made.
+
+### DEV-015 — the Preferences switch is drawn at the control radius, not as a pill
+
+`Settings.dc.html` draws the keyboard-hints switch as a 32x18 track at
+`border-radius:999px`. 04 §3.3 says "Controls: 6px radius", caps everything at 12px, and
+names exactly two exemptions — badges and avatars. A switch is neither, so the two
+sources disagree and the disagreement is real rather than a rounding error: a pill track
+and a 6px track are visibly different controls at this size.
+
+04 §2.2 puts the foundations above the generated frame, so the track ships at **6px**.
+
+**Explicitly NOT 12px.** 12 is the number that would pass `slop.spec.ts`, whose detector
+tests `r > 12`, and choosing a value because a checker tolerates it is how a branch ends
+up satisfying the detector and violating the standard it was written to enforce — 04 §7.2
+fails a wrong component radius on its own, with or without a detector. The first draft of
+this control did exactly that and it is recorded here rather than quietly corrected.
+
+The owner may rule the other way, in which case the pill comes back and 04 §3.3 gains a
+switch exemption. Nothing here is expensive to reverse: it is one class on one element.
+
+Kept visible by `tests/e2e/slop.spec.ts`, which sweeps `/settings/preferences` in both
+themes, and by `tests/e2e/settings.spec.ts` "the keyboard-hints switch is a 24px target
+at the control radius", which asserts the computed value rather than the class name.
+
+### DEV-016 — target size is reasoned by hand, because nothing here measures it
+
+WCAG 2.2 SC 2.5.8 wants a 24x24 minimum target and **no gate in this repository checks
+it**: every axe call filters to `wcag2a`/`wcag2aa` plus `serious|critical`, and target
+size is neither. Two controls on this surface are drawn below that floor and both are
+enlarged without moving the drawing:
+
+- the Preferences switch, whose authored track is 32x18. The `<button>` is the hit area
+  at 32x24 and the track is a span inside it, still 18px tall.
+- the auth column's Terms and Privacy links, 12/16 text in a footer row. SC 2.5.8's
+  inline exception covers links inside a sentence, which these are not, so each gets a
+  24px minimum height with the row's margin pulled back so the authored 48px gap is
+  unchanged.
+
+This is a deviation from the drawing, not from the standard.
+
+UPDATE: the enforcement is no longer a person. `tests/e2e/target-size.spec.ts` landed on
+`main` while this branch was in review and measures SC 2.5.8 across a route list, including
+the spacing rule between crowded targets. This branch added its five section routes plus
+`/login` and `/terms` to that list, so the criterion is now swept by a machine on every one
+of them.
+
+**The two assertions below are NOT redundant with that sweep, and this was measured rather
+than assumed.** Shrink the switch back to the authored 18px and the sweep on
+`/settings/preferences` PASSES: the button qualifies for SC 2.5.8's spacing exception,
+because its only nearby targets are the selects a `gap-4` above, and its `<label>` is not
+in the sweep's `TARGET_SELECTOR` at all. Revert the legal links to the authored 12/16 line
+and `/login` and `/terms` PASS too: the nearest neighbour's edge is roughly 35px from
+centre, well outside the 12px radius the exception uses. Both regressions redden the local
+assertions in the same run.
+
+The sweep checks the CRITERION; these check the NUMBERS this deviation is about. A recorded
+deviation's whole job is to name the assertion that keeps it visible, so an assertion weaker
+than the claim would leave the deviation guarded by nothing specific — which is the defect
+class this surface's review kept finding. Named here:
+
+- `tests/e2e/settings.spec.ts` "the keyboard-hints switch is a 24px target at the 6px
+  control radius" — the switch's box, and for DEV-015 its computed track radius;
+- `tests/e2e/settings.spec.ts` "the auth column's legal links are 24px targets".
+
+### DEV-010 — Settings → Account omits the authored "Email check" card
+
+`Settings.dc.html` draws two connected-account cards: a Google row, and an "Email check"
+card carrying the copy "Reads your inbox for application status updates. Never sends or
+deletes mail.", a granted-scope grid listing `gmail.readonly` and `userinfo.email`, a
+grant date, and a Disconnect button.
+
+DEC-002 excludes Gmail mailbox ingestion, and `CLAUDE.md` adds that Google authentication
+must not request Gmail mail scopes and that nothing may imply Gmail is connected or
+monitoring. The card is therefore not merely unwired — rendering it in any state,
+including a disabled or "available soon" one, states that this product reads mail. So
+Settings → Account ships the Google row alone.
+
+This is a deviation, not a gap: the owner authored the card, and the product decision that
+removes it is also his. `tests/e2e/settings.spec.ts` "Connected accounts names Google and
+nothing that reads mail" asserts the absence over the whole rendered section rather than
+over one selector, because the property here is absence and a narrower check passes a
+half-fix.
+
+**What was ADDED, which the first version of this entry did not say.** The Google row
+carries a line the design does not draw: *"Used to sign you in. It does not read your
+mail."* Removing a card is not neutral — it leaves a person no way to check what the one
+remaining connection can do, and this is the only surface where that question can be
+answered. The sentence is a claim about scope, and it is true by construction:
+`login/page.tsx` passes no `scopes` option, so Supabase requests identity only.
+
+Also added: the row uses a monogram rather than the template's
+`google.com/s2/favicons` fetch. That fetch is a request to a third party from a page that
+knows who the user is, which is ADR-009's open question, on the one surface where the logo
+carries no information.
+
+### DEV-014 — the entry column ships Google only; signup, verify and reset do not
+
+`Auth.dc.html` authors seven screens: log in, create your account, check your email
+(six digits), reset request, reset sent, set a new password, and password saved. Six of
+the seven, plus the email/password half of the seventh, need a password identity and
+transactional mail that this deployment does not have:
+
+- Supabase's email provider is a project setting nobody has turned on or signed off, so
+  `signUp` and `resetPasswordForEmail` would fail at the provider, not at the form;
+- the verification screen is drawn as six code digits, and Supabase's default
+  confirmation template sends a LINK, not a token — matching the design means changing
+  the template, which is a deployment decision;
+- every one of those mails needs a sender domain, a support identity and a
+  deliverability provider, all of which are ADR-011.
+
+So `/login` ships the Google button, the mark, the title and the legal line, with no
+divider under a single control and no password field that can only fail. The remaining
+six screens land with the email/password identity, in one change with it.
+
+### DEV-012 — Settings → Account omits Change email and Change password
+
+`Settings.dc.html` draws an Email row and a Password row, each with a button.
+Neither ships.
+
+There is no password identity in this product: Google is the only door, so "Change
+password" would be a control with nothing behind it. "Change email" is real work on
+Supabase's side but sends a confirmation mail, and the sender identity, deliverability
+provider and support address are all blocked on ADR-011 — an address-change mail from an
+unowned sender is a phishing lesson taught to the user by their own product.
+
+Both come back with the email/password identity. Until then Account renders the address
+and the Google connection, and nothing that looks editable.
+
+**What was ADDED.** The address falls back to `Not listed` rather than to a blank or a
+guess when there is no session — which is the state the whole browser suite runs in, since
+demo mode has no auth. An invented address on the one surface whose job is to tell a person
+which account they are in would be the fixture-as-real-data failure the nav's absent name
+fallback already refuses.
+
+Plan & billing likewise adds a line the design does not draw: for an `invited` account,
+*"Free forever, with no usage limits on the product itself."* DEC-005 makes founding users
+free forever, and a section reading only "Plan: Free" beside a rail slot labelled
+"Plan & billing" invites the reader to wonder what happens when the trial ends. The
+sentence is read from `entitlements.invited`, not printed unconditionally.
+
+### DEV-013 — Settings → Data omits Export defaults
+
+`Settings.dc.html` draws a format select and an "Include ID columns" switch under an
+Export defaults heading. `components/export-dialog.tsx` holds both as per-dialog React
+state and there is no column behind either, so making them durable defaults is a
+`profiles` migration. Migrations are serial and integrated by one integrator; a surface
+packet does not open one for two preferences. The export dialog keeps both choices where
+they are, per export.
+
+**What was ADDED.** Both disabled controls carry a "Not available yet" line the design does
+not draw, associated with the control through `aria-describedby` rather than merely printed
+near it. A disabled control with no reason is the worse failure of the two: it looks
+broken, and a person cannot tell whether it is their account, their browser or the product.
+Neither line points at a support channel, because none exists — see the comment at
+`data/page.tsx`, and ADR-011.
+
+The Delete block also states the irreversibility ADD-007 names, before the control rather
+than inside a confirmation nobody reads: an application already sent to an employer is not
+recalled by deleting the account.
+
+### DEV-011 — the auth legal line links to routes that do not exist yet
+
+`Auth.dc.html` ends every screen with a quiet `Terms` / `Privacy` pair, and 04 §4.5 treats
+the legal line as part of the surface. The content of those two pages is owner and counsel
+input, blocked on ADR-012 (privacy/terms, processor list, AI data-use posture, consent
+versioning).
+
+The links are rendered, because removing them changes an authored composition and because
+the line is a hard dependency of any later Google verification. They point at `/terms` and
+`/privacy`, which return the same "not published yet" page. That is honest and visible:
+an unwritten legal page that says so is better than a footer that silently loses two links
+between now and ADR-012, which is the version nobody would notice was missing.
 
 ### DEV-001 — default row density, a deviation rather than an addendum
 

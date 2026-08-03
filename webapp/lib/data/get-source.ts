@@ -113,6 +113,34 @@ const WARM_OVER_CAP_COOKIE = "hq_warm_over_cap";
  */
 const DISPLAY_COOKIE = "hq_demo_display";
 
+/**
+ * Hold every fixture READ for N milliseconds, so a loading state is reachable.
+ *
+ * `04 §5` requires a content-shaped skeleton on every surface that waits for
+ * data, and until now nothing in this estate could reach one: the fixture source
+ * answers from memory in microseconds, so a `Suspense` fallback rendered for
+ * less than a frame and no assertion could see it. The one test that claimed to
+ * cover it delayed a `**\/queue**` route and then asserted the body was
+ * "not empty", which is true of a blank page with a nav on it.
+ *
+ * A COOKIE for the reason `hq_demo_fail`, `hq_demo_seed` and
+ * `hq_demo_entitlement` are cookies: a browser-driven test needs to change what
+ * the SERVER does mid-journey, and a cookie is the only channel it has.
+ *
+ * `isDemoMode()` ONLY, at one call site, exactly as narrowly as its siblings. A
+ * deployment that fell back to demo for a missing env var must not let a visitor
+ * make their own reads slow, and there is no path to this from a real source.
+ * Clamped so a hostile value is a pause, never a hang.
+ */
+const SLOW_COOKIE = "hq_demo_slow";
+const SLOW_MAX_MS = 5_000;
+
+function parseSlowMs(raw: string | undefined): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(Math.floor(n), SLOW_MAX_MS);
+}
+
 function parseDisplaySeam(value: string | undefined): SetDisplayPrefsInput | null {
   if (!value) return null;
   const flags = new Set(value.split(",").map((f) => f.trim()));
@@ -322,6 +350,7 @@ export async function getDataSource(): Promise<DataSource> {
     let overCap: string | undefined;
     let display: string | undefined;
     let entitlementCookie: string | undefined;
+    let slowMs = 0;
     try {
       const jar = await cookies();
       id = jar.get(DEMO_COOKIE)?.value || "shared";
@@ -330,6 +359,7 @@ export async function getDataSource(): Promise<DataSource> {
       overCap = jar.get(WARM_OVER_CAP_COOKIE)?.value;
       display = jar.get(DISPLAY_COOKIE)?.value;
       entitlementCookie = jar.get(DEMO_ENTITLEMENT_COOKIE)?.value;
+      slowMs = parseSlowMs(jar.get(SLOW_COOKIE)?.value);
     } catch {
       // cookies() is unavailable in some contexts; the shared store is fine
     }
@@ -368,6 +398,12 @@ export async function getDataSource(): Promise<DataSource> {
     if (overCap && typeof armable.forceWarmOverCap === "function") {
       armable.forceWarmOverCap();
     }
+    // LAST, and applied to the RESOLVE rather than to each method: every page in
+    // this app awaits `getDataSource()` before it awaits anything on the source,
+    // so holding here holds exactly the thing a `Suspense` boundary is waiting
+    // for, on every surface, without wrapping 60 methods in a proxy. Reads and
+    // writes alike, because a slow store is slow at both.
+    if (slowMs > 0) await new Promise((r) => setTimeout(r, slowMs));
     return store;
   }
 

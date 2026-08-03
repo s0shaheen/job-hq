@@ -338,6 +338,40 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page).toHaveScreenshot(`settings-${theme}.png`, { fullPage: true });
   });
 
+  test(`the preferences section looks right — ${theme}`, async ({ page }) => {
+    // The densest NEW composition in RM-34: four 200px selects and a switch,
+    // each with a label above and help below, under a heading that carries the
+    // autosave tick. Worth its own picture rather than being folded into the
+    // profile's, because nothing else in this suite draws a switch — and the
+    // switch is where the two hand-reasoned rules live (DEV-015's 6px control
+    // radius against the mock's pill, DEV-016's 24px target around an 18px
+    // track). Both are asserted numerically in `settings.spec.ts`; this is what
+    // notices the track and the knob drifting apart, which no number would.
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto("/settings/preferences");
+    await expect(page.getByTestId("preferences-form")).toHaveAttribute("data-hydrated", "true");
+    await page.waitForLoadState("load");
+    await expect(page).toHaveScreenshot(`settings-preferences-${theme}.png`, { fullPage: true });
+  });
+
+  test(`the entry column looks right — ${theme}`, async ({ page }) => {
+    // `/login` in `Auth.dc.html`'s 360px column. Under HQ_DEMO the build carries
+    // no Supabase credentials, so this pictures the UNCONFIGURED deployment's
+    // login page — the mark, the wordmark, the title, the setup line and the
+    // legal links — and not the Google button, which renders only when
+    // `NEXT_PUBLIC_SUPABASE_*` are inlined at build time. That is stated rather
+    // than worked around: a baseline that mocked the button into existence would
+    // be a picture of UI this configuration never serves.
+    //
+    // `/pending` still gets no baseline. It is unauthored design (ADD-020), and
+    // pixel geometry recorded now would be a baseline for UI nobody approved.
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto("/login");
+    await expect(page.getByRole("heading", { name: "Log in", level: 1 })).toBeVisible();
+    await page.waitForLoadState("load");
+    await expect(page).toHaveScreenshot(`login-${theme}.png`, { fullPage: true });
+  });
+
   test(`the connections list looks right — ${theme}`, async ({ page }) => {
     // A new surface, and one whose whole first screen is prose: a headline
     // number, four instruction lines, and a list of people with two lines each.
