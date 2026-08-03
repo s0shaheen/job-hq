@@ -49,6 +49,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[regate] SKIPPED — {reason}", file=sys.stderr)
         return 1
 
+    # RM-12: this lane reads `hq.tab("feed").records()` RAW, not through the
+    # SheetStore protocol, so it cannot be swapped to Postgres by choosing a
+    # different store. Under pg mode the sweep never writes that tab, so re-gating it
+    # would stamp decisions on rows nothing reads while the Postgres dispositions go
+    # stale. Refuse rather than run against the wrong store.
+    from monitor import feedstore
+    feedstore.refuse_if_pg(
+        "monitor.regate", "reads the Feed tab directly rather than through the store")
+
     from core.sheets import HQ
     hq = HQ.open()
     cfg = hq.user_config()

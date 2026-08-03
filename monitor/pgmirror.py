@@ -159,6 +159,21 @@ def main() -> int:
     # per sweep — harmless, being idempotent, and pure waste. Standing down is
     # also what keeps the failure attributable: under first_class the sweep is
     # the thing that must go red, not a tail step that ran afterwards.
+    # RM-12: under HQ_FEED_STORE=pg the sweep wrote postings/user_postings ITSELF and
+    # never wrote the Feed tab. This module's input is that tab, so running it here
+    # would read rows the sweep never touched and upsert them over the sweep's own
+    # work — status, tags, geo and disposition, for every row still in the tab, exit
+    # 0, no alert. Checked BEFORE the pgwrites branch and independently of it, because
+    # this module is the second step of the same `monitor` job (handler.py JOBS) and
+    # must not depend on a second flag being set correctly to avoid corrupting the
+    # first step's output.
+    from monitor import feedstore
+    if feedstore.mode() == feedstore.PG:
+        print(f"[pgmirror] {feedstore.STORE_ENV}={feedstore.PG} — the sweep wrote the "
+              f"store directly and did not write the Feed tab; mirroring it now would "
+              f"overwrite this run's own rows with stale spreadsheet values",
+              file=sys.stderr)
+        return 0
     if pgwrites.mode() == pgwrites.FIRST_CLASS:
         print(f"[pgmirror] {pgwrites.FLAG_ENV}={pgwrites.FIRST_CLASS} — the sweep "
               f"mirrors the Feed itself; nothing to echo", file=sys.stderr)

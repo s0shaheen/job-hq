@@ -43,8 +43,24 @@ def resolve(store) -> list[Company]:
     from core import pg                      # local: keeps sheet-only paths import-light
     from monitor import universe
 
+    from monitor import feedstore   # local: same import-weight reasoning as `pg`
+
     source = os.environ.get(SOURCE_ENV, "sheet").strip().lower() or "sheet"
     user_id = os.environ.get(USER_ENV, "")
+    store_is_pg = feedstore.mode() == feedstore.PG
+
+    # The sheet branch below calls `store.read_companies()`, and under a Postgres feed
+    # store that IS `universe.swept_companies` — so the soak delta would compare pg
+    # against pg and report perfect agreement by construction, forever
+    # (`sheet=1 pg=1 sheet_only=0 pg_only=0`), while the flip decision is read off it.
+    # An instrument that cannot disagree is not an instrument. Refuse instead of
+    # quietly becoming the pg branch under the sheet branch's name.
+    if store_is_pg and source != "pg":
+        raise RuntimeError(
+            f"{feedstore.STORE_ENV}={feedstore.PG} requires {SOURCE_ENV}=pg, but it is "
+            f"{source!r}. The sheet branch reads the company list THROUGH the store, "
+            f"so with a Postgres store it would silently be the pg branch — and the "
+            f"soak delta it logs would compare Postgres against itself")
 
     if source == "pg":
         if not (pg.enabled() and user_id):
@@ -52,6 +68,16 @@ def resolve(store) -> list[Company]:
                 f"{SOURCE_ENV}=pg but SUPABASE_*/{USER_ENV} unset — refusing to sweep nothing")
         slice_ = universe.swept_companies(user_id)
         if not slice_.companies:
+            # With a Postgres feed store there is no second opinion to ask: the
+            # comparison below would run the SAME query and answer 0, so the guard
+            # would pass and the sweep would visit no boards, quarantine nothing and
+            # exit 0 — the silent death this module's docstring forbids. An empty
+            # pullable universe is fatal on its own facts.
+            if store_is_pg:
+                raise RuntimeError(
+                    f"{SOURCE_ENV}=pg returned 0 pullable companies and the feed store "
+                    f"is Postgres, so there is no independent list to compare against "
+                    f"— refusing to sweep nothing")
             sheet_n = len(store.read_companies())
             if sheet_n:
                 raise RuntimeError(

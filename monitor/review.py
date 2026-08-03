@@ -263,6 +263,16 @@ def main() -> int:
         print(f"[review] SKIPPED — {reason}", file=sys.stderr)
         return 1
 
+    # RM-12: the sweep deliberately leaves most rows untagged — `monitor/run.py` caps
+    # inline tagging and says this lane drains the rest nightly. Under pg mode those
+    # rows are in Postgres, and a review that opened the spreadsheet would tag a Feed
+    # tab the sweep never wrote: the Postgres rows would never be tagged and never
+    # re-gated, while this lane reported a clean run. Refuse until it has a Postgres
+    # implementation.
+    from monitor import feedstore
+    feedstore.refuse_if_pg(
+        "monitor.review", "builds HQFeedStore directly and has no Postgres lane yet")
+
     session = requests.Session()
     try:
         from core.sheets import HQ

@@ -122,6 +122,17 @@ sheet stays the system of record until stage 3 flips triage writes to the app.
    as a conflict. Never raw table edits from a client.
 4. `events` is append-only forever: capture emails, gestures, bot
    transitions. Debugging starts there, like the sheet's Log tab.
+5. **A migration is TypeScript input.** `webapp/tests/unit/types-contract.test.ts`
+   parses `db/migrations/*.sql` — both `create table` bodies and
+   `alter table … add column` — and asserts the matching type in
+   `webapp/lib/types.ts` declares *exactly* the columns the table has. Adding a
+   column to a table that file covers means editing `webapp/lib/types.ts` in the
+   same commit, even for a column only the engine writes: the contract is "the
+   type matches the table", not "the type matches what the app uses". A column
+   the app cannot see is how a blank screen happens two migrations later.
+   `scripts/verify.sh --image` selects `vitest` for anything under
+   `db/migrations`, so this is caught — by the VERDICT LINE at the end of the
+   run, which is the only part of that output that is a result.
 
 ## Backups
 

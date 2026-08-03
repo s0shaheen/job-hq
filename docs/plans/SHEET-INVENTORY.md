@@ -157,7 +157,8 @@ is already store-agnostic.
 
 | Module | What it needs from the Sheet | Postgres equivalent today |
 |---|---|---|
-| `monitor/sheet.py` | the whole 16-method protocol: feed history, companies, min_yoe, sweep cursor, health, tags, disposition, `seeded`, `pushed_at` | none — no `PgFeedStore` exists |
+| `monitor/sheet.py` | the whole 16-method protocol: feed history, companies, min_yoe, sweep cursor, health, tags, disposition, `seeded`, `pushed_at` | `monitor/pgstore.py:PgFeedStore` covers 15 of the 16; `write_health` has no Postgres home and persists nothing |
+| `monitor/feedstore.py` | nothing directly — but its `HQ_FEED_STORE=sheet` arm (the DEFAULT) constructs `HQFeedStore`, so it is a Sheet dependency until the default flips | `HQ_FEED_STORE=pg` selects `PgFeedStore` and never opens the spreadsheet for the sweep's data |
 | `monitor/run.py` | via `HQFeedStore`; also `hq.user_config()` `:396`, `hq.heartbeat("monitor")` `:423` | **dual write** — `mirror_pg` `:353-381` under `first_class` |
 | `monitor/review.py` | tag writes, `mark_untaggable`, `set_disposition`, `fill_missing_geo` | none; tags reach pg only as the `postings.tags` blob on the next mirror |
 | `monitor/regate.py` | `fill_missing_geo`, `set_disposition` | none; `user_postings.disposition` is echoed, never computed, pg-side |

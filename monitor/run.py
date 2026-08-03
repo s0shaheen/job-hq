@@ -22,14 +22,15 @@ import requests
 
 from core import notify, outbox as core_outbox, pgwrites
 from core.profile import Profile
-from monitor import companysource, gates, geo, jobcontent, snapshot, tagging, tagworker
+from monitor import (companysource, feedstore, gates, geo, jobcontent, snapshot,
+                     tagging, tagworker)
 from monitor.config import RuntimeConfig, get_runtime_config, unconfigured_reason
 from monitor.dedup import reconcile_company
 from monitor.fetchers import get_jobs_for
 from monitor.filtering import title_matches
 from monitor.models import JobRecord
 from monitor.notify import format_new_jobs
-from monitor.sheet import HQFeedStore, SheetStore
+from monitor.sheet import SheetStore
 
 INLINE_TAG_MAX_ENV = "MONITOR_INLINE_TAG_MAX"    # env override of the Config-tab inline_tag_max
 STALE_DAYS = 14                      # board days-missing before a role is Closed
@@ -398,7 +399,12 @@ def main() -> int:
             notify.ops_alert("HQ config problems",
                              "\n".join(cfg.problems)[:1500], session=session)
         disposer = gates.make_disposer(cfg.gates) if cfg.gates else None
-        store = HQFeedStore(hq, disposer=disposer)
+        # RM-12: which store the sweep reconciles through. `hq` is already open
+        # because the Config tab has no Postgres home yet, so the factory hands the
+        # resolver the handle it has rather than pretending this lane is Sheet-free
+        # — see monitor/feedstore.py on what this switch does and does not cut over.
+        store, store_mode = feedstore.resolve(hq_factory=lambda: hq, user=hq.user,
+                                              disposer=disposer)
         tagger = (make_tagger(domain=prof.tag_domain)
                   if os.environ.get("ANTHROPIC_API_KEY") else None)
         if tagger is None:
@@ -418,8 +424,17 @@ def main() -> int:
                                 store.read_history())
         # SHEET-SUNSET Phase C. Sheet lane complete (flushed, snapshotted) before
         # the store is touched, and the store before the heartbeat: see mirror_pg.
-        pg_status = mirror_pg(hq, session=session)
-        print(f"[monitor] pg={pg_status}", file=sys.stderr)
+        # The mirror copies the FEED TAB into postings/user_postings. Under
+        # HQ_FEED_STORE=pg the sweep just wrote those tables itself, so running it
+        # would overwrite this morning's work with whatever the spreadsheet still
+        # says — a mirror is only ever as fresh as its source, and its source is no
+        # longer the one being written.
+        if store_mode == feedstore.PG:
+            print("[monitor] pg=store (the sweep wrote Postgres directly; the Feed "
+                  "mirror would overwrite it with the spreadsheet)", file=sys.stderr)
+        else:
+            pg_status = mirror_pg(hq, session=session)
+            print(f"[monitor] pg={pg_status}", file=sys.stderr)
         hq.heartbeat("monitor")
         return 0
     except Exception as e:   # whole-run failure: real cause to the log, ping ops

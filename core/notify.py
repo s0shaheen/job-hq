@@ -166,6 +166,16 @@ def _hold(decision, outbox, *, who: str, event: str, title: str, body: str,
         if outbox(rec):
             return True
         raise RuntimeError("outbox sink refused the row")
+    except AssertionError:
+        # NOT swallowed. This `except Exception` exists so a queue failure cannot fail
+        # a bot run, and that is right for anything the outbox itself can raise — but
+        # an AssertionError from inside a sink is a TEST asserting, not a queue
+        # failing. `tests/monitor/sheet_poison.SheetTouched` is exactly that: the
+        # RM-12 fallback detector raises it the moment a lane reaches for the
+        # spreadsheet, and swallowing it here turned "the sweep wrote the Outbox tab
+        # under pg mode" into an ops page plus a clean exit — a detector that reports
+        # the thing it was built to catch as healthy. Found by review, not by us.
+        raise
     except Exception as e:
         ops_alert("HQ outbox write failed",
                   f"{event} for {who or 'the default user'} could not be queued "

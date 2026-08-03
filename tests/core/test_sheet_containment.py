@@ -60,6 +60,8 @@ RUNTIME = {
     "core/fakes.py",          # the Sheet capability's fixture implementation
     "core/outbox.py",         # the Outbox tab IS the quiet-hours queue
     "monitor/config.py",      # hq.user_config()
+    "monitor/feedstore.py",   # RM-12's store switch: its `sheet` arm builds HQFeedStore
+
     "monitor/linkedin_backfill.py",
     "monitor/pgmirror.py",    # the pg mirror's INPUT is the Feed tab
     "monitor/regate.py",

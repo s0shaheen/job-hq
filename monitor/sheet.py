@@ -135,10 +135,18 @@ class HQFeedStore:
         disposition) from the same read as read_jobs_for_tagging. JobRecord
         deliberately stays lean; the gates need this context so review never
         re-derives geo blind (a location-blank remote row must not read as
-        geo-unknown just because remoteness lives in work_model)."""
+        geo-unknown just because remoteness lives in work_model).
+
+        The per-row dicts are copied too, not just the outer map. `dict(...)`
+        alone handed every caller the cache's own inner dicts, so one caller
+        writing into a row it was handed would change what the next reader saw —
+        within a single sweep, since the cache outlives the call. No caller does
+        that today; the conformance suite asks for the guarantee rather than for
+        today's luck.
+        """
         if getattr(self, "_tag_ctx", None) is None:
             self.read_jobs_for_tagging()
-        return dict(self._tag_ctx or {})
+        return {k: dict(v) for k, v in (self._tag_ctx or {}).items()}
 
     SWEEP_CURSOR_KEY = "monitor_sweep_cursor"
 
@@ -160,6 +168,24 @@ class HQFeedStore:
                                               "after a budget-stopped run"}])
 
     # ---- writes
+
+    def _invalidate(self) -> None:
+        """Drop the read caches after anything that changes what they hold.
+
+        `read_history` and `read_jobs_for_tagging` re-read the tab every call, but
+        `read_min_yoe` and `tagging_context` answer from the cache those two primed —
+        so before this existed, a `read_min_yoe()` after a `write_tags()` returned the
+        PRE-WRITE map. No caller does that today (`monitor/review.py:119` reads the
+        context before its writes), which is why it never showed up in production; a
+        review of the RM-12 branch pointed out that "documented divergence between two
+        live implementations" is a worse answer than one behaviour both of them have.
+
+        The cost is a re-read on the next `read_min_yoe`, and only for a caller that
+        reads after writing — which is the caller that would otherwise get stale data,
+        so it is the read it was always owed.
+        """
+        self._min_yoe = None
+        self._tag_ctx = None
 
     def append_jobs(self, records: list[JobRecord],
                     tags: dict[str, "Tags"] | None = None, today: str = "") -> None:
@@ -183,6 +209,7 @@ class HQFeedStore:
                 row.update(self._disposer(row))
             rows.append(row)
         self._hq.tab("feed").append_records(rows)
+        self._invalidate()
         self._hq.log("monitor", "feed_append", detail=f"{len(rows)} rows ({len(tags)} tagged inline)")
 
     GEO_COLS = ("city", "state", "country", "remote", "market", "metro")
@@ -225,6 +252,7 @@ class HQFeedStore:
         for i in range(0, len(keys), chunk):
             self._bulk_set_by_key({k: todo[k] for k in keys[i:i + chunk]})
         if todo:
+            self._invalidate()
             self._hq.log("review", "geo_fill", detail=f"{len(todo)} rows")
         return len(todo)
 
@@ -273,11 +301,13 @@ class HQFeedStore:
 
     def set_status(self, id_to_status: dict[str, str]) -> None:
         self._bulk_set_by_key({jid: {"status": st} for jid, st in id_to_status.items()})
+        self._invalidate()
         if id_to_status:
             self._hq.log("monitor", "feed_status", detail=str(id_to_status)[:400])
 
     def set_last_seen(self, ids: list[str], today: str) -> None:
         self._bulk_set_by_key({jid: {"last_seen": today} for jid in ids})
+        self._invalidate()
 
     def mark_seeded(self, company_names: list[str]) -> None:
         t = self._hq.tab("companies")
@@ -308,6 +338,7 @@ class HQFeedStore:
                 vals.update(self._disposer(ctx))
             updates[jid] = vals
         self._bulk_set_by_key(updates)
+        self._invalidate()
         if id_to_tags:
             self._hq.log("review", "tags_written", detail=f"{len(id_to_tags)} rows")
 
@@ -321,6 +352,7 @@ class HQFeedStore:
                 k: {"disposition": updates[k][0], "disposition_reason": updates[k][1]}
                 for k in keys[i:i + chunk]})
         if updates:
+            self._invalidate()
             self._hq.log("review", "disposition", detail=f"{len(updates)} rows")
 
     def mark_untaggable(self, ids: list[str], today: str, reason: str) -> None:
@@ -335,6 +367,7 @@ class HQFeedStore:
             return
         stamp = f"{reason}:{today}"
         self._bulk_set_by_key({jid: {"tagged_at": stamp} for jid in ids})
+        self._invalidate()
         self._hq.log("review", "untaggable", detail=f"{len(ids)} rows ({reason})")
 
     def write_health(self, rows: list[dict]) -> None:
@@ -372,9 +405,30 @@ class FakeSheetStore:
         self._min_yoe: dict[str, str] = dict(min_yoe or {})
         self._tags: dict[str, Any] = {}
         self._tagged_at: dict[str, str] = {}
+        self._derived_ctx: dict[str, dict] = {}
         self.health_rows: list[dict] = []
         self.seeded_marks: list[str] = []
         self.pushed_marks: list[str] = []
+
+    def _record_ctx(self, jid: str, tags) -> None:
+        """Keep the gate context a write implies, the way HQFeedStore does.
+
+        Until `tests/monitor/test_store_conformance.py` asked both stores the same
+        question, this fake returned `{}` from `tagging_context()` forever while
+        the real store returned per-row work_model and geo. That is not a harmless
+        gap: `monitor/review.py:119` re-gates rows against this context precisely
+        so a location-blank remote row is not read as geo-unknown, and a fake that
+        always answers "I know nothing" makes the correct and the broken gate look
+        the same in every test that uses it.
+
+        Geo stays blank because this fake never enriches; that is an honest "not
+        known here" rather than a fabricated value.
+        """
+        self._derived_ctx[jid] = {
+            "work_model": getattr(tags, "work_model", "") or "",
+            "seniority": getattr(tags, "seniority", "") or "",
+            "country": "", "remote": "", "market": "",
+        }
 
     def read_companies(self):
         return [c for c in self._companies if c.monitor]
@@ -394,6 +448,7 @@ class FakeSheetStore:
                 self._tags[r.id] = t
                 self._tagged_at[r.id] = today
                 self._min_yoe[r.id] = str(t.min_yoe)
+                self._record_ctx(r.id, t)
 
     def set_status(self, id_to_status):
         for jid, status in id_to_status.items():
@@ -425,6 +480,7 @@ class FakeSheetStore:
             self._tags[jid] = tags
             self._tagged_at[jid] = today
             self._min_yoe[jid] = str(tags.min_yoe)
+            self._record_ctx(jid, tags)
 
     def mark_untaggable(self, ids, today, reason):
         for jid in ids:
@@ -435,7 +491,18 @@ class FakeSheetStore:
                              **{k: v for k, v in updates.items()}}
 
     def tagging_context(self):
-        return dict(getattr(self, "tag_ctx", {}) or {})
+        """Derived from what has been written, unless a test states it outright.
+
+        An explicit `store.tag_ctx = {...}` still wins: a test that names the
+        context it wants is making an assertion, not accepting a default, and
+        several do exactly that to drive one gate branch. Absent that, the fake
+        answers from its own writes, so it satisfies the same conformance
+        contract as HQFeedStore instead of silently answering "nothing known".
+        """
+        explicit = getattr(self, "tag_ctx", None)
+        if explicit is not None:
+            return dict(explicit)
+        return {k: dict(v) for k, v in self._derived_ctx.items()}
 
     def read_sweep_cursor(self):
         return getattr(self, "sweep_cursor", "")

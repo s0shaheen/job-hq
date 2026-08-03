@@ -140,3 +140,41 @@ def test_the_tail_step_still_echoes_in_phase_a(monkeypatch):
                         lambda hq, uid, session=None: seen.append(uid) or (1, 1, []))
     monkeypatch.setattr("core.sheets.HQ.open", classmethod(lambda cls: object()))
     assert m.main() == 0 and seen == ["u-1"]
+
+
+# ---- RM-12: the second step of the monitor job must not undo the first one.
+# This is the severe finding of the first review of the PgFeedStore branch: the
+# `monitor` job is [("monitor.run", []), ("monitor.pgmirror", [])], and under
+# HQ_FEED_STORE=pg the sweep writes postings/user_postings itself and never writes
+# the Feed tab. Mirroring that tab afterwards rewrites status, tags, geo and
+# disposition for every row still in it — exit 0, no alert.
+
+def test_the_tail_step_stands_down_when_the_sweep_owns_the_store(monkeypatch, capsys):
+    """Checked on the FEED-STORE flag and independently of HQ_PG_WRITES.
+
+    Independence is the point. The defect shipped precisely because this module's
+    only stand-down was keyed to `HQ_PG_WRITES=first_class`, which is not the
+    default — so in the deployed configuration the guard was never reached. A module
+    that can corrupt the previous step's output must not depend on a second,
+    unrelated flag being set correctly.
+
+    KILLED BY: deleting the feedstore guard, or moving it below the pgwrites branch.
+    """
+    import monitor.pgmirror as m
+    from core import pgwrites
+    from monitor import feedstore
+    monkeypatch.setenv(feedstore.STORE_ENV, feedstore.PG)
+    monkeypatch.delenv(pgwrites.FLAG_ENV, raising=False)      # the shipping default
+    # Everything ELSE configured so the module would happily proceed: this test has
+    # to fail on the guard, not on a missing credential that would mask its absence.
+    monkeypatch.setenv(pgwrites.USER_ENV, "u-1")
+    monkeypatch.setattr(m.pg, "enabled", lambda: True)
+    monkeypatch.setattr(m, "mirror",
+                        lambda *a, **k: pytest.fail(
+                            "UNSAFE: the Feed tab was mirrored over a pg-mode sweep"))
+    monkeypatch.setattr("core.sheets.HQ.open", classmethod(
+        lambda cls: pytest.fail("UNSAFE: pgmirror opened the SPREADSHEET after a "
+                                "pg-mode sweep")))
+    assert m.main() == 0
+    err = capsys.readouterr().err
+    assert "overwrite this run's own rows" in err

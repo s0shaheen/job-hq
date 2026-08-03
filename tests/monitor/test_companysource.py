@@ -84,3 +84,45 @@ def test_pg_mode_empty_universe_against_a_full_sheet_aborts(monkeypatch):
                         lambda uid, session=None: _pg_slice([]))
     with pytest.raises(RuntimeError, match="misconfigured universe"):
         cs.resolve(_Store(SHEET))
+
+
+# ---- RM-12: the sheet branch is not the sheet branch when the store is Postgres.
+
+def test_the_sheet_branch_refuses_while_the_feed_store_is_postgres(monkeypatch):
+    """Finding 4 of the first review, and it disabled two instruments at once.
+
+    This module's `sheet` branch reads the company list THROUGH the store. With a
+    Postgres feed store that call IS `universe.swept_companies`, so the soak delta —
+    the measurement the flip decision is read off — compared Postgres against
+    Postgres and reported `sheet=1 pg=1 sheet_only=0 pg_only=0`, perfect agreement by
+    construction, forever. An instrument that cannot disagree is not an instrument.
+
+    KILLED BY: deleting the guard — the sheet branch then silently becomes the pg
+    branch under the sheet branch's name.
+    """
+    from monitor import feedstore
+    monkeypatch.setenv(feedstore.STORE_ENV, feedstore.PG)
+    monkeypatch.delenv(cs.SOURCE_ENV, raising=False)
+    with pytest.raises(RuntimeError, match=r"requires HQ_COMPANIES_SOURCE=pg"):
+        cs.resolve(_Store(SHEET))
+
+
+def test_an_empty_pg_universe_is_fatal_when_there_is_no_sheet_to_compare_with(
+        monkeypatch):
+    """The other half of finding 4: the empty-universe guard compared the pg count
+    against `store.read_companies()`, which under a Postgres store runs the SAME
+    query and answers 0 — so the guard passed, the sweep visited no boards,
+    quarantined nothing and exited 0. That is the silent-death shape this module's
+    own docstring forbids, arriving through the guard meant to prevent it.
+
+    KILLED BY: removing the `store_is_pg` arm — the run then returns an empty list.
+    """
+    from monitor import feedstore
+    monkeypatch.setenv(feedstore.STORE_ENV, feedstore.PG)
+    monkeypatch.setenv(cs.SOURCE_ENV, "pg")
+    monkeypatch.setenv(cs.USER_ENV, "u-1")
+    monkeypatch.setattr("core.pg.enabled", lambda: True)
+    monkeypatch.setattr("monitor.universe.swept_companies",
+                        lambda uid, session=None: _pg_slice([]))
+    with pytest.raises(RuntimeError, match="no independent list to compare against"):
+        cs.resolve(_Store([]))

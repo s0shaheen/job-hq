@@ -56,6 +56,13 @@ export type UserPosting = {
   triage_reason: string;
   snooze_until: string | null;
   score: number | null;
+  /**
+   * RM-12 (20260803_090223_sweep_state). The date the discovery sweep pushed this
+   * posting to this user, or null for never — the fill-blank latch that stops a
+   * re-run notifying twice. Engine-written only: nothing in the web app sets it,
+   * and `null` is the latch rather than a missing value.
+   */
+  pushed_at: string | null;
   created_at: string;
   updated_at: string;
 };

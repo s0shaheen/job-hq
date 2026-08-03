@@ -65,6 +65,22 @@ cat >"$TARGET" <<EOF
 --
 -- Before merging, audit: ownership, grants, RLS policies, constraints, and the
 -- search_path on any security-definer function.
+--
+-- THIS FILE IS ALSO TYPESCRIPT INPUT. webapp/tests/unit/types-contract.test.ts
+-- parses these CREATE TABLE bodies AND these \`alter table … add column\`
+-- statements, and asserts the matching type in webapp/lib/types.ts declares
+-- exactly the columns the table has. So adding a column to a table that type
+-- covers means editing webapp/lib/types.ts in THIS commit, even though nothing
+-- in the web app writes it — the contract is "the type matches the table", not
+-- "the type matches what the app uses". Adding \`user_postings.pushed_at\`
+-- without it turned that guard red on a branch whose author reported the gate
+-- green twice; the coupling was real and written down nowhere an author meets.
+--
+-- \`scripts/verify.sh --image\` runs vitest for any change under db/migrations,
+-- so the guard will catch it — READ THE VERDICT LINE AT THE END, not the stage
+-- output.
 EOF
 
 echo "$TARGET"
+echo "note: if this adds a column to a table webapp/lib/types.ts covers, update" >&2
+echo "      that type in the same commit — types-contract.test.ts parses this file." >&2
