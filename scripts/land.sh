@@ -523,8 +523,19 @@ if ! gh pr merge "$PR_NUM" "--${MERGE_METHOD}" --delete-branch; then
   merged_state="$(gh pr view "$PR_NUM" --json state -q .state 2>/dev/null || printf '')"
   if [ "$merged_state" = "MERGED" ]; then
     warn "gh pr merge exited non-zero but PR #${PR_NUM} is MERGED — almost"
-    warn "certainly the branch delete failed because a worktree holds it."
-    warn "Clean up with: git worktree remove <path> && git branch -d ${BRANCH}"
+    warn "certainly the branch delete failed because a worktree holds a branch."
+    # Which branch, though. The first version of this hint named ${BRANCH}, and
+    # on PR #155 it was wrong: `gh pr merge --delete-branch` checks the BASE out
+    # locally first, so a worktree holding `main` trips it just as surely as one
+    # holding the feature branch. Naming the wrong branch costs the next person
+    # the time this hint exists to save, so name whichever it actually is.
+    for _b in "$BRANCH" "$BASE"; do
+      _holder="$(git worktree list --porcelain 2>/dev/null \
+        | awk -v b="refs/heads/$_b" '/^worktree /{p=$2} $0=="branch "b{print p}')"
+      [ -n "$_holder" ] && warn "  ${_b} is held by: ${_holder}"
+    done
+    warn "Clean up with: git worktree remove <path above>"
+    warn "Then: git branch -d ${BRANCH}"
   else
     refuse 11 "gh pr merge failed for PR #${PR_NUM} (state: ${merged_state:-unknown})." \
       "Nothing was landed. See ${PR_URL}."

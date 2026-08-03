@@ -617,6 +617,25 @@ def test_a_failed_branch_delete_is_not_a_failed_merge(land: Land) -> None:
     assert "branch delete failed" in r.stderr
 
 
+def test_the_delete_hint_names_the_worktree_that_actually_holds_a_branch(
+    land: Land,
+) -> None:
+    """On PR #155 the hint blamed the feature branch and the real holder was a
+    worktree on `main`: `--delete-branch` checks the BASE out locally first, so
+    either one trips it. A hint that names the wrong branch costs the reader the
+    minutes it exists to save, so it must name whichever is actually held."""
+    held = land.root / "held-worktree"
+    git(land.work, "worktree", "add", "-q", str(held), "main")
+    try:
+        r = land.run(GH_CHECKS_FILE=land.checks(PASSING_CHECKS),
+                     GH_MERGE_MODE="fail_but_merged")
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert str(held) in r.stderr, "the hint must name the holding worktree"
+        assert "main is held by" in r.stderr, "and say which branch it holds"
+    finally:
+        git(land.work, "worktree", "remove", "--force", str(held))
+
+
 # ──────────────────────────────────────────────────────── the LAND_TIER fast path
 
 @pytest.mark.parametrize("tier", ["t0", "t1"])
