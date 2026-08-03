@@ -26,7 +26,7 @@ security/privacy analysis, rollout, reversibility, and evidence.
 
 | ADR | Decision required | Must precede |
 |---|---|---|
-| ADR-001 | Autopilot execution host: hosted, user-owned agent, hybrid, or another architecture | Executor protocol/adapters |
+| ADR-001 | Autopilot execution host: hosted, user-owned agent, hybrid, or another architecture. **Proposal recorded 2026-08-03, awaiting owner and security approval — see §2.1 and [`20-execution-host-decision.md`](20-execution-host-decision.md)** | Executor protocol/adapters |
 | ADR-002 | Autopilot autonomy: review every application versus policy-authorized unattended execution; eligibility and trust reset | Rules/consent/release claim |
 | ADR-003 | Per-ATS launch support and provider policy/terms approval | Each adapter implementation/live test |
 | ADR-004 | One-time legacy owner data: clean start or explicit one-time import with no continuing correlation | Sheet decommission |
@@ -54,6 +54,64 @@ chooses import over a clean start.
 Unattended Autopilot is not silently deferred or silently included. Until ADR-002 is
 signed, implementation may build exact Prepare/Review and explicit-approval submission
 contracts, but the launch scope decision remains blocked.
+
+### 2.1 ADR-001 — execution host: proposal awaiting owner approval
+
+Recorded 2026-08-03. **Proposed, not decided.** The full analysis, threat model, provider
+findings and open questions are in
+[`20-execution-host-decision.md`](20-execution-host-decision.md). This entry exists so the
+register carries the proposal, not so it carries the argument. No worker may implement an
+executor against either document until the owner signs.
+
+**Proposed.** A hybrid: a hosted control plane plus a user-owned execution client, the
+client being a Manifest V3 browser extension running in the user's own browser, on the
+user's own machine and network. The control plane stages, resolves answers, records
+approval, issues single-use signed leases, and owns every lock, receipt and kill switch,
+and never touches an employer form. The extension holds no provider credential, carries
+every adapter inside its reviewed package, and can do nothing its compiled-in vocabulary
+names.
+
+**Runner-up.** A self-run hosted browser — same control plane, same protocol, same
+adapters, browser process moved. Self-run rather than a managed vendor because seven of
+nine cloud-browser vendors surveyed advertise CAPTCHA solving or stealth as headline
+features, which disqualifies them as suppliers under the product rule.
+
+**The runner-up wins if either condition is met.** First, measured evidence that
+non-residential egress does not harm a candidate's outcome; the recommendation rests on
+Greenhouse Real Talent scoring applications on signals that publicly include IP address
+and location, and that inference is not measurement. Second, measured provider HTML drift
+faster than a Chrome Web Store review cycle can absorb; store policy forbids interpreting
+remotely supplied commands "even as data", so adapters must ship in the package.
+
+**Trade-offs the owner is being asked to accept, not just the recommendation.** Autopilot
+submission becomes computer-dependent, while review and approval stay phone-capable.
+Adapter fixes ship at review-plus-restart speed. The `outcome_unknown` rate rises, because
+laptops close mid-task.
+
+**Findings that constrain any host.** No launch provider offers a candidate-authenticated
+apply API; all four gate submission on a credential the employer holds, so the executor is
+a browser on the public form. No launch provider's terms clearly prohibit a candidate's
+agent from completing that candidate's own application, but the binding terms are the
+employer's and vary per job, so ADR-003 review per provider stays required. Command
+signing does **not** mitigate compromise of our own control plane, and a design claiming
+it does should be rejected; what contains that case is a declarative vocabulary, an
+allowlist and caps compiled into a store-reviewed artifact.
+
+**Market evidence, both directions.** Every browser-extension competitor with the means to
+auto-submit — Teal, Huntr, Simplify, Careerflow — stopped at pre-fill and stayed there.
+One hosted competitor, JobCopilot, does auto-submit, prices around a dollar per user per
+day, applies only on career pages and ATS rather than LinkedIn or aggregators, and offers
+review-before-send alongside autopilot. DEC-003 commits Job HQ past a line the extension
+market declined to cross; that is information the decision was made without, and the ADR
+should re-affirm it knowingly. Separately, LinkedIn's cease-and-desist to Browserflow, a
+one-person extension, is concrete precedent that enforcement reaches solo extension
+developers, and `hiQ v. LinkedIn` offers no shelter for authenticated write automation.
+
+**Owner decisions requested.** Approve, reject or amend the proposal; accept or reject the
+three trade-offs; rule on whether the egress trial may run against real employers, which
+is an external-side-effect approval; rule on whether a vendor whose hosted business is
+CAPTCHA bypass may be used for its self-hosted product; authorize or decline an approach
+to SmartRecruiters about partner API access. Signing this ADR makes ADD-003 blocking.
 
 ## 3. Resolved ADRs
 
@@ -219,6 +277,7 @@ candidate-fit analysis MUST:
 | `0027` defaults allow below middleware | Database/RPC/storage/worker default-deny mutation |
 | Executor causes duplicate/false application | At-most-once controls, unknown outcome, provider pause, receipt proof |
 | Provider terms or anti-abuse controls conflict | ADR-003; no bypass; manual handoff |
+| Submission succeeds but the user's candidacy is silently degraded by provider fraud scoring, with a truthful `submitted` receipt and no signal on our side | ADR-001 execution host chosen for honest egress; conservative per-employer caps; no evasion; the trial in `20-execution-host-decision.md` §9 before any change of position |
 | Design missing for promised behavior | ADD register blocks visible packet |
 | Existing PM/finance bias survives generic copy | Discovery golden corpus and diverse-user canary |
 | Third-party people data is inaccurate/unlawful | Vendor/processor terms/privacy review, provenance, correction/removal, minimal retention |

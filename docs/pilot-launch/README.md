@@ -177,7 +177,11 @@ Launch is allowed only when:
     companion to 04 and 05: the surface × state × mode coverage ledger, the live-data
     browser lane, the launch journeys, and the flake and anti-vacuity policies. A routed
     surface with a `missing` cell is not a release candidate.
-12. [`archive/`](archive/) preserves historical narrow-pilot analysis. It is not an
+12. [`20-execution-host-decision.md`](20-execution-host-decision.md) is the analysis and
+    proposal behind ADR-001 and PKT-07A: where Autopilot's browser automation runs, the
+    provider and store constraints that decide it, and the threat model. It is a proposal
+    awaiting owner approval, not an execution source.
+13. [`archive/`](archive/) preserves historical narrow-pilot analysis. It is not an
     execution source.
 
 Any older sentence in this directory that recommends a narrow pilot, a placeholder
