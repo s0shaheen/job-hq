@@ -149,13 +149,33 @@ fi
 #   container         (65-99% / ~90 MiB between phases, which is why sampling
 #                     once and dividing gives a number that is far too small)
 #
-# So MEMORY is the binding constraint, not CPU: 7.75 GiB / 2.1 GiB = 3.7
+# So MEMORY was the binding constraint, not CPU: 7.75 GiB / 2.1 GiB = 3.7
 # containers before the VM starts OOM-killing, and three already saturate its 14
 # CPUs at ~1400%. Two cost ~1066% CPU and ~4.2 GiB, which leaves a whole
 # container's worth of slack for the postgres sidecars every db-touching brief
-# spins up and for the VM's own overhead. Hence 2. It is a budget derived from
-# the VM's memory, so if that allocation changes, re-derive it — do not assume
-# it tracks the core count.
+# spins up and for the VM's own overhead. Hence 2.
+#
+# RE-DERIVED 2026-08-03, later the same day, because the allocation changed —
+# which the paragraph above said to do rather than assume the number tracks
+# anything. The VM went 7.75 GiB -> 23.4 GiB (swap 1 -> 4 GiB); CPUs unchanged
+# at 14. **The binding constraint inverted.**
+#
+#   memory   23.4 GiB / 2.1 GiB   = 11 containers   <- no longer the limit
+#   CPU      14 cores / ~4.7 hot  = 3 containers    <- now the limit
+#
+# Four, not eleven. The reason is the failure this semaphore exists to prevent,
+# which was never "the machine is slow" — it was that contention makes a
+# timing-sensitive suite fail at random, and proving such a failure is not real
+# costs more than the parallelism saved. CPU oversubscription produces exactly
+# that, so buying throughput past the core count buys back the original problem
+# wearing a different number.
+#
+# Four is ~1880% of the VM's ~1400% at peak, i.e. 1.34x oversubscribed — mild,
+# and covered by the troughs: a container sits at 65-99% between phases (npm
+# install, browser start, waits), so the hot figure is not the average. Memory
+# at four is ~8.4 GiB used of 23.4, leaving real slack for the postgres
+# sidecars. If the CPU count ever changes, re-derive again; this number now
+# tracks cores, which is the opposite of what it tracked this morning.
 #
 # The observed cost of NOT having this: four concurrent hq-test containers put
 # the machine at load 134 with the VM process at 1074% CPU. The previous round
@@ -191,7 +211,7 @@ fi
 # anyone bind-mounting /tmp turns that into a genuine self-deadlock: the outer
 # process holds the lock the inner one is waiting for, and neither can exit).
 # Hence the inner run is made to skip explicitly rather than to work by accident.
-slots="${HQ_TEST_SLOTS:-2}"
+slots="${HQ_TEST_SLOTS:-4}"
 sem_dir="${HQ_TEST_SLOTS_DIR:-${TMPDIR:-/tmp}/hq-test-slots}"
 held_slot=""
 

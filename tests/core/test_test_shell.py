@@ -363,16 +363,37 @@ class TestSemaphore:
         assert peak > 2, f"HQ_TEST_SLOTS=4 still peaked at {peak}; the knob is inert"
         assert peak <= 4, f"HQ_TEST_SLOTS=4 admitted {peak} at once"
 
-    def test_the_default_is_two(self, tmp_path: Path) -> None:
+    def test_the_default_is_four(self, tmp_path: Path) -> None:
         """The default is the number that matters, because almost nothing sets
-        the variable. Derived from the Docker VM's 7.75 GiB against a measured
-        ~2.1 GiB per hot container — not from the host's core count."""
+        the variable.
+
+        It was two, derived from the Docker VM's 7.75 GiB against a measured
+        ~2.1 GiB per hot container. The VM was raised to 23.4 GiB, and the
+        BINDING CONSTRAINT INVERTED: memory now allows 11 containers and the 14
+        CPUs allow about 3, so CPU binds where memory used to.
+
+        Four rather than eleven, because the failure this semaphore prevents was
+        never "the machine is slow" — it was that contention makes a
+        timing-sensitive suite fail at random, and proving such a failure is not
+        real costs more than the parallelism saved. Buying throughput past the
+        core count buys that problem back wearing a different number."""
         root, env, samples = self._harness(tmp_path)
         env.pop("HQ_TEST_SLOTS", None)
         env["STUB_SLEEP"] = "2"
 
-        self._fire(root, env, 5)
-        assert self._high_water(samples) == 2
+        self._fire(root, env, 6)
+        assert self._high_water(samples) == 4
+
+    def test_the_derivation_stays_beside_the_number(self) -> None:
+        """A budget whose reasoning has been edited away is a magic constant the
+        next person will tidy. The script must still say what it was measured
+        against, so the next allocation change is re-derived rather than
+        assumed to track whatever it tracked last time."""
+        src = SCRIPT.read_text()
+        assert "RE-DERIVED" in src, "the re-derivation was removed from the script"
+        assert "23.4 GiB" in src and "14 cores" in src, (
+            "the derivation must name the VM it was measured against"
+        )
 
     # ────────────────────────────────────────────────────────── visible waiting
 
