@@ -50,6 +50,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -129,6 +130,11 @@ IGNORED_FAIL_PLUS_PASS = (
     ' {"name":"webapp (1)","state":"SUCCESS","bucket":"pass","link":"u"}]'
 )
 SKIPPED_ONLY = '[{"name":"webapp (1)","state":"SKIPPED","bucket":"skipping","link":"u"}]'
+CANCELLED_CHECKS = '[{"name":"webapp (1)","state":"CANCELLED","bucket":"cancel","link":"u"}]'
+FAIL_PLUS_CANCEL = (
+    '[{"name":"webapp (1)","state":"CANCELLED","bucket":"cancel","link":"u"},'
+    ' {"name":"tests","state":"FAILURE","bucket":"fail","link":"u"}]'
+)
 
 
 @dataclass
@@ -142,6 +148,46 @@ class Land:
     gate_marker: Path
     script: Path
 
+    @property
+    def lock(self) -> Path:
+        """The per-branch landing lock this harness points every run at."""
+        return self.root / "land.lock"
+
+    def hold_lock(self, pid: int | None) -> Path:
+        """Create the lock the way a live run would, owned by `pid`.
+
+        `pid=None` writes NO pid file, which is the unreadable-holder case the
+        reclaim deliberately refuses rather than guesses about.
+        """
+        self.lock.mkdir(parents=True, exist_ok=True)
+        if pid is not None:
+            (self.lock / "pid").write_text(str(pid))
+        (self.lock / "started").write_text("2026-08-03T00:00:00Z")
+        (self.lock / "where").write_text(str(self.work))
+        return self.lock
+
+    def popen(self, *args: str, **env: str) -> subprocess.Popen:
+        """Start a run WITHOUT waiting, for the two-runs-at-once cases."""
+        e = dict(os.environ)
+        e["PATH"] = f"{self.stub}:{e['PATH']}"
+        e["GH_LOG"] = str(self.gh_log)
+        e["STUB_DIR"] = str(self.stub)
+        for k in ("LAND_GATES", "LAND_POLL_INTERVAL", "LAND_CHECK_GRACE",
+                  "LAND_CHECK_TIMEOUT", "LAND_LOCK_DIR", "LAND_TIER",
+                  "LAND_SKIP_GATES", "GH_CHECKS_FILE", "GH_HEAD_OVERRIDE",
+                  "GH_MERGE_MODE", "GH_NO_PR"):
+            e.pop(k, None)
+        e.setdefault("LAND_LOCK_DIR", str(self.lock))
+        e.setdefault("LAND_POLL_INTERVAL", "0")
+        e.setdefault("LAND_CHECK_GRACE", "0")
+        e.setdefault("LAND_CHECK_TIMEOUT", "0")
+        e.update(env)
+        return subprocess.Popen(
+            ["bash", str(self.script), *args],
+            cwd=self.work, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env=e,
+        )
+
     def run(self, *args: str, script: Path | None = None, **env: str):
         e = dict(os.environ)
         e["PATH"] = f"{self.stub}:{e['PATH']}"
@@ -154,8 +200,16 @@ class Land:
         # exactly that way, and only when invoked from inside a real land, which
         # is the worst possible place for a test to be environment-sensitive.
         for k in ("LAND_GATES", "LAND_POLL_INTERVAL", "LAND_CHECK_GRACE",
-                  "LAND_CHECK_TIMEOUT"):
+                  "LAND_CHECK_TIMEOUT", "LAND_LOCK_DIR"):
             e.pop(k, None)
+        # The landing lock is machine-wide ON PURPOSE — many worktrees, one
+        # repository — so every test here would otherwise contend for the ONE
+        # directory keyed by acme/job-hq + main + feat/thing, and two tests
+        # running at once would refuse each other with exit 13. Per-test path,
+        # inside tmp_path, for the same reason the verify-lane suite overrides
+        # HQ_VERIFY_LOCK: a shared lock is the behaviour under test, not a
+        # dependency the suite should acquire for real.
+        e.setdefault("LAND_LOCK_DIR", str(self.root / "land.lock"))
         e.setdefault("LAND_GATES", f"touch {self.gate_marker}")
         e.setdefault("LAND_POLL_INTERVAL", "0")
         e.setdefault("LAND_CHECK_GRACE", "0")
@@ -566,8 +620,64 @@ def test_a_failing_vercel_does_not_gate(land: Land) -> None:
     still printed."""
     r = land.run(GH_CHECKS_FILE=land.checks(IGNORED_FAIL_PLUS_PASS))
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "NOT gating on them" in r.stderr
+    assert "will NOT block this merge" in r.stderr
     assert "Vercel" in r.stderr, "an ignored check must still be visible"
+
+
+def test_the_ignored_check_notice_says_the_merge_is_unaffected(land: Land) -> None:
+    """The wording is the fix, so the wording is what is asserted.
+
+    On 2026-08-03 four agents read the previous notice — "failing checks this repo
+    does not own — NOT gating on them", in warning yellow, once per poll — and
+    concluded a red `Vercel` was blocking the merge. Two escalated it as a blocker
+    needing an owner decision. They were reasoning correctly from doctrine; the
+    output was what was wrong, because it stated what the script does not do and
+    left the consequence to be inferred.
+
+    The test of the replacement is not accuracy — the old line was accurate — but
+    whether a reader who has never opened land.sh can still reach the wrong
+    conclusion. So: the consequence must be stated, and the phrase that misled
+    must be gone.
+    """
+    r = land.run(GH_CHECKS_FILE=land.checks(IGNORED_FAIL_PLUS_PASS))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "will NOT block this merge" in r.stderr
+    assert "not a gate" in r.stderr
+    # The bare old phrasing said only what was NOT happening. If it comes back,
+    # so does the misreading.
+    assert "NOT gating on them" not in r.stderr
+
+
+def test_the_ignored_check_notice_is_printed_once_not_per_poll(land: Land) -> None:
+    """Repetition is what made it look like an escalating problem.
+
+    The check set here stays pending for several polls with the ignored failure
+    present throughout, so a per-poll notice would appear repeatedly. It must
+    appear exactly once.
+    """
+    payload = (
+        '[{"name":"Vercel","state":"FAILURE","bucket":"fail","link":"u"},'
+        ' {"name":"tests","state":"IN_PROGRESS","bucket":"pending","link":"u"}]'
+    )
+    r = land.run(GH_CHECKS_FILE=land.checks(payload), LAND_CHECK_TIMEOUT="2")
+    assert r.returncode == 9, r.stdout + r.stderr  # pending at timeout
+    assert r.stderr.count("will NOT block this merge") == 1, (
+        f"the ignored-check notice repeated:\n{r.stderr}"
+    )
+
+
+def test_the_gate_step_names_the_skip_option(land: Land) -> None:
+    """Where the cost is paid is where the option has to be visible.
+
+    Two agents did not know `LAND_SKIP_GATES=1` applied to them while CI was
+    already green on the exact commit; one spent an hour re-running a gate whose
+    answer was already published. It was documented at the top of the file, which
+    is not where anybody was looking.
+    """
+    r = land.run(GH_CHECKS_FILE=land.checks(PASSING_CHECKS))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "LAND_SKIP_GATES=1 scripts/land.sh" in r.stderr
+    assert "Not automatic" in r.stderr, "it must not read as advice to always skip"
 
 
 def test_a_failing_owned_check_still_gates_beside_an_ignored_one(land: Land) -> None:
@@ -690,6 +800,181 @@ def test_unknown_argument_refuses_with_20(land: Land) -> None:
     assert "Unknown argument" in refusal(r)
 
 
+# ════════════════════════════════════ exit 13: two land.sh runs, one branch
+#
+# The defect this closes, measured: on 2026-08-03 PR #149 was merged by a
+# detached land.sh its author believed dead, while a second run reached the merge
+# step and reported `already merged` / `unusual merge state — proceeding only
+# because checks are green`. Nothing landed over red, and only because the last
+# check turned green fourteen seconds BEFORE the merge. Reverse those and the
+# second run has no check set of its own left to refuse on.
+
+
+def test_two_runs_on_one_branch_and_only_one_reaches_the_merge(land: Land) -> None:
+    """The real thing: two concurrent processes, not a simulated lock.
+
+    The first run is parked inside its local gate — a gate that blocks until the
+    test releases it — which is exactly where the real collision happened, since
+    the gates run before the push and the PR lookup. The second run's behaviour is
+    asserted, not merely its absence: exit 13, a refusal naming the branch, and no
+    `pr merge` from it. Then the first is released and must land normally, so the
+    lock is proved to serialize rather than to deadlock.
+    """
+    release = land.root / "release-the-gate"
+    first = land.popen(
+        GH_CHECKS_FILE=land.checks(PASSING_CHECKS),
+        LAND_GATES=f"while [ ! -f {release} ]; do sleep 0.05; done",
+    )
+    try:
+        # Wait for the first run to actually be holding the lock, rather than
+        # sleeping a guessed interval — a race here would make the test flaky in
+        # the direction of passing for the wrong reason.
+        for _ in range(600):
+            if (land.lock / "pid").exists():
+                break
+            if first.poll() is not None:
+                break
+            time.sleep(0.05)
+        assert (land.lock / "pid").exists(), "the first run never took the lock"
+
+        second_log = land.root / "gh-second.log"
+        second = land.run(
+            GH_CHECKS_FILE=land.checks(PASSING_CHECKS),
+            GH_LOG=str(second_log),
+            LAND_GATES=f"touch {land.root / 'second-gates-ran'}",
+        )
+        assert second.returncode == 13, second.stdout + second.stderr
+        assert "already landing feat/thing" in refusal(second)
+        assert str(land.lock) in refusal(second), "the refusal must name the lock"
+        assert not (land.root / "second-gates-ran").exists(), (
+            "the second run ran the local gates anyway — it must stop AT the lock"
+        )
+        second_calls = second_log.read_text().splitlines() if second_log.exists() else []
+        assert not any(c.startswith("pr merge") for c in second_calls), (
+            f"the second run reached the merge: {second_calls}"
+        )
+    finally:
+        release.write_text("go\n")
+        out, err = first.communicate(timeout=180)
+
+    assert first.returncode == 0, out + err
+    assert "LANDED" in out, out + err
+    assert not land.lock.exists(), "the lock outlived the run that held it"
+
+
+def test_the_lock_is_released_after_a_refusal_too(land: Land) -> None:
+    """A lock that leaks on the unhappy path is worse than no lock: every later
+    run refuses until somebody deletes a directory. Refusals are the COMMON exit
+    of this script, so this is the path that has to be right."""
+    r = land.run(GH_CHECKS_FILE=land.checks(FAILING_CHECKS))
+    assert r.returncode == 8, r.stdout + r.stderr
+    assert not land.lock.exists(), "a refusing run kept the landing lock"
+
+    # And the branch is landable immediately afterwards, which is the property
+    # the assertion above is really about.
+    ok = land.run(GH_CHECKS_FILE=land.checks(PASSING_CHECKS))
+    assert ok.returncode == 0, ok.stdout + ok.stderr
+
+
+def test_a_lock_held_by_a_live_pid_refuses(land: Land) -> None:
+    """The conservative direction, with a pid that is definitely alive."""
+    holder = subprocess.Popen(["sleep", "300"])
+    try:
+        land.hold_lock(holder.pid)
+        r = land.run(GH_CHECKS_FILE=land.checks(PASSING_CHECKS))
+        assert r.returncode == 13, r.stdout + r.stderr
+        assert str(holder.pid) in refusal(r), "the refusal must name the holder"
+        assert not any(c.startswith("pr merge") for c in land.gh_calls())
+        assert land.lock.exists(), "a live holder's lock was destroyed"
+    finally:
+        holder.kill()
+        holder.wait(timeout=30)
+
+
+def test_a_lock_whose_owner_is_dead_is_reclaimed(land: Land) -> None:
+    """The crash path, driven by actually killing a holder.
+
+    A run that is SIGKILLed cannot run its own trap, so the lock it leaves is
+    indistinguishable on disk from a live one apart from the pid. Reclaiming it is
+    what keeps one crash from wedging every later landing.
+    """
+    holder = subprocess.Popen(["sleep", "300"])
+    holder.kill()
+    holder.wait(timeout=30)
+    land.hold_lock(holder.pid)
+
+    r = land.run(GH_CHECKS_FILE=land.checks(PASSING_CHECKS))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "reclaiming" in refusal(r), refusal(r)
+    assert str(holder.pid) in refusal(r), "say WHOSE lock was reclaimed"
+    assert "LANDED" in r.stdout
+
+
+def test_a_lock_with_no_readable_pid_is_never_reclaimed(land: Land) -> None:
+    """Wrong in the permissive direction puts two runs on one merge; wrong in the
+    conservative direction costs one `rm -rf` by a human who is told the path.
+    Those are not comparable, so an unreadable holder refuses.
+    """
+    land.hold_lock(None)
+    r = land.run(GH_CHECKS_FILE=land.checks(PASSING_CHECKS))
+    assert r.returncode == 13, r.stdout + r.stderr
+    assert "unreadable" in refusal(r)
+    assert f"rm -rf {land.lock}" in refusal(r), "tell the operator exactly what to remove"
+    assert not any(c.startswith("pr merge") for c in land.gh_calls())
+
+
+def test_a_pid_file_that_is_not_a_number_is_never_reclaimed(land: Land) -> None:
+    """`kill -0 ''` and `kill -0 nonsense` do not mean 'dead'. A non-numeric pid
+    is an unreadable holder, not an absent one."""
+    land.lock.mkdir(parents=True, exist_ok=True)
+    (land.lock / "pid").write_text("not-a-pid")
+    r = land.run(GH_CHECKS_FILE=land.checks(PASSING_CHECKS))
+    assert r.returncode == 13, r.stdout + r.stderr
+    assert not any(c.startswith("pr merge") for c in land.gh_calls())
+
+
+def test_the_lock_key_separates_branches(land: Land) -> None:
+    """Two DIFFERENT branches must not block each other — a lock that serialized
+    every landing on the machine would be a worse bug than the one it fixes.
+
+    The default key is derived from repo slug, base and branch, so this asserts on
+    the derivation rather than on the override the rest of the suite uses.
+    """
+    r = land.run("--dry-run", GH_CHECKS_FILE=land.checks(PASSING_CHECKS),
+                 LAND_LOCK_DIR="")
+    assert r.returncode == 0, r.stdout + r.stderr
+    # The key names all three, so a second branch gets a different directory.
+    assert "acme-job-hq-main-feat-thing" in refusal(r), refusal(r)
+
+
+# ═══════════════════════════ exit 8, but say WHICH: cancelled is not failed
+
+
+def test_an_all_cancelled_check_set_refuses_and_says_it_was_cancelled(land: Land) -> None:
+    """Still exit 8 — a cancelled check never ran, so it vouches for nothing and
+    must not pass. But the next action is 're-run', not 'debug the tests', and on
+    2026-08-03 that distinction cost real time: PR #149 was refused three times by
+    check sets that main moving had cancelled underneath it.
+    """
+    r = land.run(GH_CHECKS_FILE=land.checks(CANCELLED_CHECKS))
+    assert r.returncode == 8, r.stdout + r.stderr
+    assert "all 1 CANCELLED, none failed" in refusal(r)
+    assert "refs/pull/<N>/merge" in refusal(r), "name the mechanism, not just the symptom"
+    assert "Re-run scripts/land.sh" in refusal(r)
+    assert not any(c.startswith("pr merge") for c in land.gh_calls())
+
+
+def test_a_genuine_failure_alongside_a_cancellation_keeps_the_plain_refusal(
+    land: Land,
+) -> None:
+    """The cancellation wording must not soften a real red. When something
+    actually failed, the message stays the one that says so."""
+    r = land.run(GH_CHECKS_FILE=land.checks(FAIL_PLUS_CANCEL))
+    assert r.returncode == 8, r.stdout + r.stderr
+    assert "CANCELLED, none failed" not in refusal(r)
+    assert "Fix the failure" in refusal(r)
+
+
 # ══════════════════════════════════════════════════════════ ANTI-VACUITY
 #
 # Three of the properties above are the ones that actually keep red off main.
@@ -734,6 +1019,16 @@ MUTATIONS = [
         None,  # asserted on the gate marker, not on an exit code
         id="tier-skips-gates",
     ),
+    pytest.param(
+        "a second run on one branch refuses",
+        (
+            'claim_lock() { mkdir "$LOCK_DIR" 2>/dev/null; }',
+            'claim_lock() { mkdir -p "$LOCK_DIR" 2>/dev/null; }',
+        ),
+        {"GH_CHECKS_FILE": PASSING_CHECKS, "_hold_lock": "live"},
+        13,
+        id="second-run-refuses",
+    ),
 ]
 
 
@@ -752,6 +1047,23 @@ def test_mutations_break_the_properties(
     env = dict(scenario)
     env["GH_CHECKS_FILE"] = land.checks(env["GH_CHECKS_FILE"])
 
+    # Some properties are only observable against a lock somebody else holds.
+    # The holder is a LIVE process, so the reclaim path cannot make either run
+    # pass for the wrong reason — the same care `test_verify_lane.py` takes.
+    holder = None
+    if env.pop("_hold_lock", None):
+        holder = subprocess.Popen(["sleep", "300"])
+        land.hold_lock(holder.pid)
+
+    try:
+        _run_mutation_pair(land, mutant, env, name, expected_code)
+    finally:
+        if holder is not None:
+            holder.kill()
+            holder.wait(timeout=30)
+
+
+def _run_mutation_pair(land, mutant, env, name, expected_code):
     # The real script holds the property...
     good = land.run("--dry-run", **env)
     if expected_code is not None:

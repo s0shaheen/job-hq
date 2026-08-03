@@ -377,6 +377,30 @@ tests = ["tests/core/test_land_script.py::test_stdout_carries_only_the_result_no
 failing = 1
 
 [[mutant]]
+id = "land-lock-claim-never-fails"
+tier = "T4"
+kind = "patch"
+patch = "patches/land-lock-claim-never-fails.patch"
+guard = "scripts/land.sh — `mkdir` (not `mkdir -p`) as the per-branch landing lock"
+property = """
+Only one land.sh at a time may land a branch. `mkdir` is the whole exclusion: it \
+either creates the directory or fails, atomically, and `mkdir -p` succeeding on an \
+existing directory turns the lock into a no-op that still looks present on disk."""
+runner = "pytest"
+tests = [
+  "tests/core/test_land_script.py::test_two_runs_on_one_branch_and_only_one_reaches_the_merge",
+  "tests/core/test_land_script.py::test_a_lock_held_by_a_live_pid_refuses",
+  "tests/core/test_land_script.py::test_a_lock_with_no_readable_pid_is_never_reclaimed",
+  "tests/core/test_land_script.py::test_a_pid_file_that_is_not_a_number_is_never_reclaimed",
+]
+failing = 4
+# `-p` rather than deleting the lock outright, because the interesting failure is
+# the SILENT one: the directory is still created, the pid file is still written,
+# anything that merely looks for the lock still finds it, and the only thing gone
+# is the exclusion. A deletion would be caught by almost anything; this is what a
+# plausible edit to that one line actually does.
+
+[[mutant]]
 id = "render-mapped-returns-exc-untouched"
 tier = "T3"
 kind = "patch"

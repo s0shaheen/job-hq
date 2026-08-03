@@ -1,0 +1,12 @@
+diff --git a/scripts/land.sh b/scripts/land.sh
+--- a/scripts/land.sh
++++ b/scripts/land.sh
+@@ -244,7 +244,7 @@
+ }
+
+ step "Claiming the landing lock for ${BRANCH}"
+-claim_lock() { mkdir "$LOCK_DIR" 2>/dev/null; }
++claim_lock() { mkdir -p "$LOCK_DIR" 2>/dev/null; }
+
+ if ! claim_lock; then
+   holder="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"

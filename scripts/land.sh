@@ -36,6 +36,7 @@
 #     LAND_POLL_INTERVAL   seconds between polls (default: 15)
 #     LAND_GATES           override the local gate command
 #     LAND_SKIP_GATES      set to 1 to skip local gates (CI still gates the merge)
+#     LAND_LOCK_DIR        override the per-branch landing lock directory
 #
 # EXIT CODES  (each one is a refusal that really happened, or really could)
 #
@@ -51,6 +52,7 @@
 #     10  check set is EMPTY or UNKNOWN  <-- the #108 / #109 hole
 #     11  the pull request is not in a mergeable state, or merge failed
 #     12  merge reported success but origin/<base> did not move as expected
+#     13  another land.sh is already landing this branch
 #     20  prerequisites missing (git, gh, jq, auth, repo)
 #
 set -uo pipefail
@@ -64,6 +66,25 @@ POLL_INTERVAL="${LAND_POLL_INTERVAL:-15}"
 DRY_RUN=0
 PR_TITLE=""
 PR_BODY_FILE=""
+
+# Checks this repository does not own, and therefore does not gate on.
+#
+# `Vercel` is a preview deployment for the editor project, attached by that
+# project's own Git integration. On 2026-08-02 it began failing every PR with
+# "Deployment rate limited — retry in 24 hours": an account-level build cap, not
+# a statement about the code. The webapp's own deployment goes through deploy.yml,
+# which builds and probes the artifact itself, so nothing about correctness is
+# lost by not gating here.
+#
+# DELIBERATELY a list and not a pattern. Every entry is a decision that a specific
+# external service does not speak for this repo, and a pattern would quietly
+# absorb the next check somebody adds. An ignored check is still printed, so it
+# cannot go unnoticed.
+#
+# Defined here, at the top, rather than inside the poll loop: the pre-gate hint
+# below reads the check set too, and two copies of this list would eventually
+# disagree about what counts as a gate.
+IGNORED_CHECKS_JQ='["Vercel", "Vercel Preview Comments"]'
 
 # ---------------------------------------------------------------- reporting
 
@@ -182,6 +203,116 @@ if [ -n "$UNTRACKED" ]; then
 fi
 ok "no uncommitted tracked changes"
 
+# ------------------------------------------ refusal: another land is in flight
+#
+# WHY THIS EXISTS. On 2026-08-03 PR #149 was merged by a detached land.sh its
+# author believed dead, while a second run of the script — started because the
+# first appeared gone — reached the merge step and reported `already merged` and
+# `unusual merge state — proceeding only because checks are green`. Nothing
+# landed over red that time, but only because of ORDER: the last check went green
+# fourteen seconds before the merge. Reverse those two events and the second run
+# has nothing left to refuse, which is the #108 / #109 shape this whole script
+# exists to prevent. The same hazard was then reproduced from the coordinator
+# side, landing two PRs whose own agents were already landing them. Anything that
+# can be invoked twice will be.
+#
+# WHY `mkdir` AND NOT A LOCKFILE. `mkdir` either creates the directory or fails,
+# in one atomic step, on every filesystem this runs on. `[ -e f ] || echo $$ > f`
+# is two steps with a window between them, and `set -o noclobber` is not reliable
+# across the shells and mounts involved. This is the same mechanism, for the same
+# reason, as the verify lock in `scripts/verify.sh` — deliberately not a second
+# invention, so there is one locking idiom in this repo to understand and audit.
+#
+# WHY THE KEY IS THE BRANCH AND NOT THE PR. The PR number is not known until
+# after the rebase, the `--force-with-lease` push and the `gh pr list` — and that
+# window is exactly where the collision happened: two runs rebasing and
+# force-pushing the same branch before either could name a PR to lock on. A
+# branch can also be landed before its PR exists at all, so a PR-keyed lock has
+# nothing to key on for the first run. Keying on the branch loses nothing in
+# return, because a pull request has exactly one head branch: every pair of runs
+# a PR-keyed lock would have caught shares a branch too. The repo slug and base
+# are in the key as well, so two checkouts of different forks do not collide.
+#
+# WHY REFUSE RATHER THAN WAIT. `verify.sh` waits, and is right to: its second run
+# still has work to do afterwards. A second LANDING does not — the first one is
+# merging the same commits, so the honest outcome is "somebody else is already
+# doing this", not a queue. A waiting run would wake to a merged PR and a deleted
+# branch and then refuse with exit 5 (`no commits that origin/main does not
+# already have`), which reads like a defect in the branch rather than a race.
+# The cost of refusing is that a genuine sequential re-run has to wait for the
+# first to finish, which is what it should do anyway.
+#
+# THE RECLAIM IS THE DANGEROUS PART, so it is deliberately timid. A holder is
+# reclaimed ONLY when it recorded a numeric pid AND that pid is gone. Wrong in
+# the permissive direction — reclaiming a live holder — puts two runs on one
+# merge, the exact thing this prevents. Wrong in the conservative direction —
+# refusing to reclaim a lock whose owner really is dead — costs one `rm -rf` by a
+# human who is told the exact path. Those are not comparable, so an unreadable or
+# non-numeric pid file refuses rather than guesses. A slow holder is not a dead
+# one: no timeout is used, because a run legitimately waits up to
+# LAND_CHECK_TIMEOUT (default 2400s) for CI, and any age-based reclaim would race
+# a healthy run that is merely being patient.
+LOCK_KEY="$(printf '%s-%s-%s' "$SLUG" "$BASE" "$BRANCH" | tr -c 'A-Za-z0-9._-' '-')"
+LOCK_DIR="${LAND_LOCK_DIR:-${TMPDIR:-/tmp}/hq-land-${LOCK_KEY}.lock}"
+lock_held=0
+release_lock() {
+  if [ "$lock_held" = "1" ]; then
+    lock_held=0
+    rm -rf "$LOCK_DIR"
+  fi
+}
+
+step "Claiming the landing lock for ${BRANCH}"
+claim_lock() { mkdir "$LOCK_DIR" 2>/dev/null; }
+
+if ! claim_lock; then
+  holder="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"
+  holder_since="$(cat "${LOCK_DIR}/started" 2>/dev/null || true)"
+  holder_where="$(cat "${LOCK_DIR}/where" 2>/dev/null || true)"
+
+  if [ -n "$holder" ] && printf '%s' "$holder" | grep -qE '^[0-9]+$' \
+     && ! kill -0 "$holder" 2>/dev/null; then
+    warn "reclaiming a landing lock whose owner (pid ${holder}) is gone"
+    rm -rf "$LOCK_DIR"
+    claim_lock || refuse 13 \
+      "Another land.sh claimed ${BRANCH} while this one was reclaiming a dead lock." \
+      "Two runs found the same stale lock at the same moment and one of them won." \
+      "Nothing is wrong; re-run scripts/land.sh once the other finishes."
+  else
+    refuse 13 "Another land.sh is already landing ${BRANCH}." \
+      "  holder pid  ${holder:-<unreadable>}" \
+      "  started     ${holder_since:-<unknown>}" \
+      "  invoked from ${holder_where:-<unknown>}" \
+      "  lock        ${LOCK_DIR}" \
+      "" \
+      "Two runs landing one branch is how a merge happens with nothing left to" \
+      "refuse it: the second arrives after the first has already merged and finds" \
+      "no check set of its own to gate on. Only one may proceed." \
+      "" \
+      "If that pid is genuinely gone and this still refuses, its pid file is" \
+      "unreadable — this script will not guess. Clear it by hand:" \
+      "    rm -rf ${LOCK_DIR}"
+  fi
+fi
+
+lock_held=1
+trap release_lock EXIT INT TERM
+printf '%s' "$$" > "${LOCK_DIR}/pid"
+date -u '+%Y-%m-%dT%H:%M:%SZ' > "${LOCK_DIR}/started" 2>/dev/null || true
+printf '%s' "$REPO_ROOT" > "${LOCK_DIR}/where" 2>/dev/null || true
+
+# Confirm the claim rather than assume it. Two runs can both find a stale lock,
+# both `rm -rf` it, and both `mkdir` — the loser's mkdir fails, but if its rm
+# landed between the winner's mkdir and this write, the directory on disk is the
+# loser's. Reading the pid back is what turns "I called mkdir" into "I hold it".
+if [ "$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)" != "$$" ]; then
+  lock_held=0
+  refuse 13 "Lost a race for the landing lock on ${BRANCH}." \
+    "The lock at ${LOCK_DIR} is held by pid $(cat "${LOCK_DIR}/pid" 2>/dev/null || printf '<unreadable>')." \
+    "Re-run scripts/land.sh once it finishes."
+fi
+ok "holding ${LOCK_DIR}"
+
 # --------------------------------------------------------------- rebase
 
 step "Rebasing ${BRANCH} onto origin/${BASE}"
@@ -215,11 +346,40 @@ fi
 # redoing work — and it is safe because the stamp is keyed to the SHA.
 GATE_STAMP="$(git rev-parse --git-dir)/land-gates-passed"
 
+# Say, at the moment the cost is about to be paid, that CI may already have paid
+# it. On 2026-08-03 at least two agents did not know `LAND_SKIP_GATES=1` applied
+# to them while CI was already green on the exact commit they were landing, and
+# one spent an hour re-running a local gate whose answer was already published.
+# The option was documented in the usage text at the top of this file, which is
+# not where anybody was looking.
+#
+# WHY THIS DOES NOT ASK GITHUB WHETHER CI IS ALREADY GREEN, which was the first
+# attempt. Reading the check set here costs a `gh pr view --json headRefOid` on a
+# path where nothing about the merge depends on the answer — and that call is not
+# free of consequence: the check-wait loop below re-reads the head to prove the
+# green checks belong to THIS commit, and the suite pins that behaviour by
+# counting those reads. A convenience hint that perturbs a safety test's
+# preconditions is the wrong trade in this file. The hint is therefore static: it
+# names the option and the condition, and the reader — who can see the CI status
+# on the PR — decides whether the condition holds.
+#
+# Recorded as a deviation from the instruction that prompted it, which asked for
+# the conditional form "CI already concluded these on this commit".
 run_gates() {
   if [ "${LAND_SKIP_GATES:-0}" = "1" ]; then
     warn "LAND_SKIP_GATES=1 — local gates skipped. CI still gates the merge."
     return 0
   fi
+
+  # Named HERE, where the minutes are about to be spent, because that is the one
+  # place a reader is thinking about the cost. On 2026-08-03 at least two agents
+  # did not know this option applied to them while CI was already green on the
+  # exact commit they were landing, and one spent an hour re-running a gate whose
+  # answer was already published. It was documented at the top of this file,
+  # which is not where anybody was looking.
+  info "If CI has already concluded green on this exact commit (${HEAD_SHA:0:8}),"
+  info "these gates are a re-run of published work:  LAND_SKIP_GATES=1 scripts/land.sh"
+  info "Not automatic — the lanes differ, and the blast-radius call is yours."
 
   if [ -f "$GATE_STAMP" ] && [ "$(cat "$GATE_STAMP" 2>/dev/null)" = "$HEAD_SHA" ]; then
     ok "gates already passed for ${HEAD_SHA:0:8} — not re-running"
@@ -408,12 +568,30 @@ while [ -z "${SKIP_CHECK_WAIT:-}" ]; do
   # decision that a specific external service does not speak for this repo, and
   # a pattern would quietly absorb the next check somebody adds. An ignored
   # check is still printed, so it cannot go unnoticed.
-  IGNORED_CHECKS_JQ='["Vercel", "Vercel Preview Comments"]'
+  # HOW THIS IS WORDED IS PART OF THE FIX. On 2026-08-03 four separate agents
+  # read the previous version of this output — a yellow `warn`, repeated on every
+  # poll, headed "failing checks this repo does not own" — and concluded that a
+  # red `Vercel` would block the merge. Two stopped work and escalated it as a
+  # blocker; one only believed otherwise after reading the source. Every one of
+  # them was reasoning correctly from doctrine ("the real checks are green" is
+  # what put #108 and #109 on a broken main); the output was what was wrong. It
+  # said what the script does not gate on and left the reader to infer the
+  # consequence, in the same colour and the same stream as the refusals, once per
+  # poll so it looked like an escalating problem.
+  #
+  # So: say the consequence outright, in the words a reader is scanning for, and
+  # say it ONCE. The test of this wording is not whether it is accurate — the old
+  # one was — but whether somebody who has never opened this file can reach the
+  # wrong conclusion from it. "Will NOT block this merge" cannot be read as "is
+  # blocking this merge".
   ignored_fail="$(printf '%s' "$raw" | jq -r --argjson ig "$IGNORED_CHECKS_JQ" \
-    '[.[] | select((.bucket == "fail" or .bucket == "cancel") and (.name | IN($ig[])))] | .[] | "    ignored  \(.name)  \(.link)"')"
-  if [ -n "$ignored_fail" ]; then
-    warn "failing checks this repo does not own — NOT gating on them:"
+    '[.[] | select((.bucket == "fail" or .bucket == "cancel") and (.name | IN($ig[])))] | .[] | "    ignored (not a gate)  \(.name)  \(.link)"')"
+  if [ -n "$ignored_fail" ] && [ -z "${IGNORED_REPORTED:-}" ]; then
+    IGNORED_REPORTED=1
+    ok "these checks are red and will NOT block this merge — land.sh does not gate"
+    ok "on them, and is filtering them out of the pass/fail counts below:"
     printf '%s\n' "$ignored_fail" >&2
+    ok "nothing further is needed about them; they are not this repo's checks."
   fi
   # Filter ALWAYS, then treat an empty result the way an empty check set is
   # treated: keep waiting while the grace window is open, refuse once it closes.
@@ -447,6 +625,34 @@ while [ -z "${SKIP_CHECK_WAIT:-}" ]; do
   fi
 
   if [ "$fail_n" -gt 0 ]; then
+    # A cancellation still refuses — it is the absence of a verdict, not a pass,
+    # and treating "never finished" as "fine" is the whole hole this script
+    # closes. But it is worth SAYING which one happened, because the two have
+    # completely different next actions and on 2026-08-03 the difference cost
+    # real time: PR #149 was refused three times by check sets that had been
+    # cancelled, and the first reading of that was "a test is failing".
+    #
+    # Why a PR's checks get cancelled with nothing wrong: `.github/workflows/ci.yml`
+    # sets `concurrency.group` from `github.ref`, and for a pull_request run that
+    # ref is `refs/pull/<N>/merge` — a ref GitHub REGENERATES every time the base
+    # branch advances. So any branch landing on main cancels the in-flight runs of
+    # every open PR, and a busy day forces branches through repeated full CI
+    # cycles for reasons that have nothing to do with their own code. Re-running
+    # is the fix; debugging the tests is not.
+    cancel_n="$(printf '%s' "$raw" | jq '[.[] | select(.bucket == "cancel")] | length')"
+    real_fail_n=$(( fail_n - cancel_n ))
+    if [ "$cancel_n" -gt 0 ] && [ "$real_fail_n" -eq 0 ]; then
+      refuse 8 "PR #${PR_NUM} has ${fail_n} failing or cancelled check(s) — all ${cancel_n} CANCELLED, none failed." \
+        "$(printf '%s' "$raw" | jq -r '.[] | select(.bucket == "cancel") | "    \(.bucket)  \(.name)  \(.link)"')" \
+        "" \
+        "A cancelled check never ran, so it has not vouched for anything. That is" \
+        "a refusal, not a pass — but it is probably NOT your branch: CI keys its" \
+        "concurrency group on refs/pull/<N>/merge, which GitHub regenerates every" \
+        "time main moves, so another branch landing cancels this PR's run." \
+        "" \
+        "Re-run scripts/land.sh (or \`gh run rerun <id> --failed\`). Read the tests" \
+        "only if the same check is cancelled repeatedly with main standing still."
+    fi
     refuse 8 "PR #${PR_NUM} has ${fail_n} failing or cancelled check(s)." \
       "$(printf '%s' "$raw" | jq -r '.[] | select(.bucket == "fail" or .bucket == "cancel") | "    \(.bucket)  \(.name)  \(.link)"')" \
       "" \
