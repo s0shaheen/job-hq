@@ -16,15 +16,15 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 
 | | Cells |
 |---|---:|
-| covered | 112 |
+| covered | 113 |
 | n/a | 50 |
 | blocked on an ADD item | 132 |
-| missing, baselined 2026-08-02 | 210 |
+| missing, baselined 2026-08-02 | 209 |
 | missing, new (fails) | 0 |
 | on an unbuilt surface (not enforced) | 126 |
 | total | 504 |
 
-**Baselined is not covered.** 210 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
+**Baselined is not covered.** 209 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
 
 ## Matrix, fixture mode
 
@@ -33,7 +33,7 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 | applications | yes | yes | yes | n/a | yes | yes | yes | yes | gap | yes | yes | gap | yes | yes | gap | yes | yes | yes | yes | gap | gap |
 | autopilot | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | billing-landing-email-import-export | gap | yes | yes | n/a | gap | gap | yes | gap | gap | yes | add | gap | gap | yes | gap | gap | yes | yes | yes | gap | n/a |
-| coverage | yes | yes | yes | yes | gap | yes | yes | yes | gap | gap | yes | gap | yes | yes | gap | gap | yes | yes | yes | gap | gap |
+| coverage | yes | yes | yes | yes | yes | yes | yes | yes | gap | gap | yes | gap | yes | yes | gap | gap | yes | yes | yes | gap | gap |
 | find-intro | gap | yes | yes | yes | yes | yes | yes | yes | gap | gap | yes | gap | gap | yes | gap | add | gap | gap | yes | gap | n/a |
 | jobs | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | gap | yes | yes | yes | yes | yes | yes | gap | yes |
 | operator-admin | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
@@ -152,7 +152,7 @@ Routes: `/companies`, `/companies/add`, `/health`
 | Populated | yes | `tests/e2e/companies.spec.ts` "every row's chip names a confidence — none is silently blank" |
 | Natural empty | yes | `tests/e2e/empty.spec.ts` "zero rows" |
 | Filter empty | yes | `tests/e2e/companies.spec.ts` "a zero-result search offers a way back" |
-| Missing optional fact | gap | A company row with no domain, tier or evidence is never asserted to read Not listed. |
+| Missing optional fact | yes | `tests/e2e/companies.spec.ts` "a company with no job board reads Not listed, never an empty cell"; `tests/e2e/companies.spec.ts` "a company the universe has no domain for is on the monogram already"; `tests/e2e/companies.spec.ts` "the monogram is decorative, so the company column does not read as 'R A Ramp'" |
 | Partial/degraded | yes | `tests/e2e/companies.spec.ts` "does not render NaN on an empty universe" |
 | Validation error | yes | `tests/e2e/companies.spec.ts` "the submit button is inert until something parses" |
 | Write pending | yes | `tests/e2e/companies.spec.ts` "a failed write reverts the whole batch and says so" |
@@ -168,7 +168,7 @@ Routes: `/companies`, `/companies/add`, `/health`
 | 200% zoom | yes | `tests/e2e/resilience.spec.ts` "the page survives a 200% text zoom" |
 | Narrow viewport | yes | `tests/e2e/companies.spec.ts` "the grid scrolls inside its own container at 280px" |
 | Reduced motion | gap | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
-| Provider image failure | gap | The monogram fallback for a failed company logo is asserted in unit tests only, on the surface that shows the most logos. |
+| Provider image failure | gap | The monogram fallback for a failed company logo is asserted in unit tests only, on the surface that shows the most logos - and the rendered path is known broken there, because a server-rendered row fires its image error before hydration so onError never runs. |
 
 ### find-intro
 
@@ -430,7 +430,6 @@ Each line is a hole that already existed when the gate was switched on. Baseline
 | `settings-auth-onboarding | Loading | fixture` | Neither settings surface nor the wizard has a skeleton assertion. |
 | `billing-landing-email-import-export | Loading | fixture` | The wizard has no skeleton assertion. |
 | `today | Partial/degraded | fixture` | A queue rendered with the engine's scoring unavailable is never exercised. |
-| `coverage | Missing optional fact | fixture` | A company row with no domain, tier or evidence is never asserted to read Not listed. |
 | `shared-shell-and-components | Partial/degraded | fixture` | The shell with a dependency named as unavailable is never rendered. |
 | `billing-landing-email-import-export | Missing optional fact | fixture` | A mapped column the file never supplied is never asserted to read Not listed. |
 | `billing-landing-email-import-export | Partial/degraded | fixture` | A partially parseable workbook is never exercised. |
@@ -453,5 +452,5 @@ Each line is a hole that already existed when the gate was switched on. Baseline
 | `find-intro | 200% zoom | fixture` | /connections is absent from the 200% zoom sweep in resilience.spec.ts. |
 | `today | Provider image failure | fixture` | The monogram fallback for a failed company logo is asserted in unit tests only, never in a rendered page. |
 | `applications | Provider image failure | fixture` | The monogram fallback for a failed company logo is asserted in unit tests only. |
-| `coverage | Provider image failure | fixture` | The monogram fallback for a failed company logo is asserted in unit tests only, on the surface that shows the most logos. |
+| `coverage | Provider image failure | fixture` | The monogram fallback for a failed company logo is asserted in unit tests only, on the surface that shows the most logos - and the rendered path is known broken there, because a server-rendered row fires its image error before hydration so onError never runs. |
 

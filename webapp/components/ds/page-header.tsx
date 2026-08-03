@@ -24,10 +24,19 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-start justify-between gap-4", className)}>
-      <div>
-        <h1 className="text-xl font-semibold text-text">{title}</h1>
-        {subtitle ? <div className="mt-0.5 text-sm tabular-nums text-muted">{subtitle}</div> : null}
+    // `flex-wrap` plus `min-w-0`, because the narrow viewport is not optional.
+    // Without them a long title and a primary action sit on one unbreakable row
+    // and paint past the page edge — measured at 280px on /companies, where the
+    // shell reached x=294 in a 280px window. Wrapping is the only behaviour that
+    // keeps both the title and the action reachable without a sideways page.
+    <div className={cn("flex flex-wrap items-start justify-between gap-x-4 gap-y-2", className)}>
+      <div className="min-w-0">
+        <h1 className="min-w-0 break-words text-xl font-semibold text-text">{title}</h1>
+        {subtitle ? (
+          <div className="mt-0.5 min-w-0 break-words text-sm tabular-nums text-muted">
+            {subtitle}
+          </div>
+        ) : null}
       </div>
       {action}
     </div>

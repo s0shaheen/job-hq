@@ -226,6 +226,106 @@ So the guard is proven; only its *registration* in the ledger is outstanding.
 runner and register these, or record here that vitest guards are proven in-suite and stay
 out of the ledger by design. This deviation is the tracking record either way.
 
+### DEV-COV-01 — the Coverage switch and chip take 6px, not the source's 999px pill
+
+**The instruction.** `Coverage.dc.html:36` draws the "Included in scans" switch track with
+`border-radius:999px`, and its state chips (line 96 onward) the same. The owner's source
+says pill.
+
+**Why the implementation differs.** `04-design-parity-standard.md` §3.3 says "Controls:
+6px radius", "Nothing exceeds 12px radius", and exempts only badges and avatars. A switch
+track is a control. The two sources disagree, and §7.2 fails a surface for "wrong component
+radius" independently of the pill question, so there is no value that satisfies both.
+
+**Position: 6px, per the standard, until the owner says otherwise.** The standard is the
+one written for this repo; the template is a composition mock. The visible cost is real —
+the switch reads as a rounded rectangle where the design draws a capsule — and the owner
+may overrule.
+
+**How a previous attempt got this wrong, recorded because the failure mode is the
+interesting part.** The track first shipped at `rounded-xl` (12px), chosen because
+`computed-slop.ts:422` implements the rule as `r > 12`. Independent review rendered it and
+diffed the raster against the same element at `border-radius:9999px`: byte-identical. The
+detector read a legal declaration while the browser painted the exact artifact the rule's
+own text names ("Radius above 12px; **pill buttons**"). A value picked so a checker reads
+something the eye never sees does not just violate the rule, it spends the checker's
+credibility — the next person to see a passing sweep has less reason to believe it.
+
+**The assertion that keeps this visible.** `tests/e2e/slop.spec.ts` sweeps `/companies` and
+`/health` in both themes and fails any non-circular element above 12px. That is a floor,
+not this deviation's guard: it would also pass at 12px. If the owner accepts 999px, this
+entry is what says the sweep must be given a named exemption rather than the element being
+tuned to slip under it.
+
+### DEV-COV-02 — Coverage ships as three routes, not one tabbed console
+
+**The instruction.** `Coverage.dc.html` is a single screen whose Companies / Connections /
+Activity tabs swap panes in client state.
+
+**Why the implementation differs.** Those three collections already have three routes
+(`/companies`, `/connections`, `/health`), each deep-linkable, reloadable and bookmarked.
+Collapsing them into one route is a routing change, and the `/health` redirect is step 4 of
+the 07 §5 cutover order — not this packet's work. The tabs are therefore links.
+
+**Two visible consequences, stated rather than hidden.** `/connections` belongs to the
+find-intro surface and has not cut over, so following that tab leaves the console and the
+strip disappears. And both `/companies` and `/health` render the console's `h1` — "Coverage"
+— because that is the composition's single title; the routes are told apart by their
+document titles (`Companies, Coverage` / `Activity, Coverage`, the source's own compound
+screen-label convention) and by `aria-current` on the active tab. A reader who wants two
+different `h1`s is asking for a different composition, which is an owner decision.
+
+**The assertion that keeps this visible.** `tests/e2e/routing.spec.ts` "every href in the
+rendered nav returns 200" covers the links resolving; the distinct titles are what
+`/companies` and `/health` now declare in their `metadata`.
+
+### DEV-COV-03 — Add companies is a route, not the template's modal
+
+**The instruction.** `Coverage.dc.html:143-167` puts the add flow in a 440px dialog at
+`max-height: 80vh` over the table.
+
+**Why the implementation differs.** The route's content is not the mock's: a parse preview,
+a dropped-long-line notice, an over-limit refusal and a capability note all appear and
+disappear as somebody types. In a viewport-clipped dialog those push the submit button into
+an inner scroll on a phone — the same family as this surface's recorded #121 regression,
+where the submit button sat under a bottom-anchored toast with no page scroll to clear it.
+
+**The assertion that keeps this visible.** `tests/e2e/layout.spec.ts` "the un-bounded
+surfaces keep their document scroll — `/companies/add`", and `companies.spec.ts` "a phone
+can reach the submit button while the previous toast is up".
+
+### DEV-COV-04 — Activity drops the per-run error COUNT
+
+**The instruction.** The old `/health` table carried six columns including `Errors`; the
+template's Activity table has three (`Source`, `State`, `Last result`) and no slot for a
+count.
+
+**Why the implementation differs.** The template is the authority for this surface, and a
+failing run states its own one-line error in `Last result` via `activityForJob`. What is
+lost is the count of errors within an otherwise-successful run.
+
+**The assertion that keeps this visible.** `tests/unit/activity.test.ts` covers the mapper's
+result text; no assertion covers the dropped count, because there is nothing left to assert
+about it. If the owner wants it back, it needs a fourth column and therefore an addendum.
+
+### DEV-COV-05 — the Coverage console carries a caveat sentence the design does not
+
+**The instruction.** The template's company pane says "New roles from this board show up in
+Today." and the console carries no disclaimer.
+
+**Why the implementation differs.** That sentence states a consequence the system does not
+produce: discovery still runs off the sheet and reads neither `review_state` nor
+`user_companies.monitor`. Shipping it would be copy promising unwired behaviour. `/companies`
+instead carries "Your decisions and scan choices are recorded here. Discovery reads them
+later.", and the pane it belongs to is not built at all (the pane needs a checked-at
+timestamp `CompanyView` does not have).
+
+**The assertion that keeps this visible.** `tests/e2e/companies.spec.ts` "the summary states
+no share, percentage or measurement of anything" guards the neighbouring over-claim; the
+caveat sentence itself is guarded by the copy lint's ban on unwired promises only insofar as
+it is present. When the engine reads these tables, this deviation is the record that the
+sentence must be removed rather than left to rot.
+
 ## 5. Discovery and general-market validity decision
 
 The architecture packet MUST define:

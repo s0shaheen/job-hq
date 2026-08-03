@@ -84,29 +84,20 @@ for (const theme of ["light", "dark"] as const) {
   });
 
   test(`the companies grid looks right — ${theme}`, async ({ page }) => {
-    // The one surface whose whole point is a COLOUR-CODED distinction: verified /
-    // inferred / unverified / unresolved provenance chips, and the coverage rail
-    // built from the same four tokens. A drift in any of those hues is a drift in
-    // what the page claims about its own evidence, and no assertion would catch a
-    // token that quietly went the wrong shade in one theme.
+    // The one surface whose whole point is a COLOUR-CODED distinction: the
+    // Confirmed / Likely / Added by you / Not found yet source-quality chips. A
+    // drift in any of those hues is a drift in what the page claims about its
+    // own evidence, and no assertion would catch a token that quietly went the
+    // wrong shade in one theme.
+    //
+    // The coverage RAIL used to be the second half of that argument and is gone
+    // with the meter — the design forbids a bar for coverage or confidence, so
+    // the four tokens now appear on the chips alone.
     await page.emulateMedia({ colorScheme: theme });
     await page.goto("/companies?set=all");
     await expect(page.locator('[data-testid="companies-grid"][data-ready="true"]')).toBeAttached();
     await page.waitForLoadState("load");
     await expect(page).toHaveScreenshot(`companies-${theme}.png`, { fullPage: true });
-  });
-
-  test(`the coverage meter looks right — ${theme}`, async ({ page }) => {
-    // Expanded, because the collapsed rail hides the confidence glossary and the
-    // "Recall: not measured" slot — the two pieces of copy that keep this widget
-    // honest, and the ones most likely to be quietly deleted by a later edit.
-    await page.emulateMedia({ colorScheme: theme });
-    await page.goto("/companies");
-    await expect(page.locator('[data-testid="companies-grid"][data-ready="true"]')).toBeAttached();
-    await page.getByTestId("coverage-toggle").click();
-    await expect(page.getByTestId("coverage-detail")).toBeVisible();
-    await page.waitForLoadState("load");
-    await expect(page).toHaveScreenshot(`coverage-${theme}.png`, { fullPage: true });
   });
 
   test(`the /companies skeleton lands the grid where the loaded page does — ${theme}`, async ({

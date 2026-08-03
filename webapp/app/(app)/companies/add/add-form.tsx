@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button, LogoAvatar } from "@/components/ds";
 import type { ProposeCompaniesResult } from "@/lib/data/source";
 import { proposeCompaniesAction } from "../actions";
 import { MAX_NAME_LENGTH, MAX_PASTE_NAMES, parsePastedNames } from "../paste";
@@ -158,19 +158,31 @@ export default function AddForm() {
               : `${names.length} ${names.length === 1 ? "company" : "companies"} will be proposed`}
           </p>
           {names.length > 0 ? (
-            <ul className="mt-2 flex flex-wrap gap-1">
+            // One row per name, the template's shape (`Coverage.dc.html` lines
+            // 152-158): the logo, the name, and what happens to it next. The
+            // previous version was a wrap of chips, which is denser and says
+            // nothing — a person scanning a pasted list is checking that the
+            // SPLIT is right, and a row per name is what makes a bad split
+            // obvious. The right-hand note is the template's, and it is true
+            // here: this path writes names, and discovery finds the board later.
+            <ul className="mt-2 overflow-hidden rounded-lg border border-border">
               {names.slice(0, 60).map((n) => (
                 <li
                   key={n}
-                  className="min-w-0 max-w-full truncate rounded border border-border bg-raised px-1.5 py-0.5 text-2xs text-text-2"
-                  title={n}
+                  className="flex h-9 items-center gap-2 border-b border-border px-3 last:border-b-0"
                 >
-                  {n}
+                  <LogoAvatar name={n} size={16} />
+                  <span className="min-w-0 flex-1 truncate font-medium" title={n}>
+                    {n}
+                  </span>
+                  <span className="hidden shrink-0 text-xs text-muted sm:block">
+                    Job board will be found automatically
+                  </span>
                 </li>
               ))}
               {names.length > 60 ? (
-                <li className="px-1.5 py-0.5 text-2xs text-muted">
-                  +{names.length - 60} more
+                <li className="flex h-9 items-center px-3 text-xs tabular-nums text-muted">
+                  {names.length - 60} more, not shown here
                 </li>
               ) : null}
             </ul>

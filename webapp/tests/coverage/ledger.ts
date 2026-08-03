@@ -236,7 +236,16 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.populated]: e2e("companies", "every row's chip names a confidence — none is silently blank"),
       [ST.naturalEmpty]: e2e("empty", "zero rows"),
       [ST.filterEmpty]: e2e("companies", "a zero-result search offers a way back"),
-      [ST.missingFact]: MISSING,
+      // Three absences, three shapes: a board nobody found, a logo nobody
+      // harvested, and the initials that stand in for it staying out of the
+      // accessible name. All three are "the fact is not there", which is this
+      // row — none of them is a provider failing to answer.
+      [ST.missingFact]: e2e(
+        "companies",
+        "a company with no job board reads Not listed, never an empty cell",
+        "a company the universe has no domain for is on the monogram already",
+        "the monogram is decorative, so the company column does not read as 'R A Ramp'",
+      ),
       [ST.degraded]: e2e("companies", "does not render NaN on an empty universe"),
       [ST.validation]: e2e("companies", "the submit button is inert until something parses"),
       [ST.writePending]: e2e("companies", "a failed write reverts the whole batch and says so"),
@@ -252,6 +261,17 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.zoom]: e2e("resilience", "the page survives a 200% text zoom"),
       [ST.narrow]: e2e("companies", "the grid scrolls inside its own container at 280px"),
       [ST.reducedMotion]: MISSING,
+      // STILL MISSING, and the two logo tests on this surface do NOT cover it.
+      // Both drive Fifth Third Bank, whose `domain` is null, so `logoSources()`
+      // returns [] and no image is ever requested — that is the no-domain rung,
+      // not a provider image FAILURE, and it is cited under Missing optional
+      // fact above, where it belongs. The real failure path is additionally
+      // known to be BROKEN here: a server-rendered row fires its image error
+      // before hydration, so `onError` never runs and the row parks on the
+      // broken-image glyph (see `lib/grid/company-columns.tsx`). Marking this
+      // covered while shipping that defect on the surface with the most logos is
+      // the exact laundering this ledger exists to prevent. It goes green when
+      // feat/redesign-today's fix lands here AND a test drives a failing host.
       [ST.providerImage]: MISSING,
     },
   },
@@ -533,7 +553,6 @@ export const BASELINE_MISSING: Baseline = {
 
     // Degraded and missing-fact holes.
     { key: "today | Partial/degraded | fixture", reason: "A queue rendered with the engine's scoring unavailable is never exercised." },
-    { key: "coverage | Missing optional fact | fixture", reason: "A company row with no domain, tier or evidence is never asserted to read Not listed." },
     { key: "shared-shell-and-components | Partial/degraded | fixture", reason: "The shell with a dependency named as unavailable is never rendered." },
     { key: "billing-landing-email-import-export | Missing optional fact | fixture", reason: "A mapped column the file never supplied is never asserted to read Not listed." },
     { key: "billing-landing-email-import-export | Partial/degraded | fixture", reason: "A partially parseable workbook is never exercised." },
@@ -568,7 +587,7 @@ export const BASELINE_MISSING: Baseline = {
     // Provider imagery — the monogram fallback is unit-tested only.
     { key: "today | Provider image failure | fixture", reason: "The monogram fallback for a failed company logo is asserted in unit tests only, never in a rendered page." },
     { key: "applications | Provider image failure | fixture", reason: "The monogram fallback for a failed company logo is asserted in unit tests only." },
-    { key: "coverage | Provider image failure | fixture", reason: "The monogram fallback for a failed company logo is asserted in unit tests only, on the surface that shows the most logos." },
+    { key: "coverage | Provider image failure | fixture", reason: "The monogram fallback for a failed company logo is asserted in unit tests only, on the surface that shows the most logos - and the rendered path is known broken there, because a server-rendered row fires its image error before hydration so onError never runs." },
   ],
 };
 

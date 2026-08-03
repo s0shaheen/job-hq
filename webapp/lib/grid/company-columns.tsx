@@ -16,6 +16,7 @@
  */
 import type { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
+import { LogoAvatar } from "@/components/ds";
 import type { CompanyView } from "@/lib/data/view-models";
 import { NOT_LISTED, sourceLabel } from "@/lib/data/view-models";
 import { cn } from "@/lib/utils";
@@ -102,22 +103,67 @@ export const COMPANY_GRID_COLUMNS: ColumnDef<CompanyView>[] = [
     cell: ({ row }) => {
       const text = companyNameText(row.original);
       return (
-        <span
-          className={cn("truncate font-medium", !row.original.name.trim() && "text-text-2")}
-          title={text}
-        >
-          {text}
+        // The 16px logo, always beside the name and never alone (01 section 7,
+        // and `Coverage.dc.html` line 35). `company.domain` is 0021's column, so
+        // a row that has one climbs the ladder and a row that does not is on the
+        // monogram already — which is production's common case. The wrapper is
+        // `aria-hidden`, so the column announces the company name once instead
+        // of "R A Ramp".
+        //
+        // This is the surface with the most logos in the app, which makes it the
+        // one where the ladder's remaining defect costs the most: a row rendered
+        // on the SERVER fires its `<img>` error event before hydration, so
+        // `onError` never runs and that row parks on the broken-image glyph
+        // instead of falling to the monogram. The fix is on feat/redesign-today
+        // and is deliberately not duplicated here.
+        <span className="flex min-w-0 items-center gap-2">
+          <LogoAvatar name={text} domain={row.original.domain} size={16} />
+          <span
+            // The name has its own element because the monogram beside it is
+            // real characters: without this the cell's text reads "RA Ramp".
+            data-testid="company-name"
+            className={cn("truncate font-medium", !row.original.name.trim() && "text-text-2")}
+            title={text}
+          >
+            {text}
+          </span>
         </span>
       );
     },
   },
   {
-    // The provenance column. Its cell is rendered by the grid itself (it needs
-    // the popover's open state), so the ColumnDef only reserves the width and
-    // names the header — the same arrangement the /jobs "why" column uses.
+    // "Included in scans", not "Watching". The design states the toggle's scope
+    // ONCE, in the column header, so the cell can be a switch rather than a word
+    // (`Coverage.dc.html` lines 28 and 36).
+    //
+    // It sits second, immediately right of the company, because the template
+    // puts it there: the decision a person makes on this row is what the row is
+    // for, and reading three columns of evidence before reaching the control is
+    // the wrong order for the job.
+    //
+    // The cell is rendered by the surface when it can WRITE it (the grid owns no
+    // store — same arrangement as the Source quality column); this static
+    // version is the fallback and the thing a read-only consumer gets.
+    id: "sweep",
+    header: "Included in scans",
+    size: 150,
+    cell: ({ row }) => {
+      const t = sweepText(row.original);
+      if (t === ABSENT) return <Text value={t} />;
+      return (
+        <Badge tone={sweepTone(t)} className="whitespace-nowrap">
+          {t}
+        </Badge>
+      );
+    },
+  },
+  {
+    // The source-quality column. Its cell is rendered by the grid itself (it
+    // needs the popover's open state), so the ColumnDef only reserves the width
+    // and names the header — the same arrangement the /jobs "why" column uses.
     id: "resolution",
     header: "Source quality",
-    size: 210,
+    size: 180,
     cell: () => null,
   },
   {
@@ -146,28 +192,6 @@ export const COMPANY_GRID_COLUMNS: ColumnDef<CompanyView>[] = [
       return (
         <Badge tone={s === "approved" ? "accent" : "neutral"} className="whitespace-nowrap">
           {REVIEW_LABELS[s]}
-        </Badge>
-      );
-    },
-  },
-  {
-    // "Watching", not "Sweep flag". The column shows a per-user flag this app
-    // records; the engine still runs discovery off the sheet and does not read
-    // this table yet, so the toggle's own copy states that. The flag is real,
-    // its effect is pending, and the toggle says so where there is room.
-    //
-    // The cell is rendered by the surface when it can WRITE it (the grid owns no
-    // store — same arrangement as the Resolution column); this static version is
-    // the fallback and the thing a read-only consumer gets.
-    id: "sweep",
-    header: "Watching",
-    size: 110,
-    cell: ({ row }) => {
-      const t = sweepText(row.original);
-      if (t === ABSENT) return <Text value={t} />;
-      return (
-        <Badge tone={sweepTone(t)} className="whitespace-nowrap">
-          {t}
         </Badge>
       );
     },

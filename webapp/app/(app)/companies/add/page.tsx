@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { buttonClass } from "@/components/ui/button";
+import { buttonClass, PageHeader } from "@/components/ds";
 import AddForm from "./add-form";
 
 export const metadata = { title: "Add companies" };
@@ -27,23 +27,32 @@ export const metadata = { title: "Add companies" };
  */
 export default function AddCompaniesPage() {
   return (
+    // A ROUTE, not the template's modal.
+    //
+    // `Coverage.dc.html` lines 143-167 put this in a dialog over the table, and
+    // that is a good shape for one name typed on a whim. It is the wrong shape
+    // for this page's actual content: the parse preview, the dropped-line notice,
+    // the over-limit refusal and the capability note are four things that appear
+    // and disappear as somebody types, and a 440px box with `max-height: 80vh`
+    // scrolls them under the submit button on a phone. This surface also has a
+    // recorded mobile regression of exactly that family — the submit button under
+    // a bottom-anchored toast — and moving it into a viewport-clipped dialog
+    // reopens the same hazard from the other side. The route stays; recorded as a
+    // deviation with its reason: DEV-COV-03 in
+    // `docs/pilot-launch/07-decisions-assumptions-risks.md`.
     <div className="min-w-0">
-      <header className="border-b border-border px-4 py-3 sm:px-6">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h1 className="min-w-0 break-words text-lg font-semibold">Add companies</h1>
-            <p className="text-xs text-muted">
-              Paste a list. Everything lands as a proposal for you to review. Nothing is
-              monitored until you approve it.
-            </p>
-          </div>
-          <Link
-            href="/companies"
-            className={buttonClass({ variant: "secondary", size: "sm" })}
-          >
-            Back to companies
-          </Link>
-        </div>
+      <header className="border-b border-border px-4 py-4 sm:px-6">
+        <PageHeader
+          title="Add companies"
+          // PageHeader's subtitle is for operating information, and this is it:
+          // where the names land and what does not happen to them until you act.
+          subtitle="Everything lands as a proposal for you to review. Nothing is monitored until you approve it."
+          action={
+            <Link href="/companies" className={buttonClass()}>
+              Back to coverage
+            </Link>
+          }
+        />
       </header>
       <AddForm />
     </div>

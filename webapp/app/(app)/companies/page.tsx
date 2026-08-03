@@ -1,10 +1,13 @@
 import Link from "next/link";
-import { buttonClass } from "@/components/ui/button";
+import { buttonClass, PageHeader } from "@/components/ds";
 import { getDataSource } from "@/lib/data/get-source";
 import type { CompanyView } from "@/lib/data/view-models";
 import CompaniesSurface from "./companies-surface";
+import CoverageTabs from "./coverage-tabs";
 
-export const metadata = { title: "Companies" };
+// Compound, and for the same reason `/health` is — see that file. The two routes
+// of this console must not share a document title.
+export const metadata = { title: "Companies, Coverage" };
 export const dynamic = "force-dynamic";
 
 /**
@@ -26,25 +29,31 @@ export default async function CompaniesPage() {
     // h-dvh + flex-col: the grid owns the viewport below the toolbar and scrolls
     // inside itself, so the page never scrolls sideways at any width.
     <div className="flex h-dvh min-w-0 flex-col">
-      <header className="flex shrink-0 flex-wrap items-start justify-between gap-2 border-b border-border px-4 py-3 sm:px-6">
-        <div className="min-w-0">
-          <h1 className="min-w-0 break-words text-lg font-semibold">Companies</h1>
-          {/* What this page is, at the size it actually is. The first version said
-              "the companies your sweeps watch", which reads as a description of
-              what the engine is doing — and the engine still sweeps off the sheet
-              and does not read this table. Reviews and flags are recorded here;
-              honouring them is the next piece of work, not this one. */}
-          <p className="text-xs text-muted">
-            Your company universe, and how reliably each one can be read. Reviews and watch
-            choices are recorded here. Discovery reads them later.
-          </p>
-        </div>
-        <Link
-          href="/companies/add"
-          className={buttonClass({ variant: "secondary", size: "sm" })}
-        >
-          Add companies
-        </Link>
+      {/* The console head: one title, the three tabs, and the page's one primary
+          action on the title's baseline — `Coverage.dc.html` lines 16-22.
+          `PageHeader` takes no subtitle here: its slot is for operating
+          information, and the operating sentence for this surface is the
+          "Watching N of M" line, which needs the rows and therefore lives below
+          with the grid rather than being computed twice. */}
+      <header className="shrink-0 border-b border-border px-4 py-4 sm:px-6">
+        <PageHeader
+          title="Coverage"
+          action={
+            <Link href="/companies/add" className={buttonClass({ variant: "primary" })}>
+              Add companies
+            </Link>
+          }
+        />
+        <CoverageTabs />
+        {/* The caveat the design's clean console does not carry, kept because it
+            is true: this app records the review and the scan flag, and the
+            engine still runs discovery off the sheet and does not read either
+            yet. The design's own pane copy ("New roles from this board show up
+            in Today.") states a consequence the system does not produce, so it
+            is not adopted. See the PR's refused-guesses list. */}
+        <p className="mt-3 text-xs text-muted">
+          Your decisions and scan choices are recorded here. Discovery reads them later.
+        </p>
       </header>
       <CompaniesSurface rows={rows} />
     </div>

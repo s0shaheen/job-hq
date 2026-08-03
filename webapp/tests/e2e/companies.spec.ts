@@ -43,10 +43,25 @@ async function ready(page: Page, timeout?: number) {
   );
 }
 
+/**
+ * The company name, addressed as the NAME rather than as everything painted in
+ * the name cell.
+ *
+ * The cell now carries a `LogoAvatar` beside the text, and that avatar's monogram
+ * fallback is real characters: `innerText` on the cell reads "RA Ramp", so an
+ * anchored `^Ramp$` match found nothing and every row lookup in this file went
+ * silently empty. The name has its own element and the assertions read that.
+ */
+const NAME_TEXT = '[data-testid="company-name"]';
+
 const nameCell = (page: Page, name: string) =>
   page
     .locator('[role="gridcell"][data-col="name"]')
-    .filter({ hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) });
+    .filter({
+      has: page
+        .locator(NAME_TEXT)
+        .filter({ hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) }),
+    });
 
 // ---------------------------------------------------------------- source quality
 
@@ -117,8 +132,8 @@ test.describe("the two review verbs", () => {
 
     // A shift-range over the review pile, exactly as a person would.
     const cells = page.locator('[role="gridcell"][data-col="name"]');
-    const first = (await cells.nth(0).innerText()).trim();
-    const third = (await cells.nth(2).innerText()).trim();
+    const first = (await cells.nth(0).locator(NAME_TEXT).innerText()).trim();
+    const third = (await cells.nth(2).locator(NAME_TEXT).innerText()).trim();
     await cells.nth(0).click();
     await cells.nth(2).click({ modifiers: ["Shift"] });
     await expect(page.getByTestId("review-count")).toHaveText("3 selected");
@@ -146,7 +161,7 @@ test.describe("the two review verbs", () => {
     await page.goto("/companies");
     await ready(page);
     const cells = page.locator('[role="gridcell"][data-col="name"]');
-    const approved = (await cells.nth(0).innerText()).trim();
+    const approved = (await cells.nth(0).locator(NAME_TEXT).innerText()).trim();
     await cells.nth(0).click();
     await page.getByTestId("bulk-approve").click();
     await expect(page.getByText(/Added .* to your universe/)).toBeVisible();
@@ -155,7 +170,13 @@ test.describe("the two review verbs", () => {
     await ready(page);
     // Approving includes the company in scans. The SQL guarantees that pairing.
     const row = page.locator('[role="row"]', { has: nameCell(page, approved) });
-    await expect(row.locator('[data-col="sweep"]')).toHaveText("In scans");
+    // The cell is a switch now, not a badge with a word in it, so the fact is
+    // read where the platform states it. `aria-checked` is the same claim as the
+    // old "In scans" text and is the one a screen reader acts on.
+    await expect(row.locator('[data-col="sweep"] [role="switch"]')).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
   });
 
   test("dismissing keeps the row, in its own set", async ({ page }) => {
@@ -163,7 +184,7 @@ test.describe("the two review verbs", () => {
     await page.goto("/companies");
     await ready(page);
     const cells = page.locator('[role="gridcell"][data-col="name"]');
-    const target = (await cells.nth(1).innerText()).trim();
+    const target = (await cells.nth(1).locator(NAME_TEXT).innerText()).trim();
     await cells.nth(1).click();
     await page.getByTestId("bulk-dismiss-company").click();
     await expect(page.getByText(/Passed/)).toBeVisible();
@@ -225,7 +246,7 @@ test.describe("the two review verbs", () => {
     await ready(page);
     const cells = page.locator('[role="gridcell"][data-col="name"]');
     const before = await cells.count();
-    const first = (await cells.nth(0).innerText()).trim();
+    const first = (await cells.nth(0).locator(NAME_TEXT).innerText()).trim();
 
     await cells.nth(0).click();
     await cells.nth(2).click({ modifiers: ["Shift"] });
@@ -261,9 +282,9 @@ test.describe("the two review verbs", () => {
     const cells = page.locator('[role="gridcell"][data-col="name"]');
     const before = await cells.count();
     const names = [
-      (await cells.nth(0).innerText()).trim(),
-      (await cells.nth(1).innerText()).trim(),
-      (await cells.nth(2).innerText()).trim(),
+      (await cells.nth(0).locator(NAME_TEXT).innerText()).trim(),
+      (await cells.nth(1).locator(NAME_TEXT).innerText()).trim(),
+      (await cells.nth(2).locator(NAME_TEXT).innerText()).trim(),
     ];
 
     await cells.nth(0).click();
@@ -318,14 +339,17 @@ test.describe("the per-row sweep flag", () => {
       .locator('[role="row"]')
       .filter({ has: page.locator('[data-testid="sweep-toggle"][data-enabled="true"]') })
       .first();
-    const name = (await row.locator('[data-col="name"]').innerText()).trim();
+    const name = (await row.locator(`[data-col="name"] ${NAME_TEXT}`).innerText()).trim();
     await row.getByTestId("sweep-toggle").click();
 
     const toggle = page
       .locator('[role="row"]', { has: nameCell(page, name) })
       .getByTestId("sweep-toggle");
     await expect(toggle).toHaveAttribute("data-enabled", "false");
-    await expect(toggle).toHaveText("Paused");
+    // Was `toHaveText("Paused")`. The badge became the design's switch, so the
+    // off state is stated as `aria-checked` and in the accessible name.
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(toggle).toHaveAttribute("aria-label", /Paused$/);
 
     await page.reload();
     await ready(page);
@@ -357,7 +381,7 @@ test.describe("the per-row sweep flag", () => {
       .locator('[role="row"]')
       .filter({ has: page.locator('[data-testid="sweep-toggle"][data-enabled="true"]') })
       .first();
-    const name = (await row.locator('[data-col="name"]').innerText()).trim();
+    const name = (await row.locator(`[data-col="name"] ${NAME_TEXT}`).innerText()).trim();
 
     await context.addCookies([{ name: "hq_demo_fail", value: "nope", url: ORIGIN }]);
     await row.getByTestId("sweep-toggle").click();
@@ -386,64 +410,75 @@ test.describe("the per-row sweep flag", () => {
 
 // ---------------------------------------------------------------- coverage
 
-test.describe("the coverage meter", () => {
-  test("separates confirmed day-of from Tier-1-as-expected", async ({ page }) => {
-    // The research caveat, as a pixel claim. Fifth Third Bank is approved and marked
-    // Tier 1 from a mined slug nobody probed, so the two numbers MUST differ — and
-    // the meter must say which is which.
-    await isolate(page, "cov-split");
+/**
+ * The summary sentence that replaced the coverage meter.
+ *
+ * The meter is gone by design instruction, not by preference: `Coverage.dc.html`
+ * line 25 is one sentence with two numbers, and the guardrail behind it forbids
+ * meters, gauges and progress rings for coverage or confidence. Three of the four
+ * meter tests went with it, and what they were each protecting is stated here so a
+ * later reader can see what was and was not given up:
+ *
+ *   * "separates confirmed day-of from Tier-1-as-expected" protected the claim that
+ *     a mined slug never reads as a board answer. That claim did NOT move into the
+ *     sentence — it lives per row, on the chip, and "confirmed and manually added
+ *     rows are distinguishable" plus "every row's chip names a confidence" above
+ *     are the tests that hold it. Nothing is uncovered.
+ *   * "states that recall is NOT measured" protected a labelled empty slot that the
+ *     design retires along with the meter. A sentence that counts the companies you
+ *     track, and says nothing about a share of anything, has no recall to misstate —
+ *     so the property is now enforced as an ABSENCE, below.
+ *   * "the rail's segments are confidences and sum to the total" protected the
+ *     arithmetic: what is drawn accounts for every row. The sentence keeps that
+ *     claim and it is checked directly against the table instead of against pixels,
+ *     which is strictly the stronger form.
+ *   * "does not render NaN on an empty universe" keeps its title and its store,
+ *     because it is a ledger citation and because the hazard is the same one.
+ */
+test.describe("the coverage summary", () => {
+  test("the summary's two numbers account for every company in the universe", async ({
+    page,
+  }) => {
+    await isolate(page, "cov-arith");
     await page.goto("/companies");
     await ready(page);
 
-    const meter = page.getByTestId("coverage-meter");
-    await expect(meter).toBeVisible();
-    const verified = (await page.getByTestId("coverage-verified").innerText()).trim();
-    const [confirmed, , total] = verified.split(/\s+/);
-    expect(Number(confirmed)).toBeLessThan(Number(total));
-    await expect(page.getByTestId("coverage-expected")).toContainText(
-      /expected rather than seen/,
-    );
-  });
-
-  test("states that recall is NOT measured", async ({ page }) => {
-    // The single most damaging thing this surface could do is imply it knows what
-    // fraction of the universe it covers. The slot has to say so in words — omitting
-    // the row entirely would let a reader take "verified" as recall.
-    await isolate(page, "cov-oracle");
-    await page.goto("/companies");
-    await ready(page);
-    await page.getByTestId("coverage-toggle").click();
-    const slot = page.getByTestId("coverage-oracle-slot");
-    await expect(slot).toBeVisible();
-    await expect(slot).toContainText(/Share of all companies: not measured/);
-    await expect(slot).toContainText(/No measurement has been recorded/);
-    // And no invented percentage anywhere in it.
-    expect(await slot.innerText()).not.toMatch(/\d+\s?%/);
-  });
-
-  test("the rail's segments are confidences and sum to the total", async ({ page }) => {
-    await isolate(page, "cov-rail");
-    await page.goto("/companies");
-    await ready(page);
-    const total = Number(
-      (await page.getByTestId("coverage-verified").innerText()).trim().split(/\s+/)[2],
-    );
-    let widthSum = 0;
-    for (const kind of ["verified", "inferred", "asserted", "unresolved"]) {
-      const seg = page.getByTestId(`coverage-seg-${kind}`);
-      if ((await seg.count()) === 0) continue;
-      const box = await seg.boundingBox();
-      widthSum += box!.width;
-    }
-    // By testid, not `getByRole("img").first()`. That selector meant "the first
-    // role=img anywhere on the page", which is a document-order accident: any
-    // decorative graphic, icon or chart added above the meter retargets it
-    // SILENTLY, and the assertion then compares the segments' widths against
-    // something else's box and still passes about as often as not.
-    const railWidth = (await page.getByTestId("coverage-rail").boundingBox())!.width;
-    // Within 2px: percentages are rounded per segment.
-    expect(Math.abs(widthSum - railWidth)).toBeLessThan(3);
+    const summary = page.getByTestId("coverage-summary");
+    await expect(summary).toBeVisible();
+    const [watching, total] = (await page.getByTestId("coverage-watching").innerText())
+      .trim()
+      .match(/(\d+) of (\d+)/)!
+      .slice(1)
+      .map(Number);
     expect(total).toBeGreaterThan(0);
+
+    const unresolvedEl = page.getByTestId("coverage-unresolved");
+    const unresolved =
+      (await unresolvedEl.count()) === 0 ? 0 : Number((await unresolvedEl.innerText()).trim());
+    // The partition, stated: every approved company is either readable or not.
+    expect(watching + unresolved).toBe(total);
+
+    // And the denominator is the approved set the sentence claims, not the whole
+    // table. Counting the review pile would make the number climb every time
+    // discovery ran and fall the moment somebody did their job.
+    await page.goto("/companies?set=universe");
+    await ready(page);
+    const rowCount = await page.locator('[role="row"][aria-rowindex]:not([aria-rowindex="1"])').count();
+    expect(rowCount).toBe(total);
+  });
+
+  test("the summary states no share, percentage or measurement of anything", async ({
+    page,
+  }) => {
+    // What the retired oracle slot was defending. The most damaging thing this
+    // surface could do is imply it knows what fraction of the companies that exist
+    // it covers; a sentence with no percentage in it cannot.
+    await isolate(page, "cov-noshare");
+    await page.goto("/companies");
+    await ready(page);
+    const text = await page.getByTestId("coverage-summary").innerText();
+    expect(text).not.toMatch(/\d+\s?%/);
+    expect(text).not.toMatch(/recall|share|coverage of|universe/i);
   });
 
   test("does not render NaN on an empty universe", async ({ page, context }) => {
@@ -451,9 +486,157 @@ test.describe("the coverage meter", () => {
     await context.addCookies([{ name: "hq_demo_seed", value: "empty", url: ORIGIN }]);
     await page.goto("/companies");
     await ready(page);
-    const text = await page.getByTestId("coverage-meter").innerText();
+    const text = await page.getByTestId("coverage-summary").innerText();
     expect(text).not.toMatch(/NaN|Infinity/);
-    await expect(page.getByTestId("coverage-verified")).toHaveText("0 of 0");
+    await expect(page.getByTestId("coverage-watching")).toHaveText("Watching 0 of 0");
+    // The second clause is omitted rather than reading "0 have no job board":
+    // stating an absence as if it were news is its own small lie.
+    await expect(page.getByTestId("coverage-unresolved")).toHaveCount(0);
+  });
+});
+
+// ---------------------------------------------------------------- logos + absence
+
+test.describe("the company logo, and what an absent fact reads as", () => {
+  /**
+   * The 16px avatar inside the name cell — the inner span, not the cell, so the
+   * assertion is about the avatar and not about the name beside it.
+   */
+  const logoCell = (page: Page, company: string) =>
+    page
+      .locator('[role="row"]', { has: nameCell(page, company) })
+      .locator('[role="gridcell"][data-col="name"] > span > span')
+      .first();
+
+  test("a company the universe has no domain for is on the monogram already", async ({
+    page,
+  }) => {
+    // No route interception: this rung is reached by having nothing to request,
+    // which is production's common case. Fifth Third Bank is approved with
+    // `domain: null` in the fixture universe. If this ever starts issuing a logo
+    // request, the fixture source has drifted off SupabaseDataSource's behaviour.
+    const requested: string[] = [];
+    page.on("request", (r) => {
+      if (/logo\.dev|s2\/favicons/.test(r.url())) requested.push(r.url());
+    });
+    await isolate(page, "logo-monogram");
+    await page.goto("/companies?set=all");
+    await ready(page);
+    await expect(logoCell(page, "Fifth Third Bank")).toHaveText("FT");
+    expect(requested.filter((u) => u.includes("fifththird"))).toEqual([]);
+  });
+
+  test("the monogram is decorative, so the company column does not read as 'R A Ramp'", async ({
+    page,
+  }) => {
+    // Coverage shows more logos than any other surface, so this is where the
+    // `alt=""`-does-nothing-for-the-monogram defect costs the most: every row of
+    // the leftmost column announcing its initials before its name.
+    //
+    // Fifth Third Bank, not Ramp with the logo hosts aborted. The first version
+    // of this test aborted logo.dev and the favicon host and asserted on Ramp,
+    // which carries a domain — and it FAILED on the mobile project only, because
+    // reaching the monogram that way depends on React's `onError` firing, and a
+    // row rendered on the SERVER fires its image error before hydration attaches
+    // the handler. That is a real defect on this surface and it belongs to
+    // feat/redesign-today, which fixes it; a test that passes or fails depending
+    // on who wins that race measures the race, not the accessibility claim.
+    // A company with no domain has no image rung at all, so the monogram is what
+    // renders on the server, deterministically, on both projects.
+    //
+    // MUTATION REASON: drop `aria-hidden` from LogoAvatar's wrapper and `spoken`
+    // below gains the initials, failing here.
+    await isolate(page, "logo-decorative");
+    await page.goto("/companies?set=all");
+    await ready(page);
+
+    const cell = page
+      .locator('[role="row"]', { has: nameCell(page, "Fifth Third Bank") })
+      .locator('[role="gridcell"][data-col="name"]')
+      .first();
+    // The rendered text still carries the initials; the ACCESSIBLE name must
+    // not. Asserting both is what distinguishes "hidden" from "deleted".
+    await expect(cell).toContainText("FT");
+    const spoken = await cell.evaluate((el) => {
+      const walk = (node: Element): string =>
+        [...node.childNodes]
+          .map((c) => {
+            if (c.nodeType === Node.TEXT_NODE) return c.textContent ?? "";
+            if (!(c instanceof Element)) return "";
+            return c.getAttribute("aria-hidden") === "true" ? "" : walk(c);
+          })
+          .join("");
+      return walk(el).trim();
+    });
+    expect(spoken).toBe("Fifth Third Bank");
+  });
+
+  test("a company with no job board reads Not listed, never an empty cell", async ({ page }) => {
+    // Section 5's "Missing optional fact" row on this surface. The unresolved set
+    // is defined by having no board at all, so every row in it must SAY that in
+    // the one word this product uses for an absent fact — a blank cell in a table
+    // reads as a broken row, and "none", "N/A" and "null" are all banned.
+    //
+    // MUTATION REASON: return "" instead of ABSENT from `boardText` and every row
+    // here goes blank, failing the per-row assertion below.
+    await isolate(page, "absent-board");
+    await page.goto("/companies?set=unresolved");
+    await ready(page);
+    const boards = page.locator('[role="gridcell"][data-col="board"]');
+    const n = await boards.count();
+    expect(n).toBeGreaterThan(0);
+    // The WHOLE set, not the first row: the property is about absence, and a
+    // narrower check passes a half-fix.
+    for (let i = 0; i < n; i++) {
+      await expect(boards.nth(i)).toHaveText("Not listed");
+    }
+  });
+});
+
+// ---------------------------------------------------------------- target size
+
+test.describe("the row controls are big enough to hit", () => {
+  /**
+   * WCAG 2.2 SC 2.5.8, Target Size (Minimum): 24x24 CSS pixels.
+   *
+   * This guard exists because NOTHING in this repo checks target size — not axe
+   * (the rule is AAA-adjacent and every call here filters to wcag2a/wcag2aa at
+   * serious-or-critical), not the slop sweep, not the layout sweep. So the one
+   * defect class that arrives every time a text control becomes an icon control
+   * had no machine watching it, and this surface just made exactly that swap:
+   * the "Included in scans" cell went from a text badge, which was comfortably
+   * tappable, to a switch — once per row, on the surface with the most rows.
+   *
+   * The switch is therefore drawn as a 32x18 track inside a 32x24 button. The
+   * button is the target; the track is the paint.
+   *
+   * MUTATION REASON: change the button's `h-6` to `h-[18px]` in
+   * `sweep-toggle.tsx` — i.e. make the hit area the visible track, which is what
+   * the naive port did — and this fails at 18 < 24.
+   */
+  test("every switch in the grid meets the 24px minimum target", async ({ page }) => {
+    await isolate(page, "target-size");
+    await page.goto("/companies?set=universe");
+    await ready(page);
+
+    const switches = page.locator('[role="row"] [role="switch"]');
+    const n = await switches.count();
+    expect(n, "no switch rendered, so this test would pass vacuously").toBeGreaterThan(0);
+
+    // Every one, not the first: the property is about a control that repeats per
+    // row, and a first-row-only check passes a half-fix.
+    const undersized: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const box = await switches.nth(i).boundingBox();
+      if (!box) {
+        undersized.push(`switch ${i}: no box`);
+        continue;
+      }
+      if (box.width < 24 || box.height < 24) {
+        undersized.push(`switch ${i}: ${Math.round(box.width)}x${Math.round(box.height)}`);
+      }
+    }
+    expect(undersized, "WCAG 2.2 SC 2.5.8 requires 24x24 CSS px").toEqual([]);
   });
 });
 
@@ -889,7 +1072,7 @@ test.describe("it does not visually break", () => {
     // the grid — so the skeleton is mirroring the order it claims to mirror.
     await ready(page, 20_000);
     const loadedOrder = await page.evaluate(() => {
-      const cov = document.querySelector('[data-testid="coverage-meter"]')!.getBoundingClientRect();
+      const cov = document.querySelector('[data-testid="coverage-summary"]')!.getBoundingClientRect();
       const row = document.querySelector('[role="row"][aria-rowindex="1"]')!.getBoundingClientRect();
       const hdr = document.querySelector("header")!.getBoundingClientRect();
       return { coverageAfterHeader: cov.top >= hdr.bottom, gridAfterCoverage: row.top >= cov.bottom };

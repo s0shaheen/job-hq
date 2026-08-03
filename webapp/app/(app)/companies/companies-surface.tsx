@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import type { BulkReviewResult, CompanyFlagsResult } from "@/lib/data/source";
 import type { CompanyView, ReviewState } from "@/lib/data/view-models";
 import CompaniesGrid from "./companies-grid";
-import CoverageMeter from "./coverage-meter";
+import CoverageSummary from "./coverage-summary";
 import ReviewBar from "./review-bar";
 import SweepToggle from "./sweep-toggle";
 import ViewSwitcher from "./view-switcher";
@@ -371,7 +371,7 @@ export default function CompaniesSurface({ rows }: { rows: CompanyView[] }) {
     <CompaniesGrid
       rows={effRows}
       toolbarExtras={({ set, sort }) => <ViewSwitcher set={set} sort={sort} />}
-      aboveGrid={({ allRows }) => <CoverageMeter rows={allRows} />}
+      aboveGrid={({ allRows }) => <CoverageSummary rows={allRows} />}
       sweepCell={(company) => (
         <SweepToggle company={company} busy={busy} onToggle={(c, next) => void toggleSweep(c, next)} />
       )}
