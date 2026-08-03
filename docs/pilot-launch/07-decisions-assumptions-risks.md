@@ -18,6 +18,91 @@ Contract: `full-product-pilot-v2`
 | DEC-010 | Resume/application/interview content specific to Salman leaves the product boundary |
 | DEC-011 | True offline disables writes; no browser mutation queue |
 | DEC-012 | Strict parity uses the owner’s read-only design bundle; agents do not invent UI |
+| DEC-013 | RLS is deliberately NOT forced; `hq_entitlement_guard` is what binds the owner lane |
+
+### DEC-013 — row-level security is deliberately not forced
+
+No table in this schema sets `force row level security`, so RLS does not bind the table
+owner. That was raised as a hole to close with a migration. It was measured rather than
+modelled, and the measurement says the migration would buy nothing today and would arm a
+landmine for later. Both halves were driven against real Postgres.
+
+**Measurement 1 — forcing is inert on Supabase.** `force row level security` binds the
+table OWNER. It does not bind a superuser, and it does not bind a role holding
+`BYPASSRLS`. On a real Supabase Postgres (`supabase/postgres`, PG 15.8), `postgres` — the
+role `db/apply.sh` connects as, and therefore the owner of every table and every
+`security definer` function in `public` — is `rolsuper = false` but `rolbypassrls =
+true`. A table owned by `postgres` with RLS enabled, forced, and a single
+`using (false) with check (false)` policy still returned both of its rows to `postgres`.
+`BYPASSRLS` outranks `FORCE`. No role is a member of `postgres`, so nothing else reaches
+those tables through ownership either. In the local harness the owner is a superuser,
+which bypasses for the same reason. Forcing would be a no-op in both places.
+
+**Measurement 2 — forcing the schema AS IT STANDS breaks the write path, and forcing it
+properly buys nothing.** The schema has no permissive policy for `insert`, `update` or
+`delete` on any table: every write is routed through a `security definer` RPC that runs as
+the owner, and an empty permissive policy set for a command means deny. Reproducing
+production's ownership shape locally with a NON-`BYPASSRLS` owner and then forcing every
+RLS-enabled table turned a working `app_save_view` call into `new row violates row-level
+security policy for table "saved_views"`, and turned signup into the same error on
+`users`. So the bare `ALTER` is invisible in production today and detonates the write path
+the day the owner loses `BYPASSRLS` — a change made by Supabase, not by this repo.
+
+Review checked the honest version of the proposal rather than the naive one, and the
+verdict survives it. Forcing IS survivable on the 28 guarded tables **if 28 permissive
+write policies ship in the same migration**. It simply adds nothing there: both
+configurations refuse the identical cross-tenant write, and the guard's refusal names the
+account and the table (`account <uid> may not write a public.saved_views row owned by
+<other>`) where RLS's says only `new row violates row-level security policy`. Where
+forcing WOULD add something — the three tables with no guard — it is genuinely blocked,
+because signup runs with `auth.uid()` null and no `user_id = auth.uid()` policy can admit
+`handle_new_auth_user`. Both roads reach the same verdict; only "it would take the product
+down" overstated it. `test_no_table_is_forced_without_a_permissive_write_policy` encodes
+the narrower rule that is actually true.
+
+**What actually binds the owner lane** is `hq_entitlement_guard` (0027): a row trigger,
+and triggers fire for the owner, for a superuser, and for a `BYPASSRLS` role alike. It
+carries both the entitlement check and the ownership check, which is why an entitled
+session driving a `security definer` RPC cannot write another user's row even though RLS
+is inert inside that definer. `tests/db/test_owner_bypass.py` pins all of the above from
+`pg_catalog` and drives the refusal for real.
+
+**A disabled guard is not a guard.** Review found the enforcement of all of the above
+was blind in the way that mattered: `alter table … disable trigger` keeps the
+`pg_trigger` row and only flips `tgenabled` to `'D'`, so the `exists (…)` sweeps in
+`test_owner_bypass.py` and `test_default_deny.py` reported a switched-off control as
+attached. Measured on Postgres 16 with the guard disabled on `applications`: every
+structural sweep in both files stayed green while a signed-in account wrote another
+account's row through a definer. `pg_restore --disable-triggers` (the T4 restore
+rehearsal, which leaves triggers off if it dies midway) and the `disable trigger` the
+boundary test itself issues both reach that state with no migration edited. Both helpers
+now require `tgenabled <> 'D'`.
+
+**Two follow-ups, informational, not fixed on that branch.**
+
+`users` and `allowed_emails` still carry INSERT/UPDATE/DELETE for `anon` and
+`authenticated`; 0027 revoked them on `entitlements` alone. Not exploitable today — no
+permissive write policy exists on either, so RLS refuses — but it is the same "one
+`REVOKE` from closed" shape applied to one neighbour and not its two siblings, and the
+privilege system should not be the only thing that happens to be redundant here.
+
+`hq_entitlement_guard` performs no ownership check on a gated table with no `user_id`
+column, because `to_jsonb(v_rec) ? 'user_id'` is false for it. That is correct by design
+for `companies` and `postings`, which are shared catalogue rows rather than tenant rows —
+but it means "28 tables carry the guard" is 28 entitlement checks and 26 ownership checks,
+and the two numbers should not be conflated when reasoning about tenant isolation.
+
+**Residual, and it is real.** `users`, `entitlements` and `allowed_emails` carry no guard
+trigger, for the reasons `tests/db/test_default_deny.py` records, so RLS is their only
+store-level control and the owner lane bypasses it. Nothing is exploitable today, and the
+reason is narrower than it first appeared: exactly ONE browser-executable definer touches
+any of the three — `handle_new_auth_user` — it takes zero arguments so a caller cannot aim
+it, and Postgres refuses to invoke a `trigger`-returning function from a `select` at all.
+(`app_commit_profile`, `app_propose_companies` and `app_set_display_prefs` were listed
+here in an earlier draft off a substring match; they name `users` only in comments and in
+`user_postings`/`user_companies`.) That is still the "37 correct decisions, none of them
+enforced" shape 0027 removed everywhere else, and the fix is extending guard-style
+enforcement to those three tables, not forcing RLS, which would break signup.
 
 ## 2. Launch-blocking ADRs
 
@@ -375,6 +460,7 @@ candidate-fit analysis MUST:
 | `0021` address validation misses link-local/alternate forms | Table-driven SSRF corpus and mutation proof |
 | `0022` unsafe Gmail review enters launch | Exclude branch/migration from launch unless a hard dependency and complete unreachable proof exist |
 | `0027` defaults allow below middleware | Database/RPC/storage/worker default-deny mutation |
+| `users`/`entitlements`/`allowed_emails` rely on RLS alone, which the owner/definer lane bypasses | DEC-013; each RPC's own filter is the only control today; extend guard-style enforcement, do not force RLS |
 | Executor causes duplicate/false application | At-most-once controls, unknown outcome, provider pause, receipt proof |
 | Provider terms or anti-abuse controls conflict | ADR-003; no bypass; manual handoff |
 | Submission succeeds but the user's candidacy is silently degraded by provider fraud scoring, with a truthful `submitted` receipt and no signal on our side | ADR-001 execution host chosen for honest egress; conservative per-employer caps; no evasion; the trial in `20-execution-host-decision.md` §9 before any change of position |
