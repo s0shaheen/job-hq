@@ -1,0 +1,16 @@
+diff --git a/infra/render/render.py b/infra/render/render.py
+index 434d6c8..16ccaea 100644
+--- a/infra/render/render.py
++++ b/infra/render/render.py
+@@ -595,10 +595,7 @@ def _mapped(exc: Exception) -> Exception:
+     # module states — nothing leaves except a RenderError — has to hold for the failures we
+     # did not predict, because those are exactly the ones nobody redacted by hand. The class
+     # name is safe (it is ours or the library's); the args are not, and are dropped.
+-    return RenderInternalError(
+-        f"the renderer failed unexpectedly: {type(exc).__name__}",
+-        {"kind": "internal", "exception": type(exc).__name__},
+-    )
++    return exc
+ 
+ 
+ class TypstCompileError(RenderError):

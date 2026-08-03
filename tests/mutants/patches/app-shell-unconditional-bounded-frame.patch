@@ -1,0 +1,28 @@
+diff --git a/webapp/components/ds/app-shell.tsx b/webapp/components/ds/app-shell.tsx
+index f0d9379..74ce1e6 100644
+--- a/webapp/components/ds/app-shell.tsx
++++ b/webapp/components/ds/app-shell.tsx
+@@ -237,8 +237,8 @@ export function AppShell({
+      */
+     <div
+       className={
+-        "flex min-h-dvh flex-col bg-bg font-sans text-sm text-text lg:flex-row lg:items-stretch " +
+-        "has-[[data-bounded-frame]]:h-dvh has-[[data-bounded-frame]]:overflow-hidden"
++        "flex h-dvh flex-col overflow-hidden bg-bg font-sans text-sm text-text " +
++        "lg:flex-row lg:items-stretch"
+       }
+     >
+       <AppNav
+@@ -265,11 +265,7 @@ export function AppShell({
+       */}
+       <main
+         className={
+-          "flex min-h-0 min-w-0 flex-1 flex-col " +
+-          // Paired with the root above: `main` scrolls only when the frame is
+-          // bounded. Under the default frame it must NOT, or the surface gets
+-          // two nested scrollers and the outer one never moves.
+-          "has-[[data-bounded-frame]]:overflow-y-auto"
++          "flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
+         }
+       >
+         {children}

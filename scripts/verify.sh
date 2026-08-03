@@ -68,6 +68,18 @@ suite py-infra         tests/infra                       '$PYTEST311 tests/infra
 suite py-root          tests/test_runjob.py              '$PYTEST311 tests/test_runjob.py tests/test_sysmap.py tests/test_publish_to_drive.py -q'
 suite sysmap           scripts/sysmap.py                 '$PY311 scripts/sysmap.py'
 suite py-db            tests/db                          'HQ_REQUIRE_DB=1 $PYTEST311 tests/db -q'                                    database
+# The pinned-mutant ledger: every T3/T4 guard, broken on purpose, its named test
+# required to go red. It runs the named tests only, in a scratch worktree, and
+# it needs the database for the seven database guards and a built webapp for the
+# app-shell one — which is why it sits here, after py-db and before the browser
+# suites, and declares the same `database` precondition.
+suite mutants          tests/mutants/manifest.toml       '$PY311 scripts/mutants.py'                                                 database
+# And the same ledger with nothing executed: does every pinned patch still
+# apply? Sub-second, no database, no browser. It is mapped to every file a
+# pinned mutant patches, because the way a mutant dies is that somebody edits
+# the guard and the patch silently stops applying — and a mutant that stops
+# running is the defect this whole ledger exists to catch, one level up.
+suite mutants-dry      scripts/mutants.py                '$PY311 scripts/mutants.py --dry-run'
 suite py-render        tests/infra/test_render_live.py   'HQ_REQUIRE_RENDERCV=1 $PYTEST312 tests/infra/test_render_live.py tests/infra/test_render_guards.py -q -p no:cacheprovider'
 suite build            webapp/next.config.mjs            'cd webapp && npm run build'
 suite e2e-slop         webapp/tests/e2e/slop.spec.ts     'cd webapp && HQ_DEMO=1 npx playwright test tests/e2e/slop.spec.ts'
@@ -105,7 +117,7 @@ path_map=(
   # ── webapp
   "webapp/lib/*                       = typecheck,vitest"
   "webapp/app/*                       = typecheck,vitest,lint-copy,coverage-ledger,build,e2e-slop,e2e"
-  "webapp/components/*                = typecheck,vitest,lint-copy,coverage-ledger,build,e2e-slop,e2e"
+  "webapp/components/*                = typecheck,vitest,lint-copy,coverage-ledger,build,e2e-slop,e2e,mutants-dry"
   "webapp/middleware.ts               = typecheck,vitest,build,e2e"
   "webapp/tests/unit/*                = typecheck,vitest"
   "webapp/tests/e2e/visual.spec.ts*   = e2e-visual"
@@ -142,7 +154,7 @@ path_map=(
   # ("unmapped SQL type \"by\" on column computed") after the change-scoped lane
   # had already reported a pass. A rule that maps the input of a test to
   # everything BUT that test is the gap, not the test.
-  "db/migrations/*                    = py-db,py-migrations,vitest"
+  "db/migrations/*                    = py-db,py-migrations,vitest,mutants-dry"
   "db/*                               = py-db,py-migrations,vitest"
   "supabase/*                         = py-db,py-migrations,vitest"
 
@@ -152,7 +164,7 @@ path_map=(
   "core/*                             = py-core,py-monitor,py-tracker,py-db,py-root"
   "monitor/*                          = py-monitor"
   "tracker/*                          = py-tracker"
-  "infra/render/*                     = py-render,py-infra"
+  "infra/render/*                     = py-render,py-infra,mutants-dry"
   "infra/terraform/*                  = py-infra,sysmap"
   "infra/alerter/*                    = py-infra"
   "infra/app/*                        = py-infra"
@@ -167,8 +179,11 @@ path_map=(
   "scripts/assertion_lint_baseline.json = lint-assert,py-core"
   # land.sh (the only merge path) and new-migration.sh are both asserted on by
   # tests/core/test_migrations.py — the migration-ledger rules live there.
-  "scripts/land.sh                    = py-migrations,py-root"
+  "scripts/land.sh                    = py-migrations,py-root,mutants-dry"
   "scripts/new-migration.sh           = py-migrations,py-root"
+  "scripts/mutants.py                 = mutants,py-core"
+  "tests/mutants/*                    = mutants,py-core"
+  "tests/core/test_mutant_ledger.py   = mutants,py-core"
   "scripts/verify.sh                  = py-core"
   "scripts/test-shell.sh              = py-core"
   "scripts/*                          = py-root"

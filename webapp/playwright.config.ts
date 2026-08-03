@@ -152,7 +152,16 @@ export default defineConfig({
     // request means "the server is up" means the same thing in both lanes.
     url: `${BASE}/login`,
     reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
+    // 180s is right for a checkout with a warm `.next`, which is every normal
+    // run. It is NOT right for a build that starts cold: the pinned-mutant
+    // runner (scripts/mutants.py) copies the tree to /tmp so a mutation can
+    // never touch your working copy, which means no build cache and no `.next`
+    // volume, and inside the verification image that build took 184s and the
+    // suite reported "Timed out waiting 180000ms from config.webServer" — an
+    // infrastructure timeout that looks exactly like a mutant the guard failed
+    // to catch. The override is read from the environment rather than raised
+    // for everybody, because a slow build is a real signal for the normal lane.
+    timeout: Number(process.env.HQ_E2E_WEBSERVER_TIMEOUT_MS || 180_000),
     env: LIVE
       ? {
           // HQ_DEMO is ABSENT, not "0". `isDemoMode()` tests for the string

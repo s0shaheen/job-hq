@@ -1,0 +1,15 @@
+diff --git a/db/migrations/20260802_094615_autopilot_staging.sql b/db/migrations/20260802_094615_autopilot_staging.sql
+index 791d5fb..504f88a 100644
+--- a/db/migrations/20260802_094615_autopilot_staging.sql
++++ b/db/migrations/20260802_094615_autopilot_staging.sql
+@@ -358,9 +358,7 @@ immutable
+ set search_path = pg_catalog, pg_temp
+ as $$
+   select trim(both '_' from regexp_replace(
+-    lower(regexp_replace(
+-      regexp_replace(coalesce(p_key, ''), '([A-Z]+)([A-Z][a-z])', '\1_\2', 'g'),
+-      '([a-z])([A-Z])', '\1_\2', 'g')),
++    lower(coalesce(p_key, '')),
+     '[^a-z0-9]+', '_', 'g'))
+ $$;
+ 

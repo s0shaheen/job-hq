@@ -172,7 +172,25 @@ def tables_written_by_browser_definers(conn) -> dict[str, set[str]]:
 
 
 def gated_tables(conn) -> dict[str, tuple[bool, bool, bool]]:
-    """`table -> (rls_enabled, has_restrictive_entitlement_policy, has_guard_trigger)`."""
+    """`table -> (rls_enabled, has_restrictive_entitlement_policy, has_ENABLED_guard_trigger)`.
+
+    `tgenabled <> 'D'` IS THE LOAD-BEARING CLAUSE, and it was not here.
+
+    `alter table ... disable trigger` does not delete the `pg_trigger` row. It
+    flips `tgenabled` from 'O' to 'D' and leaves everything else — name, function,
+    timing, table — exactly as it was. So a bare `exists (select 1 from pg_trigger
+    ...)` reports a switched-off guard as attached, and every sweep built on this
+    helper reports a schema whose entitlement boundary is off as fully gated.
+
+    Measured, by driving it: with the guard disabled on `applications`, the three
+    sweeps below stayed GREEN. The pinned mutant
+    `applications-entitlement-trigger-disabled` (tests/mutants/) is that exact
+    statement, committed, and it now requires all three to redden.
+
+    'D' is the only value that means off. 'O' is the default; 'R' and 'A' are
+    replica-role settings that still fire for the ORIGIN role a browser session
+    uses, so treating those as off would fail a correctly configured schema.
+    """
     rows = conn.execute(
         """
         select c.relname,
@@ -184,6 +202,7 @@ def gated_tables(conn) -> dict[str, tuple[bool, bool, bool]]:
                exists (select 1 from pg_trigger tg
                          join pg_proc p on p.oid = tg.tgfoid
                         where tg.tgrelid = c.oid and not tg.tgisinternal
+                          and tg.tgenabled <> 'D'
                           and p.proname = 'hq_entitlement_guard')
           from pg_class c join pg_namespace n on n.oid = c.relnamespace
          where n.nspname = 'public' and c.relkind = 'r'"""

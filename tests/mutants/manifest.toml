@@ -1,0 +1,354 @@
+# The pinned-mutant ledger.
+#
+# WHY THIS FILE EXISTS. This repo's most expensive recurring defect is a test
+# that passes with the fix it guards removed: six occurrences on 2026-08-02
+# alone, across different authors including the coordinator. The convention
+# "every guard ships with the mutation the author ran by hand" caught all six,
+# so the mechanism works. What fails is that the mutation then lives in prose in
+# a commit message and depends on somebody's memory. This file is that mutation,
+# committed and executable.
+#
+# WHY A PATCH AND NOT A MUTATION-TESTING TOOL. Three of the six defects were in
+# SQL, one in a `.tsx` class string, one in a shell redirection. No Python or
+# TypeScript mutation tool reaches any of those, and whole-repo mutation testing
+# in PR CI is abandoned everywhere it has been tried because the runtime is
+# quadratic in the wrong thing. A committed patch is language-agnostic and says
+# exactly which mutation this guard exists to catch, which a generated mutant
+# never can.
+#
+# WHY NOT A COVERAGE GATE. Four of the six tests FULLY COVERED the line they
+# failed to guard. Coverage measures execution; this measures consequence.
+#
+# SCOPE. T3/T4 guards only (see `docs/pilot-launch/14-work-packet-standard.md`
+# section 4): migration, RLS, RPC, storage, worker, provider, and the release
+# path. This is deliberately not a ledger of every test in the repo.
+#
+# HOW TO ADD ONE.
+#
+#   1. Break the guard in your working tree the way a careless change would.
+#   2. `git diff -- <file> > tests/mutants/patches/<id>.patch`, then revert.
+#   3. Add a `[[mutant]]` below naming the tests that must go red and the
+#      property in one line.
+#   4. `scripts/mutants.py --only <id>` and read the evidence.
+#
+# PATCH ROT IS MAINTENANCE, NOT BREAKAGE.
+#
+# A patch is written against specific lines of a specific file, so editing the
+# guard makes it stop applying. That is the ledger noticing, on purpose, and the
+# expected rate is roughly one repair per active week — main moved that much in
+# hours on 2026-08-02. `mutants-dry` in `scripts/verify.sh` is mapped to every
+# file a pinned mutant patches, so it fires sub-second on the change that caused
+# it rather than at the end of a CI run.
+#
+# To refresh one:
+#
+#   1. Read the entry's `property` FIRST. The question is not "make the patch
+#      apply again", it is "does this mutation still reverse the guard this
+#      property is about". If the guard moved, the mutation moves with it; if
+#      the guard is gone, the entry is deleted with a note saying why.
+#   2. Break the guard again in your working tree.
+#   3. git diff -- <file> > tests/mutants/patches/<id>.patch
+#   4. git checkout -- <file>
+#   5. scripts/mutants.py --only <id>, and check the `failing` count still
+#      matches. A count that moved is a finding: the guard or its test changed
+#      underneath the entry, and that is worth a line in the PR rather than a
+#      silent edit.
+#
+# THE RULES THE RUNNER ENFORCES, each of which is a failure mode:
+#
+#   * A patch that no longer applies FAILS. It never skips. A skipped mutant is
+#     the same bug one level up.
+#   * A patch that touches `tests/**` is REFUSED at load time, before anything
+#     runs. Otherwise the cheapest way to satisfy this ledger is to break a test
+#     file, which proves nothing about any guard.
+#   * A mutant whose named tests do not go red FAILS and names the guard. That
+#     failure is the entire discovery this ledger exists to produce.
+#   * `failing` is the number of test CASES that must go red. A mutant that
+#     reddens one of four parametrisations has found a partial guard, and the
+#     count is what says so.
+
+# ═══════════════════════════════════════════════════════════════════ 1. SQL
+#
+# Three of the six lived here.
+
+[[mutant]]
+id = "autopilot-normalise-drops-case-boundary"
+tier = "T3"
+kind = "patch"
+patch = "patches/autopilot-normalise-drops-case-boundary.patch"
+guard = "public.hq_autopilot_normalise_field_key(text)"
+property = """
+A protected-characteristic question is refused in BOTH conventions a provider \
+writes it in, because the two spellings normalise to one string before the \
+pattern registry sees either — not because the registry happens to list both."""
+runner = "pytest"
+needs = ["database"]
+tests = [
+  "tests/db/test_autopilot_staging.py::test_the_engine_lane_gets_the_camelcase_refusal_too",
+  "tests/db/test_autopilot_staging.py::test_mutation_normalising_without_the_case_boundary_lets_camelcase_through",
+]
+failing = 2
+# The second named test applies this same mutation itself and calls `_restore()`
+# in a `finally`. That restore re-applies the migration FILE, so a runtime-DDL
+# mutant would be undone mid-test and the test would stay green. Patching the
+# migration source is what makes `_restore` restore the MUTATED guard, which is
+# why this entry is `kind = "patch"` and not `kind = "sql"`.
+
+[[mutant]]
+id = "autopilot-committed-stages-state-only"
+tier = "T3"
+kind = "patch"
+patch = "patches/autopilot-committed-stages-state-only.patch"
+guard = "public.hq_autopilot_committed_stages_are_kept()"
+property = """
+Provider evidence is protected by its EXISTENCE, not by the stage's state word: \
+a receipt-bearing stage survives every shipped un-triage gesture even after it \
+has settled out of the committed set."""
+runner = "pytest"
+needs = ["database"]
+tests = [
+  "tests/db/test_autopilot_staging.py::test_the_real_untriage_gesture_cannot_erase_a_receipt_in_any_state",
+]
+failing = 2   # the two triage spellings
+# `test_undo_cannot_erase_a_submission` was in this list on the first run and
+# STAYED GREEN under the mutation, which the `failing` count is what caught. It
+# is not a defect: that test leaves the stage in `submitted`, which is still in
+# `hq_autopilot_committed_states()`, so the STATE branch refuses the delete and
+# the receipt-existence branch is never reached. It guards the trigger's
+# existence, not this clause, and it is pinned by
+# `autopilot-stages-keep-committed-trigger-dropped` below instead.
+
+[[mutant]]
+id = "autopilot-stages-keep-committed-trigger-dropped"
+tier = "T3"
+kind = "sql"
+sql = "sql/autopilot-stages-keep-committed-trigger-dropped.sql"
+guard = "trigger autopilot_stages_keep_committed on public.autopilot_stages"
+property = """
+The delete guard is ATTACHED: with the trigger gone, un-triage cascades a \
+submitted stage, its trail and its receipt away and reports success."""
+runner = "pytest"
+needs = ["database"]
+tests = [
+  "tests/db/test_autopilot_staging.py::test_undo_cannot_erase_a_submission",
+  "tests/db/test_autopilot_staging.py::test_the_real_untriage_gesture_cannot_erase_a_receipt_in_any_state",
+]
+failing = 3
+
+[[mutant]]
+id = "autopilot-stages-entitlement-trigger-dropped"
+tier = "T3"
+kind = "sql"
+sql = "sql/autopilot-stages-entitlement-trigger-dropped.sql"
+guard = "trigger autopilot_stages_entitlement_guard on public.autopilot_stages"
+property = """
+A pending or suspended account writing through the definer RPC is refused BY \
+NAME by the guard on autopilot_stages, and not incidentally by the gated \
+neighbour table the same transaction also writes."""
+runner = "pytest"
+needs = ["database"]
+tests = [
+  "tests/db/test_autopilot_staging.py::test_a_non_entitled_account_is_refused_by_name",
+]
+failing = 2   # pending, suspended
+
+[[mutant]]
+id = "applications-entitlement-trigger-disabled"
+tier = "T3"
+kind = "sql"
+sql = "sql/applications-entitlement-trigger-disabled.sql"
+restore = "0027_entitlement.sql"
+guard = "trigger applications_entitlement_guard on public.applications"
+property = """
+A structural sweep that asks whether the entitlement guard is ATTACHED must also \
+ask whether it is ON: `disable trigger` keeps the pg_trigger row and only flips \
+tgenabled to 'D', so `exists (select 1 from pg_trigger ...)` reports a \
+switched-off guard as present."""
+runner = "pytest"
+needs = ["database"]
+tests = [
+  "tests/db/test_default_deny.py::test_every_browser_reachable_table_is_gated",
+  "tests/db/test_default_deny.py::test_every_table_a_browser_rpc_writes_carries_the_guard_trigger",
+  "tests/db/test_default_deny.py::test_the_exemptions_are_exact",
+]
+failing = 3
+# This is the strongest entry in the ledger, because it is the only one where
+# the mutation was INVISIBLE to the tests before the same change that pinned it.
+# Every other entry here breaks a guard that its test already caught by hand; this
+# one broke a guard that fifteen structural sweeps reported as fine.
+
+[[mutant]]
+id = "autopilot-stages-entitled-policy-dropped"
+tier = "T3"
+kind = "sql"
+sql = "sql/autopilot-stages-entitled-policy-dropped.sql"
+guard = "policy autopilot_stages_entitled on public.autopilot_stages"
+property = "A live JWT for a suspended or pending account reads no autopilot_stages row over /rest/v1."
+runner = "pytest"
+needs = ["database"]
+tests = ["tests/db/test_autopilot_staging.py::test_a_non_entitled_account_reads_nothing"]
+failing = 2
+
+[[mutant]]
+id = "autopilot-transitions-entitled-policy-dropped"
+tier = "T3"
+kind = "sql"
+sql = "sql/autopilot-transitions-entitled-policy-dropped.sql"
+guard = "policy autopilot_transitions_entitled on public.autopilot_transitions"
+property = "The same, for the audit trail: a suspended account reads no autopilot_transitions row."
+runner = "pytest"
+needs = ["database"]
+tests = ["tests/db/test_autopilot_staging.py::test_a_non_entitled_account_reads_nothing"]
+failing = 2
+
+[[mutant]]
+id = "autopilot-receipts-entitled-policy-dropped"
+tier = "T3"
+kind = "sql"
+sql = "sql/autopilot-receipts-entitled-policy-dropped.sql"
+guard = "policy autopilot_receipts_entitled on public.autopilot_receipts"
+property = "The same, for provider evidence: a suspended account reads no autopilot_receipts row."
+runner = "pytest"
+needs = ["database"]
+tests = ["tests/db/test_autopilot_staging.py::test_a_non_entitled_account_reads_nothing"]
+failing = 2
+
+# ═══════════════════════════════════════════════════════════ 2. the web app
+
+[[mutant]]
+id = "app-shell-unconditional-bounded-frame"
+tier = "T3"
+kind = "patch"
+patch = "patches/app-shell-unconditional-bounded-frame.patch"
+guard = "webapp/components/ds/app-shell.tsx — the opt-in bounded frame"
+property = """
+A surface that did not opt into the bounded frame keeps DOCUMENT scrolling, so \
+a bottom-anchored toast can always be scrolled clear of the primary action on a \
+phone."""
+runner = "playwright"
+spec = "tests/e2e/layout.spec.ts"
+grep = "un-bounded surfaces"
+failing = 8   # 4 un-bounded paths x 2 Playwright projects
+# A FINDING, and the reason `companies.spec.ts` is NOT in this entry.
+#
+# The companies phone/toast case is the test that CAUGHT #121's mobile
+# regression, so it was in the grep first and was expected to redden. It reddens
+# on linux and does NOT redden on macOS — 9 red inside the verification image, 8
+# on the host, from the same patch. That is not flakiness and it is not a bug in
+# the ledger: the test's own comment says so ("it passed on macOS and failed on
+# CI because whether the preview pushes the button far enough depends on how the
+# copy above it wraps, which is a font question"). The paste form's bottom safe
+# area leaves the submit button clear under the bounded frame at macOS metrics
+# and does not at linux metrics.
+#
+# A pinned count has to mean the same thing in both environments this runs in,
+# so the entry pins `layout.spec.ts`, which reddens 8/8 in both. The standing
+# fact is recorded rather than averaged away: on macOS the frame regression is
+# guarded by `layout.spec.ts` ALONE, and anyone relying on the companies case to
+# catch it locally is relying on a font.
+
+# ═══════════════════════════════════════════════════════════ 3. the toolchain
+
+[[mutant]]
+id = "land-gate-output-inherits-stdout"
+tier = "T4"
+kind = "patch"
+patch = "patches/land-gate-output-inherits-stdout.patch"
+guard = "scripts/land.sh — `1>&2` on the gate invocation"
+property = """
+`land.sh > out` leaves `out` holding the result and nothing else, including \
+when the gate it shells out to writes a page of its own."""
+runner = "pytest"
+tests = ["tests/core/test_land_script.py::test_stdout_carries_only_the_result_not_the_narration"]
+failing = 1
+
+[[mutant]]
+id = "render-mapped-returns-exc-untouched"
+tier = "T3"
+kind = "patch"
+patch = "patches/render-mapped-returns-exc-untouched.patch"
+guard = "infra/render/render.py — `_mapped`'s fallthrough"
+property = """
+Nothing leaves the render module except a RenderError, including for the \
+failures nobody predicted, so a library bug on a caller-reachable path cannot \
+put the caller's own text in the log group."""
+runner = "pytest312"
+needs = ["rendercv"]
+tests = [
+  "tests/infra/test_render_live.py::test_a_library_bug_on_a_caller_reachable_path_is_still_a_RenderError",
+]
+failing = 1
+
+[[mutant]]
+id = "mutants-runner-allows-test-file-patches"
+tier = "T3"
+kind = "patch"
+patch = "patches/mutants-runner-allows-test-file-patches.patch"
+guard = "scripts/mutants.py — the refusal of a patch that touches tests/**"
+property = """
+This ledger cannot be satisfied by breaking a test file, because a mutation that \
+edits the test proves nothing about the guard the test is for."""
+runner = "pytest"
+tests = [
+  "tests/core/test_mutant_ledger.py::test_a_patch_that_edits_a_test_file_is_refused",
+  "tests/core/test_mutant_ledger.py::test_a_webapp_spec_file_counts_as_a_test_file",
+]
+failing = 2
+# Named case by case rather than by file. Run whole,
+# `test_every_committed_patch_still_applies` also goes red under this mutation,
+# for a self-referential reason: the patch below is a patch to the runner, and
+# with the runner already mutated it no longer applies to itself. True, and not
+# what this entry is about.
+# The ledger, applied to itself. `scripts/mutants.py` is a T3 artifact now: it is
+# what says whether the other guards are guarded, so its own refusals need the
+# same treatment. `tests/core/test_mutant_ledger.py` is a legal target for a
+# mutant because the PATCH is to the runner, not to the test.
+
+# ═════════════════════════════════════════════════════ 4. the runner's control
+#
+# A ledger of mutants that all redden proves the guards work. It does not prove
+# the RUNNER can tell. This patch changes a comment and nothing else, and the
+# runner must report it as a FAILURE for reddening nothing. `scripts/mutants.py`
+# exits non-zero if this control passes, which is the inversion that makes every
+# green run above mean something.
+
+[[control]]
+id = "INERT-comment-only"
+kind = "patch"
+patch = "patches/INERT-comment-only.patch"
+property = "A patch that changes only a comment must be REPORTED AS A FAILURE by this runner."
+runner = "pytest"
+tests = ["tests/core/test_land_script.py::test_stdout_carries_only_the_result_not_the_narration"]
+failing = 1
+
+# ═══════════════════════════ 5. what binds the owner lane, and what does not
+#
+# The original brief for this ledger asked for TWO mutants per protected table:
+# the policy dropped, and FORCE ROW LEVEL SECURITY removed — the second to catch
+# the table-owner bypass a dropped-policy mutant alone misses. This ledger
+# carried the second as a `[[gap]]` for exactly one day, on the reasoning that
+# no migration sets FORCE, so there was no guard there to break.
+#
+# PR #149 then measured it, and the gap was wrong to imply forcing was the fix:
+#
+#   * FORCE is INERT here. On a real supabase/postgres the role `db/apply.sh`
+#     connects as — the owner of all 31 tables and of every definer in `public` —
+#     has `rolbypassrls = true`. A forced table with a `using (false)` policy
+#     still returned its rows to that owner. Locally the owner is a superuser and
+#     bypasses for its own reason. The ALTER is a no-op in both places.
+#   * And if it ever bit, it would take the product down. There is no permissive
+#     insert/update/delete policy anywhere in this schema; every write runs
+#     through a definer AS THE OWNER, and an empty permissive set is a deny.
+#     Reproduced: forcing turned signup and `app_save_view` into
+#     "new row violates row-level security policy".
+#
+# So the owner lane is bound by `hq_entitlement_guard`, a ROW TRIGGER, because
+# triggers fire for the owner. Which means the second mutant per table is not
+# "FORCE removed" — it is "the entitlement trigger dropped", and this ledger
+# already pins it as `autopilot-stages-entitlement-trigger-dropped`, driven
+# through the definer RPC that is the path an owner-lane write actually takes.
+#
+# The `[[gap]]` mechanism stays in `scripts/mutants.py` (a property nobody could
+# pin, executed with the expectation inverted, so the day the guard arrives the
+# entry fails and must be promoted). Nothing uses it today, which is the correct
+# state: a gap that has been answered is deleted, not kept as decoration.

@@ -1,0 +1,21 @@
+diff --git a/db/migrations/20260802_094615_autopilot_staging.sql b/db/migrations/20260802_094615_autopilot_staging.sql
+index 791d5fb..862ca7a 100644
+--- a/db/migrations/20260802_094615_autopilot_staging.sql
++++ b/db/migrations/20260802_094615_autopilot_staging.sql
+@@ -1555,16 +1555,6 @@ begin
+     return old;
+   end if;
+ 
+-  -- Evidence first, because it is the invariant the state is only a proxy for.
+-  if exists (select 1 from public.autopilot_receipts r where r.stage_id = old.id) then
+-    raise exception
+-      'this application was already submitted by autopilot, so it cannot be removed'
+-      using errcode = '42501',
+-            detail = format('autopilot stage %s is %s and holds a provider receipt',
+-                            old.id, old.state),
+-            hint = 'the receipt and audit trail are the only proof the application exists';
+-  end if;
+-
+   if old.state = any (public.hq_autopilot_committed_states()) then
+     raise exception
+       'this application is being submitted by autopilot, so it cannot be removed'

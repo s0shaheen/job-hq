@@ -1,0 +1,13 @@
+diff --git a/scripts/land.sh b/scripts/land.sh
+index fb627b1..04eb559 100755
+--- a/scripts/land.sh
++++ b/scripts/land.sh
+@@ -247,7 +247,7 @@ run_gates() {
+   # only half true: land.sh says nothing on stdout and then hands the whole
+   # verify.sh report to it, so `land.sh > out` still gets a page of test output
+   # instead of the summary. Measured on the run that landed this file's previous
+-  # commit.
++  # commit. (a comment, and nothing else — this patch is the runner's own control)
+   if ! ( eval "$cmd" 1>&2 ); then
+     rm -f "$GATE_STAMP"
+     refuse 4 "Local gates failed." \

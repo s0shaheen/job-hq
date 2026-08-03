@@ -1141,11 +1141,24 @@ def test_a_non_entitled_account_reads_nothing(conn, actor, state):
     is not in the path of. A live JWT does not expire when the operator flips the
     switch.
 
-    KILLED BY: removing the restrictive `_entitled` policies.
+    KILLED BY: removing the restrictive `_entitled` policies. All three of them:
+    the pinned mutant `autopilot-receipts-entitled-policy-dropped` found this test
+    reading zero from `autopilot_receipts` BOTH WAYS, because the row it built was
+    a bare `stage()` and a bare stage files no receipt. Two thirds of the loop
+    below asserted a boundary and the last third asserted an empty table. The
+    fixture now builds evidence in all three tables and the pre-condition asserts
+    the account can read all three, which is what makes the post-condition mean
+    anything.
     """
-    stage(conn, actor)
+    sid = approved_stage(conn, actor)
+    force_state(conn, sid, "submitting")
+    file_receipt(conn, actor, sid)
     _as(conn, actor["uid"])
-    assert conn.execute("select count(*) from public.autopilot_stages").fetchone()[0] == 1
+    for table in ("autopilot_stages", "autopilot_transitions", "autopilot_receipts"):
+        assert conn.execute(f"select count(*) from public.{table}").fetchone()[0] >= 1, (
+            f"{table} holds nothing before the suspension, so reading zero after it "
+            f"would prove nothing"
+        )
 
     _system(conn)
     if state == "suspended":

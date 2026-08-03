@@ -252,8 +252,11 @@ def test_deliberate_no_suite_paths_are_printed_not_hidden() -> None:
         # types-contract.test.ts PARSES db/migrations/*.sql to derive the row
         # types, so a migration-only edit can turn it red with no webapp file
         # touched. Commit d3aef9e is that failure, and it got past this lane.
-        ("db/migrations/0029_x.sql", {"py-db", "py-migrations", "vitest"}),
-        ("infra/render/render.py", {"py-render", "py-infra"}),
+        # `mutants-dry` too, since the pinned-mutant ledger patches this file:
+        # a change here can stop a committed mutant patch applying, and a mutant
+        # that silently stops running is the defect the ledger exists to catch.
+        ("db/migrations/0029_x.sql", {"py-db", "py-migrations", "vitest", "mutants-dry"}),
+        ("infra/render/render.py", {"py-render", "py-infra", "mutants-dry"}),
         (".github/workflows/ci.yml", {"py-workflows", "sysmap"}),
         ("monitor/fetchers/lever.py", {"py-monitor"}),
         ("tracker/digest.py", {"py-tracker"}),

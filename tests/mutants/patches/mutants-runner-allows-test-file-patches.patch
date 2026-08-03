@@ -1,0 +1,13 @@
+diff --git a/scripts/mutants.py b/scripts/mutants.py
+index 4dde03a..73ee538 100755
+--- a/scripts/mutants.py
++++ b/scripts/mutants.py
+@@ -196,7 +196,7 @@ def load(only: list[str] | None = None) -> list[Entry]:
+                 targets = patch_targets(text)
+                 if not targets:
+                     raise ManifestError(f"{eid}: the patch names no files")
+-                bad = [t for t in targets if _is_test_path(t)]
++                bad = []
+                 if bad:
+                     raise ManifestError(
+                         f"{eid}: REFUSED. The patch touches a test file: {', '.join(bad)}.\n"

@@ -272,6 +272,64 @@ jobs:
           HQ_REQUIRE_DB: "1"
         run: pytest tests/db -q
 
+  # The pinned-mutant ledger: every T3/T4 guard, broken on purpose, its named
+  # test required to go red.
+  #
+  # WHY IT IS A JOB AND NOT A STEP. This repo's most expensive recurring defect
+  # is a test that passes with the fix it guards removed — six occurrences on
+  # 2026-08-02, across different authors including the coordinator. Every one of
+  # them was caught by an author running the mutation BY HAND and every one of
+  # them then left that mutation in a commit message, where it depends on
+  # somebody's memory. `tests/mutants/manifest.toml` is those mutations as an
+  # artifact and this is what executes them.
+  #
+  # It is deliberately the union of four other jobs' dependencies rather than a
+  # step inside any of them: the ledger spans SQL, a .tsx class string, a shell
+  # redirection and a Python fallthrough, and a mutant that cannot run in the
+  # environment it is given would have to be skipped. A skipped mutant is the
+  # same defect one level up, so the runner has no skip and this job carries
+  # every dependency the ledger names.
+  #
+  # `uv` rather than setup-python: the runner resolves 3.11 and 3.12 itself, the
+  # same way `scripts/verify.sh` does outside the image, so the CI invocation and
+  # the local one are the same command.
+  mutants:
+    name: pinned mutants
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm, cache-dependency-path: webapp/package-lock.json }
+      # The scratch worktree the runner builds borrows this rather than
+      # installing a second copy; without it every browser mutant would fail on
+      # "cannot find module" instead of on its mutation.
+      - run: npm install --no-audit --no-fund
+        working-directory: webapp
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('webapp/package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+        working-directory: webapp
+      - name: Break every pinned guard and require its test to go red
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+        run: python3 scripts/mutants.py
+
   smoke:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.smoke }}
     runs-on: ubuntu-latest

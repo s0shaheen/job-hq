@@ -1,0 +1,19 @@
+-- The guard is still THERE. It is just switched off.
+--
+-- This is the mutant a catalog sweep is most likely to miss, and it is not a
+-- hypothetical: `alter table ... disable trigger` keeps the `pg_trigger` row and
+-- only flips `tgenabled` from 'O' to 'D'. Name, function, timing, table — all
+-- unchanged. So `exists (select 1 from pg_trigger ...)`, which is how a
+-- structural sweep naturally asks "is the guard attached", answers YES about a
+-- guard that fires for nothing.
+--
+-- Measured before `tgenabled <> 'D'` went into `gated_tables()`: with this one
+-- statement applied, every structural sweep in tests/db/test_default_deny.py
+-- stayed GREEN while a signed-in account wrote another account's row through a
+-- security-definer RPC.
+--
+-- `applications` rather than one of the autopilot tables on purpose. It is the
+-- table the most browser RPCs write, it is in 0027's original gated array rather
+-- than in the migration this ledger already leans on, and disabling it is a
+-- single operator gesture somebody might genuinely make during an import.
+alter table public.applications disable trigger applications_entitlement_guard;
