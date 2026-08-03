@@ -41,6 +41,48 @@
       "packets": "PKT-09F",
       "status": "not_approved",
       "summary": "Account deletion irreversibility: already submitted employer applications cannot be recalled"
+    },
+    "ADD-012": {
+      "id": "ADD-012",
+      "packets": "Today surface build",
+      "status": "not_approved",
+      "summary": "What clicking a Today row does: today-handoff.md says it opens the detail pane, TodayTriage.dc.html toggles selection. The cutover ships the text column as not clickable rather than choosing."
+    },
+    "ADD-013": {
+      "id": "ADD-013",
+      "packets": "Jobs surface build, then Today",
+      "status": "not_approved",
+      "summary": "Today's detail pane (skill chips, role summary) is unbuilt, so Enter does nothing and the Selected/detail state is only half reachable."
+    },
+    "ADD-014": {
+      "id": "ADD-014",
+      "packets": "E5 profiles",
+      "status": "not_approved",
+      "summary": "The advisory years limit the mismatch chip needs: the gate already filters min_yoe over the limit, so no queued row can carry the chip."
+    },
+    "ADD-015": {
+      "id": "ADD-015",
+      "packets": "monitor schedule read",
+      "status": "not_approved",
+      "summary": "Today's all-clear next-scan time: the finished template names a clock the webapp cannot read, so the time is omitted."
+    },
+    "ADD-016": {
+      "id": "ADD-016",
+      "packets": "ingestion schema",
+      "status": "not_approved",
+      "summary": "Posted age at hour granularity: postings.posted is a date, so the fact line shows days, not the composition's '6h ago'."
+    },
+    "ADD-017": {
+      "id": "ADD-017",
+      "packets": "Today surface build",
+      "status": "not_approved",
+      "summary": "The multi-select range key: 04 names an 'x-range' and x is already Pass, so shift-click ships alone."
+    },
+    "ADD-018": {
+      "id": "ADD-018",
+      "packets": "Today surface build",
+      "status": "not_approved",
+      "summary": "How a touch user reaches a Today row's actions: they are revealed on hover or focus and a phone has neither, so only the cursor row's actions are reachable. 07 section 4 states the acceptance criteria a fix must meet — per-row tap reachability, WCAG 2.2 target size, visible at rest under (hover: none), one tap deep, and not trapped under the SelectionBar."
     }
   },
   "completeness_oracle": {

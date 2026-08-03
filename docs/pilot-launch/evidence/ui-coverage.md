@@ -16,15 +16,15 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 
 | | Cells |
 |---|---:|
-| covered | 113 |
-| n/a | 50 |
-| blocked on an ADD item | 132 |
-| missing, baselined 2026-08-02 | 209 |
+| covered | 114 |
+| n/a | 48 |
+| blocked on an ADD item | 134 |
+| missing, baselined 2026-08-02 | 208 |
 | missing, new (fails) | 0 |
 | on an unbuilt surface (not enforced) | 126 |
 | total | 504 |
 
-**Baselined is not covered.** 209 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
+**Baselined is not covered.** 208 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
 
 ## Matrix, fixture mode
 
@@ -41,7 +41,7 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 | settings-auth-onboarding | gap | yes | yes | n/a | yes | yes | yes | yes | gap | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | gap | n/a |
 | shared-shell-and-components | n/a | yes | yes | n/a | n/a | gap | n/a | yes | yes | n/a | yes | yes | yes | n/a | gap | n/a | yes | yes | yes | gap | n/a |
 | system-and-mobile | n/a | yes | n/a | n/a | n/a | yes | n/a | yes | yes | n/a | yes | yes | yes | n/a | gap | n/a | yes | yes | add | gap | n/a |
-| today | yes | yes | yes | yes | yes | gap | n/a | yes | yes | yes | yes | yes | gap | n/a | yes | gap | yes | yes | yes | gap | gap |
+| today | yes | yes | yes | yes | yes | gap | n/a | yes | yes | yes | yes | yes | gap | add | yes | gap | yes | yes | yes | gap | yes |
 
 Live mode is not shown as a matrix because it has one value everywhere. Every live cell is missing: the whole Playwright suite runs `HQ_DEMO=1` against `FixtureDataSource`, so no browser test has ever touched the real data path, real session handling, or RLS.
 
@@ -385,7 +385,7 @@ Routes: `/queue`
 | State | Fixture | Evidence or reason |
 |---|---|---|
 | Loading | yes | `tests/e2e/resilience.spec.ts` "a slow data source shows a skeleton rather than a blank screen" |
-| Populated | yes | `tests/e2e/triage.spec.ts` "the four decision facts are visible without any interaction" |
+| Populated | yes | `tests/e2e/triage.spec.ts` "the decision facts are visible without any interaction" |
 | Natural empty | yes | `tests/e2e/empty.spec.ts` "an empty queue with nothing filtered does not invent a constraint" |
 | Filter empty | yes | `tests/e2e/empty.spec.ts` "an empty queue caused by the profile names the binding constraint" |
 | Missing optional fact | yes | `tests/e2e/triage.spec.ts` "an unstated value reads 'Not listed' rather than being hidden" |
@@ -397,14 +397,14 @@ Routes: `/queue`
 | Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for the queue lands on the holding page, and the queue is not rendered on the way" |
 | Session expired | yes | `tests/e2e/offline.spec.ts` "the held decision is applied once the session is back" |
 | Fatal route error | gap | No spec forces /queue to throw; only the 404 path is covered. |
-| Selected/detail | n/a | the queue shows one card at a time; there is no list selection and no detail pane |
-| Long strings | yes | `tests/e2e/layout.spec.ts` "long titles and long company names do not break the triage card" |
+| Selected/detail | add | ADD-013: Selection is covered by triage.spec.ts, but the detail pane the handoff opens on Enter is unbuilt, so the surface cannot enter half of this state. |
+| Long strings | yes | `tests/e2e/layout.spec.ts` "long titles and long company names do not break the decision row" |
 | High volume | gap | No spec drives the queue at thousands of cards. |
 | Large type | yes | `tests/e2e/layout.spec.ts` "nothing paints past the edge at the large type scale" |
 | 200% zoom | yes | `tests/e2e/resilience.spec.ts` "the page survives a 200% text zoom" |
 | Narrow viewport | yes | `tests/e2e/layout.spec.ts` "on a phone, the first job is on the first screen" |
 | Reduced motion | gap | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
-| Provider image failure | gap | The monogram fallback for a failed company logo is asserted in unit tests only, never in a rendered page. |
+| Provider image failure | yes | `tests/e2e/triage.spec.ts` "a logo host that never answers degrades to the monogram, not a broken image" |
 
 ## Baseline, 2026-08-02
 
@@ -450,7 +450,6 @@ Each line is a hole that already existed when the gate was switched on. Baseline
 | `billing-landing-email-import-export | High volume | fixture` | No spec drives the wizard at a workbook of thousands of rows. |
 | `find-intro | Large type | fixture` | /connections is absent from the large-type overflow sweep in layout.spec.ts. |
 | `find-intro | 200% zoom | fixture` | /connections is absent from the 200% zoom sweep in resilience.spec.ts. |
-| `today | Provider image failure | fixture` | The monogram fallback for a failed company logo is asserted in unit tests only, never in a rendered page. |
 | `applications | Provider image failure | fixture` | The monogram fallback for a failed company logo is asserted in unit tests only. |
 | `coverage | Provider image failure | fixture` | The monogram fallback for a failed company logo is asserted in unit tests only, on the surface that shows the most logos - and the rendered path is known broken there, because a server-rendered row fires its image error before hydration so onError never runs. |
 

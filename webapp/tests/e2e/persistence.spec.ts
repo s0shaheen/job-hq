@@ -35,15 +35,15 @@ test("a triage decision is still gone after a reload", async ({ page, context })
   // a success toast already shown for it.
   await setup(page, context);
   await gotoQueue(page);
-  const first = await page.locator("article h3").first().innerText();
+  const first = await page.getByTestId("row-title").first().innerText();
 
   await page.getByTestId("interested").click();
-  await expect(page.getByText(/^Marked interested:/)).toBeVisible();
-  await expect(page.locator("article h3").first()).not.toHaveText(first);
+  await expect(page.getByText("Marked interested", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("row-title").first()).not.toHaveText(first);
 
   await page.reload();
   await expect(page.locator('[data-testid="triage"][data-ready="true"]')).toBeAttached();
-  await expect(page.locator("article h3").first()).not.toHaveText(first);
+  await expect(page.getByTestId("row-title").first()).not.toHaveText(first);
 });
 
 test("an interested decision reaches the pipeline", async ({ page, context }) => {
@@ -51,10 +51,10 @@ test("an interested decision reaches the pipeline", async ({ page, context }) =>
   // server actions hold separate stores, this row never appears.
   await setup(page, context);
   await gotoQueue(page);
-  const company = await page.locator("article").first().locator("h3").innerText();
+  const company = await page.getByTestId("row-title").first().innerText();
 
   await page.getByTestId("interested").click();
-  await expect(page.getByText(/^Marked interested:/)).toBeVisible();
+  await expect(page.getByText("Marked interested", { exact: true })).toBeVisible();
 
   await page.goto("/pipeline");
   // `getByTestId("pipeline")`, not `getByRole("table")`: the pipeline became a
@@ -81,7 +81,7 @@ test("the export count matches the screen after triaging", async ({ page, contex
   await page.keyboard.press("Escape");
 
   await page.getByTestId("pass").click();
-  await expect(page.getByText(/^Passed:/)).toBeVisible();
+  await expect(page.getByText("Passed", { exact: true })).toBeVisible();
 
   await page.getByTestId("export-open").click();
   await expect(button).toHaveText(new RegExp(`Download ${before - 1} rows?`));
@@ -104,22 +104,22 @@ test("triage, undo, then decide again — the card does not lock up", async ({ p
   // permanently un-triageable while a toast blamed a change nobody made.
   await setup(page, context);
   await gotoQueue(page);
-  const first = await page.locator("article h3").first().innerText();
+  const first = await page.getByTestId("row-title").first().innerText();
 
   await page.getByTestId("interested").click();
-  await expect(page.getByText(/^Marked interested:/)).toBeVisible();
+  await expect(page.getByText("Marked interested", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Undo" }).click();
-  await expect(page.locator("article h3").first()).toHaveText(first);
+  await expect(page.getByTestId("row-title").first()).toHaveText(first);
 
   await page.getByTestId("pass").click();
-  await expect(page.getByText(/^Passed:/)).toBeVisible();
+  await expect(page.getByText("Passed", { exact: true })).toBeVisible();
   // The lie the old code told.
   await expect(page.getByText(/changed somewhere else/)).toHaveCount(0);
-  await expect(page.locator("article h3").first()).not.toHaveText(first);
+  await expect(page.getByTestId("row-title").first()).not.toHaveText(first);
 
   await page.reload();
   await expect(page.locator('[data-testid="triage"][data-ready="true"]')).toBeAttached();
-  await expect(page.locator("article h3").first()).not.toHaveText(first);
+  await expect(page.getByTestId("row-title").first()).not.toHaveText(first);
 });
 
 test("triage shortcuts do not fire behind the open export dialog", async ({ page, context }) => {
@@ -127,7 +127,7 @@ test("triage shortcuts do not fire behind the open export dialog", async ({ page
   // triaged the card hidden behind it.
   await setup(page, context);
   await gotoQueue(page);
-  const first = await page.locator("article h3").first().innerText();
+  const first = await page.getByTestId("row-title").first().innerText();
 
   await page.getByTestId("export-open").click();
   await expect(page.getByRole("dialog")).toBeVisible();
@@ -138,5 +138,5 @@ test("triage shortcuts do not fire behind the open export dialog", async ({ page
 
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.locator("article h3").first()).toHaveText(first);
+  await expect(page.getByTestId("row-title").first()).toHaveText(first);
 });

@@ -216,6 +216,32 @@ failing = 2
 # ═══════════════════════════════════════════════════════════ 2. the web app
 
 [[mutant]]
+id = "today-row-button-decides-the-selection"
+tier = "T2"
+kind = "patch"
+patch = "patches/today-row-button-decides-the-selection.patch"
+guard = "webapp/app/(app)/queue/today-list.tsx — decideRow"
+property = """
+A row's own Interested/Pass/Later button decides THAT ROW, never the selection \
+that happens to exist elsewhere on screen — the count on a control equals the \
+count it acts on (02 section 8)."""
+runner = "playwright"
+spec = "tests/e2e/triage.spec.ts"
+grep = "a row's own button decides that row"
+failing = 1   # desktop only; the mobile project skips it, see ADD-018
+# This shipped. The first cut of Today routed every row button through a helper
+# that returned the SELECTION whenever one existed, so with rows 1-3 checked,
+# clicking the button named `Interested: Vanta, ...` wrote rows 1-3, left Vanta
+# undecided, and toasted "Marked 3 roles interested". The control's name, its
+# position and its effect all disagreed, and the SelectionBar two inches away
+# was obeying the rule at the same moment.
+#
+# `failing = 1` and not 2 because the mobile project skips this case: a
+# non-cursor row reveals its actions on hover, which a touch device cannot do.
+# That gap is ADD-018, and closing it means deleting the skip and raising this
+# number — not baselining it.
+
+[[mutant]]
 id = "app-shell-unconditional-bounded-frame"
 tier = "T3"
 kind = "patch"

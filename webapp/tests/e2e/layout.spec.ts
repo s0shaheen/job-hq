@@ -155,33 +155,33 @@ test.describe("nothing paints past the edge at the large type scale", () => {
   }
 });
 
-test("long titles and long company names do not break the triage card", async ({ page }) => {
+test("long titles and long company names do not break the decision row", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   await page.goto("/queue");
   // the fixture set deliberately contains a very long title + company
-  const card = page.locator("article").first();
-  await expect(card).toBeVisible();
-  const box = await card.boundingBox();
+  const row = page.getByTestId("decision-row").first();
+  await expect(row).toBeVisible();
+  const box = await row.boundingBox();
   expect(box!.width).toBeLessThanOrEqual(375);
 });
 
-test("an unbroken token in the card headings stays inside the card", async ({ page }) => {
+test("an unbroken token in a row's company and title stays inside the row", async ({ page }) => {
   // Company and title strings arrive from ATS boards unsanitised. A token with
   // no break opportunity — a product name, a slug, a pasted URL — is the case
   // the wrapping fixture strings above cannot exercise: their spaces give the
-  // layout an easy out. Without overflow-wrap the company heading (a flex
-  // item) widens to the token and the title (a block) paints straight past
-  // the card edge, where html's overflow-x:hidden clips it unreachably.
+  // layout an easy out. Without overflow-wrap the company (a flex item) widens
+  // to the token and the title paints straight past the row's edge, where
+  // html's overflow-x:hidden clips it unreachably.
   await page.setViewportSize({ width: 375, height: 900 });
   await page.goto("/queue");
-  await expect(page.locator("article").first()).toBeVisible();
+  await expect(page.getByTestId("decision-row").first()).toBeVisible();
 
   await page.evaluate(() => {
-    const h2 = document.querySelector("article h2");
-    const h3 = document.querySelector("article h3");
-    if (!h2 || !h3) throw new Error("triage card headings not found");
-    h2.textContent = "Grundstücksverkehrsgenehmigungszuständigkeitsübertragungsverordnung";
-    h3.textContent = "SeniorProductManagerEnterpriseDataPlatformReportingInfrastructure2026";
+    const company = document.querySelector('[data-testid="row-company"]');
+    const title = document.querySelector('[data-testid="row-title"]');
+    if (!company || !title) throw new Error("decision row company/title not found");
+    company.textContent = "Grundstücksverkehrsgenehmigungszuständigkeitsübertragungsverordnung";
+    title.textContent = "SeniorProductManagerEnterpriseDataPlatformReportingInfrastructure2026";
   });
 
   const offenders = await page.evaluate(collectPaintedOverflow);
@@ -196,16 +196,16 @@ test("on a phone, the first job is on the first screen", async ({ page }, testIn
   // exists to show you was below the fold. Asserting the card's position is
   // what keeps navigation from quietly reclaiming that space again.
   await page.goto("/queue");
-  const card = page.locator("article").first();
-  await expect(card).toBeVisible();
+  const row = page.getByTestId("decision-row").first();
+  await expect(row).toBeVisible();
 
-  const box = await card.boundingBox();
+  const box = await row.boundingBox();
   const viewport = page.viewportSize();
   if (!box || !viewport) throw new Error("no layout box");
 
   expect(
     box.y,
-    `the first card starts ${Math.round(box.y)}px down a ${viewport.height}px screen`,
+    `the first row starts ${Math.round(box.y)}px down a ${viewport.height}px screen`,
   ).toBeLessThan(viewport.height * 0.5);
 });
 

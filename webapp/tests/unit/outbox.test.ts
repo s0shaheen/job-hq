@@ -25,6 +25,25 @@ vi.mock("@/app/(app)/queue/actions", () => ({
 }));
 
 /**
+ * The bulk action, which is what Today's `useDecisions` calls even for one row
+ * (`app/(app)/jobs/decisions.ts`). Mocked for the same reason the single one
+ * is: a "use server" module cannot execute under jsdom, and what this suite
+ * asserts is which write the client makes, not what the server does with it.
+ */
+const { setTriageBulkActionMock } = vi.hoisted(() => ({
+  setTriageBulkActionMock: vi.fn<(input: unknown) => Promise<unknown>>(),
+}));
+
+vi.mock("@/app/(app)/jobs/bulk-actions", () => ({
+  setTriageBulkAction: (input: unknown) => setTriageBulkActionMock(input),
+}));
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+
+/** The calendar day Today's relative "2d ago" segment is rendered against. */
+const TODAY = "2026-07-21";
+
+/**
  * sonner is mocked so the Undo handler can be invoked directly. Rendering the
  * real Toaster in jsdom would test sonner's animations, and the thing under
  * test is what the button does — including which of the four outcomes it
@@ -96,6 +115,12 @@ beforeEach(() => {
   window.localStorage.clear();
   setTriageActionMock.mockReset();
   setTriageActionMock.mockResolvedValue({ ok: true, job: JOB });
+  // Reset alongside its sibling. A `mockRejectedValueOnce` that its own test
+  // never consumed would otherwise sit in the queue and reject the FIRST write
+  // of whichever test ran next — a failure that reads as a bug in the code
+  // under test and points nowhere near the test that armed it.
+  setTriageBulkActionMock.mockReset();
+  setTriageBulkActionMock.mockResolvedValue({ ok: true, jobs: [JOB] });
   toastMock.mockReset();
   toastMock.error.mockReset();
   toastMock.warning.mockReset();
@@ -300,11 +325,18 @@ describe("Undo after a background delivery", () => {
 
   async function passFirstCardOffline() {
     const o = await loadOutbox();
-    const mod = await import("@/app/(app)/queue/triage-queue");
+    const mod = await import("@/app/(app)/queue/today-list");
     // The gesture never reaches the server, so `decide` defers it: outbox
     // entry plus the Undo toast this suite is about.
-    setTriageActionMock.mockRejectedValueOnce(new Error("network down"));
-    render(React.createElement(mod.default, { initial: [JOB] }));
+    //
+    // The DECISION goes through the bulk action now — Today reuses
+    // `useDecisions`, which speaks one call for one row and for twelve — while
+    // the compensating write for a row the flush already delivered is still the
+    // single-row action, because it is one row by construction. So the reject
+    // that forces the deferral is set on the bulk mock and the assertion below
+    // still reads `setTriageAction`.
+    setTriageBulkActionMock.mockRejectedValueOnce(new Error("network down"));
+    render(React.createElement(mod.default, { initial: [JOB], today: TODAY }));
 
     fireEvent.click(screen.getByTestId("pass"));
     await waitFor(() => expect(o.listPending()).toHaveLength(1));
@@ -355,7 +387,7 @@ describe("Undo after a background delivery", () => {
 
     await waitFor(() =>
       expect(toastMock.warning).toHaveBeenCalledWith(
-        "Couldn't undo. This was changed somewhere else.",
+        "Couldn't undo because this was changed somewhere else.",
       ),
     );
   });

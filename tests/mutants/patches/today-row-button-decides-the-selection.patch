@@ -1,0 +1,13 @@
+diff --git a/webapp/app/(app)/queue/today-list.tsx b/webapp/app/(app)/queue/today-list.tsx
+index 4f452d0..5ea4f70 100644
+--- a/webapp/app/(app)/queue/today-list.tsx
++++ b/webapp/app/(app)/queue/today-list.tsx
+@@ -396,7 +396,7 @@ export default function TodayList({
+                 showKeyHints
+                 onToggleSelect={(shift) => toggleSelect(job, shift)}
+                 onInterested={() => decideRow("interested", job)}
+-                onPass={() => decideRow("dismissed", job)}
++                onPass={() => submit("dismissed", keyboardTargets(), selected.size > 0)}
+                 onLater={() => decideRow("snoozed", job)}
+               />
+             );

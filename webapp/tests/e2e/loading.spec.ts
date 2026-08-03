@@ -73,3 +73,57 @@ test("the skeleton and the loaded page put content in the same place", async ({
       `(skeleton ${skeletonTop}, loaded ${loadedTop})`,
   ).toBeLessThanOrEqual(8);
 });
+
+/**
+ * The same claim for Today's skeleton.
+ *
+ * `queue/loading.tsx` carried a comment saying this spec measured it. It did
+ * not — everything above drives `/pipeline` and `/jobs`, so the queue skeleton
+ * was hand-checked and machine-unenforced, which is precisely the "component
+ * cited as its own enforcement" failure the header of this file exists to
+ * record. A comment claiming a test is worse than no comment, because it stops
+ * the next person from looking.
+ */
+test("the queue skeleton and the loaded queue put the first row in the same place", async ({
+  page,
+  context,
+}) => {
+  await page.clock.setFixedTime(FIXTURE_NOW);
+  await context.addCookies([
+    { name: "hq_demo_id", value: `loadq-${Date.now()}`, url: "http://127.0.0.1:3210" },
+  ]);
+
+  // A Suspense fallback paints on a CLIENT-SIDE navigation, so arrive from
+  // somewhere else in the app rather than delaying the document request.
+  await page.goto("/pipeline");
+  await expect(page.locator('[data-testid="export-open"][data-ready="true"]')).toBeAttached();
+
+  await page.route(/\/queue/, async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.continue();
+  });
+
+  await page.getByRole("link", { name: /^Today/ }).click();
+  await page.getByTestId("queue-skeleton").waitFor({ state: "attached", timeout: 10_000 });
+
+  const skeletonTop = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="queue-skeleton-row"]');
+    return el ? Math.round(el.getBoundingClientRect().top) : -1;
+  });
+  expect(skeletonTop, "no skeleton rows were rendered").toBeGreaterThan(0);
+
+  await page.unroute(/\/queue/);
+  await expect(page.locator('[data-testid="triage"][data-ready="true"]')).toBeAttached();
+
+  const loadedTop = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="decision-row"]');
+    return el ? Math.round(el.getBoundingClientRect().top) : -1;
+  });
+  expect(loadedTop).toBeGreaterThan(0);
+
+  expect(
+    Math.abs(loadedTop - skeletonTop),
+    `the first row moved ${loadedTop - skeletonTop}px when data landed ` +
+      `(skeleton ${skeletonTop}, loaded ${loadedTop})`,
+  ).toBeLessThanOrEqual(8);
+});

@@ -15,6 +15,8 @@ export type { ButtonProps, ButtonVariant } from "./button";
 // The class alone, for the one case `Button` cannot serve: a server-rendered
 // link that has to look like a button. See `button-class.ts`.
 export { buttonClass } from "./button-class";
+export { DecisionRow } from "./decision-row";
+export type { DecisionRowFacts } from "./decision-row";
 export { DetailPane } from "./detail-pane";
 export type { DetailPaneProps } from "./detail-pane";
 export { DisplayPopover } from "./display-popover";

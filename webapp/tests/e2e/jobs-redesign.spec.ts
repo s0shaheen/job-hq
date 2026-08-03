@@ -343,7 +343,9 @@ test.describe("the app frame", () => {
   });
 
   test("the unbuilt destinations say so instead of pretending", async ({ page }) => {
-    for (const path of ["/today", "/autopilot", "/coverage"]) {
+    // Today is no longer among them: it cut over on feat/redesign-today and
+    // `/today` now redirects to the built surface at `/queue`.
+    for (const path of ["/autopilot", "/coverage"]) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       // An honest placeholder names what the surface will hold and where that

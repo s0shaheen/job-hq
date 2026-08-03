@@ -42,7 +42,7 @@ test("undo after the flush delivered the decision really undoes it", async ({ pa
 
   await setup(page, context);
   await gotoQueue(page);
-  const first = await page.locator("article h3").first().innerText();
+  const first = await page.getByTestId("row-title").first().innerText();
 
   await context.setOffline(true);
   await page.getByTestId("pass").click();
@@ -66,11 +66,11 @@ test("undo after the flush delivered the decision really undoes it", async ({ pa
   await undo.click();
 
   // On screen it comes back either way; this only rules out the card being lost.
-  await expect(page.locator("article h3").first()).toHaveText(first);
+  await expect(page.getByTestId("row-title").first()).toHaveText(first);
 
   // The real check. Before the compensating write existed, the server still
   // held the pass and this card did not come back.
   await page.reload();
   await expect(page.locator('[data-testid="triage"][data-ready="true"]')).toBeAttached();
-  await expect(page.locator("article h3").first()).toHaveText(first);
+  await expect(page.getByTestId("row-title").first()).toHaveText(first);
 });

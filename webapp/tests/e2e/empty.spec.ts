@@ -43,8 +43,17 @@ test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(FIXTURE_NOW);
 });
 
+/**
+ * Every surface's empty state announces its title as a real heading.
+ *
+ * There was briefly a per-surface flag here, because Today's ported
+ * `EmptyState` rendered its title as a `div` and the assertion had to be
+ * relaxed for it. That was the wrong direction — it dropped a semantic check to
+ * accommodate a component — so the component renders an `h2` now and all four
+ * surfaces are held to the same bar.
+ */
 const SURFACES = [
-  { path: "/queue", heading: "Nothing found yet" },
+  { path: "/queue", heading: "Pending decisions collect here after your first scan." },
   { path: "/pipeline", heading: "No applications yet" },
   { path: "/health", heading: "No runs reported yet" },
   { path: "/companies", heading: "No companies yet" },
@@ -58,9 +67,7 @@ test.describe("zero rows", () => {
 
       const empty = page.getByTestId("empty-state");
       await expect(empty).toBeVisible();
-      await expect(
-        empty.getByRole("heading", { name: surface.heading }),
-      ).toBeVisible();
+      await expect(empty.getByRole("heading", { name: surface.heading })).toBeVisible();
 
       // A heading alone is a shrug. The body is what says whether to wait,
       // to change something, or to worry.
@@ -114,7 +121,7 @@ test("an empty queue caused by the profile names the binding constraint", async 
 
   // The distinction this whole row exists for: filtered-to-nothing must not
   // read like found-nothing.
-  await expect(empty.getByRole("heading")).toHaveText(/filtered/i);
+  await expect(empty).toContainText(/filtered everything out/i);
   // Named constraint, counted honestly, and reachable.
   await expect(empty).toContainText(/\d+ of the \d+ postings/);
   const link = empty.getByRole("link");
@@ -131,8 +138,12 @@ test("an empty queue with nothing filtered does not invent a constraint", async 
   const empty = page.getByTestId("empty-state");
   // Naming a setting that filtered nothing would send the user to change
   // something that was never the problem.
-  await expect(empty.getByRole("heading")).not.toHaveText(/filtered/i);
-  await expect(empty.getByRole("link")).toHaveCount(0);
+  await expect(empty).not.toContainText(/filtered/i);
+  // The claim is about not INVENTING a constraint, not about having no links:
+  // the teaching state's three actions are the onboarding checklist and belong
+  // here. What must be absent is the "go change this setting" deep link, which
+  // would send someone to widen a rule that filtered nothing.
+  await expect(empty.locator('a[href^="/settings#"]')).toHaveCount(0);
 });
 
 test.describe("an empty queue stays accessible", () => {

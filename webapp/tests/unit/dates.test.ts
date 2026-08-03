@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { localIsoDaysFromNow, toLocalIsoDate } from "@/lib/dates";
+import { localIsoDaysFromNow, postedAge, toLocalIsoDate } from "@/lib/dates";
 
 /**
  * Acceptance criterion 14: "Snooze set at 23:50 wakes on the correct LOCAL
@@ -54,4 +54,64 @@ describe("local calendar days", () => {
   it("pads single-digit months and days", () => {
     expect(toLocalIsoDate(new Date(2026, 0, 5))).toBe("2026-01-05");
   });
+});
+
+/**
+ * `postedAge` — Today's fourth fact segment.
+ *
+ * Both arguments are `YYYY-MM-DD` strings, and the last case here is why.
+ */
+describe("postedAge", () => {
+  const TODAY = "2026-07-21";
+
+  it("says Today for a posting dated today", () => {
+    expect(postedAge("2026-07-21", TODAY)).toBe("Today");
+  });
+
+  it("counts calendar days", () => {
+    expect(postedAge("2026-07-20", TODAY)).toBe("1d ago");
+    expect(postedAge("2026-07-19", TODAY)).toBe("2d ago");
+  });
+
+  it("stays relative for six days and turns absolute at seven", () => {
+    expect(postedAge("2026-07-15", TODAY)).toBe("6d ago");
+    expect(postedAge("2026-07-14", TODAY)).toBe("Jul 14");
+  });
+
+  it("reads a future date as today rather than a negative age", () => {
+    // A board's clock, not ours. "-1d ago" is not a thing to show anyone.
+    expect(postedAge("2026-07-25", TODAY)).toBe("Today");
+  });
+
+  it("answers null for an absent or unparseable date, never a guess", () => {
+    expect(postedAge(null, TODAY)).toBeNull();
+    expect(postedAge("", TODAY)).toBeNull();
+    expect(postedAge("last tuesday", TODAY)).toBeNull();
+    expect(postedAge("2026-13-01", TODAY)).toBeNull();
+    expect(postedAge("2026-07-20", "not-a-date")).toBeNull();
+  });
+
+  /**
+   * NO TIMEZONE TEST HERE, and that is a measured decision rather than an
+   * omission.
+   *
+   * The bug this signature fixes was a HYDRATION MISMATCH: the first version
+   * took `now: Date` and derived the current day with
+   * `getFullYear/getMonth/getDate`, which read the server's zone during SSR and
+   * the user's in the browser, so at 02:00Z a US reader got "1d ago" from the
+   * server and "Today" after hydration.
+   *
+   * A unit test that loops over `TZ` values cannot see it. Both dates take the
+   * same offset and the SUBTRACTION cancels it, so the answer is stable across
+   * zones under the buggy arithmetic too — written, run against a deliberately
+   * re-broken `calendarDay`, and observed to pass. It would have been a test
+   * that cannot fail, which is this repo's most expensive recurring defect.
+   *
+   * What actually removes the bug is the SIGNATURE: `today` is a `YYYY-MM-DD`
+   * string, so there is no timestamp left for either side to interpret, and
+   * `tsc` rejects passing a `Date`. The rendered half of the claim — that the
+   * relative branch renders identically on both sides of hydration — is
+   * `tests/e2e/triage.spec.ts` "the fact line's posted age is relative, and
+   * survives hydration unchanged".
+   */
 });

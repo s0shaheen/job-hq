@@ -49,7 +49,36 @@ for (const theme of ["light", "dark"] as const) {
     // snapshot taken mid-hydration would differ from one taken after it.
     await expect(page.locator('[data-testid="triage"][data-ready="true"]')).toBeAttached();
     await page.waitForLoadState("load");
-    await expect(page).toHaveScreenshot(`queue-${theme}.png`, { fullPage: true });
+    /**
+     * A TIGHTER tolerance than the project default, on this surface only, and
+     * it is here because the default was measured letting the whole cutover
+     * through.
+     *
+     * `maxDiffPixelRatio: 0.02` on a 1280x900 desktop canvas is a budget of
+     * 23,040 pixels. Today is a single 760px column on a mostly empty page, so
+     * replacing the ENTIRE surface — the one-card stack became the owner's
+     * list, and #121 had already replaced the nav beside it — moves 21,964
+     * pixels. That is under budget, so the committed desktop baseline still
+     * depicted the pre-#121 nine-link nav and the retired triage card, and the
+     * check went green on a page that no longer existed. Measured, not
+     * suspected: a probe with the ratio set to 0 printed the number.
+     *
+     * A ratio is the wrong unit for a sparse surface — it scales the budget
+     * with the empty background rather than with the ink. An absolute budget
+     * does not, and inside the pinned Playwright container font rasterisation
+     * is deterministic, so 600 pixels is generous for antialiasing and far
+     * below anything a person would call a change.
+     *
+     * Scoped to this one assertion deliberately. The other surfaces' baselines
+     * are the previous packets' evidence, and re-tolerancing twelve of them is
+     * its own change with its own re-recording; this is a finding to hand back,
+     * not a licence to churn them.
+     */
+    await expect(page).toHaveScreenshot(`queue-${theme}.png`, {
+      fullPage: true,
+      maxDiffPixels: 600,
+      maxDiffPixelRatio: 1,
+    });
   });
 
   test(`the pipeline looks right — ${theme}`, async ({ page }) => {

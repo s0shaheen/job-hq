@@ -219,8 +219,58 @@ Visible implementation is blocked until every state maps to an owner artifact:
 | ADD-007 | Account deletion irreversibility: already submitted employer applications cannot be recalled | PKT-09F |
 | ADD-008 | Whether the Jobs Display popover WRITES its four knobs to `profiles`, or is per-session only. Migration 0025 made density, type size and keyboard hints a durable per-user record, and Settings persists them; `DisplayPopover.d.ts` carries no save affordance, no dirty state and no "applies to this session" line, and 04 §3 lists the control without saying which it is. The two readings are visibly different products — change density in Jobs, reload, and the row height either holds or reverts — so the surface keeps today's per-session behavior until the owner says | Jobs surface build |
 | ADD-011 | Un-triage, bulk un-triage, import undo and digest undo against a job autopilot has already submitted: the gesture is refused, and no authored state shows a refused undo | PKT-07 autopilot surface |
+| ADD-012 | **What clicking a Today row does.** The two authoritative sources disagree: `today-handoff.md` §1 says row click opens the DETAIL PANE; `TodayTriage.dc.html` wraps each row in `onClick="{{ r.toggle }}"`, i.e. it TOGGLES SELECTION. Those are different products — one navigates, one mutates a selection. The Today cutover ships the text column as NOT clickable rather than picking one; the checkbox selects, the three buttons decide, and `o` opens the posting | Today surface build |
+| ADD-013 | **Today's detail pane.** The pane the handoff opens on `Enter` (skill chips, role summary — the content the row budget evicts) is unbuilt; 07 §3 calls it the one net-new component and assigns it to Jobs. Until it exists, `Enter` does nothing on Today and the `Selected/detail` coverage cell is `blocked` on this row rather than `covered` | Jobs surface build, then Today |
+| ADD-014 | **The advisory years limit the mismatch chip needs.** The composition puts "Asks for 6+ years; your profile says 4" on a QUEUED row, and no row can carry it: the gate disposes `min_yoe > limit` as `filtered` before the queue, and the limit the row is checked against is the same number (hardcoded `4` in `queue/page.tsx`). The chip needs a profile preference that ADVISES rather than gates. Built and unit-proven; unreachable end to end until then | E5 profiles |
+| ADD-015 | **Today's all-clear next-scan time.** The finished template reads "Next scan finishes around 6:00 tomorrow"; the webapp has no read of the monitor's schedule, so the time is omitted rather than hardcoded — a clock on screen has to equal reality (01 §2 #8) | monitor schedule read |
+| ADD-016 | **Posted age at hour granularity.** The composition's fact line shows "6h ago"; `postings.posted` is a `YYYY-MM-DD` date, so there is no hour to render. Today shows day granularity ("Today", "2d ago", then "Jul 14"). Either the column gains a timestamp or the design accepts days | ingestion schema |
+| ADD-017 | **The multi-select range key.** 04 §2 names "shift-click and an x-range"; `x` is already Pass. Shift-click is implemented and no range key was invented | Today surface build |
+| ADD-018 | **How a touch user reaches a Today row's actions.** See the note below — this one needs a decision with named acceptance criteria, not just a flag | Today surface build |
 
 No implementation worker may fill these gaps from taste.
+
+### ADD-018 — a touch user cannot reach a row's actions, and what "fixed" has to mean
+
+**The gap.** A Today row reveals Interested / Pass / Later on hover or focus.
+A touch device has neither, so on a phone the only row whose actions are
+reachable is the one under the `j`/`k` cursor — and the cursor is a keyboard
+affordance, which a phone also does not have. Every other row's three actions
+are present in the accessibility tree, `sr-only`, and unreachable by tapping.
+
+04 §2 says the actions "collapse to an overflow menu plus keys" at narrow
+widths. That menu is unbuilt and was not invented.
+
+**Why this is written out rather than left as a one-line flag.** A WCAG 2.2
+target-size sweep is arriving. A hole with no stated target gives that gate
+nothing to check, so it would have to baseline this row as a known gap and the
+gap would then be invisible — which is how a ticked row stops meaning anything.
+The acceptance criteria below are what the sweep should measure once the owner
+picks a shape.
+
+**What a touch user has to get, whichever shape is chosen:**
+
+1. **Every row's decision actions reachable by tap alone** — no hover, no
+   keyboard, no cursor. Reachability is per row, not per surface: "the first row
+   works" is the current behaviour and is the defect.
+2. **A tap target of at least 24x24 CSS px**, with no overlap, per WCAG 2.2
+   Target Size (Minimum, 2.5.8) — and 44x44 preferred, which is 01 §4's own
+   touch figure. The row's current buttons satisfy the size and fail the
+   reachability, so a sweep that measures only rendered targets would pass this
+   surface today.
+3. **The affordance is visible at rest on touch**, not revealed by a gesture a
+   touch user cannot perform. `@media (hover: none)` is the honest discriminator
+   rather than a viewport width — a small window on a laptop still has a mouse.
+4. **The three decisions stay one tap apart**, or the overflow menu opens on one
+   tap and its items are one more. Today is a five-minute surface; burying a
+   decision two levels down is a different product.
+5. **Whatever opens must not be trapped under the `SelectionBar`.** Once a
+   selection exists that bar is fixed over the bottom of a phone viewport, so a
+   menu anchored to a row near the bottom needs to flip or the bar needs to
+   yield. This is the same class of defect as #121's submit button pinned under
+   a toast.
+6. **`tests/e2e/triage.spec.ts` "a row's own button decides that row, even while
+   other rows are selected" currently skips the mobile project naming this
+   addendum.** Closing it means removing that skip, not baselining it.
 
 ### ADD-009 — an undo that is refused, and why it is a design gap and not a bug
 

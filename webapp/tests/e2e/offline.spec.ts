@@ -61,13 +61,13 @@ test.describe("offline", () => {
   test("a decision made offline is kept, not lost", async ({ page, context }) => {
     await setup(page, context);
     await gotoQueue(page);
-    const first = await page.locator("article h3").first().innerText();
+    const first = await page.getByTestId("row-title").first().innerText();
 
     await context.setOffline(true);
     await page.getByTestId("interested").click();
 
     // The card is gone (the decision stands) and the app says where it went.
-    await expect(page.locator("article h3").first()).not.toHaveText(first);
+    await expect(page.getByTestId("row-title").first()).not.toHaveText(first);
     const banner = page.getByTestId("pending-work");
     await expect(banner).toBeVisible();
     await expect(banner).toHaveAttribute("data-reason", "offline");
@@ -121,14 +121,14 @@ test.describe("offline", () => {
   test("undo works offline, because nothing was ever sent", async ({ page, context }) => {
     await setup(page, context);
     await gotoQueue(page);
-    const first = await page.locator("article h3").first().innerText();
+    const first = await page.getByTestId("row-title").first().innerText();
 
     await context.setOffline(true);
     await page.getByTestId("pass").click();
     await expect(page.getByTestId("pending-work")).toBeVisible();
 
     await page.getByRole("button", { name: "Undo" }).click();
-    await expect(page.locator("article h3").first()).toHaveText(first);
+    await expect(page.getByTestId("row-title").first()).toHaveText(first);
     // Undone before delivery means there is nothing left to deliver.
     await expect(page.getByTestId("pending-work")).toHaveCount(0);
   });
@@ -138,11 +138,11 @@ test.describe("expired session", () => {
   test("the decision is held and the banner offers a way back in", async ({ page, context }) => {
     await setup(page, context, [{ name: "hq_demo_session", value: "expired" }]);
     await gotoQueue(page);
-    const first = await page.locator("article h3").first().innerText();
+    const first = await page.getByTestId("row-title").first().innerText();
 
     await page.getByTestId("interested").click();
 
-    await expect(page.locator("article h3").first()).not.toHaveText(first);
+    await expect(page.getByTestId("row-title").first()).not.toHaveText(first);
     const banner = page.getByTestId("pending-work");
     await expect(banner).toBeVisible();
     await expect(banner).toHaveAttribute("data-reason", "auth");
@@ -286,7 +286,7 @@ test("a full localStorage still holds the decision for this tab, and says so", a
   });
   await setup(page, context);
   await gotoQueue(page);
-  const first = await page.locator("article h3").first().innerText();
+  const first = await page.getByTestId("row-title").first().innerText();
 
   await context.setOffline(true);
   await page.getByTestId("pass").click();
@@ -303,13 +303,13 @@ test("a full localStorage still holds the decision for this tab, and says so", a
 
   // And it truly reached the server: the passed card is gone after a reload.
   await page.reload();
-  await expect(page.locator("article h3").first()).not.toHaveText(first);
+  await expect(page.getByTestId("row-title").first()).not.toHaveText(first);
 });
 
 test("undo still works when the network returns inside the undo window", async ({ page, context }) => {
   await setup(page, context);
   await gotoQueue(page);
-  const first = await page.locator("article h3").first().innerText();
+  const first = await page.getByTestId("row-title").first().innerText();
 
   await context.setOffline(true);
   await page.getByTestId("pass").click();
@@ -323,10 +323,10 @@ test("undo still works when the network returns inside the undo window", async (
   await expect(page.getByTestId("pending-work")).toBeVisible();
 
   await page.getByRole("button", { name: "Undo" }).click();
-  await expect(page.locator("article h3").first()).toHaveText(first);
+  await expect(page.getByTestId("row-title").first()).toHaveText(first);
   await expect(page.getByTestId("pending-work")).toHaveCount(0);
 
   // The server never saw the pass: after a reload the card is still first.
   await page.reload();
-  await expect(page.locator("article h3").first()).toHaveText(first);
+  await expect(page.getByTestId("row-title").first()).toHaveText(first);
 });

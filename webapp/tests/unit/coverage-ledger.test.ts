@@ -15,7 +15,7 @@ import type { SurfaceSource } from "../coverage/sources";
 
 /** A real spec and a real title, so the resolvable case is genuinely resolved. */
 const REAL_SPEC = "triage";
-const REAL_TITLE = "the four decision facts are visible without any interaction";
+const REAL_TITLE = "the decision facts are visible without any interaction";
 
 const STATES = ["Populated", "Conflict"];
 
@@ -60,7 +60,7 @@ describe("the coverage ledger gate", () => {
       demo: {
         routes: ["/demo"],
         fixture: {
-          Populated: e2e(REAL_SPEC, "the four decision facts are visible without any interaction at all"),
+          Populated: e2e(REAL_SPEC, "the decision facts are visible without any interaction at all"),
           Conflict: na("this surface issues no write, so two writers cannot disagree"),
         },
       },

@@ -111,8 +111,8 @@ test("back/forward replays filter and sort decisions, one per step (criterion 22
   const fullUrl = page.url();
 
   // Leave, come back: the exact state, not an approximation of it.
-  await page.locator('a[href="/today"]').first().click();
-  await page.waitForURL("**/today");
+  await page.locator('a[href="/queue"]').first().click();
+  await page.waitForURL("**/queue");
   await page.goBack();
   await ready(page);
   // `expect(page).toHaveURL` and not `expect(page.url()).toBe(...)`: a bare

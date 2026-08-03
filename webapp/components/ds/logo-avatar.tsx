@@ -73,6 +73,39 @@ export function LogoAvatar({
 
   const src = rung < sources.length ? sources[rung] : null;
 
+  /**
+   * The rung the `onError` prop cannot see.
+   *
+   * A row rendered on the SERVER arrives as HTML, and the browser starts
+   * fetching its `<img>` while the document is still parsing — long before
+   * React hydrates and attaches this component's handlers. If that fetch fails
+   * in the gap, the `error` event has already fired and been dropped: the
+   * `onError` below never runs, the rung never advances, and the cell parks on
+   * the browser's broken-image glyph forever.
+   *
+   * Jobs never showed it because its rows are virtualized and therefore mount
+   * after hydration; Today server-renders its list, which is what surfaced
+   * this. So on mount, ask the element what already happened — a complete image
+   * with no intrinsic width IS a failed one — and advance the ladder from
+   * there.
+   */
+  const imgRef = React.useRef<HTMLImageElement | null>(null);
+  // Latched per src, because StrictMode runs every effect TWICE in development
+  // (`next.config.ts` sets `reactStrictMode: true`). Unlatched, one failed
+  // image advanced the rung by two and skipped a perfectly good rung — under
+  // `next dev` a logo.dev failure would jump straight past Google's favicon to
+  // the monogram. The ref is not state: re-rendering because we noticed a
+  // failure is the point, re-rendering because we noticed it twice is the bug.
+  const probedRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (src === null || probedRef.current === src) return;
+    const el = imgRef.current;
+    if (el && el.complete && el.naturalWidth === 0) {
+      probedRef.current = src;
+      setRung((r) => r + 1);
+    }
+  }, [src]);
+
   return (
     <span
       // DECORATIVE IN BOTH BRANCHES, and it has to be said here rather than only
@@ -93,6 +126,7 @@ export function LogoAvatar({
           // Keyed by URL so a failed rung's <img> is replaced rather than
           // reused; a reused element can keep the broken-image state.
           key={src}
+          ref={imgRef}
           src={src}
           alt=""
           className="block size-full object-cover"

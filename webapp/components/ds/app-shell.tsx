@@ -30,9 +30,16 @@ type Destination = { label: NavDestination; href: string; icon: LucideIcon };
  * because the dictionary is a display concern — the word a person reads and
  * the path a router matches are allowed to disagree, and this is the one place
  * where they briefly do.
+ *
+ * Today points at `/queue` for the same reason, in the other direction. The
+ * Today surface IS the queue chassis — it is where the decision machinery, the
+ * outbox, the session-expiry journey and twenty inbound links already live, and
+ * moving the route would be a redirect on the app's most-linked path for no
+ * gain a reader can see. `/today` held a placeholder until this cutover and now
+ * redirects here, so a bookmark of it still lands on the built surface.
  */
 const DESTINATIONS: readonly Destination[] = [
-  { label: "Today", href: "/today", icon: Inbox },
+  { label: "Today", href: "/queue", icon: Inbox },
   { label: "Jobs", href: "/jobs", icon: Briefcase },
   { label: "Applications", href: "/pipeline", icon: Send },
   { label: "Autopilot", href: "/autopilot", icon: Zap },

@@ -99,13 +99,13 @@ async function bodyText(page: Page): Promise<string> {
  *
  * Three independent checks, because each catches a different way of leaking:
  * the shell (a nav that lists surfaces the account cannot reach is itself a
- * disclosure), the collections (a triage card, a grid row), and the facts (a
+ * disclosure), the collections (a decision row, a grid row), and the facts (a
  * company name, a job title). Any one alone would pass a page that leaked
  * through the other two.
  */
 async function assertNoProductData(page: Page) {
   await expect(page.locator('nav[aria-label="Sections"]')).toHaveCount(0);
-  await expect(page.locator("article")).toHaveCount(0);
+  await expect(page.getByTestId("decision-row")).toHaveCount(0);
   await expect(page.getByTestId("jobs-grid")).toHaveCount(0);
   await expect(page.getByTestId("pipeline")).toHaveCount(0);
 
@@ -372,7 +372,7 @@ test.describe("an account that is turned on", () => {
     await page.goto("/queue");
     await expect(page).toHaveURL(/\/queue$/);
     await expect(page.locator('nav[aria-label="Sections"]')).toBeVisible();
-    await expect(page.locator("article").first()).toBeVisible();
+    await expect(page.getByTestId("decision-row").first()).toBeVisible();
 
     // The other half of the same claim: an active account that types /pending is
     // sent on rather than shown "you are not active" — the one way that page can

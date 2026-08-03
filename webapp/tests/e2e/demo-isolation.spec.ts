@@ -46,20 +46,20 @@ test("two visitors do not share a queue", async ({ browser }) => {
     await readyQueue(pb);
 
     // They start on the same fixture data, so the first card matches.
-    const firstA = await pa.locator("article h3").first().innerText();
-    const firstB = await pb.locator("article h3").first().innerText();
+    const firstA = await pa.getByTestId("row-title").first().innerText();
+    const firstB = await pb.getByTestId("row-title").first().innerText();
     expect(firstA).toBe(firstB);
 
     // A triages its first card away.
     await pa.getByTestId("interested").click();
-    await expect(pa.getByText(/^Marked interested:/)).toBeVisible();
-    await expect(pa.locator("article h3").first()).not.toHaveText(firstA);
+    await expect(pa.getByText("Marked interested", { exact: true })).toBeVisible();
+    await expect(pa.getByTestId("row-title").first()).not.toHaveText(firstA);
 
     // B, reloaded, must still be looking at the untouched queue. If both fell
     // to one store, B's first card would have moved too.
     await pb.reload();
     await expect(pb.locator('[data-testid="triage"][data-ready="true"]')).toBeAttached();
-    await expect(pb.locator("article h3").first()).toHaveText(firstB);
+    await expect(pb.getByTestId("row-title").first()).toHaveText(firstB);
 
     // And the two ids really are different.
     const idA = (await a.cookies()).find((c) => c.name === "hq_demo_id")?.value;

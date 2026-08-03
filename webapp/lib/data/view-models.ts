@@ -1011,6 +1011,53 @@ export function decisionFacts(job: JobView): DecisionFacts {
   };
 }
 
+/** The canonical work-model words. Anything else is not one of them. */
+const WORK_MODELS = ["remote", "hybrid", "onsite"] as const;
+
+/**
+ * Today's row wants ONE place segment where `decisionFacts` returns two —
+ * "Remote, US" and "Hybrid, New York" rather than a work model and a location
+ * standing beside each other (the owner's composition, and the Today handoff's
+ * §5 fact-line mapping).
+ *
+ * The model word is read from the LEADING token of `workModel` and nothing
+ * else. That field is verbatim from tagging, so it carries strings like
+ * "Hybrid, 3 days onsite" and "Remote (US)" — a schedule detail and a
+ * parenthesised market that both belong to the model's own sentence, not to a
+ * row that has four segments and one line. Printing the field raw is how an
+ * em dash ("Hybrid — NYC" is a documented shape of this column) reaches
+ * interface copy through data rather than through a string literal, which the
+ * copy lint cannot see.
+ *
+ * The place is the metro when the engine resolved one, the board's own
+ * location string otherwise, and the COUNTRY for a remote role — where a
+ * remote role is anchored is the fact, and `market` answers "Remote" there,
+ * which would render "Remote, Remote".
+ *
+ * Absent on both halves is `NOT_LISTED`, never a blank slot: the segment holds
+ * its place (01 §2 #7).
+ */
+export function placeLine(job: JobView): string {
+  const raw = job.workModel?.trim().toLowerCase() ?? "";
+  const lead = raw.split(/[\s,(]/)[0];
+  const found = WORK_MODELS.find((w) => w === lead) ?? null;
+  const model = found
+    ? found[0].toUpperCase() + found.slice(1)
+    : job.remote
+      ? "Remote"
+      : null;
+
+  const country = job.country?.trim() || null;
+  const where = job.remote
+    ? country === "United States"
+      ? "US"
+      : country
+    : (job.metro?.trim() || job.location?.trim() || null);
+
+  if (model && where) return `${model}, ${where}`;
+  return model ?? where ?? NOT_LISTED;
+}
+
 /**
  * Plain-English rendering of why a row was filtered. The raw reasons are
  * machine tokens; a person reading "geo:India" learns less than they should,

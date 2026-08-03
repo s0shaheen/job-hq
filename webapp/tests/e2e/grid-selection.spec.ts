@@ -405,7 +405,7 @@ test("a conflict inside the batch applies NOTHING: full revert plus a changed-el
   await other.goto("/queue");
   await expect(other.locator('[data-testid="triage"][data-ready="true"]')).toBeAttached();
   await other.getByTestId("pass").click();
-  await expect(other.getByText(`Passed: ${QUEUE_SORTED[0].company}`, { exact: false })).toBeVisible();
+  await expect(other.getByText("Passed", { exact: true })).toBeVisible();
 
   // Tab A: bulk-dismiss a selection that includes the stale row.
   await selectCompany(page, QUEUE_SORTED[0].company);

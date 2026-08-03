@@ -93,7 +93,7 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
     routes: ["/queue"],
     fixture: {
       [ST.loading]: e2e("resilience", "a slow data source shows a skeleton rather than a blank screen"),
-      [ST.populated]: e2e("triage", "the four decision facts are visible without any interaction"),
+      [ST.populated]: e2e("triage", "the decision facts are visible without any interaction"),
       [ST.naturalEmpty]: e2e("empty", "an empty queue with nothing filtered does not invent a constraint"),
       [ST.filterEmpty]: e2e("empty", "an empty queue caused by the profile names the binding constraint"),
       [ST.missingFact]: e2e("triage", "an unstated value reads 'Not listed' rather than being hidden"),
@@ -108,14 +108,30 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       ),
       [ST.sessionExpired]: e2e("offline", "the held decision is applied once the session is back"),
       [ST.fatal]: MISSING,
-      [ST.detail]: na("the queue shows one card at a time; there is no list selection and no detail pane"),
-      [ST.longStrings]: e2e("layout", "long titles and long company names do not break the triage card"),
+      // BLOCKED, not covered, and the difference is the point (17 §2).
+      //
+      // The cutover replaced the one-card stack with the owner's list, so half
+      // of this state — selection — now exists and is driven by two tests. The
+      // other half, the DETAIL PANE, does not: it is the one net-new component
+      // and it belongs to Jobs' packet. Marking the cell `covered` on the half
+      // that works would delete the other half from the gate, which is exactly
+      // how a ticked row stops meaning anything. The selection tests are cited
+      // in ADD-013 rather than here, because a citation on this cell would
+      // claim the whole state.
+      [ST.detail]: blocked(
+        "ADD-013",
+        "Selection is covered by triage.spec.ts, but the detail pane the handoff opens on Enter is unbuilt, so the surface cannot enter half of this state.",
+      ),
+      [ST.longStrings]: e2e("layout", "long titles and long company names do not break the decision row"),
       [ST.highVolume]: MISSING,
       [ST.largeType]: e2e("layout", "nothing paints past the edge at the large type scale"),
       [ST.zoom]: e2e("resilience", "the page survives a 200% text zoom"),
       [ST.narrow]: e2e("layout", "on a phone, the first job is on the first screen"),
       [ST.reducedMotion]: MISSING,
-      [ST.providerImage]: MISSING,
+      [ST.providerImage]: e2e(
+        "triage",
+        "a logo host that never answers degrades to the monogram, not a broken image",
+      ),
     },
   },
 
@@ -585,7 +601,6 @@ export const BASELINE_MISSING: Baseline = {
     { key: "find-intro | 200% zoom | fixture", reason: "/connections is absent from the 200% zoom sweep in resilience.spec.ts." },
 
     // Provider imagery — the monogram fallback is unit-tested only.
-    { key: "today | Provider image failure | fixture", reason: "The monogram fallback for a failed company logo is asserted in unit tests only, never in a rendered page." },
     { key: "applications | Provider image failure | fixture", reason: "The monogram fallback for a failed company logo is asserted in unit tests only." },
     { key: "coverage | Provider image failure | fixture", reason: "The monogram fallback for a failed company logo is asserted in unit tests only, on the surface that shows the most logos - and the rendered path is known broken there, because a server-rendered row fires its image error before hydration so onError never runs." },
   ],
