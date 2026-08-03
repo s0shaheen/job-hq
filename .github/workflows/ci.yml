@@ -195,6 +195,13 @@ jobs:
         with: { python-version: "3.11", cache: pip }
       - run: pip install -r requirements.txt
       - run: pytest -q
+      # The assertion-strength lint, in the same job as the suite it reads.
+      # Stdlib only, under a second, and it fails on a NEW weak test while
+      # holding the dated baseline of pre-existing ones. See the module
+      # docstring in scripts/assertion_lint.py for why this is owned here
+      # rather than taken from a plugin.
+      - name: Assertion-strength lint
+        run: python scripts/assertion_lint.py
 
   # The résumé render service, against the real rendercv it ships with.
   #

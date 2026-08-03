@@ -56,6 +56,7 @@ suite() { suite_ids+=("$1"); suite_target+=("$2"); suite_cmd+=("$3"); suite_need
 #      id               target                            command                                                                  needs
 suite lint-copy        webapp/scripts/copy-lint          'cd webapp && npm run lint:copy'
 suite coverage-ledger  webapp/scripts/coverage-ledger.mjs 'cd webapp && npm run coverage:ledger && ledger_is_committed'
+suite lint-assert      scripts/assertion_lint.py         '$PY311 scripts/assertion_lint.py'
 suite typecheck        webapp/tsconfig.json              'cd webapp && npm run typecheck'
 suite vitest           webapp/tests/unit                 'cd webapp && npm test'
 suite py-core          tests/core                        '$PYTEST311 tests/core -q'
@@ -151,6 +152,12 @@ path_map=(
   "infra/Dockerfile                   = py-infra"
   "infra/test-image/*                 = py-core"     # tests/core/test_verify_lane.py
   "scripts/sysmap.py                  = py-root,sysmap"
+  # The lint and its baseline both select py-core, which is where
+  # tests/core/test_assertion_lint.py proves the lint can fail. A rule that
+  # ran the lint but not the test that watches the lint work is the same hole
+  # the coverage-ledger row above was widened to close.
+  "scripts/assertion_lint.py          = lint-assert,py-core,py-root"
+  "scripts/assertion_lint_baseline.json = lint-assert,py-core"
   # land.sh (the only merge path) and new-migration.sh are both asserted on by
   # tests/core/test_migrations.py — the migration-ledger rules live there.
   "scripts/land.sh                    = py-migrations,py-root"
@@ -163,15 +170,15 @@ path_map=(
   "pytest.ini                         = py-core,py-monitor,py-tracker,py-infra,py-root,py-db"
 
   # ── tests
-  "tests/conftest.py                  = py-core,py-monitor,py-tracker,py-infra,py-root,py-db,py-render"
-  "tests/fixtures/*                   = py-core,py-monitor,py-tracker,py-infra,py-root"
-  "tests/core/*                       = py-core"
-  "tests/db/*                         = py-db"
-  "tests/monitor/*                    = py-monitor"
-  "tests/tracker/*                    = py-tracker"
-  "tests/infra/test_render*           = py-render,py-infra"
-  "tests/infra/*                      = py-infra"
-  "tests/*.py                         = py-root"
+  "tests/conftest.py                  = py-core,py-monitor,py-tracker,py-infra,py-root,py-db,py-render,lint-assert"
+  "tests/fixtures/*                   = py-core,py-monitor,py-tracker,py-infra,py-root,lint-assert"
+  "tests/core/*                       = py-core,lint-assert"
+  "tests/db/*                         = py-db,lint-assert"
+  "tests/monitor/*                    = py-monitor,lint-assert"
+  "tests/tracker/*                    = py-tracker,lint-assert"
+  "tests/infra/test_render*           = py-render,py-infra,lint-assert"
+  "tests/infra/*                      = py-infra,lint-assert"
+  "tests/*.py                         = py-root,lint-assert"
 
   # ── CI
   ".github/workflows/*                = py-workflows,sysmap"

@@ -1,0 +1,721 @@
+{
+  "generated": "2026-08-02",
+  "note": "Pre-existing assertion-strength findings, recorded the day the lint shipped. Reported on every run, never a failure; anything NEW fails immediately. This list may only shrink: fix the test and delete its entry in the same commit, because a stale entry fails the run.",
+  "entries": [
+    {
+      "file": "tests/core/test_capture_contract.py",
+      "test": "test_the_columns_the_function_inserts_all_exist_on_the_table",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_capture_contract.py",
+      "test": "test_the_rename_map_is_exact",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_channels.py",
+      "test": "test_no_module_outside_core_notify_holds_an_ntfy_endpoint",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_companykeys.py",
+      "test": "test_none_is_the_empty_key",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_digest_email.py",
+      "test": "test_no_stylesheet_no_flex_no_grid",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_digest_links.py",
+      "test": "test_safe_href_refuses_credentials_in_the_url",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_digest_links.py",
+      "test": "test_safe_href_refuses_everything_that_is_not_an_absolute_http_url",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_domains.py",
+      "test": "test_a_network_address_is_never_a_company_domain",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_domains.py",
+      "test": "test_an_ip_literal_is_refused",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_domains.py",
+      "test": "test_it_never_invents_a_host_from_garbage",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_domains.py",
+      "test": "test_none_is_empty_not_a_crash",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_jobkeys_golden.py",
+      "test": "test_every_ats_token_is_exercised",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_jobkeys_golden.py",
+      "test": "test_every_pattern_is_the_winner_for_some_case",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_land_script.py",
+      "test": "test_every_documented_exit_code_is_reachable_in_the_script",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_linkedinids.py",
+      "test": "test_a_c1_separator_is_not_blank_here_because_it_is_not_blank_in_postgres",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_linkedinids.py",
+      "test": "test_a_cell_with_content_is_not_blank",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_linkedinids.py",
+      "test": "test_everything_else_is_not_an_id",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_linkedinids.py",
+      "test": "test_extraction_answers_nothing_rather_than_a_guess",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_migrations.py",
+      "test": "test_browser_still_has_no_direct_write_policy",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_migrations.py",
+      "test": "test_every_migration_filename_has_an_accepted_shape",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_migrations.py",
+      "test": "test_every_rpc_the_app_calls_exists_in_a_migration",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_migrations.py",
+      "test": "test_job_key_is_never_computed_in_sql",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_migrations.py",
+      "test": "test_no_new_serial_numbers_are_added",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_migrations.py",
+      "test": "test_the_reconcile_rpc_the_engine_calls_exists_in_a_migration",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_migrations.py",
+      "test": "test_timestamp_prefixes_are_real_utc_datetimes",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_notify_guard.py",
+      "test": "test_the_stub_is_reinstalled_per_test",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_pg.py",
+      "test": "test_insert_returning_on_no_rows_makes_no_request",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_quiet_hours.py",
+      "test": "test_a_config_matrix_cell_drops_a_real_push",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_runlog.py",
+      "test": "test_a_hanging_database_does_not_reach_the_bot",
+      "rule": "no-assertions"
+    },
+    {
+      "file": "tests/core/test_runlog.py",
+      "test": "test_a_missing_table_before_the_migration_is_swallowed",
+      "rule": "no-assertions"
+    },
+    {
+      "file": "tests/core/test_runlog.py",
+      "test": "test_an_empty_error_string_stores_null",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_runlog.py",
+      "test": "test_finish_swallows_a_pg_failure",
+      "rule": "no-assertions"
+    },
+    {
+      "file": "tests/core/test_runlog.py",
+      "test": "test_start_clears_counts_so_a_warm_container_does_not_leak",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_runlog.py",
+      "test": "test_start_swallows_a_pg_failure",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_test_shell.py",
+      "test": "test_a_worktree_style_checkout_still_keys_cleanly",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_test_shell.py",
+      "test": "test_changing_an_image_input_changes_both_volumes",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_verify_lane.py",
+      "test": "test_every_suite_target_exists",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_workflows.py",
+      "test": "test_every_step_env_value_is_a_scalar",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/core/test_workflows.py",
+      "test": "test_no_workflow_can_put_a_database_dump_in_git",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_autopilot_staging.py",
+      "test": "test_erasure_still_works_with_every_guard_attached",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_autopilot_staging.py",
+      "test": "test_the_hash_encoding_is_injective",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_autopilot_staging.py",
+      "test": "test_undoing_a_triage_still_works_when_a_stage_was_prepared",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_capture.py",
+      "test": "test_an_empty_batch_is_an_empty_answer",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_capture.py",
+      "test": "test_using_a_token_stamps_its_proof_of_life",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_default_deny.py",
+      "test": "test_every_browser_definer_refuses_an_anonymous_caller_in_its_own_body",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_default_deny.py",
+      "test": "test_every_browser_reachable_table_is_gated",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_default_deny.py",
+      "test": "test_every_function_in_public_pins_its_search_path",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_default_deny.py",
+      "test": "test_every_table_a_browser_rpc_writes_carries_the_guard_trigger",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_digest_action.py",
+      "test": "test_a_snoozed_row_loses_its_wake_date",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_display_prefs.py",
+      "test": "test_a_preference_can_be_set_before_the_wizard_has_ever_run",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_engine_writes.py",
+      "test": "test_an_unparseable_applied_date_is_null_and_not_a_raise",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_engine_writes.py",
+      "test": "test_the_rank_agrees_with_python_on_the_invisible_characters_too",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_import.py",
+      "test": "test_an_unreadable_date_is_null_rather_than_a_wrong_date",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_pipeline.py",
+      "test": "test_an_application_with_no_posting_reports_no_posting_status",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_profile.py",
+      "test": "test_the_preview_corpus_clamps_its_window",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_profile.py",
+      "test": "test_the_preview_corpus_excludes_closed_postings",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_resume.py",
+      "test": "test_a_cross_owner_version_cannot_make_erasure_hard_fail",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_resume.py",
+      "test": "test_deleting_the_user_erases_versions_and_artifacts",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_resume_storage.py",
+      "test": "test_the_owner_deletes_their_own_object",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_rls.py",
+      "test": "test_command_idempotency_is_not_readable_by_anyone",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_universe_reconcile.py",
+      "test": "test_placeholders_are_exempt_from_the_board_index",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_write_path.py",
+      "test": "test_a_null_expectation_is_allowed",
+      "rule": "no-assertions"
+    },
+    {
+      "file": "tests/db/test_write_path.py",
+      "test": "test_clearing_a_snooze_clears_its_wake_date",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/db/test_write_path.py",
+      "test": "test_events_cannot_be_updated_by_the_app_roles",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/infra/test_alerter.py",
+      "test": "test_emoji_in_an_alarm_name_cannot_crash_the_send",
+      "rule": "no-assertions"
+    },
+    {
+      "file": "tests/infra/test_lambda_handler.py",
+      "test": "test_every_dispatched_module_resolves",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/infra/test_lambda_handler.py",
+      "test": "test_ops_alert_never_raises_when_notify_is_broken",
+      "rule": "no-assertions"
+    },
+    {
+      "file": "tests/infra/test_lambda_handler.py",
+      "test": "test_seed_then_delete_undoes_a_handler_write_when_the_var_started_unset",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/infra/test_lambda_handler.py",
+      "test": "test_userless_event_clears_a_stale_hq_user",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/infra/test_render_guards.py",
+      "test": "test_a_document_with_no_photo_warns_about_nothing",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/infra/test_render_guards.py",
+      "test": "test_each_render_gets_its_own_workdir_and_leaves_nothing_behind",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/infra/test_render_guards.py",
+      "test": "test_no_photo_value_of_any_kind_survives",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/infra/test_render_guards.py",
+      "test": "test_the_photo_strip_applies_to_the_gate_too",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/infra/test_render_terraform.py",
+      "test": "test_nothing_has_been_granted_invoke_yet",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/infra/test_render_terraform.py",
+      "test": "test_the_renderer_has_no_environment_and_no_vpc",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/infra/test_render_terraform.py",
+      "test": "test_the_renderer_is_never_scheduled",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/infra/test_render_terraform.py",
+      "test": "test_the_renderer_is_not_reachable_from_the_internet",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_config.py",
+      "test": "test_unconfigured_reason_none_when_pinned",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_dedup.py",
+      "test": "test_new_job_missing_but_not_yet_stale_is_left_alone",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_dedup.py",
+      "test": "test_user_status_job_missing_and_stale_is_not_closed",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_discover.py",
+      "test": "test_resolve_workday_fails_closed_when_unverified",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_discover_universe.py",
+      "test": "test_exclusion_matches_the_normalized_name_not_the_raw_string",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_discover_universe.py",
+      "test": "test_missing_source_defaults_to_empty_string",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_discover_universe.py",
+      "test": "test_ungrounded_names_are_dropped",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_discovery_agent.py",
+      "test": "test_generate_candidates_empty_on_llm_failure",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_fetcher_icims.py",
+      "test": "test_parse_skips_jobs_with_no_id",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_fetcher_oracle_hcm.py",
+      "test": "test_parse_empty_payload",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_fetcher_registry.py",
+      "test": "test_registry_apify_without_token_uses_empty_string",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_gate_corpus.py",
+      "test": "test_every_reason_kind_in_the_closed_set_has_a_case",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_geo.py",
+      "test": "test_ats_placeholder_locations_stay_unplaceable",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_geo.py",
+      "test": "test_downstate_illinois_is_not_the_chicago_metro",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_geo.py",
+      "test": "test_metro_blank_for_remote_and_foreign",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_ingest_commoncrawl.py",
+      "test": "test_fetch_cdx_page_404_is_empty_not_error",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_ingest_commoncrawl.py",
+      "test": "test_slug_from_url_rejects_bare_host_and_embed",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_ingest_commoncrawl.py",
+      "test": "test_slug_from_url_rejects_non_greenhouse_and_empty",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_ingest_dork.py",
+      "test": "test_candidates_non_strict_allows_empty",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_ingest_dork.py",
+      "test": "test_extract_rejects_bare_host_all_families",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_ingest_dork.py",
+      "test": "test_extract_rejects_empty_and_junk",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_ingest_dork.py",
+      "test": "test_extract_rejects_marketing_and_unrelated_hosts",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_ingest_dork.py",
+      "test": "test_extract_rejects_structural_first_segments",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_ingest_edgar.py",
+      "test": "test_candidates_stops_on_empty_page",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_ingest_edgar.py",
+      "test": "test_parse_page_empty",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_jobcontent.py",
+      "test": "test_ashby_text_missing_id_returns_empty",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_jobcontent.py",
+      "test": "test_fetch_description_amazon_cold_cache_without_session_returns_empty",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_jobcontent.py",
+      "test": "test_fetch_description_empty_slug_for_slug_ats_returns_empty_without_network",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_jobcontent.py",
+      "test": "test_fetch_description_pipe_slug_ats_with_malformed_slug_returns_empty",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_jobcontent.py",
+      "test": "test_fetch_description_unknown_ats_returns_empty_without_network",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_jobcontent.py",
+      "test": "test_html_to_text_empty",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_jobcontent.py",
+      "test": "test_workday_detail_url_bad_input_returns_empty",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_jobcontent.py",
+      "test": "test_workday_detail_url_missing_job_path_returns_empty",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_linkedin_backfill.py",
+      "test": "test_a_domainless_or_garbage_payload_is_dropped_not_guessed",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_linkedin_backfill.py",
+      "test": "test_a_malformed_row_costs_one_domain_and_never_the_page",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_linkedin_backfill.py",
+      "test": "test_a_malformed_row_costs_one_id_and_never_the_page",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_linkedin_backfill.py",
+      "test": "test_a_row_with_no_company_object_at_all_is_not_an_error",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_linkedin_backfill.py",
+      "test": "test_anything_we_are_not_sure_of_is_dropped_rather_than_guessed",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_linkedin_backfill.py",
+      "test": "test_reaching_the_end_starts_the_next_run_over",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_linkedin_backfill.py",
+      "test": "test_the_domain_and_the_name_come_from_the_same_object",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_linkedin_backfill.py",
+      "test": "test_the_name_and_the_id_must_come_from_the_same_object",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_oracle.py",
+      "test": "test_coverage_zero_denominator_is_safe",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_profile_presets.py",
+      "test": "test_the_other_preset_seeds_nothing",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_review.py",
+      "test": "test_main_skips_cleanly_without_api_key",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_review.py",
+      "test": "test_no_jd_sentinel_prevents_reprocessing_next_run",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_review.py",
+      "test": "test_skips_closed_jobs",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_review.py",
+      "test": "test_stored_filtered_disposition_skips_tagging_entirely",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_run.py",
+      "test": "test_push_toggle_off_silences_pushes",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_run.py",
+      "test": "test_seeds_are_never_inline_tagged",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_run.py",
+      "test": "test_untagged_roles_are_never_pushed",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_run.py",
+      "test": "test_zero_new_is_quiet_no_heartbeat_push",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_universe.py",
+      "test": "test_whitespace_only_identity_is_dropped_entirely",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_wide.py",
+      "test": "test_cafe_only_never_touches_theirstack",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_wide.py",
+      "test": "test_map_cafe_item_weak_key_or_unstated_yoe",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/monitor/test_wide.py",
+      "test": "test_theirstack_only_never_starts_an_apify_run",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/test_sysmap.py",
+      "test": "test_check_mode_passes_on_the_committed_doc",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/test_sysmap.py",
+      "test": "test_committed_doc_is_current",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/tracker/test_digest.py",
+      "test": "test_retired_priority_watch_is_not_watched",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/tracker/test_join.py",
+      "test": "test_a_rank_kept_move_does_not_become_a_suggestion",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/tracker/test_join.py",
+      "test": "test_a_row_the_sheet_has_never_seen_sends_nulls_not_blanks",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/tracker/test_migrate.py",
+      "test": "test_legacy_min_yoe_blank_when_helper_missing",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/tracker/test_pgseed.py",
+      "test": "test_a_clean_seed_still_reports_success",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/tracker/test_scout.py",
+      "test": "test_dup_flag_clears_when_row_leaves_pipeline",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/tracker/test_selfheal.py",
+      "test": "test_quiet_run_no_repairs_no_alert",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/tracker/test_stale.py",
+      "test": "test_pre_applied_rows_never_flagged",
+      "rule": "absence-only"
+    },
+    {
+      "file": "tests/tracker/test_stale.py",
+      "test": "test_unparseable_last_activity_is_unjudgeable",
+      "rule": "absence-only"
+    }
+  ]
+}
