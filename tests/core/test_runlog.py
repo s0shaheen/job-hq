@@ -180,20 +180,52 @@ def test_every_recorder_write_is_time_boxed_well_inside_the_graceful_stop_reserv
     assert max(seen) * 2 < 60
 
 
-def test_a_hanging_database_does_not_reach_the_bot(monkeypatch):
+def test_a_hanging_database_does_not_reach_the_bot(monkeypatch, capsys):
     """And when the bound fires, it arrives as a swallowed exception, not a raise —
-    requests raises Timeout, which is an Exception like any other."""
+    requests raises Timeout, which is an Exception like any other.
+
+    Shipped, this test ran the two calls and asserted NOTHING. "No raise" is
+    equally true of a recorder that never attempted a write at all: gate the
+    writes on anything false — `first_class()` instead of `pg.enabled()`, an
+    early return, a swallowed import — and the old body stayed green while the
+    swallow path it names was never entered. So the attempt is asserted here,
+    and so is the other half of the module's contract, which nothing in this
+    repo checked: `runlog` promises to swallow every error AND LOG IT. A silent
+    swallow is the failure mode that makes a missing Activity row impossible to
+    diagnose — the bot succeeded, the row is absent, and there is no trace of
+    why.
+    """
     import requests
+
+    attempts: list[str] = []
+
+    def hang(name):
+        def _hang(*a, timeout=None, **k):
+            attempts.append((name, timeout))
+            raise requests.exceptions.Timeout("hung")
+        return _hang
 
     _enable(monkeypatch)
     monkeypatch.setattr("core.pgwrites.user_id", lambda: UID)
-    monkeypatch.setattr("core.pg.insert_returning",
-                        lambda *a, **k: (_ for _ in ()).throw(requests.exceptions.Timeout("hung")))
-    monkeypatch.setattr("core.pg.patch",
-                        lambda *a, **k: (_ for _ in ()).throw(requests.exceptions.Timeout("hung")))
-    monkeypatch.setattr("core.pg.insert",
-                        lambda *a, **k: (_ for _ in ()).throw(requests.exceptions.Timeout("hung")))
+    monkeypatch.setattr("core.pg.insert_returning", hang("insert_returning"))
+    monkeypatch.setattr("core.pg.patch", hang("patch"))
+    monkeypatch.setattr("core.pg.insert", hang("insert"))
+
     runlog.finish(runlog.start("monitor"), ok=True)          # no raise
+
+    # The open write hangs, so there is no id, and finish takes the fallback
+    # insert: both of the invocation's writes are attempted and both are eaten.
+    assert [name for name, _ in attempts] == ["insert_returning", "insert"], (
+        f"the swallow was never reached — a hung database was never asked: {attempts}"
+    )
+    assert all(t is not None for _, t in attempts), (
+        "a hang was swallowed off core.pg's 30s default, which is the starvation "
+        "half of the same failure"
+    )
+    out = capsys.readouterr().out
+    assert out.count("[runlog]") == 2 and "'monitor'" in out, (
+        f"the recorder swallowed a hang without saying so: {out!r}"
+    )
 
 
 def test_a_missing_table_before_the_migration_is_swallowed(monkeypatch):

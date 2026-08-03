@@ -526,13 +526,51 @@ def test_a_millisecond_truncated_expectation_is_caught_as_a_conflict(conn):
 
 def test_a_null_expectation_is_allowed(conn):
     """Sending no expectation is knowingly choosing last-write-wins, which the
-    undo path and the outbox replay both rely on."""
+    undo path and the outbox replay both rely on.
+
+    Shipped, this test made two calls and asserted NOTHING — not the returned
+    triage, not the stored row, not that the row had moved under the second
+    call. "Allowed" was carried entirely by "the RPC did not raise", which is
+    equally true of an RPC that accepted the call and wrote nothing, and the
+    claim the docstring makes (LAST WRITE WINS) was unmeasured in both
+    directions. The three assertions below are the claim:
+
+      the row really moved   the stale token IS refused, so the conflict check
+                             is live on this row and "null was allowed" is not
+                             the vacuous truth of an RPC that checks nothing
+      null wins anyway       the same write, with the expectation dropped, is
+                             accepted
+      and it LANDED          the stored triage changed and the token advanced —
+                             an accepted no-op would satisfy neither
+    """
     user = make_user(conn, f"{uuid.uuid4()}@example.com")
     key = make_posting(conn, f"gh-{uuid.uuid4().hex[:8]}")
     gate(conn, user, key)
     as_user(conn, user)
     set_triage(conn, key, "dismissed", idem=str(uuid.uuid4()))
-    set_triage(conn, key, "interested", idem=str(uuid.uuid4()), expected=None)
+    stale = updated_at(conn, user, key)
+
+    # The row moves under the caller, so `stale` is genuinely out of date.
+    set_triage(conn, key, "interested", idem=str(uuid.uuid4()))
+    moved = updated_at(conn, user, key)
+    assert moved > stale, "the row never moved — the expectation below is not stale"
+
+    # Positive control: with an expectation, that staleness IS a conflict.
+    with pytest.raises(psycopg.errors.Error) as exc:
+        set_triage(conn, key, "dismissed", idem=str(uuid.uuid4()), expected=stale)
+    assert "conflict" in str(exc.value).lower()
+
+    # And without one, the same write wins — and lands.
+    result = set_triage(conn, key, "dismissed", idem=str(uuid.uuid4()), expected=None)
+
+    assert result["triage"] == "dismissed"
+    assert conn.execute(
+        "select triage from public.user_postings where user_id=%s and posting_key=%s",
+        (user, key),
+    ).fetchone()[0] == "dismissed"
+    assert updated_at(conn, user, key) > moved, (
+        "the write was accepted and changed nothing — last-write-wins wrote nothing"
+    )
 
 
 # ------------------------------------------------------------------ AC 26

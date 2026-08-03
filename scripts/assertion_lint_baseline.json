@@ -144,11 +144,6 @@
     },
     {
       "file": "tests/core/test_runlog.py",
-      "test": "test_a_hanging_database_does_not_reach_the_bot",
-      "rule": "no-assertions"
-    },
-    {
-      "file": "tests/core/test_runlog.py",
       "test": "test_a_missing_table_before_the_migration_is_swallowed",
       "rule": "no-assertions"
     },
@@ -288,11 +283,6 @@
       "rule": "absence-only"
     },
     {
-      "file": "tests/db/test_resume.py",
-      "test": "test_deleting_the_user_erases_versions_and_artifacts",
-      "rule": "absence-only"
-    },
-    {
       "file": "tests/db/test_resume_storage.py",
       "test": "test_the_owner_deletes_their_own_object",
       "rule": "absence-only"
@@ -306,11 +296,6 @@
       "file": "tests/db/test_universe_reconcile.py",
       "test": "test_placeholders_are_exempt_from_the_board_index",
       "rule": "absence-only"
-    },
-    {
-      "file": "tests/db/test_write_path.py",
-      "test": "test_a_null_expectation_is_allowed",
-      "rule": "no-assertions"
     },
     {
       "file": "tests/db/test_write_path.py",

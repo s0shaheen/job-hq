@@ -275,22 +275,63 @@ def test_artifacts_refuse_update_and_delete_for_a_living_user(conn, user):
 
 # ---------------------------------------------------------------- erasure
 
+def _live(conn, ids: dict[str, int], user: str) -> dict[str, tuple[int, int]]:
+    """For each résumé table: (rows the OWNER has, rows THIS id has).
+
+    Both, because each catches what the other cannot. The owner-scoped count
+    alone is satisfied by a user who never had a row; the id-scoped count alone
+    is satisfied by a delete that took the one row this test made and left the
+    rest of the owner's history standing.
+    """
+    return {
+        table: (
+            conn.execute(
+                f"select count(*) from public.{table} where user_id = %s", (user,)
+            ).fetchone()[0],
+            conn.execute(
+                f"select count(*) from public.{table} where id = %s", (row_id,)
+            ).fetchone()[0],
+        )
+        for table, row_id in ids.items()
+    }
+
+
 def test_deleting_the_user_erases_versions_and_artifacts(conn, user):
     """The ONE path through the append-only triggers: the owner's erasure.
 
     Before the exception existed, this cascade raised and user deletion was
     impossible while a single version row existed — GDPR erasure hard-failed.
+
+    THE PRECONDITION IS ASSERTED, and that is the point of the first `assert`.
+    Shipped, this test only checked that the three tables hold no row for the
+    owner AFTER the delete. Absence is a STATE, not a behaviour: the identical
+    block passes for a user who never saved a résumé at all — measured, by
+    running exactly those assertions against a fresh `user` fixture with no
+    document, no version and no artifact, which came up green. So the test could
+    not tell "erasure works" from "there was nothing there", and it would have
+    stayed green if `app_record_resume_artifact` had quietly stopped writing.
+    Establishing the precondition here is what makes the second `assert` a
+    statement about the cascade.
     """
     doc = save_doc(conn)["document"]
     vid = save_version(conn, doc["id"])["version"]["id"]
-    record_artifact(conn, user, vid)
+    aid = record_artifact(conn, user, vid)["artifact"]["id"]
+    ids = {
+        "resume_documents": doc["id"],
+        "resume_versions": vid,
+        "resume_artifacts": aid,
+    }
     conn.execute("reset role")
+
+    before = _live(conn, ids, user)
+    assert before == {t: (1, 1) for t in ids}, (
+        f"the erasure had nothing to erase — preconditions were not established: {before}"
+    )
+
     conn.execute("delete from public.users where id = %s", (user,))
-    for table in ("resume_documents", "resume_versions", "resume_artifacts"):
-        n = conn.execute(
-            f"select count(*) from public.{table} where user_id = %s", (user,)
-        ).fetchone()[0]
-        assert n == 0, f"erasure left {table} rows behind"
+
+    after = _live(conn, ids, user)
+    assert after == {t: (0, 0) for t in ids}, f"erasure left rows behind: {after}"
 
 
 def test_service_role_cannot_truncate_any_resume_table(conn, user):
