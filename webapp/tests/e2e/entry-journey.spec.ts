@@ -266,7 +266,14 @@ test.describe("an activated account that has never finished the wizard", () => {
     // a profile for the other actives is correct and it also made this journey
     // unreachable in both lanes.
     await page.goto("/queue");
-    await expect(page).toHaveURL(/\/onboarding\/1$/);
+    // `(\?|$)`, not `$`. The wizard writes its draft into `?d=` with
+    // `history.replaceState` on mount (`wizard.tsx`), so the landed URL carries a
+    // query and the anchored pattern could never match. Pre-existing: this lane
+    // is gated on live credentials and had never actually executed, so the
+    // mismatch shipped green. The claim is unchanged and is the one that matters
+    // — the browser is on step 1 of the wizard — and the draft is product
+    // behaviour, not slack in the assertion.
+    await expect(page).toHaveURL(/\/onboarding\/1(\?|$)/);
 
     // Not the holding page. A user who IS activated must not be told they are
     // not — the two refusals look similar from a distance and mean opposite
@@ -287,7 +294,14 @@ test.describe("an activated account that has never finished the wizard", () => {
     // wrong mechanism. The row's existence is what makes the profile the only
     // remaining explanation.
     await page.goto("/jobs");
-    await expect(page).toHaveURL(/\/onboarding\/1$/);
+    // `(\?|$)`, not `$`. The wizard writes its draft into `?d=` with
+    // `history.replaceState` on mount (`wizard.tsx`), so the landed URL carries a
+    // query and the anchored pattern could never match. Pre-existing: this lane
+    // is gated on live credentials and had never actually executed, so the
+    // mismatch shipped green. The claim is unchanged and is the one that matters
+    // — the browser is on step 1 of the wizard — and the draft is product
+    // behaviour, not slack in the assertion.
+    await expect(page).toHaveURL(/\/onboarding\/1(\?|$)/);
     const text = await bodyText(page);
     expect(
       text.includes(titlesFor("active-no-profile")[0]!),
@@ -317,7 +331,12 @@ test.describe("a session that ends mid-journey", () => {
       // identity, because there is no identity to expire.
       await page.goto("/queue");
       await expect(page).toHaveURL(/\/login/);
-      await expect(page.getByRole("heading", { name: "Job Search HQ" })).toBeVisible();
+      // "Log in", not "Job Search HQ". RM-34 replaced the hand-rolled login box
+      // with `Auth.dc.html`'s 360px column, where the product name is a wordmark
+      // beside the mark and the page's one heading names the SCREEN. The same
+      // retarget was made in `entry-path.spec.ts`; this file is its live-lane
+      // twin and runs only on merge, so it was missed and turned main red.
+      await expect(page.getByRole("heading", { name: "Log in", level: 1 })).toBeVisible();
       await assertNoProductData(page);
 
       // And it is recoverable: signing back in returns the person to the product
