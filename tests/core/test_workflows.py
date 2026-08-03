@@ -186,21 +186,25 @@ def _topic_source(step: dict, env: dict) -> str:
     return m.group("lit")
 
 
-#: The ops topic is the paging surface — the one a human is woken by. It is also
-#: the one whose hardcoded `|| 'slug'` fallbacks were deliberately removed: a
-#: literal keeps paging a topic nobody reads after a rotation, and it publishes
-#: the real topic into the repo.
+#: The ops topic is the paging surface — the one a human is woken by.
 #:
-#: `HQ_NTFY_TOPIC` (the jobs topic; resume.yml's preview attachment) is a
-#: different surface — informational, not a page — and still carries a literal
-#: fallback. That is pre-existing and out of this rule's scope on purpose;
-#: widening to it is a separate change with its own blast radius.
+#: This rule used to apply to it ALONE, on the reasoning that the jobs topic
+#: (`HQ_NTFY_TOPIC`, resume.yml's preview attachment) was informational rather
+#: than a page, so its `|| 'slug'` fallback could stay. That reasoning was
+#: wrong, and the personal-vault audit is what caught it: an ntfy topic IS the
+#: credential — ntfy.sh is a public broker with no authentication — and the
+#: step carrying that fallback PUTs the owner's rendered resume to it. So the
+#: literal did not leak a notification channel; it published a resume to
+#: anyone who had read this repository.
+#:
+#: The scope is now every ntfy publish, paging or not. A rule that names one
+#: variable is a rule the next variable walks past.
 _PAGING_SECRET = "secrets.HQ_OPS_NTFY_TOPIC"
 
 
 @pytest.mark.parametrize("wf", WORKFLOWS, ids=lambda p: p.name)
-def test_a_workflow_that_pages_reads_its_topic_from_the_secret(wf):
-    """Every ops page must resolve to `secrets.HQ_OPS_NTFY_TOPIC` and nothing else.
+def test_a_workflow_that_publishes_reads_its_topic_from_a_secret(wf):
+    """Every ntfy publish must resolve to a secret, with no literal fallback.
 
     Three ways to get this wrong, all covered: the slug written straight into
     the URL, a shell variable set to a literal, and the `${{ secrets.X || 'slug' }}`
@@ -209,23 +213,25 @@ def test_a_workflow_that_pages_reads_its_topic_from_the_secret(wf):
     doc = yaml.safe_load(wf.read_text())
     for step, env in _publishes(doc):
         source = _topic_source(step, env)
-        if _PAGING_SECRET not in source:
-            # Not an ops page. The only non-page publish in this repo goes to the
-            # jobs topic via a secret; anything resolving to neither is hardcoded.
-            assert "secrets." in source, (
-                f"{wf.name}: step {step.get('name')!r} publishes to ntfy with a "
-                f"hardcoded topic ({source!r})"
-            )
-            continue
+        assert "secrets." in source, (
+            f"{wf.name}: step {step.get('name')!r} publishes to ntfy with a "
+            f"hardcoded topic ({source!r})"
+        )
         assert "||" not in source, (
-            f"{wf.name}: step {step.get('name')!r} falls back to a literal ops "
-            f"topic when the secret is unset ({source!r}) — those fallbacks were "
-            "removed on purpose, do not restore one"
+            f"{wf.name}: step {step.get('name')!r} falls back to a literal "
+            f"topic when the secret is unset ({source!r}) — those fallbacks are "
+            "a second topic nobody can rotate, in plaintext, in the repository"
         )
 
 
 @pytest.mark.parametrize(
-    "shape", ["inline literal", "variable set to a literal", "secret with fallback"]
+    "shape",
+    [
+        "inline literal",
+        "variable set to a literal",
+        "secret with fallback",
+        "non-paging secret with fallback",
+    ],
 )
 def test_the_topic_detector_catches_the_shapes_it_exists_for(shape):
     """Prove the oracle can fail: each historical wrong shape must be rejected.
@@ -264,11 +270,30 @@ def test_the_topic_detector_catches_the_shapes_it_exists_for(shape):
                   - name: Ops alert
                     run: curl -d hi "https://ntfy.sh/$HQ_OPS_NTFY_TOPIC"
         """,
+        # resume.yml's exact shape, verbatim apart from the slug. It sat in this
+        # repository for months because the rule above named the ops variable and
+        # this one is called something else.
+        "non-paging secret with fallback": """
+            name: x
+            on: {workflow_dispatch: {}}
+            env:
+              HQ_NTFY_TOPIC: "${{ secrets.HQ_NTFY_TOPIC || 'REDACTED-NTFY-TOPIC' }}"
+            jobs:
+              page:
+                runs-on: ubuntu-latest
+                steps:
+                  - name: Phone ping with preview
+                    run: curl -T preview.png "https://ntfy.sh/$HQ_NTFY_TOPIC"
+        """,
     }
     step, env = _publishes(yaml.safe_load(bodies[shape]))[0]
     source = _topic_source(step, env)
     if shape == "secret with fallback":
         assert _PAGING_SECRET in source and "||" in source
+    elif shape == "non-paging secret with fallback":
+        # Reaches a secret, so the "hardcoded" arm passes it; the fallback arm is
+        # the only thing standing between this shape and a published resume.
+        assert "secrets." in source and "||" in source
     else:
         assert "secrets." not in source
 

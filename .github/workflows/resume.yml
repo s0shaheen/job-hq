@@ -28,9 +28,13 @@ concurrency:
   group: hq-resume
   cancel-in-progress: false
 
-# Topics mirror hq.config.yaml (ntfy.jobs / ntfy.ops); secrets override if rotated.
+# An ntfy topic IS the credential — ntfy.sh is a public broker with no auth, so
+# anyone holding the string can subscribe to it. This workflow PUTs the rendered
+# resume preview to the jobs topic, so a literal here published the owner's
+# resume to whoever read this file. Topics come from secrets and nowhere else;
+# tests/core/test_ntfy_topic_literals.py fails the build if a literal returns.
 env:
-  HQ_NTFY_TOPIC: ${{ secrets.HQ_NTFY_TOPIC || 'REDACTED-NTFY-TOPIC' }}
+  HQ_NTFY_TOPIC: ${{ secrets.HQ_NTFY_TOPIC }}
   HQ_OPS_NTFY_TOPIC: ${{ secrets.HQ_OPS_NTFY_TOPIC }}
 
 jobs:
@@ -108,6 +112,10 @@ jobs:
           LABEL: ${{ steps.meta.outputs.label }}
           DRIVE_FOLDER_URL: ${{ secrets.DRIVE_FOLDER_URL }}
         run: |
+          if [ -z "$HQ_NTFY_TOPIC" ]; then
+            echo "::warning::Phone ping SKIPPED — the HQ_NTFY_TOPIC secret is not set. Set it to a NEW topic; the previous one was committed to this repository and must be treated as public."
+            exit 0
+          fi
           TITLE="Resume published"
           if [ -n "$LABEL" ]; then TITLE="Resume published: $LABEL"; fi
           ARGS=(-fsS -m 30 -T resume/out/.preview.png

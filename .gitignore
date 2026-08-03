@@ -54,3 +54,13 @@ ds-bundle/
 # the converter ships as cfg.cssEntry. Must live under webapp/ because cssEntry
 # is bounded to the package dir. Never edit; it is rebuilt every sync.
 webapp/.ds-styles.css
+
+# Personal material that lives in this working tree and must never enter the
+# repository. `interview-prep/` is the owner's preparation for live interviews;
+# the recordings are other people's voices. One `git add -A` is all that stands
+# between these and permanent history, and history is not retractable — see
+# docs/pilot-launch/20-personal-vault-audit.md, Step 0.
+interview-prep/
+*.m4a
+*.mp3
+*.wav
