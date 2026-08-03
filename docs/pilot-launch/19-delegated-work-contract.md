@@ -16,9 +16,22 @@ is done, so a brief does not have to restate it and cannot forget it.
 
 - `scripts/verify.sh <changed paths>` while iterating; `--image` for anything needing
   Postgres, a browser, or the render stack. `--full --image` once before handing back.
-- Heavy runs take a machine-wide lock and WAIT for each other. That is deliberate:
-  concurrent full gates drove this box to load ~100, made timing tests fail at random,
-  and once hid a real regression behind four rounds of plausible noise.
+- Heavy runs are capped machine-wide and WAIT for each other. Two limits, and a run holds
+  exactly one: `scripts/test-shell.sh` admits **2 containers at a time**, and
+  `scripts/verify.sh` keeps its own lock for the no-Docker path only. The cap is derived
+  from the Docker VM's 7.75 GiB against a measured ~2.1 GiB per hot container, so it is a
+  memory budget — re-derive it if that allocation changes, do not assume it tracks the
+  core count.
+- A queued run SAYS it is queued, with the busy count, the holder pids and the elapsed
+  time. If you see that, nothing is wrong: wait. A silent wait would be
+  indistinguishable from a stall, and this project has already misdiagnosed one as the
+  other. `HQ_TEST_SLOTS=N` raises the cap; `HQ_TEST_NO_SLOT=1` opts out for a genuinely
+  short run and says loudly that it did.
+- That cap exists because the alternative is measured: four concurrent `hq-test`
+  containers put this box at load 134 with the Docker VM at 1074% CPU, and the round
+  before reached load 317 and stalled six agents at once. Concurrent full gates also made
+  timing tests fail at random and once hid a real regression behind four rounds of
+  plausible noise.
 - **Never install fonts** into the image. Font metrics decide visual baselines, and the
   build fails if the font set changes.
 - The canonical `pytest` SKIPS `tests/db` without `DATABASE_URL` and still exits 0. A

@@ -470,6 +470,34 @@ done
 # Scoped to the heavy modes. A change-scoped run of two fast suites has no
 # business queueing behind a full gate, and serializing those would remove the
 # entire point of the fast lane.
+#
+# ── how this composes with the test-shell.sh semaphore ──────────────────────
+#
+# scripts/test-shell.sh enforces a machine-wide 2-slot limit on CONTAINERS,
+# because that is the layer heavy work actually passes through: a bare
+# `test-shell.sh pytest ...`, a `--update-snapshots` playwright run, or an
+# ad-hoc `docker run postgres:16` never reaches this lock at all. This lock
+# stays, but a run holds exactly ONE of the two, never both:
+#
+#   --image, on the host   the re-exec above happens BEFORE this section, so
+#                          this lock is never taken. The slot test-shell.sh
+#                          acquires is the only limit, which is correct — this
+#                          process becomes the container.
+#   inside the image       skipped, below. A slot is ALREADY held on our behalf
+#                          by the host test-shell.sh that started this
+#                          container, so taking this lock too would spend the
+#                          budget twice for one container.
+#   no Docker at all       taken as before. This path starts no container and
+#                          so spends nothing from the semaphore; without this
+#                          lock two host-native full gates would still overlap.
+#
+# What breaks if the inner run is NOT skipped: today it is harmless only by
+# accident, because a container's /tmp is its own and the lock therefore matches
+# nothing. Bind-mount /tmp — which any future "share the verify cache" change
+# would reach for — and it becomes a true self-deadlock: the outer test-shell.sh
+# holds the slot the inner verify.sh's lock owner is waiting behind, and neither
+# side can make progress. Skipping explicitly makes the property hold by design
+# instead of by an environment detail nobody wrote down.
 LOCK_DIR="${HQ_VERIFY_LOCK:-${TMPDIR:-/tmp}/hq-verify.lock}"
 lock_held=0
 release_lock() { [[ "$lock_held" == 1 ]] && rm -rf "$LOCK_DIR"; }
@@ -479,6 +507,8 @@ heavy=0
 for _s in "${selected[@]+"${selected[@]}"}"; do
   case "$_s" in e2e|e2e-visual|e2e-slop|build) heavy=1 ;; esac
 done
+
+[[ "${HQ_TEST_IMAGE:-0}" == "1" ]] && heavy=0   # a slot is already held for us
 
 if [[ "$heavy" == 1 && "${HQ_VERIFY_NO_LOCK:-0}" != "1" ]]; then
   waited=0

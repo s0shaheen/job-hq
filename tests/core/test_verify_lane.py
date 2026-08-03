@@ -280,3 +280,118 @@ def test_core_change_is_not_treated_as_local() -> None:
     """core/ is imported by monitor, tracker and the db write path."""
     got = selected(run("core/pgwrites.py").stdout)
     assert {"py-core", "py-monitor", "py-tracker", "py-db"} <= got
+
+
+# ────────────────────────────────── 5. composing with the test-shell semaphore
+#
+# There are now two machine-wide limits: this script's heavy lock, and the
+# 2-slot container semaphore in scripts/test-shell.sh. A run must hold exactly
+# ONE of them.
+#
+# `verify.sh --image` execs into test-shell.sh BEFORE reaching the lock, so the
+# slot is the only limit — correct, because this process becomes the container.
+# The verify.sh running INSIDE that container must therefore not take the lock
+# as well: a slot is already held on its behalf, and taking both would spend the
+# budget twice for one container and, once anyone bind-mounts /tmp, deadlock
+# outright — the outer test-shell.sh holds the slot the inner lock's owner is
+# queued behind, and neither side can exit.
+#
+# Both cases below hold the lock with a LIVE pid, so the stale-lock reclaim path
+# cannot make the test pass for the wrong reason. `npm` is stubbed so the
+# selected heavy suite costs nothing; the assertion is about the lock, not the
+# suite.
+
+NPM_STUB = '#!/usr/bin/env bash\nexit 0\n'
+
+
+def _heavy_run_against_a_held_lock(tmp_path: Path, extra_env: dict[str, str]):
+    """Select a heavy suite, hold its lock with a live process, and see whether
+    the run queues behind it."""
+    import os
+    import signal as _signal
+
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir(exist_ok=True)
+    (stub_dir / "npm").write_text(NPM_STUB)
+    (stub_dir / "npm").chmod(0o755)
+
+    lock = tmp_path / "hq-verify.lock"
+    holder = subprocess.Popen(["sleep", "300"])
+    lock.mkdir()
+    (lock / "pid").write_text(str(holder.pid))
+
+    e = dict(os.environ)
+    e.pop("HQ_VERIFY_PATHS", None)
+    # Scrub the INHERITED image flag. These two cases differ only in whether
+    # HQ_TEST_IMAGE is set, and the whole suite runs inside the image during a
+    # full gate — where it is already 1. Without this, the "on the host" case
+    # silently becomes a second copy of the "inside the image" case and passes
+    # for the wrong reason. It did: this test went red in the first full gate
+    # after it was written, having passed on the host all day. Same defect the
+    # land.sh suite has for an inherited LAND_GATES.
+    e.pop("HQ_TEST_IMAGE", None)
+    e["PATH"] = f"{stub_dir}:{e['PATH']}"
+    e["HQ_VERIFY_LOCK"] = str(lock)
+    e["HQ_VERIFY_EXTRA_MAP"] = "zz/*=build"      # 'build' is one of the heavy ids
+    e.update(extra_env)
+
+    p = subprocess.Popen(
+        ["bash", str(VERIFY), "zz/thing.txt"],
+        cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env=e, start_new_session=True,
+    )
+    try:
+        out, err = p.communicate(timeout=25)
+        timed_out = False
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, _signal.SIGKILL)
+        out, err = p.communicate(timeout=30)
+        timed_out = True
+    finally:
+        holder.kill()
+        holder.wait(timeout=30)
+
+    return timed_out, out, err
+
+
+def test_a_heavy_host_run_still_queues_behind_the_verify_lock(tmp_path: Path) -> None:
+    """The property the skip below is measured against. On the host — no slot
+    held anywhere — a heavy run must still wait for the lock."""
+    timed_out, _out, err = _heavy_run_against_a_held_lock(tmp_path, {})
+    assert timed_out, f"the run did not wait for a lock held by a live pid:\n{_out}\n{err}"
+    assert "holds the lock" in err, err
+
+
+def test_inside_the_image_the_lock_is_skipped_because_a_slot_is_held(
+    tmp_path: Path,
+) -> None:
+    """The composition rule. HQ_TEST_IMAGE=1 means a test-shell.sh on the host
+    is already holding a slot for this container, so this run must pass straight
+    through the lock rather than queue behind one it cannot see."""
+    timed_out, out, err = _heavy_run_against_a_held_lock(
+        tmp_path, {"HQ_TEST_IMAGE": "1"}
+    )
+    assert not timed_out, (
+        "a run inside the image queued on the verify lock. It already holds a "
+        "test-shell slot; holding both collapses the 2-slot budget to 1 and "
+        f"self-deadlocks the moment /tmp is shared:\n{err}"
+    )
+    assert "holds the lock" not in err, err
+    assert "build" in out, out
+
+
+def test_the_image_reexec_happens_before_the_lock_is_taken() -> None:
+    """Structural, and it is the reason `--image` holds nothing at all.
+
+    If the lock section were moved ABOVE the re-exec, every `--image` run would
+    take the lock and then exec into test-shell.sh — which then waits for a
+    slot while still owning a machine-wide mutex. That is the both-locks state
+    the design exists to avoid, and it is one block-move away.
+    """
+    text = VERIFY.read_text()
+    reexec = text.index('exec "$repo/scripts/test-shell.sh"')
+    lock = text.index('LOCK_DIR="${HQ_VERIFY_LOCK:')
+    assert reexec < lock, (
+        "the --image re-exec now happens AFTER the lock is taken, so an "
+        "--image run would hold the verify lock AND wait for a test-shell slot"
+    )
