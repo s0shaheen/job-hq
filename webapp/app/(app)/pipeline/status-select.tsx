@@ -3,8 +3,7 @@
 import { Check, ChevronDown } from "lucide-react";
 import { Select } from "radix-ui";
 import * as React from "react";
-import { Badge } from "@/components/ui/badge";
-import { selectableStatuses, statusTone } from "@/lib/status";
+import { selectableStatuses, statusTone, type StatusTone } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 /**
@@ -24,6 +23,22 @@ import { cn } from "@/lib/utils";
  */
 
 const CUSTOM = "__custom__";
+
+/**
+ * The status word's colour, per the shared tone mapping.
+ *
+ * Text colour rather than a filled chip, which is what the authored template
+ * renders. `neutral` is `text-2` and not `muted`: muted is this app's
+ * de-emphasis token, and a status is never de-emphasised — a Rejected row is
+ * still a row you have to be able to read.
+ */
+const TONE_TEXT: Record<StatusTone, string> = {
+  ok: "text-ok",
+  accent: "text-accent",
+  info: "text-info",
+  warn: "text-warn",
+  neutral: "text-text-2",
+};
 
 const itemClass =
   "relative flex min-h-8 cursor-default select-none items-center gap-2 rounded-md pl-7 pr-3 " +
@@ -46,6 +61,37 @@ export function StatusSelect({
   const [draft, setDraft] = React.useState("");
   const options = selectableStatuses(status);
 
+  /**
+   * Where focus goes when the custom field closes without writing.
+   *
+   * `setCustomOpen(false)` UNMOUNTS the focused input, and the browser's answer
+   * to that is `document.body` — outside this control, and outside the record
+   * pane when this renders inside one. Measured: after Escape here, every later
+   * Escape reached nothing and the pane could not be closed by keyboard at all.
+   *
+   * That is the same stranding the pane's own fields fixed by focusing the pane
+   * root, and the same one the Withdraw dialog fixed by remembering its opener.
+   * This control cannot use either: it renders both inside the pane and on a
+   * bare row, so the only target that is correct in both places is its own
+   * trigger — which is also where the person was before they opened the field.
+   *
+   * In an effect rather than in the handler, because the trigger does not exist
+   * until the custom field has unmounted and this component has re-rendered.
+   */
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const restoreFocus = React.useRef(false);
+  React.useEffect(() => {
+    if (customOpen || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    triggerRef.current?.focus();
+  }, [customOpen]);
+
+  const closeCustom = React.useCallback(() => {
+    restoreFocus.current = true;
+    setCustomOpen(false);
+    setDraft("");
+  }, []);
+
   if (customOpen) {
     return (
       <form
@@ -53,12 +99,23 @@ export function StatusSelect({
         onSubmit={(e) => {
           e.preventDefault();
           const next = draft.trim();
-          setCustomOpen(false);
-          setDraft("");
           // A blank submit closes without a write. The server would refuse it
           // anyway ("a status is required"), and a red toast for pressing Enter
           // on an empty box is noise, not information.
-          if (next && next !== status) onSelect(next);
+          //
+          // The two halves take different exits ON PURPOSE. A cancel is the
+          // stranding case — nothing else is going to claim focus, so this
+          // control has to put it back on its own trigger. A write is not:
+          // `requestStatus` may open the withdraw dialog, which moves focus
+          // into itself, and restoring the trigger underneath it would pull
+          // focus straight back out of the dialog that just opened.
+          if (next && next !== status) {
+            setCustomOpen(false);
+            setDraft("");
+            onSelect(next);
+            return;
+          }
+          closeCustom();
         }}
       >
         <input
@@ -66,11 +123,17 @@ export function StatusSelect({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              e.preventDefault();
-              setCustomOpen(false);
-              setDraft("");
-            }
+            if (e.key !== "Escape") return;
+            e.preventDefault();
+            // `stopPropagation` as well, and it is not decoration: this control
+            // now also renders INSIDE the Applications record pane, whose own
+            // Escape handler closes the pane. Without this, pressing Escape to
+            // dismiss this small field closed the entire pane and took the typed
+            // status with it — measured on the review round that found it.
+            e.stopPropagation();
+            // Closes the field AND puts focus back on the trigger. Without the
+            // second half the pane's Escape handler never sees another key.
+            closeCustom();
           }}
           maxLength={80}
           aria-label={`Custom status for application ${applicationId}`}
@@ -98,21 +161,35 @@ export function StatusSelect({
       }}
     >
       <Select.Trigger
+        ref={triggerRef}
         aria-label={`Status for application ${applicationId}`}
         data-testid={`status-trigger-${applicationId}`}
         className={cn(
-          "inline-flex min-w-0 max-w-full items-center gap-1 rounded-md outline-none",
+          // The authored control: a borderless slot that grows a border on
+          // hover and focus. The pill this replaces put a filled chip on every
+          // row, which is a lot of colour for a value that is the same on most
+          // of them — and the template says so, rendering the status as a
+          // coloured WORD rather than as a chip.
+          // `min-h-7` plus padding, never `h-7`. The authored control is 28px at
+          // the default type scale, and `min-h` alone does not reach past that
+          // floor because the floor IS the line box; the padding is what makes
+          // the box grow with the text. A fixed height clips the status word for
+          // exactly the reader who asked for bigger text, which is matrix row
+          // 123's failure with the pill swapped out.
+          "inline-flex min-h-7 min-w-0 max-w-full items-center gap-1 rounded-md border py-0.5",
+          "border-transparent px-2 outline-none hover:border-border-strong hover:bg-surface",
           "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
           "disabled:opacity-60",
         )}
       >
-        {/* The chip IS the trigger, so the table reads the same whether or not a
-            row is editable — a separate chrome-heavy control per row turns a
-            scannable list into a form. */}
-        <Badge tone={statusTone(status)} className="whitespace-nowrap">
+        {/* Colour never travels without the word: the status text IS the state,
+            and the tone only reinforces it. `statusTone` is the shared mapping
+            the queue uses too, so the two surfaces cannot disagree about what
+            colour an Offer is. */}
+        <span className={cn("min-w-0 whitespace-nowrap font-medium", TONE_TEXT[statusTone(status)])}>
           <Select.Value>{status}</Select.Value>
-          <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-60" />
-        </Badge>
+        </span>
+        <ChevronDown aria-hidden="true" className="size-3.5 shrink-0 text-muted" />
       </Select.Trigger>
 
       <Select.Portal>

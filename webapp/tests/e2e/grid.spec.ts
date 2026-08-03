@@ -497,7 +497,7 @@ test("Display owns density, type size and hints without changing the URL or save
       .evaluate((el) => getComputedStyle(el).fontSize);
 
   // The stored default: 32px rows, 13px type, hints on. 01 §8 authors
-  // comfortable instead; that conflict is ADD-010 and is not this test's to
+  // comfortable instead; that conflict is DEV-001 and is not this test's to
   // resolve (see jobs-redesign.spec.ts, which asserts both heights).
   expect(await rowHeight()).toBeLessThanOrEqual(33);
   await expect(page.getByTestId("grid-hints")).toBeVisible();

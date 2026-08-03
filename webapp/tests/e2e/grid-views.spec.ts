@@ -318,7 +318,7 @@ test("a density switch mid-scroll keeps the viewport anchored — no blank gap, 
   await page.goto("/jobs?perf=1000");
   await ready(page);
 
-  // Compact 32px is where the surface starts (ADD-010), so the switch under
+  // Compact 32px is where the surface starts (DEV-001), so the switch under
   // test is the one INTO comfortable. The direction is immaterial to the
   // anchoring maths and material to whether the switch happens at all: driving
   // it toward the current value would make this a no-op that always passes.

@@ -1,15 +1,10 @@
-import { ListChecks } from "lucide-react";
-import Link from "next/link";
-import { ExportDialog } from "@/components/export-dialog";
-import { buttonClass } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty";
 import { getDataSource } from "@/lib/data/get-source";
 import { isDemoMode } from "@/lib/data/source";
 import { buildWarmContext } from "@/lib/referral/match";
 import { buildWarmIntroContext } from "@/lib/warm/intro-context";
 import PipelineTable, { type ReviewItem } from "./pipeline-table";
 
-export const metadata = { title: "Pipeline" };
+export const metadata = { title: "Applications" };
 export const dynamic = "force-dynamic";
 
 /**
@@ -124,48 +119,19 @@ export default async function PipelinePage({
   const warm = buildWarmContext(companies, connections);
   const warmIntro = buildWarmIntroContext(warmPins, profile.criteria);
 
+  // The header, the empty state and the list are ONE client component now, and
+  // that is the pane's doing rather than a preference: the authored composition
+  // puts the pane beside the whole left column including its header, so the
+  // header cannot live in a server component that renders above the flex row.
+  // The empty state came with it because it is one branch of the same surface.
   return (
-    <div className="min-w-0">
-      <header className="border-b border-border px-4 py-3 sm:px-6">
-        {/* flex-wrap, not truncate: truncating next to the non-shrinking
-            Export button rendered this title as a bare ellipsis at 200% zoom
-            on a 320px phone. When the pair cannot share the line, the button
-            drops below instead. */}
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          <h1 className="min-w-0 break-words text-lg font-semibold">Pipeline</h1>
-          <ExportDialog dataset="applications" />
-        </div>
-        <p className="text-xs text-muted">
-          {rows.length} {rows.length === 1 ? "application" : "applications"}
-        </p>
-      </header>
-
-      {rows.length === 0 ? (
-        <EmptyState
-          icon={<ListChecks aria-hidden="true" className="size-8" />}
-          title="No applications yet"
-          // "when a confirmation email arrives" was stated as fact and is not one
-          // yet: nothing writes `applications` from Python, and 0010 only reads and
-          // clears `suggested_status`, so the Gmail path reaches the SHEET and not
-          // this table. Same discipline as P7's sweep caveat — the copy describes
-          // the wired half and names the other as coming.
-          body="Applications appear here when you mark a role interesting. Emailed status updates land in the spreadsheet today; the pipeline reads them once the capture writes here too."
-          action={
-            <Link href="/queue" className={buttonClass({ variant: "primary" })}>
-              Go to Today
-            </Link>
-          }
-        />
-      ) : (
-        <PipelineTable
-          initial={rows}
-          // Empty unless a demo asks for it — see DEMO_REVIEW_ITEMS above for
-          // why there is no production source for these.
-          reviewItems={demo === "review" && isDemoMode() ? DEMO_REVIEW_ITEMS : []}
-          warm={warm}
-          warmIntro={warmIntro}
-        />
-      )}
-    </div>
+    <PipelineTable
+      initial={rows}
+      // Empty unless a demo asks for it — see DEMO_REVIEW_ITEMS above for
+      // why there is no production source for these.
+      reviewItems={demo === "review" && isDemoMode() ? DEMO_REVIEW_ITEMS : []}
+      warm={warm}
+      warmIntro={warmIntro}
+    />
   );
 }

@@ -58,10 +58,12 @@ Live mode is not shown as a matrix because it has one value everywhere. Every li
 
 Routes: `/pipeline`, `/apply/[applicationId]`
 
+The Loading cell cited the jobs measurement until the Applications cutover: loading.spec's original test starts on /pipeline and then navigates to /jobs, so what it photographs is the jobs skeleton. /pipeline and /apply had no loading.tsx at all. Both now have one, and the citation names the test that measures THIS surface's skeleton against THIS surface's loaded page.
+
 | State | Fixture | Evidence or reason |
 |---|---|---|
-| Loading | yes | `tests/e2e/loading.spec.ts` "the skeleton and the loaded page put content in the same place" |
-| Populated | yes | `tests/e2e/pipeline.spec.ts` "groups render in ladder order, not alphabetically" |
+| Loading | yes | `tests/e2e/loading.spec.ts` "the Applications skeleton and the loaded page put content in the same place" |
+| Populated | yes | `tests/e2e/pipeline.spec.ts` "bands render live work first and the archive last" |
 | Natural empty | yes | `tests/e2e/empty.spec.ts` "zero rows" |
 | Filter empty | n/a | the pipeline has no filter clause builder; groups collapse rather than remove rows, and a collapsed group still states its count |
 | Missing optional fact | yes | `tests/e2e/apply.spec.ts` "a row whose link names no board says which half is missing" |
@@ -73,12 +75,12 @@ Routes: `/pipeline`, `/apply/[applicationId]`
 | Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for the pipeline or an application lands on the holding page" |
 | Session expired | gap | Session expiry is asserted from /queue only; no spec expires a session mid-journey on /pipeline or /apply. |
 | Fatal route error | yes | `tests/e2e/apply.spec.ts` "a posting the board no longer has is a state, not an error page" |
-| Selected/detail | yes | `tests/e2e/apply.spec.ts` "Prepare is reachable from the pipeline row it belongs to" |
+| Selected/detail | yes | `tests/e2e/pipeline.spec.ts` "the pane takes focus on open and Escape closes it"; `tests/e2e/pipeline.spec.ts` "the pane's subject is in the URL, so a link restores it" |
 | Long strings | gap | No spec asserts a long board-written question label or note wraps rather than truncating. |
 | High volume | yes | `tests/e2e/pipeline.spec.ts` "a 200-row group stays LINEAR — the trigger to virtualize" |
 | Large type | yes | `tests/e2e/pipeline.spec.ts` "the large type scale really grows the tokens, and the pill still fits" |
 | 200% zoom | yes | `tests/e2e/resilience.spec.ts` "the page survives a 200% text zoom" |
-| Narrow viewport | yes | `tests/e2e/layout.spec.ts` "nothing paints past the page edge" |
+| Narrow viewport | yes | `tests/e2e/pipeline.spec.ts` "at 280px the surface still scrolls the document and paints inside the edge" |
 | Reduced motion | gap | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
 | Provider image failure | gap | The monogram fallback for a failed company logo is asserted in unit tests only. |
 

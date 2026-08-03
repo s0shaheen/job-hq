@@ -218,6 +218,7 @@ Visible implementation is blocked until every state maps to an owner artifact:
 | ADD-006 | Billing lifecycle states beyond founding-free view | PKT-09A/B |
 | ADD-007 | Account deletion irreversibility: already submitted employer applications cannot be recalled | PKT-09F |
 | ADD-008 | Whether the Jobs Display popover WRITES its four knobs to `profiles`, or is per-session only. Migration 0025 made density, type size and keyboard hints a durable per-user record, and Settings persists them; `DisplayPopover.d.ts` carries no save affordance, no dirty state and no "applies to this session" line, and 04 §3 lists the control without saying which it is. The two readings are visibly different products — change density in Jobs, reload, and the row height either holds or reverts — so the surface keeps today's per-session behavior until the owner says | Jobs surface build |
+| ADD-010 | Applications "Needs review" band: what puts a row in it, and whether such a row is deduped out of its status band or shown in both. The authored template pins the band above the others and its only fixture row is an ordinary Screening row carrying no suggestion and no evidence, so the composition does not say. `applications-handoff.md` §7 open question #1 names the same gap and says to resolve it before building the band function | Applications surface build |
 | ADD-011 | Un-triage, bulk un-triage, import undo and digest undo against a job autopilot has already submitted: the gesture is refused, and no authored state shows a refused undo | PKT-07 autopilot surface |
 | ADD-012 | **What clicking a Today row does.** The two authoritative sources disagree: `today-handoff.md` §1 says row click opens the DETAIL PANE; `TodayTriage.dc.html` wraps each row in `onClick="{{ r.toggle }}"`, i.e. it TOGGLES SELECTION. Those are different products — one navigates, one mutates a selection. The Today cutover ships the text column as NOT clickable rather than picking one; the checkbox selects, the three buttons decide, and `o` opens the posting | Today surface build |
 | ADD-013 | **Today's detail pane.** The pane the handoff opens on `Enter` (skill chips, role summary — the content the row budget evicts) is unbuilt; 07 §3 calls it the one net-new component and assigns it to Jobs. Until it exists, `Enter` does nothing on Today and the `Selected/detail` coverage cell is `blocked` on this row rather than `covered` | Jobs surface build, then Today |
@@ -226,6 +227,7 @@ Visible implementation is blocked until every state maps to an owner artifact:
 | ADD-016 | **Posted age at hour granularity.** The composition's fact line shows "6h ago"; `postings.posted` is a `YYYY-MM-DD` date, so there is no hour to render. Today shows day granularity ("Today", "2d ago", then "Jul 14"). Either the column gains a timestamp or the design accepts days | ingestion schema |
 | ADD-017 | **The multi-select range key.** 04 §2 names "shift-click and an x-range"; `x` is already Pass. Shift-click is implemented and no range key was invented | Today surface build |
 | ADD-018 | **How a touch user reaches a Today row's actions.** See the note below — this one needs a decision with named acceptance criteria, not just a flag | Today surface build |
+| ADD-019 | Applications phone composition. The authored row is a four-column grid whose minimum total is 690px; the template authors no frame below that width, and 04 §0.2 requires every state as a frame. The build preserves the shipped stacked row under `md` rather than inventing one — a preserved behavior, not an authored one | Applications surface build |
 
 No implementation worker may fill these gaps from taste.
 
@@ -360,6 +362,37 @@ So the guard is proven; only its *registration* in the ledger is outstanding.
 **What the integrator should do.** When `feat/mutant-ledger` lands, either add a `vitest`
 runner and register these, or record here that vitest guards are proven in-suite and stay
 out of the ledger by design. This deviation is the tracking record either way.
+### DEV-003 — an invented status is Active, not Closed
+
+`applications-handoff.md` §1 recommends folding the `Other` group — a status a human typed
+rather than picked — into the **Closed** band. The build puts it in **Active**, and this is
+recorded as a deviation because a handoff recommendation is an authored instruction.
+
+Two reasons, and the first is the authority. The template's own fixture data puts "Waiting
+on referral", which is not a canonical status, in the **Active** band beside Applied and
+Interviewing rows. Where the handoff and the composition disagree, the composition wins.
+
+The second is the consequence. Closed is collapsed by default — that is the template's own
+initial state, `collapsed: { closed: true }` — so folding invented statuses into it hides a
+live application behind a chevron because somebody typed "waiting on panel" instead of
+picking from a list. Failing towards "still live" is the direction that cannot lose work.
+
+Kept visible by two assertions rather than by this paragraph: `tests/unit/bands.test.ts`
+pins the mapping directly, and `pipeline.spec.ts`'s "a live application is not hidden behind
+the collapsed archive" drives the consequence through the browser. Both were watched red
+under a mutation that implements the handoff's recommendation instead.
+
+### DEV-004 — the nothing-yet copy drops its email clause
+
+The template's empty state reads "Applications you submit will be tracked here, including
+status changes read from your email." The build ships the first sentence and drops the
+clause: Gmail mailbox ingestion is the pilot's sole product exclusion, so that half promises
+a capability this build does not have. The replacement description states the wired half and
+the authority rule instead ("Status is yours to set; nothing changes it behind your back").
+
+The same reasoning removes the template's "From an email received 2h ago" evidence line: the
+pane links whatever evidence the row actually carries, and says so plainly when there is
+none, rather than asserting a provenance and an age it cannot know.
 
 ### DEV-COV-01 — the Coverage switch and chip take 6px, not the source's 999px pill
 
@@ -460,6 +493,70 @@ no share, percentage or measurement of anything" guards the neighbouring over-cl
 caveat sentence itself is guarded by the copy lint's ban on unwired promises only insofar as
 it is present. When the engine reads these tables, this deviation is the record that the
 sentence must be removed rather than left to rot.
+
+### DEV-005 — the pane's Activity stream ships as Notes
+
+**Filed as a deviation, and the relabel is the point.** This was ADD-013 for one review
+round, which was wrong by DEV-001's own rule three sections above: an addendum asks the
+owner to author something that does not exist. The owner HAS authored this — the template's
+pane carries an attributed activity list ("Set to Screening by email scan", "Application
+submitted", each with a right-aligned stamp). Filing an authored thing as a gap is how a
+deviation stops being tracked, which is the failure DEV-001 exists to name.
+
+**What is built instead.** The slot renders the note history, headed **Notes**.
+
+**Why.** `public.events` carries exactly the right shape — `kind`, `application_id`,
+`payload`, `actor` — and 0010 and 0015 write a row on every gesture. Nothing reads it:
+there is no `app_application_activity` RPC, and nothing in `webapp/lib` or `webapp/app`
+selects from `events`. So an Activity section here would be empty on every row, or invented.
+Adding the read is a migration plus a data-layer capability plus its fixture twin — T3 work
+with an independent security review, not presentation, and not this packet.
+
+Headed "Notes" rather than "Activity" deliberately: the two words make different promises.
+"Activity" claims bot status changes appear in the list, and they do not. The note history
+is the same shape the template draws — newest first, attributed author, timestamp separated
+by layout rather than glued — so the slot is honest at the size it can actually fill.
+
+**What the integrator should do.** When the events read lands, this section becomes the
+authored Activity stream and the notes move under it, and this entry is deleted. Until then
+the deviation is the tracking record.
+
+### DEV-006 — the withdraw confirmation is singular, not 02 §7's bulk string
+
+02 §7's template is "Withdraw 1 application? Their status becomes Withdrawn and reminders
+stop. [Withdraw 1] [Keep]". The Applications pane asks "Withdraw this application? Its
+status becomes Withdrawn and reminders stop. [Withdraw] [Keep]".
+
+**Why.** The template is a BULK pattern with the count substituted in — "Their" for a
+single application is the giveaway — and this surface has no bulk withdraw. Rendering
+"Withdraw 1" beside one row reads as software counting for its own benefit, which is the
+register 02 exists to keep out. The consequence sentence, which is the part that does the
+work, is unchanged.
+
+**What would reverse it.** A bulk withdraw on this surface, at which point the template is
+right and the count means something. There is none, and the affordance budget does not
+have room for one.
+
+### DEV-007 — the withdraw gate covers every human route, not every route
+
+`requestStatus` in `pipeline-table.tsx` gates the destination status at the single place
+every status write a PERSON initiates goes through: the row select, the pane select, the
+pane's Withdraw button, and a hand-typed custom status.
+
+**It does not cover confirming a suggestion.** `resolveSuggestionAction` applies whatever
+the server holds in `suggested_status`, so a suggestion of `Withdrawn` would land without
+the confirmation.
+
+**Not reachable in this build.** Gmail mailbox ingestion is the pilot's sole product
+exclusion and nothing writes `suggested_status`, so there is no suggestion of any value to
+confirm. This is recorded because the gate's claim was "every route" and that is one route
+short — a reviewer found it, and the gap between a claim and its scope is exactly what
+stops being noticed once it is not written down.
+
+**What the integrator should do.** When a producer for `suggested_status` ships, either
+`app_resolve_suggestion` gates the terminal case in SQL or this surface confirms before
+resolving. That belongs to the packet that turns the producer on; deciding it here would be
+a guard written against a column nothing fills.
 
 ## 5. Discovery and general-market validity decision
 

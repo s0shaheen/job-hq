@@ -161,7 +161,7 @@ test.describe("frame 2 — the Display popover", () => {
     // `dense`, which E5 chose so 0025 could land without moving a pixel. It
     // cannot be settled here: `data-density` is one attribute on `<html>` and
     // `/pipeline` and `/connections` honour it through `.hq-row`, so a flip
-    // moves two surfaces that have not cut over. Recorded as ADD-010, blocking
+    // moves two surfaces that have not cut over. Recorded as DEV-001, blocking
     // Jobs design sign-off. Until it is answered this asserts what the app
     // actually does, so the deviation is visible rather than papered over.
     await page.goto("/jobs?set=all");

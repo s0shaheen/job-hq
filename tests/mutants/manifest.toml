@@ -254,7 +254,14 @@ phone."""
 runner = "playwright"
 spec = "tests/e2e/layout.spec.ts"
 grep = "un-bounded surfaces"
-failing = 8   # 4 un-bounded paths x 2 Playwright projects
+failing = 10  # 5 un-bounded paths x 2 Playwright projects
+# Was 8. The Applications cutover added `/pipeline` to the sweep in
+# layout.spec.ts, because the list was one surface short of what its own comment
+# claims: /pipeline is the surface most likely to be handed the frame by mistake
+# (a dense list, which is what the frame LOOKS like it is for) and it is not
+# virtualized, so it has no claim on one. An accidental opt-in there went
+# undetected until then. Strengthening the guard moves the pinned count with it —
+# an exact match is the point, so a guard that grows has to say so here.
 # A FINDING, and the reason `companies.spec.ts` is NOT in this entry.
 #
 # The companies phone/toast case is the test that CAUGHT #121's mobile

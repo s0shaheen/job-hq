@@ -354,7 +354,11 @@ test.describe("the Warm-intro cell on /pipeline", () => {
     await page.goto("/pipeline");
     await pipelineReady(page);
 
-    const row = page.getByTestId("row-4");
+    // In the pane, for the reason referral.spec records: the authored row has a
+    // three-affordance budget and this is not one of the three.
+    await page.getByTestId("open-4").click();
+    const row = page.getByTestId("application-pane");
+    await expect(row).toHaveAttribute("data-application", "4");
     await row.getByTestId("warm-intro-find").click();
     await expect(page.getByTestId("warm-intro-confirm")).toContainText("Find an intro at Ramp");
   });

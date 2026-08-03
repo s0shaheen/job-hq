@@ -127,3 +127,68 @@ test("the queue skeleton and the loaded queue put the first row in the same plac
       `(skeleton ${skeletonTop}, loaded ${loadedTop})`,
   ).toBeLessThanOrEqual(8);
 });
+
+test("the Applications skeleton and the loaded page put content in the same place", async ({
+  page,
+  context,
+}) => {
+  /**
+   * The test the ledger's `applications | Loading` cell was crediting and never
+   * had. The one above STARTS on /pipeline and then navigates to Jobs, so what
+   * it photographs is the JOBS skeleton — /pipeline had no `loading.tsx` at all
+   * until this branch, and a citation naming a jobs measurement for an
+   * applications cell is a green cell over nothing.
+   *
+   * Same measurement, applied to the surface it claims: the skeleton's first
+   * band card must land where the loaded page's first band card lands.
+   */
+  await page.clock.setFixedTime(FIXTURE_NOW);
+  await context.addCookies([
+    { name: "hq_demo_id", value: `load-apps-${Date.now()}`, url: "http://127.0.0.1:3210" },
+  ]);
+
+  // `loading.tsx` is a Suspense fallback, so it paints on a CLIENT-SIDE
+  // navigation, which is how a user reaches Applications from anywhere else in
+  // the app. Delaying the document request instead delays everything and shows
+  // no skeleton at all.
+  await page.goto("/queue");
+  await expect(page.getByRole("link", { name: "Applications" })).toBeVisible();
+
+  // Hold the RSC payload long enough to photograph the skeleton.
+  await page.route(/\/pipeline/, async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.continue();
+  });
+
+  await page.getByRole("link", { name: "Applications" }).click();
+  await page.getByTestId("pipeline-skeleton").waitFor({ state: "attached", timeout: 10_000 });
+
+  const skeletonTop = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="pipeline-skeleton"] section');
+    return el ? Math.round(el.getBoundingClientRect().top) : -1;
+  });
+  expect(skeletonTop, "no skeleton band was rendered").toBeGreaterThan(0);
+
+  // Header presence is the half that goes missing first, and the half that
+  // caused matrix row 7's 69px jump on the queue.
+  const skeletonHasHeader = await page.evaluate(
+    () => !!document.querySelector('[data-testid="pipeline-skeleton"] header'),
+  );
+  expect(skeletonHasHeader, "the skeleton omits the page header").toBe(true);
+
+  await page.unroute(/\/pipeline/);
+  await expect(page.locator('[data-testid="pipeline"][data-hydrated="true"]')).toBeAttached();
+
+  const loadedTop = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid^="group-"]');
+    return el ? Math.round(el.getBoundingClientRect().top) : -1;
+  });
+  expect(loadedTop).toBeGreaterThan(0);
+
+  // A few pixels of tolerance for sub-pixel line-box rounding; 69 is a jump.
+  expect(
+    Math.abs(loadedTop - skeletonTop),
+    `content moved ${loadedTop - skeletonTop}px when data landed ` +
+      `(skeleton ${skeletonTop}, loaded ${loadedTop})`,
+  ).toBeLessThanOrEqual(8);
+});

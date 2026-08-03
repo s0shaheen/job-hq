@@ -274,7 +274,11 @@ test.describe("the import journey", () => {
 
     // And the loop closes: the edit made in the file reaches the row it came from.
     await commit(page);
-    await page.goto("/pipeline?open=Final");
+    // `?open=Active`: the Applications cutover replaced the band-per-status
+    // grouping with three display bands, and `Final` is a status inside Active
+    // rather than a band of its own. The claim is unchanged — the committed edit
+    // is visible on the surface it was imported into.
+    await page.goto("/pipeline?open=Active");
     await expect(page.getByTestId(`row-${id}`)).toBeVisible();
   });
 

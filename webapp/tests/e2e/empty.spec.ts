@@ -54,7 +54,11 @@ test.beforeEach(async ({ page }) => {
  */
 const SURFACES = [
   { path: "/queue", heading: "Pending decisions collect here after your first scan." },
-  { path: "/pipeline", heading: "No applications yet" },
+  // The Applications cutover took the template's nothing-yet copy, minus its
+  // clause about statuses read from email: Gmail ingestion is the pilot's one
+  // product exclusion, so that half would promise a capability this build
+  // does not have.
+  { path: "/pipeline", heading: "Applications you submit will be tracked here." },
   { path: "/health", heading: "No runs reported yet" },
   { path: "/companies", heading: "No companies yet" },
 ] as const;

@@ -78,6 +78,54 @@ async function wroteMore(page: Page, before: number, n = 1) {
     .toBeGreaterThanOrEqual(before + n);
 }
 
+/**
+ * Wait until the surface is interactive again after a RELOAD.
+ *
+ * `gotoPipeline` gates on `data-hydrated` for a reason recorded there: the
+ * server HTML renders the whole surface long before React attaches a handler.
+ * A `page.reload()` re-opens that window and every test that reloads and then
+ * MEASURES has to close it again.
+ *
+ * Skipping it does not fail loudly, which is what made this expensive. A
+ * two-step locator (`row-N` then `status-trigger-N`) re-resolves both steps on
+ * every use, so a handle taken during hydration can detach between resolving
+ * and reading: `getComputedStyle` on a detached element returns an EMPTY
+ * declaration, so `fontSize` is `""` and `parseFloat` is `NaN`, and
+ * `boundingBox()` answers `null`. Both read as "the type scale is not wired"
+ * and "the row has no box" — statements about the app, when the truth is the
+ * test measured a corpse.
+ *
+ * `toBeVisible()` is NOT sufficient and was tried: it re-resolves and passes on
+ * the pre-hydration DOM, which is present and visible and about to be replaced.
+ * Deterministic in the container and invisible on a fast host, which is the
+ * shape of every timing bug in this file.
+ */
+async function reloadedAndReady(page: Page) {
+  await expect(page.getByTestId("pipeline")).toHaveAttribute("data-hydrated", "true");
+}
+
+/**
+ * Open one row's record pane and wait for it.
+ *
+ * The pane is where five of the row's old affordances live after the cutover
+ * (evidence, the suggestion, notes, Prepare, reopen), so most gestures in this
+ * file now start here. Its subject is in the URL, so this is a navigation and
+ * the attribute is a render, not an animation.
+ */
+async function openPane(page: Page, id: number) {
+  await page.getByTestId(`open-${id}`).click();
+  await expect(page.getByTestId("application-pane")).toHaveAttribute(
+    "data-application",
+    String(id),
+  );
+  // And the NAVIGATION has finished, not merely the render. Opening the pane is
+  // a `router.push`, and Next clears `document.title` for the duration of a soft
+  // navigation — so an axe scan fired the instant the pane appears reports a
+  // `document-title` violation for a page that has one. Waiting for the title is
+  // waiting for the transition to commit, which is what "the pane is open" means.
+  await expect(page).toHaveTitle(/Applications/);
+}
+
 /** The fixture ids, named so a test reads as its intent. */
 const STRIPE = 1; // Interview
 const PLAID = 2; // Applied + suggests Rejected
@@ -88,19 +136,42 @@ const BREX = 7; // invented status, claimed by a human
 
 // ------------------------------------------------------------ presentation
 
-test("groups render in ladder order, not alphabetically", async ({ page }) => {
+test("bands render live work first and the archive last", async ({ page }) => {
   await isolate(page, "groups");
   await gotoPipeline(page);
 
   const headings = await page.locator("[data-testid^='group-toggle-']").allInnerTexts();
-  const names = headings.map((h) => h.split("\n")[0].trim());
-  // Postgres would sort "Applied" above "Inbox" and bury the early stages. The
-  // assertion is relative rather than an exact list, so adding a fixture row in
-  // a new status does not break it for the wrong reason.
-  expect(names).toContain("Applied");
-  expect(names).toContain("Interview");
-  expect(names.indexOf("Applied")).toBeLessThan(names.indexOf("Interview"));
-  expect(names.indexOf("Interview")).toBeLessThan(names.indexOf("Rejected"));
+  const names = headings.map((h) => h.split("\n")[0].trim().replace(/\s*\(\d+\)$/, ""));
+  // Relative rather than an exact list, so adding a fixture row in a new status
+  // does not break it for the wrong reason. The ORDER is the claim: an offer must
+  // never sort below a rejection, and sorting the status strings would put
+  // "Applied" above "Inbox" and bury the early stages entirely.
+  expect(names).toContain("Active");
+  expect(names).toContain("Closed");
+  expect(names.indexOf("Active")).toBeLessThan(names.indexOf("Closed"));
+  if (names.includes("Offers")) {
+    expect(names.indexOf("Active")).toBeLessThan(names.indexOf("Offers"));
+    expect(names.indexOf("Offers")).toBeLessThan(names.indexOf("Closed"));
+  }
+  // And each band states its own count, in its label.
+  expect(headings.find((h) => h.includes("Active"))).toMatch(/Active \(\d+\)/);
+});
+
+test("a live application is not hidden behind the collapsed archive", async ({ page }) => {
+  // The band split's whole risk in one assertion. `Closed` is collapsed by
+  // default (the template's own initial state), so anything wrongly banded into
+  // it disappears from a bare /pipeline — which is how a live application stops
+  // existing without anybody deleting it.
+  await isolate(page, "band-default");
+  await gotoPipeline(page);
+  await expect(page.getByTestId("group-toggle-Closed")).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByTestId("group-toggle-Active")).toHaveAttribute("aria-expanded", "true");
+  // The invented-status row and the Interview row are both live, so both are on
+  // screen with no interaction at all.
+  await expect(page.getByTestId(`row-${BREX}`)).toBeVisible();
+  await expect(page.getByTestId(`row-${STRIPE}`)).toBeVisible();
+  // And the rejected one is not.
+  await expect(page.getByTestId(`row-${DATADOG}`)).toHaveCount(0);
 });
 
 test("an invented status gets the Other group and still renders its own text", async ({
@@ -110,18 +181,40 @@ test("an invented status gets the Other group and still renders its own text", a
   // stage, and the row must not vanish either — collapsing to "Other" while the
   // row shows its real status is the compromise.
   await isolate(page, "invented");
-  await gotoPipeline(page, "?open=Other");
-  await expect(page.getByTestId("group-toggle-Other")).toBeVisible();
-  await expect(page.getByTestId(`row-${BREX}`)).toContainText("waiting on referral");
+  await gotoPipeline(page);
+  // Active, not a band of its own and not the archive: a typo must not mint a
+  // permanent band that looks like a stage, and it must not bury a live
+  // application in a collapsed Closed either. The row must not vanish, and it
+  // must still show its own status text rather than a canonical substitute.
+  await expect(page.getByTestId("group-Active").getByTestId(`row-${BREX}`)).toBeVisible();
+  await expect(page.getByTestId(`status-trigger-${BREX}`)).toContainText("waiting on referral");
 });
 
-test("the delisted badge shows and the row stays in its own group", async ({ page }) => {
+test("a delisted posting is said in the pane, and the row stays in its live band", async ({
+  page,
+}) => {
   // §G2 is explicit that a delisted posting does not remove the application, so
-  // the badge is information rather than a filter.
+  // this is information rather than a filter — and the assertion that matters is
+  // the BAND, not the marker: a delisted posting must not quietly move an open
+  // application into Closed.
   await isolate(page, "delisted");
   await gotoPipeline(page);
-  await expect(page.getByTestId(`delisted-${AFFIRM}`)).toHaveText("Posting closed");
-  await expect(page.getByTestId("group-Screen").getByTestId(`row-${AFFIRM}`)).toBeVisible();
+  await expect(page.getByTestId("group-Active").getByTestId(`row-${AFFIRM}`)).toBeVisible();
+
+  // The row itself carries no badge for it. The authored row has four cells and
+  // a three-affordance budget; a fact that needs a sentence gets one, in the pane.
+  await expect(page.getByTestId(`delisted-mark-${AFFIRM}`)).toHaveCount(0);
+
+  await openPane(page, AFFIRM);
+  await expect(page.getByTestId(`delisted-${AFFIRM}`)).toContainText("Posting closed");
+  await expect(page.getByTestId(`delisted-${AFFIRM}`)).toContainText(
+    "The application is unaffected",
+  );
+
+  // The negative half: a row whose posting is still listed says nothing of the
+  // kind. Without it the pane could render that sentence on every application.
+  await openPane(page, STRIPE);
+  await expect(page.getByTestId(`delisted-${STRIPE}`)).toHaveCount(0);
 });
 
 test("evidence opens the email, with the safe rel attributes", async ({ page }) => {
@@ -129,6 +222,7 @@ test("evidence opens the email, with the safe rel attributes", async ({ page }) 
   // behind it is a status nobody can check.
   await isolate(page, "evidence");
   await gotoPipeline(page);
+  await openPane(page, STRIPE);
   const link = page.getByTestId(`evidence-${STRIPE}`);
   await expect(link).toHaveAttribute("href", /mail\.google\.com/);
   await expect(link).toHaveAttribute("rel", "noopener noreferrer");
@@ -141,24 +235,28 @@ test("setting a status persists across a reload and clears the suggestion", asyn
   await isolate(page, "set-status");
   await gotoPipeline(page);
 
-  // Acceptance criterion 13's render side: both badges, and the two buttons.
-  await expect(page.getByTestId(`row-${PLAID}`)).toContainText("suggests Rejected");
+  // Acceptance criterion 13's render side, in the pane the suggestion moved to.
+  await openPane(page, PLAID);
+  await expect(page.getByTestId("application-pane")).toContainText("Suggests: Rejected");
   await expect(page.getByTestId(`confirm-${PLAID}`)).toBeVisible();
 
   const mark = await writeCount(page);
-  await page.getByTestId(`status-trigger-${PLAID}`).click();
+  const rowStatus = page.getByTestId(`row-${PLAID}`).getByTestId(`status-trigger-${PLAID}`);
+  await rowStatus.click();
   await page.getByRole("option", { name: "Offer", exact: true }).click();
 
-  await expect(page.getByTestId(`status-trigger-${PLAID}`)).toContainText("Offer");
-  await expect(page.getByTestId(`row-${PLAID}`)).not.toContainText("suggests Rejected");
+  await expect(rowStatus).toContainText("Offer");
+  await expect(page.getByTestId("application-pane")).not.toContainText("Suggests: Rejected");
 
   // THE RELOAD. Without it this passes against a store nothing else reads — and
   // it has to wait for the write to LAND first, because a reload cancels one that
   // is still in flight.
   await wroteMore(page, mark);
   await page.reload();
-  await expect(page.getByTestId("group-Offer").getByTestId(`row-${PLAID}`)).toContainText("Offer");
-  await expect(page.getByTestId(`row-${PLAID}`)).not.toContainText("suggests Rejected");
+  // And the row moved BANDS, which is the reskin's own claim: an offer is not a
+  // step in the ladder any more, it is its own band.
+  await expect(page.getByTestId("group-Offers").getByTestId(`row-${PLAID}`)).toContainText("Offer");
+  await expect(page.getByTestId("application-pane")).not.toContainText("Suggests: Rejected");
 });
 
 test("a custom status is accepted and survives a reload", async ({ page }) => {
@@ -167,7 +265,7 @@ test("a custom status is accepted and survives a reload", async ({ page }) => {
   await isolate(page, "custom-status");
   await gotoPipeline(page);
 
-  await page.getByTestId(`status-trigger-${ANTHROPIC}`).click();
+  await page.getByTestId(`row-${ANTHROPIC}`).getByTestId(`status-trigger-${ANTHROPIC}`).click();
   await page.getByRole("option", { name: "Custom" }).click();
   const mark = await writeCount(page);
   const input = page.getByTestId(`custom-status-input-${ANTHROPIC}`);
@@ -176,31 +274,36 @@ test("a custom status is accepted and survives a reload", async ({ page }) => {
 
   await wroteMore(page, mark);
   await page.reload();
-  await gotoPipeline(page, "?open=Other");
-  await expect(page.getByTestId(`row-${ANTHROPIC}`)).toContainText("waiting on panel");
+  await gotoPipeline(page);
+  await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).toContainText("waiting on panel");
 });
 
 test("confirming a suggestion applies it", async ({ page }) => {
   await isolate(page, "confirm");
-  await gotoPipeline(page, "?open=Applied,Rejected");
+  await gotoPipeline(page, "?open=Active,Closed");
+  await openPane(page, PLAID);
   const mark = await writeCount(page);
   await page.getByTestId(`confirm-${PLAID}`).click();
 
   await wroteMore(page, mark);
   await page.reload();
-  await gotoPipeline(page, "?open=Applied,Rejected");
-  await expect(page.getByTestId("group-Rejected").getByTestId(`row-${PLAID}`)).toBeVisible();
-  await expect(page.getByTestId(`row-${PLAID}`)).not.toContainText("suggests");
+  await gotoPipeline(page, "?open=Active,Closed");
+  await expect(page.getByTestId("group-Closed").getByTestId(`row-${PLAID}`)).toBeVisible();
+  // Reopened deliberately. A closed pane trivially "does not contain" anything,
+  // so asserting absence against nothing is an assertion that cannot fail.
+  await openPane(page, PLAID);
+  await expect(page.getByTestId("application-pane")).not.toContainText("Suggests");
 });
 
 test("rejecting a suggestion leaves the status alone", async ({ page }) => {
   // Matrix row 107 — the failure is a "no thanks" that quietly applies the thing
   // it declined. Asserted after a reload, so a client-only clear cannot pass it.
   await isolate(page, "reject");
-  await gotoPipeline(page, "?open=Applied,Rejected");
+  await gotoPipeline(page, "?open=Active,Closed");
+  await openPane(page, PLAID);
   const mark = await writeCount(page);
   await page.getByTestId(`reject-${PLAID}`).click();
-  await expect(page.getByTestId(`row-${PLAID}`)).not.toContainText("suggests");
+  await expect(page.getByTestId("application-pane")).not.toContainText("Suggests");
   // The optimistic FRAME is not asserted here on purpose: the demo store answers
   // faster than a retrying `expect` can look, so any such assertion here passes
   // whatever the client paints. It lives in tests/unit/optimistic.test.ts, which
@@ -208,10 +311,15 @@ test("rejecting a suggestion leaves the status alone", async ({ page }) => {
 
   await wroteMore(page, mark);
   await page.reload();
-  await gotoPipeline(page, "?open=Applied,Rejected");
-  await expect(page.getByTestId("group-Applied").getByTestId(`row-${PLAID}`)).toBeVisible();
-  await expect(page.getByTestId(`status-trigger-${PLAID}`)).toContainText("Applied");
-  await expect(page.getByTestId(`row-${PLAID}`)).not.toContainText("suggests");
+  await gotoPipeline(page, "?open=Active,Closed");
+  await expect(page.getByTestId("group-Active").getByTestId(`row-${PLAID}`)).toBeVisible();
+  await expect(
+    page.getByTestId(`row-${PLAID}`).getByTestId(`status-trigger-${PLAID}`),
+  ).toContainText("Applied");
+  // Reopened for the reason above: absence measured against a closed pane is
+  // absence measured against nothing.
+  await openPane(page, PLAID);
+  await expect(page.getByTestId("application-pane")).not.toContainText("Suggests");
 });
 
 // ------------------------------------------------------------------ notes
@@ -221,9 +329,7 @@ test("two notes both survive, newest first, and the first is verbatim", async ({
   await isolate(page, "notes");
   await gotoPipeline(page);
 
-  await page.getByTestId(`notes-trigger-${PLAID}`).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toBeVisible();
+  await openPane(page, PLAID);
 
   await page.getByTestId(`note-input-${PLAID}`).fill("Panel is 3 rounds");
   await page.getByTestId(`note-save-${PLAID}`).click();
@@ -244,26 +350,76 @@ test("two notes both survive, newest first, and the first is verbatim", async ({
   // a silent overwrite, so the older row's identity is the assertion that counts.
   expect(bodies.map((b) => b.trim())).toEqual(["Moved to Thursday", "Panel is 3 rounds"]);
 
-  // And after a reload, because the point is that they were written.
-  await page.keyboard.press("Escape");
+  // And after a reload, because the point is that they were written. The pane's
+  // subject is in the URL, so the reload lands back on the same record — which
+  // is the property being relied on, not a convenience.
   await wroteMore(page, 0, 2);
   await page.reload();
-  await page.getByTestId(`notes-trigger-${PLAID}`).click();
   await expect(page.getByTestId(`notes-list-${PLAID}`)).toContainText("Panel is 3 rounds");
 });
 
-test("the notes dialog returns focus to its trigger on Escape", async ({ page }) => {
-  // Matrix row 119. Radix owns the focus trap; what this asserts is that the
-  // RESTORE TARGET is right, which is the half a wrapper can still get wrong.
+test("the pane takes focus on open and Escape closes it", async ({ page }) => {
+  // The pane replaces the notes DIALOG, so the claim changes shape with it. It
+  // is deliberately not a modal — no trap, no scrim, the list stays clickable —
+  // so what has to be true is narrower and still load-bearing: a keyboard user
+  // lands INSIDE the thing that just appeared, and Escape gets them out.
   await isolate(page, "notes-focus");
   await gotoPipeline(page);
 
-  const trigger = page.getByTestId(`notes-trigger-${STRIPE}`);
-  await trigger.click();
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await openPane(page, STRIPE);
+  await expect(page.getByTestId("pane-close")).toBeFocused();
+
+  // The list underneath is still live, which is the whole reason this is a pane.
+  await expect(page.getByTestId(`row-${PLAID}`)).toBeVisible();
+  await expect(page.getByTestId(`status-trigger-${PLAID}`)).toBeEnabled();
+
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(trigger).toBeFocused();
+  await expect(page.getByTestId("application-pane")).toHaveCount(0);
+  // And the URL let go of the subject, so a reload does not reopen it.
+  await expect(page).not.toHaveURL(/[?&]app=/);
+});
+
+test("the pane's subject is in the URL, so a link restores it", async ({ page }) => {
+  // Which record you are looking at is navigation. Without this a shared link
+  // lands on the list and the reader has to find the row again.
+  await isolate(page, "pane-url");
+  await gotoPipeline(page, `?app=${STRIPE}`);
+  await expect(page.getByTestId("application-pane")).toHaveAttribute(
+    "data-application",
+    String(STRIPE),
+  );
+  await expect(page.getByTestId("application-pane")).toContainText("Stripe");
+});
+
+test("an ?app= id that matches no row renders no pane and leaves the list alone", async ({
+  page,
+}) => {
+  // The honest answer to "show me a record that is not here". A stale link, a
+  // row someone withdrew from another device, or a hand-typed id must not blank
+  // the surface or throw — the list underneath still says everything it said.
+  await isolate(page, "pane-unknown");
+  await gotoPipeline(page, "?app=999999");
+  await expect(page.getByTestId("application-pane")).toHaveCount(0);
+  await expect(page.getByTestId(`row-${PLAID}`)).toBeVisible();
+});
+
+test("Back closes the pane however many rows were read first", async ({ page }) => {
+  // Opening the pane earns a history entry; moving it from row to row does not.
+  // Pushing on every move buries the list behind one entry per row glanced at,
+  // so Back walks backwards through a reading session instead of closing the
+  // pane. Three rows, one Back.
+  await isolate(page, "pane-history");
+  await gotoPipeline(page);
+
+  await openPane(page, PLAID);
+  await openPane(page, ANTHROPIC);
+  await openPane(page, STRIPE);
+
+  await page.goBack();
+  await expect(page.getByTestId("application-pane")).toHaveCount(0);
+  await expect(page).not.toHaveURL(/[?&]app=/);
+  // And the list is still there rather than a step further back in history.
+  await expect(page.getByTestId(`row-${PLAID}`)).toBeVisible();
 });
 
 test("the note history is populated for a row that arrived with one", async ({ page }) => {
@@ -271,7 +427,7 @@ test("the note history is populated for a row that arrived with one", async ({ p
   // this the dialog's populated state would never be looked at.
   await isolate(page, "notes-backfill");
   await gotoPipeline(page);
-  await page.getByTestId(`notes-trigger-${STRIPE}`).click();
+  await openPane(page, STRIPE);
   await expect(page.getByTestId(`notes-list-${STRIPE}`)).toContainText("Panel is 3 rounds");
   await expect(page.getByTestId(`notes-list-${STRIPE}`)).toContainText("imported");
 });
@@ -280,14 +436,17 @@ test("the note history is populated for a row that arrived with one", async ({ p
 
 test("withdraw moves the row, and reopen demands a reason", async ({ page }) => {
   await isolate(page, "withdraw-reopen");
-  await gotoPipeline(page, "?open=Applied,Withdrawn");
+  await gotoPipeline(page, "?open=Active,Closed");
 
-  await page.getByTestId(`status-trigger-${ANTHROPIC}`).click();
-  await page.getByRole("option", { name: "Withdrawn", exact: true }).click();
-  await expect(page.getByTestId("group-Withdrawn").getByTestId(`row-${ANTHROPIC}`)).toBeVisible();
+  // Through the pane's Withdraw button, which now asks through the surface's one
+  // confirmation rather than an inline panel of its own.
+  await openPane(page, ANTHROPIC);
+  await page.getByTestId(`withdraw-${ANTHROPIC}`).click();
+  await expect(page.getByTestId("withdraw-consequence")).toContainText("reminders stop");
+  await page.getByTestId("withdraw-confirm").click();
+  await expect(page.getByTestId("group-Closed").getByTestId(`row-${ANTHROPIC}`)).toBeVisible();
 
-  // Reopen appears only on a terminal row, and asks before it writes.
-  await page.getByTestId(`reopen-${ANTHROPIC}`).click();
+  // Reopen appears only on a terminal row, and asks for a reason before it writes.
   const confirm = page.getByTestId(`reopen-confirm-${ANTHROPIC}`);
   // Matrix row 111: no reason, no reopen. The button is disabled rather than
   // failing after the click — the SQL refuses it either way.
@@ -299,19 +458,25 @@ test("withdraw moves the row, and reopen demands a reason", async ({ page }) => 
 
   await wroteMore(page, mark);
   await page.reload();
-  await gotoPipeline(page, "?open=Applied");
-  await expect(page.getByTestId("group-Applied").getByTestId(`row-${ANTHROPIC}`)).toBeVisible();
-  await page.getByTestId(`notes-trigger-${ANTHROPIC}`).click();
-  await expect(page.getByTestId(`notes-list-${ANTHROPIC}`)).toContainText("Recruiter emailed back");
+  await gotoPipeline(page, `?open=Active&app=${ANTHROPIC}`);
+  await expect(page.getByTestId("group-Active").getByTestId(`row-${ANTHROPIC}`)).toBeVisible();
+  await expect(page.getByTestId(`notes-list-${ANTHROPIC}`)).toContainText(
+    "Recruiter emailed back",
+  );
 });
 
 test("Reopen is absent on a live row and present on a terminal one", async ({ page }) => {
   // The positive-and-negative pair. Without the absence half, Reopen could be
   // rendered on every row and the test above would still pass.
   await isolate(page, "reopen-visibility");
-  await gotoPipeline(page, "?open=Interview,Rejected");
+  await gotoPipeline(page, "?open=Active,Closed");
+  await openPane(page, DATADOG);
   await expect(page.getByTestId(`reopen-${DATADOG}`)).toBeVisible();
+  // And a live row offers Withdraw in that slot instead — the two are mutually
+  // exclusive, so asserting only the absence would pass on a pane with neither.
+  await openPane(page, STRIPE);
   await expect(page.getByTestId(`reopen-${STRIPE}`)).toHaveCount(0);
+  await expect(page.getByTestId(`withdraw-${STRIPE}`)).toBeVisible();
 });
 
 // ------------------------------------------------------------ next action
@@ -371,13 +536,13 @@ test("collapsed-group state survives a reload", async ({ page }) => {
   await gotoPipeline(page);
   await expect(page.getByTestId(`row-${PLAID}`)).toBeVisible();
 
-  await page.getByTestId("group-toggle-Applied").click();
+  await page.getByTestId("group-toggle-Active").click();
   await expect(page).toHaveURL(/[?&]open=/);
   await expect(page.getByTestId(`row-${PLAID}`)).toHaveCount(0);
 
   await page.reload();
   await expect(page.getByTestId(`row-${PLAID}`)).toHaveCount(0);
-  await expect(page.getByTestId("group-toggle-Applied")).toHaveAttribute(
+  await expect(page.getByTestId("group-toggle-Active")).toHaveAttribute(
     "aria-expanded",
     "false",
   );
@@ -398,14 +563,14 @@ test("collapsed-group state survives back and forward", async ({ page }) => {
   await gotoPipeline(page);
   await expect(page.getByTestId(`row-${PLAID}`)).toBeVisible();
 
-  await page.getByTestId("group-toggle-Applied").click();
+  await page.getByTestId("group-toggle-Active").click();
   await expect(page).toHaveURL(/[?&]open=/);
   await expect(page.getByTestId(`row-${PLAID}`)).toHaveCount(0);
 
   await page.goBack();
   await expect(page).not.toHaveURL(/[?&]open=/);
   await expect(page.getByTestId(`row-${PLAID}`)).toBeVisible();
-  await expect(page.getByTestId("group-toggle-Applied")).toHaveAttribute(
+  await expect(page.getByTestId("group-toggle-Active")).toHaveAttribute(
     "aria-expanded",
     "true",
   );
@@ -419,10 +584,10 @@ test("a deep link renders the collapsed state in the RAW server HTML", async ({ 
   // Otherwise the server renders everything open and the client snaps it shut
   // after hydration — the pop that `grid-url.spec.ts` pins for /jobs.
   await isolate(page, "open-ssr");
-  const res = await page.goto("/pipeline?open=Rejected");
+  const res = await page.goto("/pipeline?open=Closed");
   const html = (await res!.text()) ?? "";
-  expect(html).toContain('data-testid="group-toggle-Applied"');
-  // Applied is closed, so its row must not be in the response at all.
+  expect(html).toContain('data-testid="group-toggle-Active"');
+  // Active is closed, so its rows must not be in the response at all.
   expect(html).not.toContain(`data-testid="row-${PLAID}"`);
   expect(html).toContain(`data-testid="row-${DATADOG}"`);
 });
@@ -433,7 +598,285 @@ test("an empty open= collapses everything without breaking the page", async ({ p
   await isolate(page, "open-empty");
   await gotoPipeline(page, "?open=");
   await expect(page.locator("[data-testid^='row-']")).toHaveCount(0);
-  await expect(page.getByTestId("group-toggle-Applied")).toBeVisible();
+  await expect(page.getByTestId("group-toggle-Active")).toBeVisible();
+});
+
+// ------------------------------------------------- Escape, and typed content
+
+test("Escape in the note composer keeps the draft and keeps the pane open", async ({ page }) => {
+  /**
+   * The pane used to close on any Escape inside it, on the strength of a comment
+   * claiming the composer handled its own. It did not — so one keypress closed
+   * the pane and the draft died with the unmount. Against a repo rule of
+   * "preserve only safe drafts", that is the rule inverted.
+   *
+   * The claim is about the TEXT, not about the pane: reading the textarea's
+   * value after the keypress is the only assertion that fails on the defect,
+   * because a pane that stayed open with an empty box would satisfy anything
+   * weaker.
+   */
+  await isolate(page, "escape-draft");
+  await gotoPipeline(page);
+  await openPane(page, PLAID);
+
+  const composer = page.getByTestId(`note-input-${PLAID}`);
+  await composer.fill("unsaved words");
+  await composer.press("Escape");
+
+  await expect(page.getByTestId("application-pane")).toBeVisible();
+  await expect(composer).toHaveValue("unsaved words");
+
+  // And there IS a way out: the first Escape released the field, so the second
+  // reaches the pane and closes it — with the draft still in the box until the
+  // pane goes. Without the blur a keyboard user would be sealed in the composer,
+  // because the pane deliberately ignores Escape from a text entry.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("application-pane")).toHaveCount(0);
+});
+
+test("the pane refuses Escape from a field that forgot to stop it", async ({ page }) => {
+  /**
+   * The SECOND mechanism, which had no test and survived its own mutation.
+   *
+   * The pane guards Escape twice on purpose: every text field stops the key at
+   * itself, AND the pane refuses to act on an Escape whose target is a text
+   * entry at all — so "a field added later cannot reintroduce the defect by
+   * forgetting rule 1". Both of today's fields implement rule 1, so removing
+   * the pane's own guard changed nothing any test could see: review replaced
+   * the selector with one that matches nothing and all 26 Escape/pane/withdraw
+   * cases stayed green. A claim about a field NOBODY HAS WRITTEN YET cannot be
+   * proven by the fields that exist.
+   *
+   * So this test writes that field. A bare input, injected into the pane with
+   * no handler of its own, is exactly the case the guard exists for — and the
+   * only way to drive it without waiting for someone to ship the regression.
+   */
+  await isolate(page, "escape-future-field");
+  await gotoPipeline(page);
+  await openPane(page, PLAID);
+
+  await page.getByTestId("application-pane").evaluate((pane) => {
+    const naive = document.createElement("input");
+    naive.type = "text";
+    naive.setAttribute("data-testid", "naive-field");
+    pane.appendChild(naive);
+    naive.focus();
+  });
+
+  const naive = page.getByTestId("naive-field");
+  await naive.fill("text a future field would lose");
+  await naive.press("Escape");
+
+  /**
+   * Two frames before looking, and it is the difference between a guard and a
+   * coin flip.
+   *
+   * Closing the pane is a `router.push`, so the unmount lands a tick AFTER the
+   * keypress. Asserting straight away read the pane that had not gone yet:
+   * under the mutation this test passed on desktop and failed on mobile, from
+   * the same defect, purely on which machine got there first. A test whose
+   * verdict depends on the project is not evidence about the guard.
+   */
+  await page.evaluate(
+    () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+  );
+
+  // The pane ignored it, because the event came from a text entry — nothing
+  // else could have stopped it, since this field has no handler.
+  await expect(page.getByTestId("application-pane")).toBeVisible();
+  await expect(naive).toHaveValue("text a future field would lose");
+
+  // And Escape from OUTSIDE any field still closes, so the guard is a filter
+  // rather than a switch that turned the whole handler off.
+  await page.getByTestId("pane-close").focus();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("application-pane")).toHaveCount(0);
+});
+
+test("Escape in the custom-status field closes the field, not the pane", async ({ page }) => {
+  // The same defect through the other typed field. `status-select.tsx` called
+  // preventDefault but not stopPropagation, so dismissing this small input took
+  // the whole pane with it — and the typed status with that.
+  await isolate(page, "escape-custom");
+  await gotoPipeline(page);
+  await openPane(page, PLAID);
+
+  const pane = page.getByTestId("application-pane");
+  await pane.getByTestId(`status-trigger-${PLAID}`).click();
+  await page.getByRole("option", { name: "Custom" }).click();
+  const custom = pane.getByTestId(`custom-status-input-${PLAID}`);
+  await custom.fill("waiting on panel");
+  await custom.press("Escape");
+
+  // The field is gone and the pane is not.
+  await expect(custom).toHaveCount(0);
+  await expect(pane).toBeVisible();
+  // And nothing was written on the way out.
+  await expect(pane.getByTestId(`status-trigger-${PLAID}`)).toContainText("Applied");
+
+  /**
+   * And the way out did not seal them in.
+   *
+   * The three assertions above all passed while `setCustomOpen(false)` left
+   * focus on `document.body` — the field unmounts and the browser has nowhere
+   * else to put it. That is outside the pane, whose Escape handler is bound to
+   * its own subtree, so EVERY later Escape reached nothing and the pane could
+   * not be closed by keyboard at all: measured in review, three Escapes, pane
+   * still open, `document.activeElement` still `BODY`.
+   *
+   * The same defect the composer and the reopen reason fixed by focusing the
+   * pane root, and the same one the Withdraw dialog fixed by remembering its
+   * opener — in the one text field that got neither. This control renders on a
+   * bare row too, so it restores its own trigger rather than the pane.
+   */
+  await expect(pane.getByTestId(`status-trigger-${PLAID}`)).toBeFocused();
+
+  // The consequence, which is what a person actually notices: Escape still
+  // closes the pane afterwards.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("application-pane")).toHaveCount(0);
+});
+
+// ------------------------------------------------------- withdraw, both ways
+
+test("withdrawing from the ROW select asks first, exactly as the pane does", async ({ page }) => {
+  /**
+   * The confirmation used to live on the pane's button, and `selectableStatuses`
+   * includes every terminal status — so picking "Withdrawn" straight off the row
+   * produced the identical write with nothing asked. A confirmation covering one
+   * of two routes to the same write is a speed bump on the polite route.
+   *
+   * The gate is on the write now, so this drives the route that used to bypass
+   * it: no pane, no button, just the select.
+   */
+  await isolate(page, "withdraw-row");
+  await gotoPipeline(page, "?open=Active,Closed");
+  await expect(page.getByTestId("application-pane")).toHaveCount(0);
+
+  await page.getByTestId(`row-${ANTHROPIC}`).getByTestId(`status-trigger-${ANTHROPIC}`).click();
+  await page.getByRole("option", { name: "Withdrawn", exact: true }).click();
+
+  // It ASKS, and it says the consequence rather than "are you sure".
+  await expect(page.getByTestId("withdraw-consequence")).toContainText("reminders stop");
+  // And nothing has been written yet: the row is where it was.
+  await expect(page.getByTestId("group-Active").getByTestId(`row-${ANTHROPIC}`)).toBeVisible();
+
+  // Keep really keeps.
+  const mark = await writeCount(page);
+  await page.getByTestId("withdraw-keep").click();
+  await expect(page.getByTestId("withdraw-consequence")).toHaveCount(0);
+  await expect(page.getByTestId("group-Active").getByTestId(`row-${ANTHROPIC}`)).toBeVisible();
+  expect(await writeCount(page), "Keep wrote something").toBe(mark);
+
+  // And confirming from the same route lands the write.
+  await page.getByTestId(`row-${ANTHROPIC}`).getByTestId(`status-trigger-${ANTHROPIC}`).click();
+  await page.getByRole("option", { name: "Withdrawn", exact: true }).click();
+  await page.getByTestId("withdraw-confirm").click();
+  await wroteMore(page, mark);
+  await page.reload();
+  await gotoPipeline(page, "?open=Active,Closed");
+  await expect(page.getByTestId("group-Closed").getByTestId(`row-${ANTHROPIC}`)).toBeVisible();
+});
+
+// ------------------------------------------------------------ target size
+
+test("every control this surface adds meets the 24px target floor", async ({ page }) => {
+  /**
+   * WCAG 2.2 SC 2.5.8. Measured rather than asserted in a comment, because the
+   * review that found this measured it: `pane-close` was 16x16 and is the pane's
+   * ONLY pointer dismiss, `open-{id}` was 27.5x20, the band toggle 70.9x16, and
+   * both pane links 20 tall.
+   *
+   * The rule has real exemptions — an inline link inside a sentence is one — and
+   * none of these qualify: every control below is a standalone affordance with
+   * its own line or its own cell. So the floor applies to all of them, and the
+   * list is the surface's own controls rather than the whole page, because a
+   * shared component's geometry is that component's test to own.
+   */
+  await isolate(page, "target-size");
+  await gotoPipeline(page);
+  await openPane(page, PLAID);
+
+  const controls = [
+    "pane-close",
+    `open-${PLAID}`,
+    "group-toggle-Active",
+    `evidence-${PLAID}`,
+    `prepare-${PLAID}`,
+    `withdraw-${PLAID}`,
+  ];
+
+  const tooSmall: string[] = [];
+  for (const id of controls) {
+    const box = await page.getByTestId(id).first().boundingBox();
+    // A control that is not on screen is not a failure of this test — the
+    // suggestion block and the posting link depend on the fixture row. It IS a
+    // failure to list one that never resolves, so the absence is reported.
+    if (!box) {
+      tooSmall.push(`${id}: not rendered`);
+      continue;
+    }
+    if (box.width < 24 || box.height < 24) {
+      tooSmall.push(`${id}: ${box.width.toFixed(1)}x${box.height.toFixed(1)}`);
+    }
+  }
+  expect(tooSmall, "controls below the 24x24 floor").toEqual([]);
+});
+
+// ------------------------------------------------------------------- focus
+
+test("closing the pane returns focus to the row that opened it", async ({ page }) => {
+  /**
+   * The pane is not a dialog, so nothing restores focus for it. Without this,
+   * closing dropped focus to `document.body`: open the pane from row 40, close
+   * it, and a keyboard user is at the top of the document.
+   *
+   * `docs/WEBAPP-BUILD.md` row 119 has claimed this behaviour since the notes
+   * dialog, whose test asserted it. Deleting that dialog without carrying the
+   * behaviour over made the row a false green.
+   */
+  await isolate(page, "focus-restore");
+  await gotoPipeline(page);
+
+  const trigger = page.getByTestId(`open-${AFFIRM}`);
+  await trigger.click();
+  await expect(page.getByTestId("application-pane")).toBeVisible();
+
+  await page.getByTestId("pane-close").click();
+  await expect(page.getByTestId("application-pane")).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
+test("the Withdraw button leaves focus inside the pane, not on the body", async ({ page }) => {
+  /**
+   * The stranding defect, in the control that had it. The button used to swap
+   * itself for a confirmation panel under the same parent, which unmounts the
+   * focused element — after which `document.activeElement` was outside the pane
+   * and Escape did nothing, because the handler is bound to the subtree.
+   *
+   * The dialog is the fix: Radix moves focus into it and restores it on close.
+   * Asserted through the CONSEQUENCE — Escape still works — rather than through
+   * activeElement alone, because that is the thing a person notices.
+   */
+  await isolate(page, "withdraw-focus");
+  await gotoPipeline(page);
+  await openPane(page, STRIPE);
+
+  await page.getByTestId(`withdraw-${STRIPE}`).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("withdraw-consequence")).toBeVisible();
+
+  // Escape leaves the dialog, and focus is back inside the pane.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("withdraw-consequence")).toHaveCount(0);
+  const inPane = await page.evaluate(
+    () => !!document.activeElement?.closest("[data-testid='application-pane']"),
+  );
+  expect(inPane, "focus left the pane after the withdraw dialog closed").toBe(true);
+
+  // And the pane's own Escape still works, which is what stranding broke.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("application-pane")).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------- failures
@@ -442,12 +885,15 @@ test("a conflict toasts AND refreshes the value on screen", async ({ page }) => 
   // Matrix rows 112 and 113 together. The second is the one that bites: a toast
   // saying "showing the latest" beside the stale value is worse than silence.
   await isolate(page, "conflict");
-  await gotoPipeline(page, `?demo=conflict:${ANTHROPIC}&open=Applied,Offer,Interview`);
+  await gotoPipeline(page, `?demo=conflict:${ANTHROPIC}&open=Active,Offers`);
 
   await page.getByTestId(`status-trigger-${ANTHROPIC}`).click();
   await page.getByRole("option", { name: "Interview", exact: true }).click();
 
-  await expect(page.getByText(/Changed on another device/)).toBeVisible();
+  // The copy is the design's template now, not the em-dashed sentence this
+  // surface used to raise. The MECHANISM is unchanged and is what the two
+  // assertions below measure.
+  await expect(page.getByText(/This row changed since you loaded it/)).toBeVisible();
   // The server's value, not the one we tried to write.
   await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).toContainText("Offer");
   await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).not.toContainText("Interview");
@@ -463,7 +909,7 @@ test("a failed write reverts the row, and Retry succeeds", async ({ page }) => {
   // on this surface. `?demo=failnext` arms exactly one write, so the retry —
   // which does not re-render the page — goes through.
   await isolate(page, "failnext");
-  await gotoPipeline(page, "?demo=failnext&open=Applied,Interview");
+  await gotoPipeline(page, "?demo=failnext&open=Active");
 
   await page.getByTestId(`status-trigger-${ANTHROPIC}`).click();
   await page.getByRole("option", { name: "Interview", exact: true }).click();
@@ -478,8 +924,11 @@ test("a failed write reverts the row, and Retry succeeds", async ({ page }) => {
 
   await wroteMore(page, mark);
   await page.reload();
-  await gotoPipeline(page, "?open=Interview");
-  await expect(page.getByTestId("group-Interview").getByTestId(`row-${ANTHROPIC}`)).toBeVisible();
+  await gotoPipeline(page, "?open=Active");
+  await expect(page.getByTestId("group-Active").getByTestId(`row-${ANTHROPIC}`)).toBeVisible();
+  await expect(
+    page.getByTestId(`row-${ANTHROPIC}`).getByTestId(`status-trigger-${ANTHROPIC}`),
+  ).toContainText("Interview");
 });
 
 test("a retry replays the same command rather than issuing a second one", async ({ page }) => {
@@ -494,16 +943,13 @@ test("a retry replays the same command rather than issuing a second one", async 
   await isolate(page, "retry-idem");
   await gotoPipeline(page, "?demo=failnext");
 
-  await page.getByTestId(`notes-trigger-${PLAID}`).click();
+  await openPane(page, PLAID);
   await page.getByTestId(`note-input-${PLAID}`).fill("only once");
   await page.getByTestId(`note-save-${PLAID}`).click();
   await expect(page.getByText(/Couldn't save that/)).toBeVisible();
 
-  // Close the dialog before reaching for the toast: the Radix overlay sits above
-  // the toaster, so the Retry button is present and not clickable underneath it.
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-
+  // No dialog to dismiss any more — the pane is not modal and does not portal
+  // over the toaster, which is one of the things that makes it a pane.
   const mark = await writeCount(page);
   await page.getByRole("button", { name: "Retry" }).click();
   await wroteMore(page, mark);
@@ -521,7 +967,6 @@ test("a retry replays the same command rather than issuing a second one", async 
   // all — both come from the same Retry — so polling for exactly one still fails
   // on the bug this test exists for.
   await page.reload();
-  await page.getByTestId(`notes-trigger-${PLAID}`).click();
   const bodies = page.getByTestId(`notes-list-${PLAID}`).getByTestId("note-body");
   await expect
     .poll(
@@ -540,7 +985,7 @@ test("the status popover is reachable by keyboard and stays on screen", async ({
   await isolate(page, "select-keyboard");
   await gotoPipeline(page);
 
-  const trigger = page.getByTestId(`status-trigger-${PLAID}`);
+  const trigger = page.getByTestId(`row-${PLAID}`).getByTestId(`status-trigger-${PLAID}`);
   await trigger.focus();
   await expect(trigger).toBeFocused();
   await page.keyboard.press("Enter");
@@ -560,7 +1005,7 @@ test("the status popover is reachable by keyboard and stays on screen", async ({
   await expect(trigger).toBeFocused();
 });
 
-test("axe is clean with a group collapsed and with the notes dialog open", async ({ page }) => {
+test("axe is clean with a band collapsed and with the record pane open", async ({ page }) => {
   // This scan covers the whole page, so it inherits the header's Export button —
   // including its dim-until-hydrated `⌘E` hint. That hint used `opacity-40`, which
   // is a 2:1 contrast failure axe reports on any machine slow enough to scan
@@ -568,7 +1013,7 @@ test("axe is clean with a group collapsed and with the notes dialog open", async
   // change dims a Kbd with opacity again, THIS test is one of the ones that goes
   // red — see components/ui/kbd.tsx, which has the rule and the reason.
   await isolate(page, "axe-states");
-  await gotoPipeline(page, "?open=Applied");
+  await gotoPipeline(page, "?open=Active");
 
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
@@ -579,23 +1024,25 @@ test("axe is clean with a group collapsed and with the notes dialog open", async
     );
     expect(serious.map((v) => `${v.id}: ${v.nodes.length}`), `collapsed, ${scheme}`).toEqual([]);
 
-    await page.getByTestId(`notes-trigger-${PLAID}`).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
+    await openPane(page, PLAID);
     results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
     serious = results.violations.filter((v) => ["serious", "critical"].includes(v.impact ?? ""));
-    expect(serious.map((v) => `${v.id}: ${v.nodes.length}`), `dialog, ${scheme}`).toEqual([]);
+    expect(serious.map((v) => `${v.id}: ${v.nodes.length}`), `pane, ${scheme}`).toEqual([]);
     await page.keyboard.press("Escape");
+    await expect(page.getByTestId("application-pane")).toHaveCount(0);
+    // Closing is a navigation too, and the next iteration scans immediately.
+    await expect(page).toHaveTitle(/Applications/);
   }
 });
 
-test("nothing paints past the edge with the notes dialog open", async ({ page }) => {
-  // The at-rest sweep in layout.spec.ts never opens anything, and a dialog is
-  // exactly the kind of portalled, viewport-positioned element that escapes it —
-  // the same gap `grid-polish.spec.ts` found for a selected row.
+test("nothing paints past the edge with the record pane open", async ({ page }) => {
+  // The at-rest sweep in layout.spec.ts never opens anything, and the pane is
+  // the element most likely to escape it: it is a fixed 400px column beside a
+  // list, which on a phone is wider than the viewport unless it takes the full
+  // width instead. That is the failure this catches.
   await isolate(page, "overflow-dialog");
   await gotoPipeline(page);
-  await page.getByTestId(`notes-trigger-${PLAID}`).click();
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await openPane(page, PLAID);
 
   const offenders = await page.evaluate(collectPaintedOverflow);
   expect(offenders, describeOffenders(offenders)).toEqual([]);
@@ -628,12 +1075,18 @@ test("the last row's controls are clickable clear of the toast strip", async ({
   const safeBox = (await safeArea.boundingBox())!;
   expect(safeBox.height, "no reserved strip below the list").toBeGreaterThanOrEqual(100);
 
-  // Produce a toast first, so the strip is genuinely occupied.
+  // Produce a toast first, so the strip is genuinely occupied. The suggestion
+  // moved into the pane, so this dismisses it there and then closes the pane —
+  // the toast outlives it, which is the point.
+  await openPane(page, PLAID);
   await page.getByTestId(`reject-${PLAID}`).click();
-  await expect(page.getByText(/suggests/)).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("application-pane")).toHaveCount(0);
 
   await page.keyboard.press("End");
-  const last = page.locator("[data-testid^='notes-trigger-']").last();
+  // The last row's next-action field, which is the last INTERACTIVE thing in the
+  // list now that the row carries three affordances instead of seven.
+  const last = page.locator("[data-testid^='next-action-']").last();
   await last.scrollIntoViewIfNeeded();
   const box = (await last.boundingBox())!;
   // Hit-test the element's own centre: whatever is on top there receives the
@@ -641,11 +1094,58 @@ test("the last row's controls are clickable clear of the toast strip", async ({
   const top = await page.evaluate(
     ({ x, y }) => {
       const el = document.elementFromPoint(x, y);
-      return el?.closest("[data-testid^='notes-trigger-']") ? "row" : (el?.tagName ?? "none");
+      return el?.closest("[data-testid^='next-action-']") ? "row" : (el?.tagName ?? "none");
     },
     { x: box.x + box.width / 2, y: box.y + box.height / 2 },
   );
-  expect(top, "something is covering the last row's notes button").toBe("row");
+  expect(top, "something is covering the last row's next-action field").toBe("row");
+});
+
+test("at 280px the surface still scrolls the document and paints inside the edge", async ({
+  page,
+}, testInfo) => {
+  /**
+   * The narrowest width anybody actually browses at, with the pane open.
+   *
+   * NOT a second guard on the bounded frame, and the first version of this
+   * comment claimed it was. A review applied `data-bounded-frame` to the surface
+   * and this test still PASSED — the shell's frame bounds `main`, which keeps its
+   * own scroll, so `window.scrollY` still moves and nothing paints past the edge.
+   * The frame has exactly one guard and it is `layout.spec.ts`'s un-bounded
+   * sweep, which reads the attribute and the clipping ancestor.
+   *
+   * What this test IS: the narrowest width anybody browses at, with the widest
+   * thing this surface can render open. A 400px pane beside a list in a 280px
+   * viewport is the overflow, and that is worth its own assertion.
+   *
+   * The pane is open because it is the widest thing this surface can render: a
+   * 400px column beside a list, in a 280px viewport, is the overflow.
+   */
+  test.skip(testInfo.project.name !== "mobile", "a viewport claim, not a cost one");
+  await isolate(page, "narrow-280");
+  await page.setViewportSize({ width: 280, height: 640 });
+  await gotoPipeline(page);
+  await openPane(page, PLAID);
+
+  const offenders = await page.evaluate(collectPaintedOverflow);
+  expect(offenders, describeOffenders(offenders)).toEqual([]);
+
+  // The document scrolls. `scrollHeight > innerHeight` alone would pass on a
+  // clipped frame that simply has tall content, so this asserts the page can
+  // actually BE scrolled and that scrolling moves it.
+  const scrolled = await page.evaluate(() => {
+    // Pinned to the top first. Opening the pane is a navigation and the browser
+    // restores a scroll offset across it, so reading `scrollY` cold measures
+    // wherever the page happened to be rather than whether it can move.
+    window.scrollTo(0, 0);
+    const before = window.scrollY;
+    window.scrollTo(0, 400);
+    return { before, after: window.scrollY, room: document.documentElement.scrollHeight };
+  });
+  expect(scrolled.room, "the document is not tall enough for this to prove anything")
+    .toBeGreaterThan(640);
+  expect(scrolled.after, "the document did not scroll — the frame is clipping it")
+    .toBeGreaterThan(scrolled.before);
 });
 
 // ------------------------------------------------------------ render budget
@@ -719,14 +1219,20 @@ test("the large type scale really grows the tokens, and the pill still fits", as
   // matrix row 123 is actually about.
   await isolate(page, "type-scale");
   await gotoPipeline(page);
-  const pill = page.getByTestId(`status-trigger-${PLAID}`);
+  const pill = page.getByTestId(`row-${PLAID}`).getByTestId(`status-trigger-${PLAID}`);
+  await expect(pill).toBeVisible();
   const small = (await pill.boundingBox())!;
   const smallFont = await pill.evaluate((el) => getComputedStyle(el).fontSize);
 
   await context.addCookies([{ name: "hq_demo_display", value: "large", url: ORIGIN }]);
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-type-scale", "large");
+  await reloadedAndReady(page);
 
+  // Measured only once the surface is hydrated — see `reloadedAndReady`. The
+  // first version of this gated on `toBeVisible()`, which re-resolves against
+  // the pre-hydration DOM and passed while the element was still about to be
+  // replaced. `NaN` came back from the container twice before that was believed.
   const largeFont = await pill.evaluate((el) => getComputedStyle(el).fontSize);
   expect(parseFloat(largeFont)).toBeGreaterThan(parseFloat(smallFont));
   const large = (await pill.boundingBox())!;
@@ -776,6 +1282,10 @@ test("comfortable density makes rows taller without pushing anything off-screen"
   await context.addCookies([{ name: "hq_demo_display", value: "comfortable", url: ORIGIN }]);
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-density", "comfortable");
+  // `data-density` is on `<html>` and is set before paint, so it is true while
+  // the rows are still the server's. Measuring here answered `null` for the
+  // box; the row has to be the hydrated one.
+  await reloadedAndReady(page);
   const comfy = (await row.boundingBox())!;
   expect(comfy.height).toBeGreaterThan(dense.height);
 
@@ -813,7 +1323,7 @@ test("the ambiguous-email review item names both candidates and changes neither"
   // DEMO_REVIEW_ITEMS in page.tsx. What is asserted is the surface, not a
   // production data path.
   await isolate(page, "needs-review");
-  await gotoPipeline(page, "?demo=review&open=Applied");
+  await gotoPipeline(page, "?demo=review&open=Active");
 
   const section = page.getByTestId("needs-review");
   await expect(section).toBeVisible();
@@ -826,7 +1336,8 @@ test("the ambiguous-email review item names both candidates and changes neither"
   // And the two candidates are untouched: same statuses, suggestion unresolved.
   await expect(page.getByTestId(`status-trigger-${PLAID}`)).toContainText("Applied");
   await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).toContainText("Applied");
-  await expect(page.getByTestId(`row-${PLAID}`)).toContainText("suggests Rejected");
+  await openPane(page, PLAID);
+  await expect(page.getByTestId("application-pane")).toContainText("Suggests: Rejected");
 });
 
 test("the review section is absent without the demo param", async ({ page }) => {

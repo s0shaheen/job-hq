@@ -200,8 +200,17 @@ official Playwright container. The `visual` CI job runs there automatically; the
 ordinary `webapp` job skips these (it leaves `HQ_VISUAL` unset) so a font
 mismatch on a bare runner can never turn it red.
 
-To re-record after an intentional visual change, run the SAME container the CI
-job uses, from the repo root:
+To re-record after an intentional visual change, use the script — it runs the
+same image, passes `=all` for you, and prints which baselines actually moved:
+
+```sh
+scripts/record-baselines.sh
+```
+
+It exists because the paragraph below was here and the bare flag still got used
+three times; the third took the Applications desktop baselines, which then
+PASSED while depicting the retired surface. The equivalent by hand, from the
+repo root:
 
 ```sh
 docker run --rm -v "$PWD":/host mcr.microsoft.com/playwright:v1.61.1-noble bash -lc '

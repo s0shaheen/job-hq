@@ -59,7 +59,7 @@ const PAGES = [
   // plain /pipeline, so there was no new geometry to measure. The conflict
   // RENDERING is covered in pipeline.spec.ts, where every test owns its store.
   "/pipeline?open=",
-  "/pipeline?open=Applied,Interview",
+  "/pipeline?open=Active,Offers",
 ];
 
 /**
@@ -221,7 +221,13 @@ test("on a phone, the first job is on the first screen", async ({ page }, testIn
  * eleven it did not touch.
  */
 test.describe("the un-bounded surfaces keep their document scroll", () => {
-  for (const path of ["/companies/add", "/connections", "/settings", "/queue"]) {
+  // /pipeline joins the list at the Applications cutover. It is the surface most
+  // likely to be given the frame by mistake — it is a dense list, which is what
+  // the frame LOOKS like it is for — and it is not virtualized, so it has no
+  // claim on one. Without this row the estate had no assertion that /pipeline
+  // keeps its document scroll: the coverage this file describes was one surface
+  // short of what its own comment claims.
+  for (const path of ["/companies/add", "/connections", "/settings", "/queue", "/pipeline"]) {
     test(`${path} scrolls the document, not a nested box`, async ({ page }) => {
       await page.goto(path);
       const frame = await page.evaluate(() => {

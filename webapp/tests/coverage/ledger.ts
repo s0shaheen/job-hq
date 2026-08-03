@@ -215,9 +215,18 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
 
   applications: {
     routes: ["/pipeline", "/apply/[applicationId]"],
+    note:
+      "The Loading cell cited the jobs measurement until the Applications cutover: " +
+      "loading.spec's original test starts on /pipeline and then navigates to /jobs, so " +
+      "what it photographs is the jobs skeleton. /pipeline and /apply had no loading.tsx " +
+      "at all. Both now have one, and the citation names the test that measures THIS " +
+      "surface's skeleton against THIS surface's loaded page.",
     fixture: {
-      [ST.loading]: e2e("loading", "the skeleton and the loaded page put content in the same place"),
-      [ST.populated]: e2e("pipeline", "groups render in ladder order, not alphabetically"),
+      [ST.loading]: e2e(
+        "loading",
+        "the Applications skeleton and the loaded page put content in the same place",
+      ),
+      [ST.populated]: e2e("pipeline", "bands render live work first and the archive last"),
       [ST.naturalEmpty]: e2e("empty", "zero rows"),
       [ST.filterEmpty]: na(
         "the pipeline has no filter clause builder; groups collapse rather than remove rows, and a collapsed group still states its count",
@@ -234,12 +243,19 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       ),
       [ST.sessionExpired]: MISSING,
       [ST.fatal]: e2e("apply", "a posting the board no longer has is a state, not an error page"),
-      [ST.detail]: e2e("apply", "Prepare is reachable from the pipeline row it belongs to"),
+      [ST.detail]: e2e(
+        "pipeline",
+        "the pane takes focus on open and Escape closes it",
+        "the pane's subject is in the URL, so a link restores it",
+      ),
       [ST.longStrings]: MISSING,
       [ST.highVolume]: e2e("pipeline", "a 200-row group stays LINEAR — the trigger to virtualize"),
       [ST.largeType]: e2e("pipeline", "the large type scale really grows the tokens, and the pill still fits"),
       [ST.zoom]: e2e("resilience", "the page survives a 200% text zoom"),
-      [ST.narrow]: e2e("layout", "nothing paints past the page edge"),
+      [ST.narrow]: e2e(
+        "pipeline",
+        "at 280px the surface still scrolls the document and paints inside the edge",
+      ),
       [ST.reducedMotion]: MISSING,
       [ST.providerImage]: MISSING,
     },

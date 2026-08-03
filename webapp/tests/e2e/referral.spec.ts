@@ -360,7 +360,13 @@ test.describe("the Warm cell on /pipeline", () => {
     await page.goto("/pipeline");
     await pipelineReady(page);
 
-    const row = page.getByTestId("row-4");
+    // Through the record pane, which is where the warm affordances live after
+    // the Applications cutover: the authored row carries three affordances and
+    // the warm chip is not one of them. The CLAIM is unchanged — the cell
+    // appears for the application's own company and names the same people.
+    await page.getByTestId("open-4").click();
+    const row = page.getByTestId("application-pane");
+    await expect(row).toHaveAttribute("data-application", "4");
     const chip = row.getByTestId("warm-chip");
     await expect(chip).toHaveText("2 1st-degree");
     await chip.click();

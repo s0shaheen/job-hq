@@ -33,7 +33,7 @@ const PAGES = [
   "/jobs",
   "/jobs?set=all",
   "/pipeline",
-  "/pipeline?open=Applied",
+  "/pipeline?open=Active",
   "/companies",
   "/companies/add",
   "/connections",

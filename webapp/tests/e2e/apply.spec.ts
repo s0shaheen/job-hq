@@ -378,6 +378,12 @@ test("Prepare is reachable from the pipeline row it belongs to", async ({ page }
   await isolate(page, "from-pipeline");
   await page.goto("/pipeline");
   await expect(page.getByTestId("pipeline")).toHaveAttribute("data-hydrated", "true");
+  // Through the record pane, which is where Prepare lives after the Applications
+  // cutover: the authored row carries three affordances and Prepare is not one
+  // of them. The CLAIM is unchanged — Prepare is reachable from the row it
+  // belongs to, and lands on that row's application rather than on a list.
+  await page.getByTestId("open-8").click();
+  await expect(page.getByTestId("application-pane")).toHaveAttribute("data-application", "8");
   await page.getByTestId("prepare-8").click();
   await expect(page.getByTestId("apply-surface")).toHaveAttribute("data-hydrated", "true");
   await expect(page.getByTestId("apply-surface")).toHaveAttribute("data-readiness", "ready");

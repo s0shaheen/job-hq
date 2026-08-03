@@ -26,6 +26,33 @@ import { LAST_STEP } from "@/lib/profile/draft";
  * check that fails for a font mismatch is the permanently-red check the whole
  * matrix is careful never to ship.
  */
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * RE-RECORDING: use `scripts/record-baselines.sh`, never a bare --update-snapshots
+ *
+ * The procedure and the container command live in `webapp/README.md` under
+ * "Visual regression baselines". Read it before re-recording anything. The one
+ * line worth repeating here, because this is the file you are in when you decide
+ * to re-record:
+ *
+ *   A bare `--update-snapshots` rewrites ONLY the baselines that fail. Anything
+ *   under `maxDiffPixelRatio` silently keeps its old image, and the run still
+ *   exits 0 — so a re-record that did nothing is indistinguishable from one that
+ *   worked. `=all` is the fix — and its own trap is the mirror image: it
+ *   rewrites EVERY file, so afterwards `git status` lists every baseline whose
+ *   bytes differ at all, including noise the check tolerates. On this branch
+ *   that was 23 files, 22 of them on untouched surfaces, all green.
+ *   `scripts/record-baselines.sh` runs the check FIRST and the record second so
+ *   the two lists are separable: what the check failed is the real change,
+ *   everything else is churn to discard.
+ *
+ * Three occurrences now, which is why it is a script and not just a paragraph:
+ * `/jobs` and `/queue` survived a nav item being added to every page (README),
+ * and the Applications cutover re-recorded the mobile pipeline pair while the
+ * DESKTOP pair kept baselines depicting the retired surface — old title, old
+ * status groups, controls that no longer exist — and passed. That was caught by
+ * opening the PNG, which is the step no automation replaces.
+ */
 test.skip(
   !process.env.HQ_VISUAL,
   "Visual baselines are Linux-only; set HQ_VISUAL=1 inside the Playwright container",
@@ -88,12 +115,12 @@ for (const theme of ["light", "dark"] as const) {
     // a pixel claim belongs in the container job where the fonts are pinned. A
     // baseline is the check those three cannot be.
     //
-    // `?open=Applied` rather than the default: it pins one expanded group and
-    // several collapsed ones in one image, which is the shape a regression in the
-    // grouped layout would show up in. No `?demo=` param — the seams exist to
+    // `?open=Active` rather than the default: it pins one expanded band and the
+    // others collapsed in one image, which is the shape a regression in the
+    // banded layout would show up in. No `?demo=` param — the seams exist to
     // perturb state, and a baseline wants the resting one.
     await page.emulateMedia({ colorScheme: theme });
-    await page.goto("/pipeline?open=Applied");
+    await page.goto("/pipeline?open=Active");
     await expect(page.getByTestId("pipeline")).toBeVisible();
     // Idle, not merely painted: "Saving…" appears and disappears, so a shot taken
     // mid-write would be a different image every run.
