@@ -147,6 +147,15 @@ class Land:
         e["PATH"] = f"{self.stub}:{e['PATH']}"
         e["GH_LOG"] = str(self.gh_log)
         e["STUB_DIR"] = str(self.stub)
+        # POP, not setdefault. `land.sh` is itself run with LAND_GATES set — that
+        # is how anyone lands a change — so an inherited value survives a
+        # setdefault and the land.sh under test recursively runs the caller's
+        # whole verify suite instead of touching a marker. Five cases failed
+        # exactly that way, and only when invoked from inside a real land, which
+        # is the worst possible place for a test to be environment-sensitive.
+        for k in ("LAND_GATES", "LAND_POLL_INTERVAL", "LAND_CHECK_GRACE",
+                  "LAND_CHECK_TIMEOUT"):
+            e.pop(k, None)
         e.setdefault("LAND_GATES", f"touch {self.gate_marker}")
         e.setdefault("LAND_POLL_INTERVAL", "0")
         e.setdefault("LAND_CHECK_GRACE", "0")

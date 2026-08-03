@@ -65,7 +65,50 @@ checkout_key="$(printf '%s' "$repo" | shasum -a 256 | cut -c1-12)"
 # A worktree's .git is a FILE pointing into the parent checkout, so git inside the
 # container would fail. Nothing here needs git — scripts/verify.sh resolves the
 # changed paths on the host and passes them in through HQ_VERIFY_PATHS.
+# ─────────────────────────────────────────────────── reap what died before us
+#
+# `--rm` removes a container when it EXITS. It does nothing for a container
+# whose driving agent was killed mid-run, and those accumulate: by 2026-08-03
+# five orphaned postgres and image containers had Docker's VM at 761% CPU and
+# the machine at load 317, which stalled six agents at once. It had been
+# cleaned by hand three times before anyone made it stop happening.
+#
+# So: every container this script starts carries a label, and every run reaps
+# labelled containers older than an hour before starting its own. An hour is
+# comfortably longer than the slowest full gate and far shorter than a session,
+# so a live run is never touched and a corpse never survives the next run.
+if command -v docker >/dev/null 2>&1; then
+  # Two filters, because two things leak. The label covers what this script
+  # starts; the `hq-*` name covers the throwaway postgres a task spins up by
+  # hand — `docker run -d --rm --name hq-something postgres:16` is the idiom
+  # every db-touching brief uses, and those were the actual corpses.
+  #
+  # Age is computed from `State.StartedAt`, NOT from a `ps --filter until=`:
+  # that filter exists for `container prune` and `docker ps` rejects it
+  # outright. Found by probing rather than by reading, which is the only reason
+  # this reaper does not silently match nothing forever.
+  cutoff=$(( $(date +%s) - 3600 ))
+  stale=""
+  for c in $( { docker ps -q --filter "label=hq-test-harness=1" 2>/dev/null || true
+                docker ps -q --filter "name=^hq-" 2>/dev/null || true; } | sort -u ); do
+    started="$(docker inspect -f '{{.State.StartedAt}}' "$c" 2>/dev/null || true)"
+    [ -z "$started" ] && continue
+    # TZ=UTC on both arms. Docker reports StartedAt in UTC and `date -j` parses
+    # in LOCAL time, so without this a container started seconds ago measured as
+    # five hours in the FUTURE on US Central. That failed safe — it reaps late,
+    # never early — which is exactly why it would have gone unnoticed.
+    epoch="$(TZ=UTC date -j -f '%Y-%m-%dT%H:%M:%S' "${started%%.*}" +%s 2>/dev/null \
+             || TZ=UTC date -d "${started}" +%s 2>/dev/null || echo 0)"
+    [ "$epoch" -gt 0 ] && [ "$epoch" -lt "$cutoff" ] && stale="$stale $c"
+  done
+  if [ -n "$stale" ]; then
+    echo "[test-shell] reaping $(printf '%s\n' "$stale" | wc -l | tr -d ' ') orphaned container(s) older than 1h" >&2
+    docker rm -f $stale >/dev/null 2>&1 || true
+  fi
+fi
+
 args=(--rm --init
+  --label hq-test-harness=1
   -v "$repo:/repo"
   -v "$vol:/repo/webapp/node_modules"
   -v "hq-test-next-$want-$checkout_key:/repo/webapp/.next"
