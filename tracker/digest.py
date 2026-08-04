@@ -85,11 +85,15 @@ CAPTURE_ALERT_HOURS = 3
 #: because each one alone has already been shipped broken.
 PG_CADENCE_HOURS = {
     "snapshot": 24, "snapshot_s3": 24, "digest": 24,
-    # The store's backup. `pgdump.yml` is gated on the PGDUMP_ENABLED repo variable, so
-    # until that is turned on this lane reads "no heartbeat yet" — under `first_class`,
-    # and only under it. That page is CORRECT: it says pg is the store whose success counts
-    # and it has no backup, which is the precondition SHEET-SUNSET puts in Phase A. It is
-    # silent for every Phase-A run, because pg beats are not read at all with the flag unset.
+    # The store's backup, written by `tracker.pgdump` (the Lambda `pgdump` job) after the
+    # dump object lands in S3 — never before, and never into git (FP-OPS-001). `PGDUMP_ENABLED`
+    # is dead; the workflow it gated is a refusing tombstone.
+    #
+    # Under `first_class` and only under it, a lane that has not run reads "no heartbeat yet",
+    # and that page is CORRECT: it says pg is the store whose success counts and its backup did
+    # not happen. It is silent for every Phase-A run, because pg beats are not read at all with
+    # the flag unset — which is also why a Phase-A operator confirms the backup by looking in
+    # the bucket rather than waiting for a page (docs/RUNBOOK.md).
     "pgdump": 24,
 }
 # The three heartbeats that mean "the sheet is backed up somewhere": selfheal re-asserts

@@ -59,9 +59,19 @@ locals {
   # The migration apply may only CREATE new lanes and UPDATE inputs; if a plan on this file ever
   # shows an aws_scheduler_schedule destroy, stop and work out why before applying.
   # Single-user (no users: map) keeps the "" lane, so its names AND inputs stay byte-identical.
+  #
+  # SYSTEM JOBS DO NOT FAN OUT. Every job above is per-user work on one user's sheet and one
+  # user's rows, so one schedule each is right. `pgdump` is not: it dumps the whole `public`
+  # schema of the ONE database every user shares. Fanned out, five users would take five
+  # identical full dumps a night, pay five times for them, and write five heartbeats for a
+  # backup that happened once — and the digest would read healthy on the strength of any one
+  # of them. It is a property of the store, so it gets exactly one lane no matter how many
+  # users the registry grows.
+  system_jobs = ["pgdump"]
   schedules = {
     for pair in setproduct(keys(var.jobs), length(local.hq_users) > 0 ? local.hq_users : [""]) :
     (pair[1] == "" || pair[1] == local.hq_default_user ? pair[0] : "${pair[0]}-${pair[1]}") => { job = pair[0], user = pair[1], cron = var.jobs[pair[0]].cron }
+    if !(contains(local.system_jobs, pair[0]) && pair[1] != "" && pair[1] != local.hq_default_user)
   }
 }
 
@@ -113,6 +123,13 @@ resource "aws_lambda_function" "bots" {
   image_uri     = local.image_uri
   timeout       = var.timeout_seconds     # sweeps can be slow; default 900 (Lambda max)
   memory_size   = var.memory_mb
+  # /tmp, and the `pgdump` lane is the only job that cares. It stages the compressed dump
+  # there before uploading (Lambda's filesystem is read-only everywhere else), so the default
+  # 512 MB is a silent ceiling on how large the database may get before the nightly backup
+  # starts failing. It fails LOUDLY — pg_dump errors, no object, no heartbeat, the digest
+  # pages — but "the backup stopped because the database grew" is a discovery to make on
+  # purpose, not at 04:13 UTC. Ephemeral storage is billed per GB-second of execution only.
+  ephemeral_storage { size = 2048 }
   environment {
     variables = {
       SSM_PREFIX = var.ssm_prefix

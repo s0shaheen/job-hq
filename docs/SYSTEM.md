@@ -171,7 +171,7 @@ be overwritten on the next run, and CI would flag the mismatch first.
 <!-- sysmap:begin big-picture -->
 ```mermaid
 flowchart LR
-    EB["EventBridge Scheduler<br/>7 schedules"] --> LAM["Lambda job-hq-bots<br/>one image · 12 jobs"]
+    EB["EventBridge Scheduler<br/>8 schedules"] --> LAM["Lambda job-hq-bots<br/>one image · 13 jobs"]
     SSM["SSM /job-hq/* SecureStrings"] --> LAM
     LAM --> SHEET["Google Sheet<br/>Job Search HQ"]
     LAM --> S3["S3 backups bucket<br/>$HQ_BACKUP_S3_BUCKET"]
@@ -200,6 +200,7 @@ One Lambda function (`job-hq-bots`, one container image) runs every job; EventBr
 | `tracker` | `cron(31 0/2 * * ? *)` | every 2 h at :31 | `tracker.promote` → `tracker.quickadd` → `tracker.scout` → `tracker.stale` → `tracker.join` → `tracker.outbox` | every 2h at :31  (promote/quickadd/scout/stale/join/outbox) |
 | `digest` | `cron(40 11 * * ? *)` | 06:40 | `tracker.digest` | daily 11:40 UTC  (digest) |
 | `snapshot` | `cron(53 8 * * ? *)` | 03:53 | `tracker.snapshot` | daily 08:53 UTC  (tracker.snapshot -> S3) |
+| `pgdump` | `cron(13 9 * * ? *)` | 04:13 | `tracker.pgdump` | daily 09:13 UTC  (tracker.pgdump -> S3) |
 | `wide_cafe` | `cron(30 13 * * ? *)` | 08:30 | `monitor.wide --source cafe` | daily 13:30 UTC  (wide --source cafe) |
 | `wide_theirstack` | `cron(50 13 * * ? *)` | 08:50 | `monitor.wide --source theirstack` | daily 13:50 UTC  (wide --source theirstack) |
 | `linkedin_backfill` | — | *unscheduled — dispatch by hand* | `monitor.linkedin_backfill` | — |
@@ -245,7 +246,7 @@ aws lambda invoke --function-name job-hq-bots \
 | CSV → S3 (Lambda) | the same tab CSVs | `s3://$HQ_BACKUP_S3_BUCKET/snapshots/<user>/<tab>.csv` (versioned bucket) | `cron(53 8 * * ? *)` (~03:53 CT) | `heartbeat_snapshot_s3` | a failed upload **raises**, so `handler.py` names the job in an ops push; staleness pages from the digest |
 | Schema + gid re-pin (Actions) | re-asserted headers/dropdowns/protections and the re-pinned `hq.config.yaml` | a git commit on `main` | `23 8 * * *` (~03:23 CT) | `heartbeat_selfheal` | same as the git CSV lane |
 | Feed JSON (best effort) | `monitor.run`'s feed history | `monitor/snapshots/*.json` in git on a **Run a bot** dispatch; `feeds/<label>.json` in S3 when the FS is read-only | with each sweep | none | prints a warning and never fails a completed sweep — the CSV lanes are the Feed tab's real backup |
-| PG dump | `pg_dump --schema=public` of the Supabase store | nowhere — **the lane is hard-disabled** | `pgdump.yml` has no schedule and its job unconditionally exits 1; the `PGDUMP_ENABLED` repo variable is deliberately ignored (FP-OPS-001, `docs/pilot-launch/instances/PKT-DUMP-DISABLE.md`) | pg lane `pgdump` in `channel_runs` — **never written**, because the job exits before anything could write it | the digest pages **HQ backups stale** naming `pgdump (pg)`, permanently, because the lane cannot run — which is exactly the state “pg is load-bearing and has no git backup” should be in until RM-01 lands an encrypted replacement |
+| PG dump | `pg_dump --schema=public` of the Supabase store (never `auth`) | `s3://$HQ_BACKUP_S3_BUCKET/pgdump/public.sql.gz`, versioned — **never git** (FP-OPS-001) | `tracker.pgdump` on the Lambda, nightly | pg lane `pgdump` in `channel_runs`, stamped only after the object lands | the digest pages **HQ backups stale** naming `pgdump (pg)` — including while the lane has never run, which is what makes “pg is load-bearing and has no backup” visible the morning after `HQ_PG_WRITES=first_class` is set |
 
 The git and S3 CSV lanes are deliberately independent copies on independent schedulers, each with its **own** heartbeat: one shared beat would let the nightly Actions run keep it fresh while the S3 copy had been dead for a week. The PG dump lane is the same doctrine for the store the sheet is being replaced by. Restore procedure (the CSV lanes plus Sheets' own version history): `docs/RUNBOOK.md` § Restoring the sheet.
 <!-- sysmap:end backup-lanes -->
@@ -276,7 +277,7 @@ Backup beats watched as a set: `selfheal`, `snapshot`, `snapshot_s3`, `pgdump`. 
 | `snapshot` | 24 h | `tracker.snapshot` (git mode, `selfheal.yml`) | **pages** — “HQ backups stale”, naming the lane and the store |
 | `snapshot_s3` | 24 h | `tracker.snapshot` (S3 mode, the `snapshot` Lambda job) | **pages** — “HQ backups stale”, naming the lane and the store |
 | `digest` | 24 h | `tracker.digest`, after the briefing is composed and sent | briefing line only |
-| `pgdump` | 24 h | **nobody** — the lane is hard-disabled, so this beat never arrives | **pages** — “HQ backups stale”, naming the lane and the store |
+| `pgdump` | 24 h | `tracker.pgdump`, after the dump lands in S3 (the `pgdump` Lambda job) | **pages** — “HQ backups stale”, naming the lane and the store |
 <!-- sysmap:end watchdogs -->
 
 ## Alerting topology
@@ -336,9 +337,9 @@ The tabs `core/schema.py` owns. bootstrap creates them, self-heal re-asserts the
 <!-- sysmap:begin users-lanes -->
 **Registry shape: flat (single user).** `hq.config.yaml` has no `users:` map, so every bot reads the one sheet id at the top of the file and EventBridge sends the bare `{"job": "<name>"}` payload.
 
-- Schedules deployed: **7** — `job-hq-<job>`, one per job.
+- Schedules deployed: **8** — `job-hq-<job>`, one per job.
 - `HQ_USER` is unset on every invocation (the handler pops it, so a warm container can't inherit the previous run's user).
-- Adding a user: `tracker.provision` writes a `users:` map into `hq.config.yaml`, then `terraform apply` grows the lanes to jobs × users. The default user keeps the flat schedule name `job-hq-<job>`; everyone else gets `job-hq-<job>-<user>`.
+- Adding a user: `tracker.provision` writes a `users:` map into `hq.config.yaml`, then `terraform apply` grows the lanes to 7 jobs × users (`local.system_jobs` stays single-laned). The default user keeps the flat schedule name `job-hq-<job>`; everyone else gets `job-hq-<job>-<user>`.
 
 | ntfy topic | Carries |
 |---|---|

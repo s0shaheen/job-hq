@@ -84,7 +84,53 @@ def _workflow_choices() -> list[str]:
 
 def test_workflow_choices_runjob_and_handler_all_advertise_the_same_jobs():
     """Three files, one job list. A choice the handler doesn't know dies after the pip install; a
-    handler job missing from the dropdown is a bot you can no longer run by hand."""
+    handler job missing from the dropdown is a bot you can no longer run by hand.
+
+    The one documented subtraction is `ACTIONS_FORBIDDEN` — jobs that must never run on a
+    runner at all (see below). Everything else must be offered."""
     choices = _workflow_choices()
     assert len(choices) == len(set(choices)), f"duplicate options in run-bot.yml: {choices}"
-    assert sorted(choices) == sorted(runjob.known_jobs()) == sorted(runjob.handler.JOBS)
+    expected = sorted(set(runjob.handler.JOBS) - runjob.ACTIONS_FORBIDDEN)
+    assert sorted(choices) == sorted(runjob.known_jobs()) == expected
+
+
+# ---------------------------------------------------------- the dump may not come back
+#
+# `tests/core/test_workflows.py` rejects the literal `pg_dump` in any workflow run block.
+# This lane is the hole in that check: the string a workflow would carry is `python
+# scripts/runjob.py pgdump`, which is not `pg_dump` and which dumps the production
+# database onto a runner whose working directory is a checkout of this repository.
+#
+# MUTATION: empty `ACTIONS_FORBIDDEN` -> the refusal test fails and the dropdown test
+# starts demanding `pgdump` be offered, which is the state this pair exists to prevent.
+
+def test_the_database_dump_job_refuses_to_run_from_actions():
+    with pytest.raises(SystemExit) as e:
+        runjob.main(["pgdump"])
+    assert e.value.code not in (0, None)
+    assert "may not run from GitHub Actions" in str(e.value.code)
+    assert "aws lambda invoke" in str(e.value.code), "a refusal must name the way that works"
+
+
+def test_the_dropdown_does_not_offer_it():
+    assert "pgdump" not in _workflow_choices()
+
+
+def test_no_workflow_dispatches_a_forbidden_job_through_this_runner():
+    """The containment test cannot see this spelling; something has to.
+
+    The two positives come first, because "no workflow does X" is also what an empty
+    directory says, and what a regex that no longer matches the real spelling says. So:
+    workflows were actually read, and the pattern still matches the invocation that
+    genuinely exists in run-bot.yml."""
+    workflows = sorted((REPO / ".github" / "workflows").glob("*.yml"))
+    assert len(workflows) >= 5, f"only {[w.name for w in workflows]} — wrong path?"
+    assert re.search(r"runjob\.py[^\n]*inputs\.job", WORKFLOW.read_text()), \
+        "run-bot.yml no longer invokes runjob.py the way this pattern looks for"
+    assert runjob.ACTIONS_FORBIDDEN, "nothing is forbidden, so nothing is being checked"
+
+    for wf in workflows:
+        text = wf.read_text()
+        for job in runjob.ACTIONS_FORBIDDEN:
+            assert not re.search(rf"runjob\.py[^\n]*\b{re.escape(job)}\b", text), \
+                f"{wf.name} runs {job} on a runner — that is a database dump inside a git checkout"

@@ -104,6 +104,12 @@ variable "jobs" {
     # (Actions billing lapse, 2026-07-24 — 21 h with no backup and no alert). Losing either one
     # must never be silent, so neither is the other's "good enough" replacement.
     snapshot        = { cron = "cron(53 8 * * ? *)" }    # daily 08:53 UTC  (tracker.snapshot -> S3)
+    # The STORE's backup — pg_dump of the public schema into the same versioned bucket, never
+    # git (FP-OPS-001; the workflow test rejects pg_dump in any Actions run block). 20 minutes
+    # after the sheet copy so the two never contend for the same cold start, and both land
+    # before the 11:40 digest reads their heartbeats — a lane whose beat is stamped after the
+    # watchdog looks reports stale every single morning.
+    pgdump          = { cron = "cron(13 9 * * ? *)" }    # daily 09:13 UTC  (tracker.pgdump -> S3)
     wide_cafe       = { cron = "cron(30 13 * * ? *)" }   # daily 13:30 UTC  (wide --source cafe)
     wide_theirstack = { cron = "cron(50 13 * * ? *)" }   # daily 13:50 UTC  (wide --source theirstack)
   }

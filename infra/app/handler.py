@@ -11,7 +11,9 @@ they did under Actions. The Lambda's IAM role can read only that prefix and writ
 
 tracker.snapshot runs here too, writing to the S3 backup bucket instead of the repo (env
 HQ_BACKUP_S3_BUCKET, set by infra/terraform/backups.tf) — a backup path that survives GitHub
-being down. pg_dump still has no sink and is intentionally NOT here.
+being down. tracker.pgdump is its opposite number for the STORE: pg_dump of the public schema
+into the same bucket. Both write off-Git by construction; no database dump may enter the
+repository (FP-OPS-001), and the workflow test enforces that statically.
 
 Multi-user: the payload may carry {"user": "dad"}, one schedule per job per user (main.tf), the
 replacement for the old Actions matrix legs. The bots read HQ_USER, so this shim sets it — and,
@@ -43,6 +45,11 @@ JOBS: dict[str, list[tuple[str, list[str]]]] = {
     "digest":          [("tracker.digest", [])],
     "selfheal":        [("tracker.selfheal", [])],            # schema re-assert (its git-commit half stays on Actions)
     "snapshot":        [("tracker.snapshot", [])],            # tab CSVs -> S3 (no git, no GitHub)
+    # The STORE's backup, the sheet backup's opposite number: pg_dump of the public
+    # schema -> the same versioned bucket, never git (FP-OPS-001). It lives here and
+    # not on Actions because the containment test rejects pg_dump in any workflow, and
+    # because the image is where the pg_dump 17 binary is (infra/Dockerfile).
+    "pgdump":          [("tracker.pgdump", [])],
     # simplify: scrape Simplify, then import the CSV it drops. Needs SIMPLIFY_* cookies;
     # its tracker/data/*.csv round-trip is repo-relative so not yet Lambda-FS-safe (follow-on).
     "simplify":        [("tracker.simplify", []), ("tracker.migrate", ["--simplify-csv"])],

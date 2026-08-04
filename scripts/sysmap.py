@@ -175,6 +175,18 @@ def cron_to_ct(expr: str) -> str:
 
 # ------------------------------------------------------------------ fact gathering
 
+def terraform_system_jobs() -> list[str]:
+    """`local.system_jobs` — the jobs that get ONE schedule however many users exist.
+
+    They back a property of the store rather than of a user (`pgdump` dumps the one
+    database everybody shares), so the per-user fan-out skips them in main.tf. Parsed
+    rather than hardcoded: a doc that says "jobs x users" while terraform says otherwise
+    is how a reader concludes five users means five nightly dumps."""
+    tf = _read("infra/terraform/main.tf")
+    m = re.search(r"system_jobs\s*=\s*\[([^\]]*)\]", tf)
+    return [] if not m else re.findall(r'"([^"]+)"', m.group(1))
+
+
 def terraform_jobs() -> list[tuple[str, str, str]]:
     """(job, cron, trailing comment) from var.jobs — same split-then-regex as
     tests/infra/test_lambda_handler.py::test_scheduled_job_names_all_exist_in_jobs."""
@@ -336,10 +348,10 @@ def selfheal_cron() -> str:
     return _need(m and m.group(1), "selfheal.yml cron")
 
 
-# There is no pgdump_cron() because there is no pgdump cron. `pgdump.yml` was NOT deleted — it is a
-# tombstone: no schedule, and its one job prints an error and exits 1 (FP-OPS-001). Its row in the
-# backup-lanes table below is a literal describing a CLOSED lane, not a parse. The replacement lane
-# is a new workflow shipping with RM-01, and it gets a parser here then.
+# There is no pgdump_cron() reading a workflow, and there must not be: the dump lane is a Lambda
+# job (`tracker.pgdump`), because no database dump may enter git (FP-OPS-001) and
+# tests/core/test_workflows.py rejects `pg_dump` in any Actions run block. Its schedule is parsed
+# from infra/terraform/variables.tf with every other Lambda job, so it needs no special case.
 
 
 # ------------------------------------------------------------------ section renderers
@@ -420,14 +432,13 @@ def sec_backup_lanes() -> str:
         f"git on a **Run a bot** dispatch; `{s['feed_key']}` in S3 when the FS is read-only | with "
         "each sweep | none | prints a warning and never fails a completed sweep — the CSV lanes are "
         "the Feed tab's real backup |",
-        "| PG dump | `pg_dump --schema=public` of the Supabase store | nowhere — **the lane is "
-        "hard-disabled** | `pgdump.yml` has no schedule and its job unconditionally exits 1; the "
-        "`PGDUMP_ENABLED` repo variable is deliberately ignored (FP-OPS-001, "
-        "`docs/pilot-launch/instances/PKT-DUMP-DISABLE.md`) | pg lane `pgdump` in `channel_runs` "
-        "— **never written**, because the job exits before anything could write it | the digest pages "
-        "**HQ backups stale** naming `pgdump (pg)`, permanently, because the lane cannot run — "
-        "which is exactly the state “pg is load-bearing and has no git backup” should be in until "
-        "RM-01 lands an encrypted replacement |",
+        "| PG dump | `pg_dump --schema=public` of the Supabase store (never `auth`) | "
+        "`s3://$HQ_BACKUP_S3_BUCKET/pgdump/public.sql.gz`, versioned — **never git** "
+        "(FP-OPS-001) | `tracker.pgdump` on the Lambda, nightly | pg lane `pgdump` in "
+        "`channel_runs`, stamped only after the object lands | the digest pages "
+        "**HQ backups stale** naming `pgdump (pg)` — including while the lane has never run, which "
+        "is what makes “pg is load-bearing and has no backup” visible the morning after "
+        "`HQ_PG_WRITES=first_class` is set |",
         "",
         "The git and S3 CSV lanes are deliberately independent copies on independent schedulers, "
         "each with its **own** heartbeat: one shared beat would let the nightly Actions run keep it "
@@ -478,7 +489,7 @@ def sec_watchdogs() -> str:
         "snapshot": "`tracker.snapshot` (git mode, `selfheal.yml`)",
         "snapshot_s3": "`tracker.snapshot` (S3 mode, the `snapshot` Lambda job)",
         "digest": "`tracker.digest`, after the briefing is composed and sent",
-        "pgdump": "**nobody** — the lane is hard-disabled, so this beat never arrives",
+        "pgdump": "`tracker.pgdump`, after the dump lands in S3 (the `pgdump` Lambda job)",
     }
     for name, hours in d["pg_cadence"]:
         h = float(hours)
@@ -560,7 +571,9 @@ def sec_users_lanes() -> str:
     reg = registry()
     jobs = terraform_jobs()
     project = terraform_project()
+    system = terraform_system_jobs()
     n = len(jobs)
+    per_user = [j for j, _, _ in jobs if j not in system]
     if not reg["users"]:
         shape = ["**Registry shape: flat (single user).** `hq.config.yaml` has no `users:` map, so "
                  "every bot reads the one sheet id at the top of the file and EventBridge sends the "
@@ -570,7 +583,8 @@ def sec_users_lanes() -> str:
                  "- `HQ_USER` is unset on every invocation (the handler pops it, so a warm "
                  "container can't inherit the previous run's user).",
                  "- Adding a user: `tracker.provision` writes a `users:` map into `hq.config.yaml`, "
-                 f"then `terraform apply` grows the lanes to jobs × users. The default user keeps "
+                 f"then `terraform apply` grows the lanes to {len(per_user)} jobs × users "
+                 f"(`local.system_jobs` stays single-laned). The default user keeps "
                  f"the flat schedule name `{project}-<job>`; everyone else gets "
                  f"`{project}-<job>-<user>`."]
     else:
@@ -578,9 +592,14 @@ def sec_users_lanes() -> str:
         shape = [f"**Registry shape: multi-user.** `hq.config.yaml` carries a `users:` map "
                  f"({who}), default `{reg['default_user'] or '(unset)'}`.",
                  "",
-                 f"- Schedules deployed: **{n} jobs × {len(reg['users'])} users = "
-                 f"{n * len(reg['users'])}** — the default user keeps the flat name "
-                 f"`{project}-<job>`, everyone else is `{project}-<job>-<user>`.",
+                 f"- Schedules deployed: **{len(per_user)} per-user jobs × "
+                 f"{len(reg['users'])} users + {len(system)} store-wide = "
+                 f"{len(per_user) * len(reg['users']) + len(system)}** — the default user "
+                 f"keeps the flat name `{project}-<job>`, everyone else is "
+                 f"`{project}-<job>-<user>`."
+                 + (f" Store-wide ({', '.join(f'`{j}`' for j in system)}) do not fan out: "
+                    f"they back the one database everybody shares, so a per-user copy would "
+                    f"be N identical backups and N heartbeats for one event." if system else ""),
                  "- Each invocation carries `{\"job\", \"user\"}`; the handler exports `HQ_USER` "
                  "and clears `core.config`'s caches every time, so no warm container can serve one "
                  "user's sheet id to another."]

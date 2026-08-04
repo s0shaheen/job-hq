@@ -46,6 +46,7 @@ heartbeat older than **2× its cadence**; a job that never ran shows "no heartbe
 | `heartbeat_snapshot` | `tracker.snapshot`, **git mode** | nightly 03:23 CT (Actions, → `snapshots/<user>/`) | 48 h → **ops alert** "HQ backups stale" |
 | `heartbeat_snapshot_s3` | `tracker.snapshot`, **S3 mode** | nightly 03:53 CT (Lambda, → S3) | 48 h → **ops alert** "HQ backups stale" |
 | `heartbeat_digest` | `tracker.digest` | daily 06:40 CT | (digest is the watchdog; its workflow alert covers it) |
+| `pgdump` (**pg only**, `channel_runs`) | `tracker.pgdump` | daily 09:13 UTC (Lambda, → S3) | 48 h → **ops alert** "HQ backups stale", under `HQ_PG_WRITES=first_class` |
 
 Deliberate heartbeat gaps (so the watchdog can catch real death): `wide` skips its
 heartbeat when no source swept; `simplify` skips it on auth failure. A clean "not activated / disabled" skip DOES
@@ -54,7 +55,9 @@ heartbeat — pre-activation silence is healthy, failure is not.
 **The backup heartbeats page, they don't just print.** `heartbeat_snapshot_s3` is written by the
 Lambda `snapshot` job (03:53 CT) after every tab CSV lands in S3, so it stays fresh even when
 GitHub Actions is dead entirely — the 2026-07-24 billing lapse ran 21 h with no backup and no
-alert. If any of the three goes past 2× its cadence (or was never written), the daily digest
+alert. The store has its own, `pgdump` — no Config row, only `channel_runs` — for the same
+reason and with the same rule: it is stamped after the dump object lands in S3, never before.
+If any of them goes past 2× its cadence (or was never written), the daily digest
 ops-pushes **"HQ backups stale"** naming the dead lane; the briefing line alone was too quiet for
 a failure you discover on restore day.
 
@@ -74,9 +77,9 @@ successful `snapshot` invocation.
 Daily rhythm (America/Chicago): 03:23 self-heal + snapshot commit (Actions) → 03:53 snapshot → S3
 (Lambda) → 06:40 digest composed → ~7:00 digest email (Apps Script) → 07:00 daily monitor sweep →
 08:30 + 08:50 wide sweeps → 10:00 tagging review → 18:00 second sweep → tracker chain every 2 h at
-:31 → Gmail capture every 15 min around the clock. Everything except the self-heal commit fires
-from AWS EventBridge. (The 04:53 PG snapshot is gone — see
-[PG snapshot](#pg-snapshot-deleted-resurrectable).)
+:31 → Gmail capture every 15 min around the clock, plus 04:13 the store's pg_dump → S3 (Lambda).
+Everything except the self-heal commit fires from AWS EventBridge. (The dump no longer enters
+Git and no workflow may produce one — see [the store's backup](#the-stores-backup-pgdump--s3-never-git).)
 
 Also healthy: the digest's "Automation health" section printing
 `✅ all systems ran on schedule`, a fresh `chore: nightly HQ snapshot` commit each night, and
@@ -399,23 +402,135 @@ workflow is the one that *commits* (schema re-assert + tab CSVs + re-pinned gids
 **Run a bot** with `job = selfheal`, which re-asserts the schema but only commits `hq.config.yaml`
 if a gid actually moved.
 
-## PG snapshot (DISABLED — dumps must not enter Git)
+## The store's backup (`pgdump` → S3, never Git)
 
 `pgdump.yml` is a refusing tombstone since PKT-DUMP-DISABLE
 (docs/pilot-launch/instances/PKT-DUMP-DISABLE.md, FP-OPS-001): no schedule, dispatch, or
-variable — `PGDUMP_ENABLED` is ignored — can dump the database or commit one to Git. The
-tracked `snapshots/pg/hq.sql.gz` and its history are preserved as incident evidence;
-deleting them and rotating `SUPABASE_DB_URL` are separate owner-approved packets. The
-replacement lane (pg_dump to the versioned S3 bucket, like `snapshot_s3`) ships as its own
-packet; until it does the `pgdump` heartbeat is intentionally silent, and under
-`HQ_PG_WRITES=first_class` the digest's **HQ backups stale** page naming `pgdump (pg)` is
-correct — the store really has no watched backup yet.
+variable — `PGDUMP_ENABLED` is ignored — can dump the database or commit one to Git, and
+`tests/core/test_workflows.py` statically rejects any workflow that invokes `pg_dump` at
+all. The tracked `snapshots/pg/hq.sql.gz` and its history are preserved as incident
+evidence; deleting them and rotating `SUPABASE_DB_URL` are separate owner-approved packets.
+
+**The replacement lane is `tracker.pgdump`, and it runs on Lambda, not Actions.**
+
+| | |
+|---|---|
+| What | `pg_dump --schema=public --no-owner --no-privileges --compress=9` |
+| Where | `s3://job-hq-backups-<account>/pgdump/public.sql.gz` — one object for the whole store (not per user), **versioning is the history** |
+| When | daily 09:13 UTC (`pgdump` in `infra/terraform/variables.tf`), 20 min after the sheet's `snapshot` and before the 11:40 digest |
+| Liveness | the `pgdump` beat in `channel_runs`, stamped **only after the object lands**; watched by `tracker.digest` (`PG_CADENCE_HOURS`, `BACKUP_BEATS`) under `HQ_PG_WRITES=first_class` |
+| Needs | `SUPABASE_DB_URL` in SSM (`/job-hq/SUPABASE_DB_URL`) and the bots image built from `infra/Dockerfile` (it carries pg_dump 17 at `/opt/pg17/bin/pg_dump`) |
+
+**Build the image for `linux/amd64`** — which `infra/deploy.sh` already does, and which is
+now load-bearing rather than incidental. On an arm64 laptop the image build fails at the
+pre-existing `pip install` layer (`impit` publishes no aarch64 manylinux wheel), so a
+hand-rolled `docker build` on an Apple machine will not produce a shippable image no matter
+how healthy the pg_dump stage looks. Use the script.
+
+**The credential this lane uses has not been rotated.** `SUPABASE_DB_URL`'s value is the one
+that was reachable from the deleted workflow, and the personal-vault audit classifies the
+dumps this repository carried until 2026-08-02 as irreversibly exposed. Standing the lane up
+does not make that worse — but it does mean the credential is now in nightly use, so the
+rotation packet gets **more** urgent once this ships, not less
+(`docs/pilot-launch/packets/00-baseline-and-containment.md`, owner-approved, not this lane's
+to perform).
+
+**Public schema only, and that is a boundary, not a size choice.** Supabase's `auth` schema
+holds identities, sessions and refresh tokens; they do not leave the database, and a restore
+must not collide with the schemas the platform manages. The module re-checks the produced
+bytes for `COPY auth.` / `INSERT INTO auth.` rather than trusting the flag.
+
+**Why the version pin matters.** The server is 17.x and `pg_dump` aborts when the server
+major exceeds the client's. On Debian/Ubuntu `/usr/bin/pg_dump` is a wrapper that resolves
+by *cluster*: PR #89 had `postgresql-client-17` installed and still ran 16.14 against a 17.6
+server. So the image builds 17 from source into `/opt/pg17`, and the module refuses at
+runtime if `--version` reports below 17 — before it connects, so the error names the cause.
+
+**It fails loud rather than storing a bad backup.** Size floor
+(`HQ_PGDUMP_MIN_BYTES`, default 50 KB), gzip integrity, pg_dump's own end-of-dump marker
+(valid gzip is not a complete dump), and no managed-schema rows. Any of them raises, the
+object is never uploaded, and **no heartbeat is written** — a beat a failed dump can reach
+vouches for a backup that does not exist.
+
+**When the upload does not happen**, in order: the module raises → `infra/app/handler.py`
+ops-pushes `[lambda] pgdump failed` naming the module → the invocation records a Lambda
+error, so the `job-hq-bots-errors` alarm fires. The failure text has the connection string
+redacted before either sees it.
+
+**Under `HQ_PG_WRITES=first_class` there is a third signal, and it is the only one that is
+not edge-triggered:** no `pgdump` beat is written, so the next digest pages **HQ backups
+stale** naming `pgdump (pg)` and keeps paging every morning until a dump actually lands.
+
+**In Phase A (the flag unset) that third signal does not exist.** `tracker.pgdump` writes no
+beat and `tracker.digest` does not read pg beats, so the two remaining signals both require
+an invocation to have happened and failed. A lane that was never scheduled, or whose
+schedule was deleted, produces no invocation, no error and no page — the silence is
+identical to success. Until the flag is set, **the backup is confirmed by looking in the
+bucket**, and that check belongs in whatever weekly pass the operator already does:
+
+```sh
+aws s3api head-object --bucket job-hq-backups-690340855657 --key pgdump/public.sql.gz \
+  --query '[LastModified,ContentLength]' --output text     # must be within ~24 h
+```
+
+### Restoring
+
+The bots' IAM role is PutObject-only, so a restore is you, with your own admin credentials.
+
+```sh
+B=job-hq-backups-690340855657
+K=pgdump/public.sql.gz
+aws s3api list-object-versions --bucket "$B" --prefix "$K" \
+  --query 'Versions[].[LastModified,Size,VersionId]' --output text     # newest first
+aws s3api get-object --bucket "$B" --key "$K" --version-id <VersionId> /tmp/public.sql.gz
+
+gunzip -t /tmp/public.sql.gz                                  # integrity, before you trust it
+gunzip -c /tmp/public.sql.gz | tail -3                        # must end "...dump complete"
+
+# Restore into a THROWAWAY database first — never over a live one.
+createdb -h <host> -U postgres hq_restored
+psql -h <host> -U postgres -d hq_restored -c 'DROP SCHEMA IF EXISTS public CASCADE'
+gunzip -c /tmp/public.sql.gz | psql -h <host> -U postgres -v ON_ERROR_STOP=1 -d hq_restored
+```
+
+Two of those lines are load-bearing. `DROP SCHEMA IF EXISTS public CASCADE`: a single-schema
+dump carries `CREATE SCHEMA public` and a fresh database already has one, so without the drop
+the restore dies on its second statement. `-v ON_ERROR_STOP=1`: without it `psql` reports
+success after skipping every statement it could not run, which is how a restore that lost a
+table looks fine.
+
+Then diff the restored database against production before promoting anything. A restore into
+production itself is an owner decision, not a runbook step.
+
+### Rehearsing it
+
+```sh
+scripts/restore-drill.sh          # needs Docker; touches nothing outside it
+```
+
+Throwaway Postgres 17 and a real S3 API (MinIO, versioning on) in containers; the real
+`tracker.pgdump` with the real boto3 client — nothing is stubbed, the module calls plain
+`boto3.client("s3")` exactly as it does on Lambda and only the endpoint env var differs.
+The dump is then **fetched back out of the bucket by version**, its ETag compared against
+the downloaded bytes, and restored with the commands above. It asserts 500 public rows came
+back and that the seeded `auth` token is in neither the artifact nor the restored database.
+
+Run it after any change to the lane. Its first run is what found the `CREATE SCHEMA public`
+collision above, which is the argument for having it.
+
+### What the writer can and cannot do
+
+The Lambda's role has `s3:PutObject` on `snapshots/*` and `pgdump/*` in this bucket, and
+nothing else — no `GetObject` (that would let anything reaching the bots read every user's
+rows out of an object store), no `Delete*` (which is what makes versioning a defense rather
+than a decoration), no `ListBucket`. `tests/infra/test_backups_terraform.py` fails if any of
+those appear anywhere in the terraform. Restores are you, with your own credentials.
 
 ## The store lane (`HQ_PG_WRITES`)
 
 The engine's Postgres writes are one operator-owned switch, in SSM as `/job-hq/HQ_PG_WRITES` and
-as the `HQ_PG_WRITES` repo **variable** for the two Actions lanes (`selfheal.yml`'s snapshot step,
-`pgdump.yml`'s beat step). It is not a Config-tab knob: the blast radius is "which store is
+as the `HQ_PG_WRITES` repo **variable** for the one remaining Actions lane that beats in pg
+(`selfheal.yml`'s snapshot step). It is not a Config-tab knob: the blast radius is "which store is
 authoritative", not a per-user preference.
 
 | Value | What the engine does |
@@ -432,7 +547,24 @@ exists to end.
 1. A real Supabase project exists and `db/apply.sh` has applied 0001–00NN (`db/README.md`).
 2. `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `HQ_PG_USER_ID` are in SSM **and** in the repo secrets
    (the two Actions lanes above need them too).
-3. **`PGDUMP_ENABLED=true`** — see the section above. pg must have a watched backup first.
+3. **The `pgdump` lane has completed one successful invocation with the object confirmed in
+   the bucket.** pg must have a real backup before it becomes the store that counts.
+
+   Stated that way on purpose: the obvious phrasing — "the lane has beaten at least once" —
+   is circular, because the beat is written only under `first_class`, which is the thing this
+   list gates. Pre-cutover the operator confirms the backup by looking, not by waiting for a
+   page. So: `SUPABASE_DB_URL` in SSM, a bots image built from the current `infra/Dockerfile`,
+   the `pgdump` schedule applied, then
+
+   ```sh
+   aws lambda invoke --function-name job-hq-bots \
+     --payload '{"job":"pgdump"}' /dev/stdout            # must not report an error
+   aws s3api head-object --bucket job-hq-backups-690340855657 \
+     --key pgdump/public.sql.gz                          # must exist, dated just now
+   ```
+
+   and one restore of that object into a throwaway database (§ Restoring). The beat starts
+   being written, and watched, the moment the flag flips — which is the correct order.
 4. Run the universe seed and the pipeline seed, in that order, and read their summaries:
    `aws lambda invoke --function-name job-hq-bots --payload '{"job":"seed_universe"}' /dev/stdout`
    then the same with `{"job":"seed_pipeline"}` (or **Run a bot** → `seed_pipeline`).
@@ -920,7 +1052,7 @@ cost cap per monitor run (60; env `MONITOR_INLINE_TAG_MAX`).
 | `HQ_WARM_MAX_RESULTS` | webapp warm-intro finder (optional) | unset = 40 merged results (clamped 10..50); does not change per-search cost (1 page/persona) |
 | `ANTHROPIC_API_KEY` | engine (tagging/classify) AND **webapp warm-intro fit pass** (`webapp/lib/warm/fit.ts`, server-only) | unset = the fit annotation is skipped and the deterministic signal ranking stands (fail-safe); results are never blocked |
 | `THEIRSTACK_API_KEY` | wide (optional) | second wide source off; never fatal |
-| `SUPABASE_DB_URL` | **nothing** — its only reader was `pgdump.yml` | inert since the workflow was deleted ([PG snapshot](#pg-snapshot-deleted-resurrectable)). Leave it or delete it; either way nothing breaks until the workflow is restored |
+| `SUPABASE_DB_URL` | **`tracker.pgdump`** (the store's nightly backup, Lambda only) | unset = the lane refuses loudly and writes no heartbeat, so the digest pages "HQ backups stale" under `first_class`. Needed in **SSM** (`/job-hq/`), not in repo secrets — no workflow may read it (FP-OPS-001) |
 | `HQ_NTFY_TOPIC` / `HQ_OPS_NTFY_TOPIC` | all (optional overrides) | unset = defaults from `hq.config.yaml` |
 
 (The capture Apps Script keeps its own `ANTHROPIC_API_KEY` copy in Script Properties; the

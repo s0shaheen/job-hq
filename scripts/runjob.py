@@ -34,18 +34,38 @@ handler = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(handler)
 
 
+#: Jobs this runner REFUSES, because it runs on GitHub Actions and they must not.
+#:
+#: `pgdump` dumps the production database. No database dump may enter Git (FP-OPS-001,
+#: PKT-DUMP-DISABLE), and `tests/core/test_workflows.py` enforces that by rejecting the
+#: string `pg_dump` in any workflow run block — which this path would walk straight
+#: around, because the literal that reaches the YAML is `python scripts/runjob.py
+#: pgdump`. A workflow that dispatches this job puts a dump, and the credentials that
+#: produce it, on a runner whose working directory is a git checkout of this repository.
+#: So the fallback lane declines: the store's backup runs on Lambda or it does not run.
+#:
+#: This is also why `SUPABASE_DB_URL` is an SSM parameter and NOT a repo secret.
+ACTIONS_FORBIDDEN = frozenset({"pgdump"})
+
+
 def known_jobs() -> list[str]:
     """The job names this runner accepts — pinned to the workflow's `job` choice list by
     tests/test_runjob.py, so the dropdown can't offer a job the handler doesn't know."""
-    return list(handler.JOBS)
+    return [j for j in handler.JOBS if j not in ACTIONS_FORBIDDEN]
 
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    if args and args[0] in ACTIONS_FORBIDDEN:
+        raise SystemExit(
+            f"[runjob] {args[0]!r} may not run from GitHub Actions: it dumps the database "
+            f"and this process runs inside a git checkout (FP-OPS-001). Invoke the Lambda "
+            f"instead: aws lambda invoke --function-name job-hq-bots "
+            f"--payload '{{\"job\": \"{args[0]}\"}}' /dev/stdout")
     if not args or args[0] not in handler.JOBS:
         raise SystemExit(f"[runjob] usage: python scripts/runjob.py <job> [extra args...]\n"
                          f"[runjob] unknown job {(args or ['(none)'])[0]!r}; "
-                         f"known jobs: {sorted(handler.JOBS)}")
+                         f"known jobs: {sorted(known_jobs())}")
     steps = [(module, list(argv_tail)) for module, argv_tail in handler.JOBS[args[0]]]
     steps[-1][1].extend(args[1:])          # extras go to the last module only, never the whole chain
     for module, module_argv in steps:
