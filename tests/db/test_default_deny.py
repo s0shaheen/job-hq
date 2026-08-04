@@ -541,6 +541,12 @@ AUTHENTICATED_CANNOT_READ: dict[str, str] = {
         "and gives the table no policy of any kind: a token digest is a bearer "
         "secret and the browser has no question that needs it. Only the service "
         "role reads it, through `security definer` minting and verification.",
+    "notification_outbox":
+        "private user content. 20260803_105951 revokes select as well as write from "
+        "`public, anon, authenticated`: `title` and `body` are rendered notification "
+        "text naming companies and roles, and no design state exists for a "
+        "held-notifications surface. The owner-read policy is written but has no "
+        "grant behind it, so a later `grant select` arrives already gated.",
 }
 
 

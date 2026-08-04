@@ -315,3 +315,61 @@ runtime row above is class (b) or (c), the order is:
 7. Remove `gspread` and `google-auth` from `requirements.txt` and rebuild the image.
 
 Steps 1–5 are reversible. Step 6 is the point of no return and is owner-performed.
+
+### Three things land BEFORE the Config tab is retired
+
+Ordering rules, not schema questions, and they sit here because this is what the person
+doing the retiring is reading. Each is a thing the Sheet holds today that Postgres does
+not, so retiring the tab first is silent data loss rather than a broken build.
+
+**1. The 13 notification preference keys.** `notify_quiet_hours`, `notify_timezone`, the
+five per-event `notify_*` channels, `push_new_jobs`, `push_status_events`,
+`yoe_push_max`, `stale_days`, `digest_hour_ct`, `dna_companies`. Grepping those names
+across `db/migrations/**` and `webapp/**` returns **zero hits** — no column, no jsonb key,
+no reader, no writer. `profiles.criteria` holds the *search-profile* half of the Config
+tab (12 keys) and `parseCriteria` is a closed whitelist that drops everything else;
+`profiles.notify` is an empty jsonb column with a prose comment and no writer, which is
+not a home.
+
+`notify_quiet_hours` and `notify_timezone` are the inputs to `core.channels.allow()`, the
+function that decides what enters the quiet-hours outbox. Retire the tab without homing
+them and quiet hours has no window and no zone: either it never engages and someone is
+buzzed at 03:00, or it engages against a default zone and holds an interview notification
+until the wrong morning. `push_new_jobs` and `push_status_events` are worse in kind — a
+kill switch the user set that silently turns itself back on.
+
+`docs/plans/SHEET-FACILITIES.md` §1.2(a2) has the full accounting. An earlier revision of
+that document declared this half already homed; it was wrong, and this rule exists because
+a wrong "already homed" verdict is exactly the failure that reaches production quietly.
+
+**2. The two spend budgets need an override path.** `wide_credit_budget = 0` is
+TheirStack's kill switch and `core/config.py` has no env-override path for a `VALIDATORS`
+key — the Config tab is the only override that exists today. SHEET-FACILITIES §1.2(c).
+
+**3. The capture tripwire — retired before the Config tab, never after**
+
+An ordering rule, not a schema question, and it sits here because this is what the person
+doing the retiring is reading.
+
+`heartbeat_capture` is the tightest-watched beat in the system — 1.5 h cadence,
+`tracker/digest.py:64`, and a 3 h ops page from `tracker/join.py:371` — because it is the
+tripwire for Gmail capture having died silently. It is also the ONE beat with no Postgres
+home and no route to one: `appsscript/capture/Code.gs` writes it through `SpreadsheetApp`
+under Apps Script authorization, so it corresponds to no Lambda invocation and will never
+have a `bot_runs` row. `docs/plans/SHEET-FACILITIES.md` §4.4 has the derivation.
+
+So: **either `heartbeat_capture` has a replacement that a watchdog reads, or there is a
+recorded, dated decision to accept the gap and stop watching. One of those two lands
+BEFORE the Config tab is retired.** Neither is "we will sort it out afterwards."
+
+The failure mode is a silent week. A tripwire that has quietly stopped being read is worse
+than one that was deliberately removed, because the health section keeps looking green —
+which is the same defect class as a beat nobody watches (`core/beats.py:24`, "A beat
+nobody watches is worse than no beat — it looks like coverage"), arriving from the other
+direction.
+
+The cheap replacement, if it is wanted: `/api/capture` already authenticates the Apps
+Script through `capture_tokens` (0018), so a beat is a field on a request that is already
+being made — a `channel_runs` row with `channel = 'capture'`, which `core/beats.py` and
+`tracker/digest.py` already know how to watch. A change to an endpoint's contract, not a
+table.

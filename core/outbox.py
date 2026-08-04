@@ -85,9 +85,25 @@ def enqueue(hq, rec: dict) -> bool:
     success return value. A closed row is history; the same news raised again is
     news again.
 
-    Raises on a sheet failure rather than swallowing it: the caller
-    (core.notify.push) turns that into an ops page, because a queue write that
-    fails quietly is the silent drop by another route.
+    RAISES on a storage failure rather than swallowing it, and this is the one
+    decision in the module that must never be softened for convenience. The
+    caller (core.notify.push) turns it into an ops page.
+
+    WHY, precisely — a quiet failure here does not lose a notification, it loses
+    the ROLE. `monitor.run` stamps `pushed_at` on a Feed row the moment its push
+    is durably QUEUED rather than when it is sent (core/notify.py documents that
+    trade), and nothing ever un-stamps it. So a swallowed enqueue failure leaves
+    the system's own records saying the user was told about a job they will never
+    hear about, and the only place those roles are ever named again is
+    `tracker.outbox._abandoned_page` — which is not reached either, because no row
+    exists to abandon.
+
+    That is the whole reason this module is on the opposite side of the doctrine
+    from `core.sheets.HQ.log` and `core.runlog`, both of which swallow every error
+    on purpose. The distinction is not "audit vs. product": it is whether anything
+    downstream has already been told the write succeeded. A missing log line is
+    recoverable and a job killed by its own telemetry is not; a missing queue row
+    is a role the user never sees, recorded as delivered.
     """
     tab = hq.tab(TAB)
     key = record_key(rec)
