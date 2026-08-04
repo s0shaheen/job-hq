@@ -54,6 +54,20 @@ export interface Citation {
   readonly spec: string;
   /** Exact title as written in the spec. */
   readonly title: string;
+  /**
+   * The ONE escape hatch in the route proof (`routes.ts`), for a test that
+   * genuinely renders the surface by a path no reader of the source can
+   * follow — a client-side navigation through a clicked link, an id minted at
+   * runtime. It names the route the test actually reaches and `why` says how,
+   * in writing, in the diff, and in the rendered evidence file.
+   *
+   * It is not a way to quiet the gate. `drives` must be one of the surface's
+   * own routes, `why` must be a real sentence, and a hatch on a citation the
+   * extractor CAN read is itself a failure — like the baseline, this list may
+   * only shrink.
+   */
+  readonly drives?: string;
+  readonly why?: string;
 }
 
 export type CitationProblem =

@@ -16,7 +16,9 @@ import {
   type Mode,
   type SurfaceSource,
 } from "./sources";
-import { CitationResolver } from "./spec-titles";
+import { CitationResolver, type Citation } from "./spec-titles";
+import { RouteExtractor, routeMatches } from "./routes";
+import { machineCheckedStates, proveState, undeclaredStates } from "./states";
 import {
   BASELINE_MISSING,
   LEDGER,
@@ -58,6 +60,7 @@ export interface BuildOptions {
   readonly ledger?: Readonly<Record<string, SurfaceLedger>>;
   readonly baseline?: Baseline;
   readonly resolver?: CitationResolver;
+  readonly extractor?: RouteExtractor;
   readonly surfaces?: readonly SurfaceSource[];
   readonly states?: readonly string[];
   readonly addenda?: ReadonlySet<string>;
@@ -102,6 +105,76 @@ function cellFor(ledger: SurfaceLedger, state: string, mode: Mode): Cell {
   return MISSING;
 }
 
+/**
+ * The route proof: a citation is rejected unless the cited test demonstrably
+ * drives one of the surface's routes (`routes.ts` for why this is static, and
+ * for what the alternatives would have missed).
+ *
+ * The resolver above proves a citation names a test that EXISTS. This proves
+ * it has anything to do with the surface. Without it a cell on `/companies`
+ * closed by a test that only ever loads `/queue` was a green gate over nothing,
+ * and the only thing standing in its way was a person promising they had
+ * checked.
+ *
+ * Returns the errors for one citation. Empty means proven.
+ */
+function proveRoute(
+  where: string,
+  state: string,
+  cite: Citation,
+  routes: readonly string[],
+  extractor: RouteExtractor,
+): string[] {
+  const cited = `${cite.spec} "${cite.title}"`;
+  const spec = extractor.spec(cite.spec);
+  if (!spec) return []; // resolve() already reported the missing file.
+  const nav = spec.navigations(cite.title);
+
+  // The state half and the runs-at-all half apply whether or not the route
+  // proof is waived: a hatch excuses an unreadable ROUTE, never a test that
+  // does not enter the state and never a test that does not run.
+  const errors: string[] = nav
+    ? proveState(state, nav, spec.declaration(cite.title)).map(
+        (p) => `${where}: cites ${cited}, and ${p.message}`,
+      )
+    : [];
+
+  if (cite.drives !== undefined) {
+    if (!routes.some((r) => routeMatches(cite.drives!, r))) {
+      errors.push(
+        `${where}: cites ${cited} with drives "${cite.drives}", which is not a route this surface owns (${routes.join(", ")}).`,
+      );
+    }
+    if ((cite.why ?? "").trim().length < 30) {
+      errors.push(`${where}: cites ${cited} with a route escape hatch and no usable reason.`);
+    }
+    // A hatch over a route the extractor CAN read is a suppression that stopped
+    // suppressing — the same failure mode as a stale baseline entry.
+    if (nav && nav.routes.some((r) => routes.some((s) => routeMatches(r, s)))) {
+      errors.push(
+        `${where}: cites ${cited} with a route escape hatch, but the test's navigation is readable and already lands on this surface (${nav.routes.join(", ")}). Delete the hatch.`,
+      );
+    }
+    return errors;
+  }
+
+  if (!nav) {
+    errors.push(`${where}: cites ${cited}, whose navigation could not be read at all.`);
+    return errors;
+  }
+  if (nav.routes.some((r) => routes.some((s) => routeMatches(r, s)))) return errors;
+
+  const drove = nav.routes.length ? nav.routes.join(", ") : "no route at all";
+  const blind = nav.unresolved.length
+    ? ` Navigation it could not read: ${nav.unresolved.map((u) => `${u.expression} (line ${u.line})`).join(", ")}.`
+    : "";
+  errors.push(
+    `${where}: cites ${cited}, which never drives this surface. It drives ${drove}; this surface owns ${routes.join(", ")}.${blind}` +
+      " Cite a test that renders this surface, or, if it reaches the route by a path the source cannot show, say so with `drives` and `why`.",
+  );
+  return errors;
+}
+
 const SYMBOL: Record<Verdict, string> = {
   covered: "yes",
   "n/a": "n/a",
@@ -114,6 +187,7 @@ export function buildReport(options: BuildOptions = {}): Report {
   const ledger = options.ledger ?? LEDGER;
   const baseline = options.baseline ?? BASELINE_MISSING;
   const resolver = options.resolver ?? new CitationResolver();
+  const extractor = options.extractor ?? new RouteExtractor();
   const surfaces = options.surfaces ?? loadSurfaces();
   const states = options.states ?? loadStates();
   const addenda = options.addenda ?? new Set(loadAddenda().keys());
@@ -122,10 +196,40 @@ export function buildReport(options: BuildOptions = {}): Report {
   const entries = parseBaseline(baseline);
   const stateSet = new Set(states);
 
+  // A §5 state with no decision in `states.ts` would be exempt from the state
+  // proof without anyone choosing that. Same rule as the ledger itself: a new
+  // row upstream arrives red.
+  for (const state of undeclaredStates(states)) {
+    errors.push(
+      `04-design-parity-standard.md section 5 declares state "${state}", which tests/coverage/states.ts does not. Say whether entering it requires a mechanism a test must call, or record it as null — a state cannot become exempt by being new.`,
+    );
+  }
+
   // Drift between the ledger and its sources is a failure, not a silent gap.
   for (const [surface, decl] of Object.entries(ledger)) {
     if (!surfaces.some((s) => s.surface === surface)) {
       errors.push(`ledger declares surface "${surface}", which the design source manifest does not list`);
+    }
+    // Route declarations are checked BEFORE they are used to prove anything.
+    // Before this, `shared-shell-and-components` declared its route as the
+    // prose "(app) layout, nav, toasts, dialogs, the pending-work banner" —
+    // which is true, reads well, and matches no URL, so every route proof on
+    // that surface would have failed for a reason that was not a defect. The
+    // fix is not to skip those surfaces; it is to make "renders inside every
+    // app route" a thing the ledger can SAY, and to make saying it cost a
+    // written justification.
+    for (const route of decl.routes) {
+      if (route === "*") {
+        if ((decl.routeProofNote ?? "").trim().length < 30) {
+          errors.push(
+            `ledger surface "${surface}" claims the every-route wildcard without a routeProofNote saying why it owns no route of its own`,
+          );
+        }
+      } else if (!route.startsWith("/")) {
+        errors.push(
+          `ledger surface "${surface}" declares route "${route}", which is not a path. A route is what a browser can ask for; describe the rest in the surface note, and use "*" with a routeProofNote for a surface that renders inside every other one.`,
+        );
+      }
     }
     for (const table of [decl.fixture, decl.live]) {
       for (const state of Object.keys(table ?? {})) {
@@ -163,6 +267,9 @@ export function buildReport(options: BuildOptions = {}): Report {
               errors.push(
                 `${where}: cites ${cite.spec} "${cite.title}", which that spec does not declare.${near}`,
               );
+            } else {
+              // Resolving is the weaker half. This is the other one.
+              errors.push(...proveRoute(where, state, cite, decl.routes, extractor));
             }
           }
         } else if (cell.verdict === "blocked") {
@@ -222,7 +329,13 @@ export function buildReport(options: BuildOptions = {}): Report {
 function describe(cell: Cell): string {
   switch (cell.verdict) {
     case "covered":
-      return cell.cites.map((c) => `\`${c.spec}\` "${c.title}"`).join("; ");
+      return cell.cites
+        .map((c) =>
+          c.drives
+            ? `\`${c.spec}\` "${c.title}" — route proof waived to \`${c.drives}\`: ${c.why}`
+            : `\`${c.spec}\` "${c.title}"`,
+        )
+        .join("; ");
     case "n/a":
       return cell.reason;
     case "blocked":
@@ -257,7 +370,9 @@ function render(
   out.push("");
   out.push("| Verdict | In the matrix | Meaning |");
   out.push("|---|---|---|");
-  out.push("| covered | `yes` | a named test exercises it, and the citation resolves to a real title |");
+  out.push(
+    "| covered | `yes` | a named test exercises it: the citation resolves to a real title, that test is proven to drive one of this surface's routes, it runs rather than being quarantined, and where entering the state requires a specific call, it makes it |",
+  );
   out.push("| n/a | `n/a` | the state cannot occur here, with a stated reason |");
   out.push("| blocked | `add` | the design input does not exist; names its ADD item |");
   out.push("| missing (baselined) | `gap` | a known, dated hole. Not covered. Does not fail today |");
@@ -317,6 +432,15 @@ function render(
   out.push(
     "- The visual snapshot suite cannot be cited: every title in `tests/e2e/visual.spec.ts` is computed from a loop variable, and a citation has to name something a person can find.",
   );
+  out.push(
+    `- A cell is checked on three things: the citation resolves, the cited test drives one of this surface's routes, and the cited test actually runs (a \`test.skip\`, \`test.fixme\` or \`test.fail\` cannot be cited — CI stays green over it). State ENTRY is checked only where the browser cannot reach the state without a specific call: ${machineCheckedStates().join(", ")}. For every other state, that the test entered it is a reviewer's judgement, recorded as \`null\` in \`tests/coverage/states.ts\` rather than left unsaid.`,
+  );
+  out.push(
+    "- A cited test that is red is CI's job, not this gate's: the full Playwright suite runs on every PR and `land.sh` refuses on a red or pending check set. What this gate adds is the case CI cannot see — a cited test that never runs.",
+  );
+  out.push(
+    "- The route proof (`tests/coverage/routes.ts`) is a necessary condition, not a sufficient one. It rejects a citation whose test never renders the surface at all — the class it was built for, and the class it found six of. It cannot tell whether the test looked at the right thing once it got there; only the reviewer and the assertion can.",
+  );
   out.push("");
 
   out.push("## Per surface");
@@ -359,10 +483,10 @@ function render(
   out.push("");
   out.push("Each line is a hole that already existed when the gate was switched on. Baselined is not covered.");
   out.push("");
-  out.push("| Cell | Why it is missing |");
-  out.push("|---|---|");
+  out.push("| Cell | Found | Why it is missing |");
+  out.push("|---|---|---|");
   for (const e of baseline.entries) {
-    out.push(`| \`${e.key}\` | ${e.reason} |`);
+    out.push(`| \`${e.key}\` | ${e.since ?? baseline.date} | ${e.reason} |`);
   }
   out.push("");
 

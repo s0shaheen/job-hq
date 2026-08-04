@@ -77,6 +77,65 @@ Rules that keep it honest:
 - A cell cites a **spec file and test title**, and the ledger verifies that test exists.
   A citation that no longer resolves is a failure, not a stale row — renaming a test may
   not silently uncover a state.
+- A citation must also **prove it drives the cited surface's route**. Resolving a title
+  says the test exists; it says nothing about whether the test has anything to do with
+  the surface, and for a while a cell on `/companies` could be closed by a test that only
+  ever loaded `/queue`. `webapp/tests/coverage/routes.ts` parses each spec and works out
+  what the cited test navigates — constants, path lists swept in a loop, local helpers
+  that take the route as a parameter, template segments, and the URL a test asserts it
+  landed on. A navigation it cannot read is reported as unreadable, never as a pass:
+  indirection reddens the gate rather than greening it. The one escape hatch is per
+  citation, names the route, says why in writing, is rendered into the evidence file, and
+  fails if the route turns out to be readable after all.
+
+  **Finding, 2026-08-03 — the sweep cited by every surface it sounds like it covers.**
+  Switching the route proof on found six cells that read `covered` and were not, and
+  they are one class rather than six mistakes. A sweep test has a general name — "the
+  page survives a 200% text zoom", "nothing paints past the edge at the large type
+  scale" — and a specific, private path list. The name travels; the path list does not.
+  So `jobs`, `coverage`, `settings-auth-onboarding` and
+  `billing-landing-email-import-export` all cited the zoom sweep, which loads `/queue`
+  and `/pipeline` and nothing else, and `coverage` and `settings-auth-onboarding` cited
+  the large-type sweep, which loads `/pipeline`, `/queue` and `/jobs`. Every one of those
+  citations is a reasonable thing for a careful person to write, which is exactly why
+  nobody caught it: the citation reads true and only the sweep's source says otherwise.
+
+  The tests were fine. The citations were the whole of the evidence, and nothing had ever
+  checked them. This is `CLAUDE.md`'s rule about machine enforcement arriving on
+  schedule — the hand-checked version of this rule had been asserted, by two agents,
+  hours before it was tested.
+
+  The split matters as much as the finding: the six cells are **baselined as found on
+  2026-08-03, not fixed here.** Making them true means adding paths to those two sweeps,
+  which is surface work that can legitimately discover real overflow defects on
+  `/companies`, `/settings` and `/import`. A checker that quietly repaired the evidence
+  it was built to audit would be the same failure in the other direction.
+
+  Whenever a citation names a test that sweeps a list, check the list. The gate now does.
+
+  It is a necessary condition, not a sufficient one. It refuses a citation whose test
+  never renders the surface. It cannot tell whether the test looked at the right thing
+  once it got there.
+- A surface that owns no route of its own — the shell, the system behaviours — declares
+  `"*"` and owes a written `routeProofNote`. Exemption from the route proof is a
+  statement somebody made, never a side effect of a route list that happened to be prose.
+- A citation must **enter the state**, where entering it requires something of the test.
+  A cell claims `surface × state` and for a long time only the surface half was checked,
+  which is how `Provider image failure` got closed by a test that reaches the monogram
+  through a company with no domain — nothing fails, so it is the no-domain rung. Most
+  states leave no reliable mark in source and guessing at them would be §10's vacuous
+  gate, so `webapp/tests/coverage/states.ts` checks only the states a browser cannot
+  reach without a specific call: offline, 200% zoom, large type, reduced motion, provider
+  image failure, narrow viewport, session expiry, permission. Every other §5 state is
+  recorded there as `null` — nobody's check, written down — and the rendered ledger
+  prints which half is which. A state added to §5 with no row fails the build.
+- A citation must name a test that **runs**. `test.skip`, `test.fixme` and `test.fail`
+  cannot be cited, including a skip inherited from a describe: CI stays green over them,
+  so the cell would claim a state no machine has entered since the modifier landed. §9
+  quarantines a flaky test with an owner and a deadline; it does not let the ledger go on
+  counting it. A cited test that is *red* stays CI's job — the full Playwright suite runs
+  on every PR and `land.sh` refuses on a red or pending check set, so a cell claimed over
+  a red test cannot land.
 - `n/a` and `blocked` carry prose reasons. `blocked` must name a real ADD item from
   `07-decisions-assumptions-risks.md`.
 - The ledger is generated, never hand-edited, and committed — so a diff shows exactly

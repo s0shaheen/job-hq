@@ -6,7 +6,7 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 
 | Verdict | In the matrix | Meaning |
 |---|---|---|
-| covered | `yes` | a named test exercises it, and the citation resolves to a real title |
+| covered | `yes` | a named test exercises it: the citation resolves to a real title, that test is proven to drive one of this surface's routes, it runs rather than being quarantined, and where entering the state requires a specific call, it makes it |
 | n/a | `n/a` | the state cannot occur here, with a stated reason |
 | blocked | `add` | the design input does not exist; names its ADD item |
 | missing (baselined) | `gap` | a known, dated hole. Not covered. Does not fail today |
@@ -16,15 +16,15 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 
 | | Cells |
 |---|---:|
-| covered | 116 |
+| covered | 110 |
 | n/a | 48 |
 | blocked on an ADD item | 134 |
-| missing, baselined 2026-08-02 | 206 |
+| missing, baselined 2026-08-02 | 212 |
 | missing, new (fails) | 0 |
 | on an unbuilt surface (not enforced) | 126 |
 | total | 504 |
 
-**Baselined is not covered.** 206 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
+**Baselined is not covered.** 212 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
 
 ## Matrix, fixture mode
 
@@ -32,13 +32,13 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | applications | yes | yes | yes | n/a | yes | yes | yes | yes | gap | yes | yes | gap | yes | yes | gap | yes | yes | yes | yes | gap | gap |
 | autopilot | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
-| billing-landing-email-import-export | gap | yes | yes | n/a | gap | gap | yes | gap | gap | yes | add | gap | gap | yes | gap | gap | yes | yes | yes | gap | n/a |
-| coverage | yes | yes | yes | yes | yes | yes | yes | yes | gap | gap | yes | gap | yes | yes | gap | gap | yes | yes | yes | gap | gap |
+| billing-landing-email-import-export | gap | yes | yes | n/a | gap | gap | yes | gap | gap | yes | add | gap | gap | yes | gap | gap | yes | gap | yes | gap | n/a |
+| coverage | yes | yes | yes | yes | yes | yes | yes | yes | gap | gap | yes | gap | yes | yes | gap | gap | gap | gap | yes | gap | gap |
 | find-intro | gap | yes | yes | yes | yes | yes | yes | yes | gap | gap | yes | gap | gap | yes | gap | add | gap | gap | yes | gap | n/a |
-| jobs | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | gap | yes | yes | yes | yes | yes | yes | gap | yes |
+| jobs | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | gap | yes | yes | yes | yes | gap | yes | gap | yes |
 | operator-admin | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | resume | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
-| settings-auth-onboarding | yes | yes | yes | n/a | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | gap | n/a |
+| settings-auth-onboarding | yes | yes | yes | n/a | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | gap | gap | gap | yes | gap | n/a |
 | shared-shell-and-components | n/a | yes | yes | n/a | n/a | gap | n/a | yes | yes | n/a | yes | yes | yes | n/a | gap | n/a | yes | yes | yes | gap | n/a |
 | system-and-mobile | n/a | yes | n/a | n/a | n/a | yes | n/a | yes | yes | n/a | yes | yes | yes | n/a | gap | n/a | yes | yes | add | gap | n/a |
 | today | yes | yes | yes | yes | yes | gap | n/a | yes | yes | yes | yes | yes | gap | add | yes | gap | yes | yes | yes | gap | yes |
@@ -51,6 +51,9 @@ Live mode is not shown as a matrix because it has one value everywhere. Every li
 - The mobile Playwright project is a Pixel 7 viewport and nothing else. The repo issues zero tap, touchscreen or gesture calls, so no phone assertion anywhere covers touch input.
 - `Permission/holding` means the pending and suspended entitlements, driven through the demo seam that the shipped predicate reads. WRONG-OWNER refusal is still uncovered in the browser: it needs two real identities and RLS, and the whole Playwright estate is one single-tenant fixture store. That half stays proven at the database layer only.
 - The visual snapshot suite cannot be cited: every title in `tests/e2e/visual.spec.ts` is computed from a loop variable, and a citation has to name something a person can find.
+- A cell is checked on three things: the citation resolves, the cited test drives one of this surface's routes, and the cited test actually runs (a `test.skip`, `test.fixme` or `test.fail` cannot be cited — CI stays green over it). State ENTRY is checked only where the browser cannot reach the state without a specific call: 200% zoom, Large type, Narrow viewport, Offline write disabled, Permission/holding, Provider image failure, Reduced motion, Session expired. For every other state, that the test entered it is a reviewer's judgement, recorded as `null` in `tests/coverage/states.ts` rather than left unsaid.
+- A cited test that is red is CI's job, not this gate's: the full Playwright suite runs on every PR and `land.sh` refuses on a red or pending check set. What this gate adds is the case CI cannot see — a cited test that never runs.
+- The route proof (`tests/coverage/routes.ts`) is a necessary condition, not a sufficient one. It rejects a citation whose test never renders the surface at all — the class it was built for, and the class it found six of. It cannot tell whether the test looked at the right thing once it got there; only the reviewer and the assertion can.
 
 ## Per surface
 
@@ -62,7 +65,7 @@ The Loading cell cited the jobs measurement until the Applications cutover: load
 
 | State | Fixture | Evidence or reason |
 |---|---|---|
-| Loading | yes | `tests/e2e/loading.spec.ts` "the Applications skeleton and the loaded page put content in the same place" |
+| Loading | yes | `tests/e2e/loading.spec.ts` "the Applications skeleton and the loaded page put content in the same place" — route proof waived to `/pipeline`: A Suspense loading.tsx paints only on client-side navigation, so the test starts on /queue, stalls the /pipeline payload and clicks the Applications nav link. The route is never passed to goto and a link name is not a path. |
 | Populated | yes | `tests/e2e/pipeline.spec.ts` "bands render live work first and the archive last" |
 | Natural empty | yes | `tests/e2e/empty.spec.ts` "zero rows" |
 | Filter empty | n/a | the pipeline has no filter clause builder; groups collapse rather than remove rows, and a collapsed group still states its count |
@@ -139,14 +142,14 @@ Import and export are built and covered. Billing, the landing page and the email
 | Long strings | gap | No spec asserts a long column header or cell value wraps in the mapping list. |
 | High volume | gap | No spec drives the wizard at a workbook of thousands of rows. |
 | Large type | yes | `tests/e2e/import-wizard.spec.ts` "the wizard survives the large type scale" |
-| 200% zoom | yes | `tests/e2e/resilience.spec.ts` "the page survives a 200% text zoom" |
+| 200% zoom | gap | The 200% zoom sweep runs /queue and /pipeline only; /import is not in its path list. |
 | Narrow viewport | yes | `tests/e2e/import-wizard.spec.ts` "nothing in the wizard paints past the page edge" |
 | Reduced motion | gap | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
 | Provider image failure | n/a | neither the wizard nor the export dialog renders provider imagery |
 
 ### coverage
 
-Routes: `/companies`, `/companies/add`, `/health`
+Routes: `/coverage`, `/companies`, `/companies/add`, `/health`
 
 | State | Fixture | Evidence or reason |
 |---|---|---|
@@ -166,17 +169,17 @@ Routes: `/companies`, `/companies/add`, `/health`
 | Selected/detail | yes | `tests/e2e/companies.spec.ts` "a selection stays accessible and does not shift the rows" |
 | Long strings | gap | No spec asserts a long company name wraps inside its cell. |
 | High volume | gap | No spec drives /companies at thousands of rows; the perf budget covers /jobs only. |
-| Large type | yes | `tests/e2e/layout.spec.ts` "nothing paints past the edge at the large type scale" |
-| 200% zoom | yes | `tests/e2e/resilience.spec.ts` "the page survives a 200% text zoom" |
+| Large type | gap | The large-type sweep in layout.spec.ts runs /pipeline, /queue and /jobs only; no coverage route is in its path list. |
+| 200% zoom | gap | The 200% zoom sweep runs /queue and /pipeline only; no coverage route is in its path list. |
 | Narrow viewport | yes | `tests/e2e/companies.spec.ts` "the grid scrolls inside its own container at 280px" |
 | Reduced motion | gap | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
 | Provider image failure | gap | The monogram fallback for a failed company logo is asserted in unit tests only, on the surface that shows the most logos - and the rendered path is known broken there, because a server-rendered row fires its image error before hydration so onError never runs. |
 
 ### find-intro
 
-Routes: `/connections`
+Routes: `/connections`, `/jobs`, `/pipeline`
 
-/connections is outside the layout and resilience sweep lists; its overflow and axe runs live in referral.spec.ts instead.
+/connections is outside the layout and resilience sweep lists; its overflow and axe runs live in referral.spec.ts instead. The finder also renders as a panel opened from a job row on /jobs and an application row on /pipeline, so all three are its routes.
 
 | State | Fixture | Evidence or reason |
 |---|---|---|
@@ -208,7 +211,7 @@ Routes: `/jobs`
 
 | State | Fixture | Evidence or reason |
 |---|---|---|
-| Loading | yes | `tests/e2e/grid.spec.ts` "the skeleton and the loaded grid put the header rail in the same place" |
+| Loading | yes | `tests/e2e/grid.spec.ts` "the skeleton and the loaded grid put the header rail in the same place" — route proof waived to `/jobs`: The jobs skeleton only paints on CLIENT-side navigation, so the test loads /pipeline and then clicks the Jobs nav link with the /jobs payload held back. The route it renders is never passed to goto and no source reader can follow the link name to a path. |
 | Populated | yes | `tests/e2e/grid.spec.ts` "the Queue set shows qualified, undecided rows only — and states its counts" |
 | Natural empty | yes | `tests/e2e/grid.spec.ts` "with nothing found at all, the grid says so instead of rendering a bare header" |
 | Filter empty | yes | `tests/e2e/grid.spec.ts` "a filter that matches nothing says so and offers one-click clear — distinct from profile gating" |
@@ -225,10 +228,10 @@ Routes: `/jobs`
 | Long strings | yes | `tests/e2e/grid.spec.ts` "the long fixture row stays one row tall and keeps its full text reachable" |
 | High volume | yes | `tests/e2e/grid-perf.spec.ts` "row 25: the DOM holds a bounded number of rows at any scroll position" |
 | Large type | yes | `tests/e2e/grid-polish.spec.ts` "the header and body columns stay aligned at large type" |
-| 200% zoom | yes | `tests/e2e/resilience.spec.ts` "the page survives a 200% text zoom" |
+| 200% zoom | gap | The 200% zoom sweep in resilience.spec.ts runs /queue and /pipeline only; /jobs is not in its path list. |
 | Narrow viewport | yes | `tests/e2e/grid.spec.ts` "the grid, not the page, absorbs the horizontal overflow" |
 | Reduced motion | gap | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
-| Provider image failure | yes | `tests/e2e/jobs-redesign.spec.ts` "a logo host that never answers degrades to the monogram, not a broken image"; `tests/e2e/jobs-redesign.spec.ts` "a company the universe has no domain for is on the monogram already"; `tests/e2e/jobs-redesign.spec.ts` "the monogram is decorative, so the column does not read as 'R A Ramp'" |
+| Provider image failure | yes | `tests/e2e/jobs-redesign.spec.ts` "a logo host that never answers degrades to the monogram, not a broken image"; `tests/e2e/jobs-redesign.spec.ts` "the monogram is decorative, so the column does not read as 'R A Ramp'" |
 
 ### operator-admin
 
@@ -314,15 +317,15 @@ The entry path is covered as journeys in entry-path.spec.ts: /login, /pending, /
 | Selected/detail | yes | `tests/e2e/answers.spec.ts` "a one-company answer says so, and its scope survives an edit" |
 | Long strings | yes | `tests/e2e/onboarding.spec.ts` "a draft too long for a URL says so instead of losing the answers" |
 | High volume | gap | No spec drives the answers library at hundreds of stored rules. |
-| Large type | yes | `tests/e2e/layout.spec.ts` "nothing paints past the edge at the large type scale" |
-| 200% zoom | yes | `tests/e2e/resilience.spec.ts` "the page survives a 200% text zoom" |
+| Large type | gap | The large-type sweep runs /pipeline, /queue and /jobs only; neither settings surface nor the wizard is in its path list. |
+| 200% zoom | gap | The 200% zoom sweep runs /queue and /pipeline only; neither settings surface, the wizard nor the entry path is in its path list. |
 | Narrow viewport | yes | `tests/e2e/settings.spec.ts` "the section rail absorbs its own overflow at 280px" |
 | Reduced motion | gap | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
 | Provider image failure | n/a | the settings surfaces render no provider imagery: the Google connected-account row uses a monogram rather than the template's favicon fetch, so there is no third-party image request to fail |
 
 ### shared-shell-and-components
 
-Routes: `(app) layout, nav, toasts, dialogs, the pending-work banner`
+Routes: `*`
 
 The shell has no route of its own; it is the chrome every routed surface renders inside.
 
@@ -352,7 +355,7 @@ The shell has no route of its own; it is the chrome every routed surface renders
 
 ### system-and-mobile
 
-Routes: `the 404 handler`, `the offline and expired-session banners`, `the mobile Playwright project`
+Routes: `*`
 
 The mobile project is a Pixel 7 viewport and nothing else: the repo issues zero tap, touchscreen or gesture calls, so every phone assertion here is about composition, never about touch input.
 
@@ -412,44 +415,50 @@ Routes: `/queue`
 
 Each line is a hole that already existed when the gate was switched on. Baselined is not covered.
 
-| Cell | Why it is missing |
-|---|---|
-| `* | * | live` | The live lane is built and its Supabase project is provisioned, but the lane has never executed: it runs on merge to main and this work is still on a branch. So RLS, entitlement, real sessions and SupabaseDataSource have no OBSERVED rendered-journey coverage. |
-| `* | Reduced motion | fixture` | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
-| `applications | Session expired | fixture` | Session expiry is asserted from /queue only; no spec expires a session mid-journey on /pipeline or /apply. |
-| `coverage | Session expired | fixture` | No spec expires a session on /companies or /health. |
-| `find-intro | Session expired | fixture` | No spec expires a session on /connections. |
-| `billing-landing-email-import-export | Session expired | fixture` | No spec expires a session mid-import. |
-| `jobs | Offline write disabled | fixture` | offline.spec drives /queue; bulk triage from the grid is never exercised offline. |
-| `applications | Offline write disabled | fixture` | A status change or note written while offline is never exercised. |
-| `coverage | Offline write disabled | fixture` | Approve and dismiss are never exercised offline. |
-| `find-intro | Offline write disabled | fixture` | Starting or pinning an intro is never exercised offline. |
-| `billing-landing-email-import-export | Offline write disabled | fixture` | Commit is never exercised offline. |
-| `coverage | Conflict | fixture` | No spec simulates a second device reviewing the same company batch. |
-| `find-intro | Conflict | fixture` | No spec simulates a second device pinning the same connection. |
-| `find-intro | Loading | fixture` | /connections has no skeleton assertion. |
-| `billing-landing-email-import-export | Loading | fixture` | The wizard has no skeleton assertion. |
-| `today | Partial/degraded | fixture` | A queue rendered with the engine's scoring unavailable is never exercised. |
-| `shared-shell-and-components | Partial/degraded | fixture` | The shell with a dependency named as unavailable is never rendered. |
-| `billing-landing-email-import-export | Missing optional fact | fixture` | A mapped column the file never supplied is never asserted to read Not listed. |
-| `billing-landing-email-import-export | Partial/degraded | fixture` | A partially parseable workbook is never exercised. |
-| `today | Fatal route error | fixture` | No spec forces /queue to throw; only the 404 path is covered. |
-| `jobs | Fatal route error | fixture` | A malformed view falls back loudly, but a thrown render is never exercised. |
-| `find-intro | Fatal route error | fixture` | No spec forces /connections to throw. |
-| `billing-landing-email-import-export | Fatal route error | fixture` | No spec forces the wizard to throw; an unknown batch id is not asserted. |
-| `billing-landing-email-import-export | Write pending | fixture` | Commit's in-flight state is never asserted; only its result is. |
-| `applications | Long strings | fixture` | No spec asserts a long board-written question label or note wraps rather than truncating. |
-| `coverage | Long strings | fixture` | No spec asserts a long company name wraps inside its cell. |
-| `shared-shell-and-components | Long strings | fixture` | No spec asserts a long toast or nav count stays inside the shell. |
-| `find-intro | Long strings | fixture` | No spec asserts a long connection name or headline wraps. |
-| `billing-landing-email-import-export | Long strings | fixture` | No spec asserts a long column header or cell value wraps in the mapping list. |
-| `system-and-mobile | Long strings | fixture` | No spec anywhere renders non-Latin script, emoji, CJK or RTL text; every long-string assertion in the estate is Latin-only. |
-| `today | High volume | fixture` | No spec drives the queue at thousands of cards. |
-| `coverage | High volume | fixture` | No spec drives /companies at thousands of rows; the perf budget covers /jobs only. |
-| `settings-auth-onboarding | High volume | fixture` | No spec drives the answers library at hundreds of stored rules. |
-| `billing-landing-email-import-export | High volume | fixture` | No spec drives the wizard at a workbook of thousands of rows. |
-| `find-intro | Large type | fixture` | /connections is absent from the large-type overflow sweep in layout.spec.ts. |
-| `find-intro | 200% zoom | fixture` | /connections is absent from the 200% zoom sweep in resilience.spec.ts. |
-| `applications | Provider image failure | fixture` | The monogram fallback for a failed company logo is asserted in unit tests only. |
-| `coverage | Provider image failure | fixture` | The monogram fallback for a failed company logo is asserted in unit tests only, on the surface that shows the most logos - and the rendered path is known broken there, because a server-rendered row fires its image error before hydration so onError never runs. |
+| Cell | Found | Why it is missing |
+|---|---|---|
+| `* | * | live` | 2026-08-02 | The live lane is built and its Supabase project is provisioned, but the lane has never executed: it runs on merge to main and this work is still on a branch. So RLS, entitlement, real sessions and SupabaseDataSource have no OBSERVED rendered-journey coverage. |
+| `* | Reduced motion | fixture` | 2026-08-02 | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
+| `applications | Session expired | fixture` | 2026-08-02 | Session expiry is asserted from /queue only; no spec expires a session mid-journey on /pipeline or /apply. |
+| `coverage | Session expired | fixture` | 2026-08-02 | No spec expires a session on /companies or /health. |
+| `find-intro | Session expired | fixture` | 2026-08-02 | No spec expires a session on /connections. |
+| `billing-landing-email-import-export | Session expired | fixture` | 2026-08-02 | No spec expires a session mid-import. |
+| `jobs | Offline write disabled | fixture` | 2026-08-02 | offline.spec drives /queue; bulk triage from the grid is never exercised offline. |
+| `applications | Offline write disabled | fixture` | 2026-08-02 | A status change or note written while offline is never exercised. |
+| `coverage | Offline write disabled | fixture` | 2026-08-02 | Approve and dismiss are never exercised offline. |
+| `find-intro | Offline write disabled | fixture` | 2026-08-02 | Starting or pinning an intro is never exercised offline. |
+| `billing-landing-email-import-export | Offline write disabled | fixture` | 2026-08-02 | Commit is never exercised offline. |
+| `coverage | Conflict | fixture` | 2026-08-02 | No spec simulates a second device reviewing the same company batch. |
+| `find-intro | Conflict | fixture` | 2026-08-02 | No spec simulates a second device pinning the same connection. |
+| `find-intro | Loading | fixture` | 2026-08-02 | /connections has no skeleton assertion. |
+| `billing-landing-email-import-export | Loading | fixture` | 2026-08-02 | The wizard has no skeleton assertion. |
+| `today | Partial/degraded | fixture` | 2026-08-02 | A queue rendered with the engine's scoring unavailable is never exercised. |
+| `shared-shell-and-components | Partial/degraded | fixture` | 2026-08-02 | The shell with a dependency named as unavailable is never rendered. |
+| `billing-landing-email-import-export | Missing optional fact | fixture` | 2026-08-02 | A mapped column the file never supplied is never asserted to read Not listed. |
+| `billing-landing-email-import-export | Partial/degraded | fixture` | 2026-08-02 | A partially parseable workbook is never exercised. |
+| `today | Fatal route error | fixture` | 2026-08-02 | No spec forces /queue to throw; only the 404 path is covered. |
+| `jobs | Fatal route error | fixture` | 2026-08-02 | A malformed view falls back loudly, but a thrown render is never exercised. |
+| `find-intro | Fatal route error | fixture` | 2026-08-02 | No spec forces /connections to throw. |
+| `billing-landing-email-import-export | Fatal route error | fixture` | 2026-08-02 | No spec forces the wizard to throw; an unknown batch id is not asserted. |
+| `billing-landing-email-import-export | Write pending | fixture` | 2026-08-02 | Commit's in-flight state is never asserted; only its result is. |
+| `applications | Long strings | fixture` | 2026-08-02 | No spec asserts a long board-written question label or note wraps rather than truncating. |
+| `coverage | Long strings | fixture` | 2026-08-02 | No spec asserts a long company name wraps inside its cell. |
+| `shared-shell-and-components | Long strings | fixture` | 2026-08-02 | No spec asserts a long toast or nav count stays inside the shell. |
+| `find-intro | Long strings | fixture` | 2026-08-02 | No spec asserts a long connection name or headline wraps. |
+| `billing-landing-email-import-export | Long strings | fixture` | 2026-08-02 | No spec asserts a long column header or cell value wraps in the mapping list. |
+| `system-and-mobile | Long strings | fixture` | 2026-08-02 | No spec anywhere renders non-Latin script, emoji, CJK or RTL text; every long-string assertion in the estate is Latin-only. |
+| `today | High volume | fixture` | 2026-08-02 | No spec drives the queue at thousands of cards. |
+| `coverage | High volume | fixture` | 2026-08-02 | No spec drives /companies at thousands of rows; the perf budget covers /jobs only. |
+| `settings-auth-onboarding | High volume | fixture` | 2026-08-02 | No spec drives the answers library at hundreds of stored rules. |
+| `billing-landing-email-import-export | High volume | fixture` | 2026-08-02 | No spec drives the wizard at a workbook of thousands of rows. |
+| `jobs | 200% zoom | fixture` | 2026-08-03 | The 200% zoom sweep in resilience.spec.ts runs /queue and /pipeline only; /jobs is not in its path list. |
+| `coverage | 200% zoom | fixture` | 2026-08-03 | The 200% zoom sweep runs /queue and /pipeline only; no coverage route is in its path list. |
+| `settings-auth-onboarding | 200% zoom | fixture` | 2026-08-03 | The 200% zoom sweep runs /queue and /pipeline only; neither settings surface, the wizard nor the entry path is in its path list. |
+| `billing-landing-email-import-export | 200% zoom | fixture` | 2026-08-03 | The 200% zoom sweep runs /queue and /pipeline only; /import is not in its path list. |
+| `coverage | Large type | fixture` | 2026-08-03 | The large-type sweep in layout.spec.ts runs /pipeline, /queue and /jobs only; no coverage route is in its path list. |
+| `settings-auth-onboarding | Large type | fixture` | 2026-08-03 | The large-type sweep runs /pipeline, /queue and /jobs only; neither settings surface nor the wizard is in its path list. |
+| `find-intro | Large type | fixture` | 2026-08-02 | /connections is absent from the large-type overflow sweep in layout.spec.ts. |
+| `find-intro | 200% zoom | fixture` | 2026-08-02 | /connections is absent from the 200% zoom sweep in resilience.spec.ts. |
+| `applications | Provider image failure | fixture` | 2026-08-02 | The monogram fallback for a failed company logo is asserted in unit tests only. |
+| `coverage | Provider image failure | fixture` | 2026-08-02 | The monogram fallback for a failed company logo is asserted in unit tests only, on the surface that shows the most logos - and the rendered path is known broken there, because a server-rendered row fires its image error before hydration so onError never runs. |
 

@@ -36,6 +36,17 @@ export function e2e(file: string, ...titles: readonly string[]): Cell {
   };
 }
 
+/**
+ * Cite a test whose route the source cannot show — the ONE escape hatch in the
+ * route proof (`routes.ts`). `drives` names the surface route the test really
+ * reaches; `why` says how. Both are checked: `drives` must be a route this
+ * surface owns, and a hatch over a citation the extractor CAN read is a
+ * failure, so the list may only shrink.
+ */
+export function via(file: string, title: string, drives: string, why: string): Cell {
+  return { verdict: "covered", cites: [{ spec: `tests/e2e/${file}.spec.ts`, title, drives, why }] };
+}
+
 export function na(reason: string): Cell {
   return { verdict: "n/a", reason };
 }
@@ -76,8 +87,18 @@ export const ST = {
 } as const;
 
 export interface SurfaceLedger {
-  /** Routes this surface owns. Empty means unbuilt: listed, never enforced. */
+  /**
+   * Routes this surface owns, as paths a browser can ask for. Empty means
+   * unbuilt: listed, never enforced.
+   *
+   * These are load-bearing now: every citation must drive one of them
+   * (`routes.ts`). `"*"` means the surface renders inside every app route and
+   * owns none of its own, and it requires a `routeProofNote` — a surface
+   * cannot become exempt by accident, only by writing down why.
+   */
   readonly routes: readonly string[];
+  /** Required with a `"*"` route. Why this surface owns no route of its own. */
+  readonly routeProofNote?: string;
   /** Anything a reader of the rendered ledger would otherwise get wrong. */
   readonly note?: string;
   /** Applied to every state, for a surface that is one verdict end to end. */
@@ -138,7 +159,12 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
   jobs: {
     routes: ["/jobs"],
     fixture: {
-      [ST.loading]: e2e("grid", "the skeleton and the loaded grid put the header rail in the same place"),
+      [ST.loading]: via(
+        "grid",
+        "the skeleton and the loaded grid put the header rail in the same place",
+        "/jobs",
+        "The jobs skeleton only paints on CLIENT-side navigation, so the test loads /pipeline and then clicks the Jobs nav link with the /jobs payload held back. The route it renders is never passed to goto and no source reader can follow the link name to a path.",
+      ),
       [ST.populated]: e2e("grid", "the Queue set shows qualified, undecided rows only — and states its counts"),
       [ST.naturalEmpty]: e2e("grid", "with nothing found at all, the grid says so instead of rendering a bare header"),
       [ST.filterEmpty]: e2e(
@@ -185,7 +211,9 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.longStrings]: e2e("grid", "the long fixture row stays one row tall and keeps its full text reachable"),
       [ST.highVolume]: e2e("grid-perf", "row 25: the DOM holds a bounded number of rows at any scroll position"),
       [ST.largeType]: e2e("grid-polish", "the header and body columns stay aligned at large type"),
-      [ST.zoom]: e2e("resilience", "the page survives a 200% text zoom"),
+      // Was cited to the 200% zoom sweep in resilience.spec.ts, which loads
+      // /queue and /pipeline and nothing else. The route proof caught it.
+      [ST.zoom]: MISSING,
       [ST.narrow]: e2e("grid", "the grid, not the page, absorbs the horizontal overflow"),
       [ST.reducedMotion]: MISSING,
       [ST.providerImage]: {
@@ -194,10 +222,6 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
           {
             spec: "tests/e2e/jobs-redesign.spec.ts",
             title: "a logo host that never answers degrades to the monogram, not a broken image",
-          },
-          {
-            spec: "tests/e2e/jobs-redesign.spec.ts",
-            title: "a company the universe has no domain for is on the monogram already",
           },
           // The third rendered case. It was passing and uncited, which is the
           // one way a covered cell silently uncovers itself: the resolver only
@@ -208,6 +232,14 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
             spec: "tests/e2e/jobs-redesign.spec.ts",
             title: "the monogram is decorative, so the column does not read as 'R A Ramp'",
           },
+          // "a company the universe has no domain for is on the monogram
+          // already" was cited here and is gone, because the state proof
+          // refused it and was right. That test's own comment says it: "No
+          // route interception: this rung is reached by having nothing to
+          // request." Nothing fails, so it is the no-domain rung, not a
+          // provider image FAILURE — the same defect a reviewer caught by hand
+          // on feat/redesign-coverage the same day, sitting on main all along.
+          // The two above really do abort the logo host, so the cell stands.
         ],
       },
     },
@@ -222,9 +254,18 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       "at all. Both now have one, and the citation names the test that measures THIS " +
       "surface's skeleton against THIS surface's loaded page.",
     fixture: {
-      [ST.loading]: e2e(
+      // The second citation to need the route waiver, and for the same reason
+      // as `jobs | Loading`: `loading.tsx` is a Suspense fallback, so it paints
+      // only on CLIENT-side navigation. The test loads /queue, holds the
+      // /pipeline payload, and clicks the Applications nav link — which is how
+      // a user reaches it, and which no reader of the source can follow from a
+      // link name to a path. Two independent authors hit this, so it is the
+      // shape of the estate rather than an author's quirk.
+      [ST.loading]: via(
         "loading",
         "the Applications skeleton and the loaded page put content in the same place",
+        "/pipeline",
+        "A Suspense loading.tsx paints only on client-side navigation, so the test starts on /queue, stalls the /pipeline payload and clicks the Applications nav link. The route is never passed to goto and a link name is not a path.",
       ),
       [ST.populated]: e2e("pipeline", "bands render live work first and the archive last"),
       [ST.naturalEmpty]: e2e("empty", "zero rows"),
@@ -262,7 +303,9 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
   },
 
   coverage: {
-    routes: ["/companies", "/companies/add", "/health"],
+    // `/coverage` was missing: it is the surface's own landing route, and the
+    // skeleton test below starts there on purpose.
+    routes: ["/coverage", "/companies", "/companies/add", "/health"],
     fixture: {
       [ST.loading]: e2e("companies", "the loading skeleton carries every band the loaded page does"),
       [ST.populated]: e2e("companies", "every row's chip names a confidence — none is silently blank"),
@@ -289,8 +332,12 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.detail]: e2e("companies", "a selection stays accessible and does not shift the rows"),
       [ST.longStrings]: MISSING,
       [ST.highVolume]: MISSING,
-      [ST.largeType]: e2e("layout", "nothing paints past the edge at the large type scale"),
-      [ST.zoom]: e2e("resilience", "the page survives a 200% text zoom"),
+      // Was cited to the large-type sweep in layout.spec.ts, which loads
+      // /pipeline, /queue and /jobs and nothing else. The route proof caught it.
+      [ST.largeType]: MISSING,
+      // Was cited to the 200% zoom sweep in resilience.spec.ts, which loads
+      // /queue and /pipeline and nothing else. The route proof caught it.
+      [ST.zoom]: MISSING,
       [ST.narrow]: e2e("companies", "the grid scrolls inside its own container at 280px"),
       [ST.reducedMotion]: MISSING,
       // STILL MISSING, and the two logo tests on this surface do NOT cover it.
@@ -309,7 +356,9 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
   },
 
   "shared-shell-and-components": {
-    routes: ["(app) layout, nav, toasts, dialogs, the pending-work banner"],
+    routes: ["*"],
+    routeProofNote:
+      "The shell — the (app) layout, nav, toasts, dialogs and the pending-work banner — has no route of its own: it is the chrome every routed surface renders inside, so any app route renders it and the route proof asks only that a citation reach one.",
     note: "The shell has no route of its own; it is the chrome every routed surface renders inside.",
     fixture: {
       [ST.loading]: na("the shell renders synchronously; each surface owns its own skeleton row"),
@@ -340,8 +389,14 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
   },
 
   "find-intro": {
-    routes: ["/connections"],
-    note: "/connections is outside the layout and resilience sweep lists; its overflow and axe runs live in referral.spec.ts instead.",
+    // `/connections` alone was wrong, and the route proof is what found it:
+    // six of this surface's seven citations never load `/connections`. They
+    // are not laundered — the finder is a panel opened from a job row on
+    // `/jobs` and an application row on `/pipeline`, which is where every
+    // lifecycle claim in `warm-intro.spec.ts` is made. The declaration was
+    // describing one of the surface's three homes.
+    routes: ["/connections", "/jobs", "/pipeline"],
+    note: "/connections is outside the layout and resilience sweep lists; its overflow and axe runs live in referral.spec.ts instead. The finder also renders as a panel opened from a job row on /jobs and an application row on /pipeline, so all three are its routes.",
     fixture: {
       [ST.loading]: MISSING,
       [ST.populated]: e2e(
@@ -425,13 +480,18 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.detail]: e2e("answers", "a one-company answer says so, and its scope survives an edit"),
       [ST.longStrings]: e2e("onboarding", "a draft too long for a URL says so instead of losing the answers"),
       [ST.highVolume]: MISSING,
-      [ST.largeType]: e2e("layout", "nothing paints past the edge at the large type scale"),
-      [ST.zoom]: e2e("resilience", "the page survives a 200% text zoom"),
-      // The generic sweep reaches all five section routes now, but the narrow
-      // claim this surface actually owes is about its OWN second-level rail: a
-      // 200px column beside a gutter at a 280px viewport, and whether it opted
-      // into the bounded frame that caused #121. That is a specific assertion
-      // and it gets a specific citation.
+      // Still cited to the large-type sweep in layout.spec.ts, whose path list
+      // is /pipeline, /pipeline?open=, /queue and /jobs — re-read on main at
+      // this rebase, not assumed. No settings route is in it, so the citation
+      // is credit for a screen the sweep never loads.
+      [ST.largeType]: MISSING,
+      // Same, for the 200% zoom sweep in resilience.spec.ts: /queue and
+      // /pipeline only.
+      [ST.zoom]: MISSING,
+      // The Settings cutover's own citation, kept: the generic overflow sweep
+      // does reach the section routes, but this surface's narrow claim is
+      // about its own second-level rail at 280px, and that is the specific
+      // assertion it owes.
       [ST.narrow]: e2e("settings", "the section rail absorbs its own overflow at 280px"),
       [ST.reducedMotion]: MISSING,
       [ST.providerImage]: na(
@@ -465,7 +525,9 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.longStrings]: MISSING,
       [ST.highVolume]: MISSING,
       [ST.largeType]: e2e("import-wizard", "the wizard survives the large type scale"),
-      [ST.zoom]: e2e("resilience", "the page survives a 200% text zoom"),
+      // Was cited to the 200% zoom sweep in resilience.spec.ts, which loads
+      // /queue and /pipeline and nothing else. The route proof caught it.
+      [ST.zoom]: MISSING,
       [ST.narrow]: e2e("import-wizard", "nothing in the wizard paints past the page edge"),
       [ST.reducedMotion]: MISSING,
       [ST.providerImage]: na("neither the wizard nor the export dialog renders provider imagery"),
@@ -473,7 +535,9 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
   },
 
   "system-and-mobile": {
-    routes: ["the 404 handler", "the offline and expired-session banners", "the mobile Playwright project"],
+    routes: ["*"],
+    routeProofNote:
+      "The 404 handler, the offline and expired-session banners and the mobile viewport are not addresses: they are behaviours that appear over whatever route the user was on, including addresses that do not exist. So the proof asks that a citation reach some app route, and the surface's claim is what happens there.",
     note:
       "The mobile project is a Pixel 7 viewport and nothing else: the repo issues zero tap, touchscreen or gesture calls, so every phone assertion here is about composition, never about touch input.",
     fixture: {
@@ -540,6 +604,13 @@ export interface BaselineEntry {
   readonly key: string;
   /** One line. Why this cell is missing, not why it is acceptable. */
   readonly reason: string;
+  /**
+   * When the hole was FOUND, if that is later than the baseline date. A hole
+   * that always existed but was hidden behind a false citation is not a new
+   * regression, and it is not part of the original baseline either. Saying so
+   * keeps the list honest in both directions.
+   */
+  readonly since?: string;
 }
 
 export interface Baseline {
@@ -636,6 +707,50 @@ export const BASELINE_MISSING: Baseline = {
     { key: "coverage | High volume | fixture", reason: "No spec drives /companies at thousands of rows; the perf budget covers /jobs only." },
     { key: "settings-auth-onboarding | High volume | fixture", reason: "No spec drives the answers library at hundreds of stored rules." },
     { key: "billing-landing-email-import-export | High volume | fixture", reason: "No spec drives the wizard at a workbook of thousands of rows." },
+
+    // ─── Uncovered by the route proof, 2026-08-03.
+    //
+    // Six cells that read `covered` and were not. Each named a sweep that
+    // genuinely runs — and that never loads the surface it was credited with.
+    // `resilience.spec.ts` zooms /queue and /pipeline; `layout.spec.ts` grows
+    // the type on /pipeline, /queue and /jobs. Nothing was wrong with either
+    // test. What was wrong was that a citation only had to RESOLVE, and until
+    // `routes.ts` no machine asked whether it had anything to do with the
+    // surface. The holes are as old as the citations; only the visibility is
+    // new, which is why they are baselined rather than treated as regressions.
+    //
+    // The fix is to add these paths to those sweeps, which is surface work and
+    // belongs to the surface packets, not to the checker that found it.
+    {
+      key: "jobs | 200% zoom | fixture",
+      since: "2026-08-03",
+      reason: "The 200% zoom sweep in resilience.spec.ts runs /queue and /pipeline only; /jobs is not in its path list.",
+    },
+    {
+      key: "coverage | 200% zoom | fixture",
+      since: "2026-08-03",
+      reason: "The 200% zoom sweep runs /queue and /pipeline only; no coverage route is in its path list.",
+    },
+    {
+      key: "settings-auth-onboarding | 200% zoom | fixture",
+      since: "2026-08-03",
+      reason: "The 200% zoom sweep runs /queue and /pipeline only; neither settings surface, the wizard nor the entry path is in its path list.",
+    },
+    {
+      key: "billing-landing-email-import-export | 200% zoom | fixture",
+      since: "2026-08-03",
+      reason: "The 200% zoom sweep runs /queue and /pipeline only; /import is not in its path list.",
+    },
+    {
+      key: "coverage | Large type | fixture",
+      since: "2026-08-03",
+      reason: "The large-type sweep in layout.spec.ts runs /pipeline, /queue and /jobs only; no coverage route is in its path list.",
+    },
+    {
+      key: "settings-auth-onboarding | Large type | fixture",
+      since: "2026-08-03",
+      reason: "The large-type sweep runs /pipeline, /queue and /jobs only; neither settings surface nor the wizard is in its path list.",
+    },
 
     // Large type and zoom, where the sweep lists do not reach.
     { key: "find-intro | Large type | fixture", reason: "/connections is absent from the large-type overflow sweep in layout.spec.ts." },

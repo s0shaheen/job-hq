@@ -85,8 +85,11 @@ jobs:
       # Beside lint:copy because it is the same kind of gate — cheap, static,
       # and answering a question that otherwise needs an investigation. It
       # fails on a `missing` cell for a routed surface that is not in the dated
-      # baseline, and on a `covered` cell whose cited test title no longer
-      # exists, so renaming a test cannot silently uncover a state.
+      # baseline, on a `covered` cell whose cited test title no longer exists,
+      # so renaming a test cannot silently uncover a state, and on a citation
+      # whose test never drives the cited surface's route — which is a stronger
+      # claim than the title resolving, and which caught six cells that read
+      # covered while naming a sweep that never loaded them.
       - name: UI coverage ledger
         if: matrix.shard == 1
         run: npm run coverage:ledger
