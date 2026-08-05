@@ -6,6 +6,7 @@
 #   scripts/verify.sh --since origin/main
 #   scripts/verify.sh --image          # run it all inside the prebuilt image
 #   scripts/verify.sh --full --image   # the real thing, before a PR
+#   scripts/verify.sh --print-ci-jobs  # which ci.yml jobs the diff can break
 #
 # WHY. A three-line fix does not need ~2,900 Python tests, ~1,970 vitest cases and
 # ~1,000 Playwright cases to say whether it is correct. It needs the suites that
@@ -45,46 +46,58 @@ fi
 
 # ─────────────────────────────────────────────────────────── the suite registry
 #
-# id | target that must exist | command
+# id | target that must exist | command | needs | the CI JOB that runs it
 #
 # The target is not decoration. A rule that maps a path to a suite whose tests
 # were deleted or renamed would silently verify nothing; the registry check turns
 # that into a loud startup failure.
-suite_ids=(); suite_target=(); suite_cmd=(); suite_needs=()
-suite() { suite_ids+=("$1"); suite_target+=("$2"); suite_cmd+=("$3"); suite_needs+=("${4:-}"); }
+#
+# THE FIFTH COLUMN is which job in .github/workflows/ci.yml executes this suite,
+# and it is what makes CI and this lane one map instead of two. `--print-ci-jobs`
+# resolves a diff to the set of CI jobs it can possibly have broken;
+# scripts/ci-select.sh calls exactly that, and ci.yml gates each job on the
+# answer. It is REQUIRED on every suite — a suite with no named job would be a
+# suite CI silently never gates on, which is the whole defect class this column
+# exists to make impossible. tests/core/test_ci_selection.py holds that line from
+# the other side, against the workflow file itself.
+suite_ids=(); suite_target=(); suite_cmd=(); suite_needs=(); suite_ci=()
+suite() {
+  suite_ids+=("$1"); suite_target+=("$2"); suite_cmd+=("$3")
+  suite_needs+=("${4:-}"); suite_ci+=("${5:-}")
+}
 
-#      id               target                            command                                                                  needs
-suite lint-copy        webapp/scripts/copy-lint          'cd webapp && npm run lint:copy'
-suite coverage-ledger  webapp/scripts/coverage-ledger.mjs 'cd webapp && npm run coverage:ledger && ledger_is_committed'
-suite lint-assert      scripts/assertion_lint.py         '$PY311 scripts/assertion_lint.py'
-suite typecheck        webapp/tsconfig.json              'cd webapp && npm run typecheck'
-suite vitest           webapp/tests/unit                 'cd webapp && npm test'
-suite py-core          tests/core                        '$PYTEST311 tests/core -q'
-suite py-migrations    tests/core/test_migrations.py     '$PYTEST311 tests/core/test_migrations.py -q'
-suite py-workflows     tests/core/test_workflows.py      '$PYTEST311 tests/core/test_workflows.py -q'
-suite py-monitor       tests/monitor                     '$PYTEST311 tests/monitor -q'
-suite py-tracker       tests/tracker                     '$PYTEST311 tests/tracker -q'
-suite py-infra         tests/infra                       '$PYTEST311 tests/infra -q'
-suite py-root          tests/test_runjob.py              '$PYTEST311 tests/test_runjob.py tests/test_sysmap.py tests/test_publish_to_drive.py -q'
-suite sysmap           scripts/sysmap.py                 '$PY311 scripts/sysmap.py'
-suite py-db            tests/db                          'HQ_REQUIRE_DB=1 $PYTEST311 tests/db -q'                                    database
+#      id               target                            command                                                                  needs             ci job
+suite lint-copy        webapp/scripts/copy-lint          'cd webapp && npm run lint:copy'                                          ''                webapp
+suite coverage-ledger  webapp/scripts/coverage-ledger.mjs 'cd webapp && npm run coverage:ledger && ledger_is_committed'            ''                webapp
+suite lint-assert      scripts/assertion_lint.py         '$PY311 scripts/assertion_lint.py'                                        ''                tests
+suite typecheck        webapp/tsconfig.json              'cd webapp && npm run typecheck'                                          ''                webapp
+suite vitest           webapp/tests/unit                 'cd webapp && npm test'                                                   ''                webapp
+suite py-core          tests/core                        '$PYTEST311 tests/core -q'                                                ''                tests
+suite py-migrations    tests/core/test_migrations.py     '$PYTEST311 tests/core/test_migrations.py -q'                             ''                tests
+suite py-workflows     tests/core/test_workflows.py      '$PYTEST311 tests/core/test_workflows.py -q'                              ''                tests
+suite py-monitor       tests/monitor                     '$PYTEST311 tests/monitor -q'                                             ''                tests
+suite py-tracker       tests/tracker                     '$PYTEST311 tests/tracker -q'                                             ''                tests
+suite py-infra         tests/infra                       '$PYTEST311 tests/infra -q'                                               ''                tests
+suite py-root          tests/test_runjob.py              '$PYTEST311 tests/test_runjob.py tests/test_sysmap.py tests/test_publish_to_drive.py -q' '' tests
+suite sysmap           scripts/sysmap.py                 '$PY311 scripts/sysmap.py'                                                ''                tests
+suite py-db            tests/db                          'HQ_REQUIRE_DB=1 $PYTEST311 tests/db -q'                                    database        db
 # The pinned-mutant ledger: every T3/T4 guard, broken on purpose, its named test
 # required to go red. It runs the named tests only, in a scratch worktree, and
 # it needs the database for the seven database guards and a built webapp for the
 # app-shell one — which is why it sits here, after py-db and before the browser
 # suites, and declares the same `database` precondition.
-suite mutants          tests/mutants/manifest.toml       '$PY311 scripts/mutants.py'                                                 database
+suite mutants          tests/mutants/manifest.toml       '$PY311 scripts/mutants.py'                                                 database          mutants
 # And the same ledger with nothing executed: does every pinned patch still
 # apply? Sub-second, no database, no browser. It is mapped to every file a
 # pinned mutant patches, because the way a mutant dies is that somebody edits
 # the guard and the patch silently stops applying — and a mutant that stops
 # running is the defect this whole ledger exists to catch, one level up.
-suite mutants-dry      scripts/mutants.py                '$PY311 scripts/mutants.py --dry-run'
-suite py-render        tests/infra/test_render_live.py   'HQ_REQUIRE_RENDERCV=1 $PYTEST312 tests/infra/test_render_live.py tests/infra/test_render_guards.py -q -p no:cacheprovider'
-suite build            webapp/next.config.mjs            'cd webapp && npm run build'
-suite e2e-slop         webapp/tests/e2e/slop.spec.ts     'cd webapp && HQ_DEMO=1 npx playwright test tests/e2e/slop.spec.ts'
-suite e2e              webapp/tests/e2e                  'cd webapp && HQ_DEMO=1 npx playwright test'
-suite e2e-visual       webapp/tests/e2e/visual.spec.ts   'cd webapp && HQ_DEMO=1 HQ_VISUAL=1 npx playwright test tests/e2e/visual.spec.ts'  linux-baselines
+suite mutants-dry      scripts/mutants.py                '$PY311 scripts/mutants.py --dry-run'                                       ''                mutants
+suite py-render        tests/infra/test_render_live.py   'HQ_REQUIRE_RENDERCV=1 $PYTEST312 tests/infra/test_render_live.py tests/infra/test_render_guards.py -q -p no:cacheprovider' '' render
+suite build            webapp/next.config.mjs            'cd webapp && npm run build'                                              ''                webapp
+suite e2e-slop         webapp/tests/e2e/slop.spec.ts     'cd webapp && HQ_DEMO=1 npx playwright test tests/e2e/slop.spec.ts'       ''                webapp
+suite e2e              webapp/tests/e2e                  'cd webapp && HQ_DEMO=1 npx playwright test'                              ''                webapp
+suite e2e-visual       webapp/tests/e2e/visual.spec.ts   'cd webapp && HQ_DEMO=1 HQ_VISUAL=1 npx playwright test tests/e2e/visual.spec.ts'  linux-baselines  visual
 
 # Running the parent makes the child redundant. Only ever collapses a suite into
 # one that strictly contains it.
@@ -109,20 +122,62 @@ ledger_is_committed() {
 
 # ─────────────────────────────────────────────────────────── the path map
 #
-# pattern -> suites, or '-' for "deliberately no suites". A path matching NOTHING
-# here falls back to FULL. Patterns are bash [[ ]] globs, where * crosses '/'.
+# pattern -> suites, or '-' for "deliberately no suites", or '*' for "every suite
+# in the registry". A path matching NOTHING here falls back to FULL. Patterns are
+# bash [[ ]] globs, where * crosses '/'.
 #
 # Union, not first-match: a change touching two areas gets both areas' suites.
+#
+# WHY '*' EXISTS, AND WHY IT IS NOT THE SAME THING AS THE FALLBACK. Before it,
+# the only way to reach every suite was to match NO rule — the full set was
+# reachable only by failing. That is the right default for an unknown path and
+# the wrong one for a KNOWN path whose blast radius is genuinely everything,
+# because it forces a choice between naming the path (and under-selecting) or
+# leaving it unnamed (and calling a deliberate decision an accident). The two
+# print differently and must: the fallback says an unmapped path is not evidence
+# of a small blast radius; '*' says the map looked at this path and decided.
 path_map=(
   # ── webapp
-  "webapp/lib/*                       = typecheck,vitest"
-  "webapp/app/*                       = typecheck,vitest,lint-copy,coverage-ledger,build,e2e-slop,e2e"
-  "webapp/components/*                = typecheck,vitest,lint-copy,coverage-ledger,build,e2e-slop,e2e,mutants-dry"
+  # e2e-visual here for the same reason it is on app/ and components/, one level
+  # down: lib/ is where the rendered STRINGS come from. lib/display/dictionary.ts,
+  # lib/format.ts and lib/dates.ts decide the text the baselined pages paint, and
+  # webapp/tests/e2e/visual.spec.ts imports `@/lib/profile/draft` directly. An
+  # import error there is caught by `e2e` (which collects visual.spec.ts too), but
+  # a SEMANTIC change — "3 d ago" becoming "3 days ago" — moves pixels and nothing
+  # else in the `webapp` job compares pixels. Skipping `visual` for lib/ would land
+  # that on main and page the ops topic.
+  "webapp/lib/*                       = typecheck,vitest,e2e-visual"
+  # e2e-visual is in these two rows, and was not before this became CI's map too.
+  # The pixel baselines are of RENDERED PAGES: app/ and components/ are the files
+  # that decide what those pixels are, and app/globals.css — which matches
+  # `webapp/app/*` — decides it for every page at once. Without this rule, porting
+  # the map to CI would have stopped running the `visual` job for exactly the
+  # changes that move pixels, which is not an economy, it is a hole. It was
+  # survivable while this map only chose a LOCAL lane, because the local lane
+  # cannot run e2e-visual off the linux baselines anyway and CI ran it
+  # unconditionally. CI no longer does.
+  # A pinned mutant patches this exact file
+  # (tests/mutants/patches/today-row-button-decides-the-selection.patch), and the
+  # way a mutant dies is that somebody edits the guard until the patch stops
+  # applying. `webapp/app/*` below carries no mutant suite, so without this row an
+  # edit here skipped the `mutants` job entirely and the ledger rotted silently
+  # until the next push to main. Named file rather than widening `webapp/app/*`:
+  # app/ is the most-edited directory in the repo and mutants-dry resolves to the
+  # 4-minute `mutants` CI job, so widening it would tax every surface change for
+  # one file. tests/core/test_ci_selection.py::
+  # test_every_pinned_mutant_target_reaches_the_mutants_job is what keeps this row
+  # honest when the ledger gains a patch against a new path.
+  "webapp/app/(app)/queue/today-list.tsx = typecheck,vitest,lint-copy,coverage-ledger,build,e2e-slop,e2e,e2e-visual,mutants-dry"
+  "webapp/app/*                       = typecheck,vitest,lint-copy,coverage-ledger,build,e2e-slop,e2e,e2e-visual"
+  "webapp/components/*                = typecheck,vitest,lint-copy,coverage-ledger,build,e2e-slop,e2e,e2e-visual,mutants-dry"
   "webapp/middleware.ts               = typecheck,vitest,build,e2e"
   "webapp/tests/unit/*                = typecheck,vitest"
   "webapp/tests/e2e/visual.spec.ts*   = e2e-visual"
   "webapp/tests/e2e/*                 = typecheck,e2e"
-  "webapp/tests/fixtures/*            = vitest,e2e"
+  # e2e-visual: under HQ_DEMO the baselined pages are RENDERING this fixture data,
+  # so a changed row changes the screenshot. visual.spec.ts also reads
+  # tests/fixtures/import/wide-60.xlsx directly.
+  "webapp/tests/fixtures/*            = vitest,e2e,e2e-visual"
   # vitest too, and not only the ledger run: tests/unit/coverage-ledger.test.ts
   # is what proves the GATE can fail — it feeds report.ts a broken citation and a
   # new missing cell. Mapped to coverage-ledger alone, a change to report.ts
@@ -133,13 +188,16 @@ path_map=(
   # refusal and the demanded-but-missing error can FAIL, and the lane itself
   # cannot run here — it needs a Supabase project this box does not have. `e2e`
   # because playwright.config.ts imports tests/live/env.ts at config load, so a
-  # syntax error there breaks the fixture lane too.
-  "webapp/tests/live/*                = typecheck,vitest,e2e"
+  # syntax error there breaks the fixture lane too — and `e2e-visual` for exactly
+  # that reason again: the `visual` job loads the SAME config, in a different
+  # container, so the config chain has to select it or the reasoning only covers
+  # one of the two lanes it applies to.
+  "webapp/tests/live/*                = typecheck,vitest,e2e,e2e-visual"
   "webapp/scripts/*                   = lint-copy,coverage-ledger"
   "webapp/package.json                = typecheck,vitest,build,e2e,e2e-visual"
   "webapp/package-lock.json           = typecheck,vitest,build,e2e,e2e-visual"
   "webapp/tsconfig.json               = typecheck,vitest,build"
-  "webapp/next.config.mjs             = typecheck,build,e2e"
+  "webapp/next.config.mjs             = typecheck,build,e2e,e2e-visual"
   "webapp/postcss.config.mjs          = build,e2e,e2e-visual"
   "webapp/vitest.config.mts           = vitest"
   "webapp/playwright.config.ts        = e2e,e2e-visual"
@@ -184,7 +242,11 @@ path_map=(
   "scripts/mutants.py                 = mutants,py-core"
   "tests/mutants/*                    = mutants,py-core"
   "tests/core/test_mutant_ledger.py   = mutants,py-core"
-  "scripts/verify.sh                  = py-core"
+  "scripts/verify.sh                  = py-core,py-workflows"
+  # The selector CI runs. It is the one file that can make every other job skip,
+  # so it selects the suite that proves it cannot (tests/core/test_ci_selection.py)
+  # AND py-workflows, which reads ci.yml from the other side.
+  "scripts/ci-select.sh               = py-core,py-workflows,py-root"
   "scripts/test-shell.sh              = py-core"
   "scripts/*                          = py-root"
   "requirements.txt                   = py-core,py-monitor,py-tracker,py-infra,py-root,py-db"
@@ -203,6 +265,19 @@ path_map=(
   "tests/*.py                         = py-root,lint-assert"
 
   # ── CI
+  #
+  # ci.yml is the file that decides what runs at all, so the only honest answer
+  # for it is everything. py-workflows and sysmap read this file as TEXT: they
+  # catch a job with no registry entry or a selection wired to the wrong output,
+  # and they are blind to every way a job can break when it actually executes.
+  # Change `--shard=${{ matrix.shard }}/2` to `/3`, or bump an action to a version
+  # whose install fails, and a rule of `py-workflows,sysmap` means the pull request
+  # never runs the job it just edited: green, landed, and red on main a minute
+  # later with the ops topic paged. This is the row '*' was added for — the
+  # blast radius is known and it is total, which is a decision, not an unmapped
+  # path. The other workflows keep the narrow rule: deploy.yml and red-main.yml
+  # do not decide what CI runs.
+  ".github/workflows/ci.yml           = *"
   ".github/workflows/*                = py-workflows,sysmap"
 
   # ── deliberately no suites. Prose. Every one of these is a decision, and the
@@ -223,12 +298,17 @@ if [[ -n "${HQ_VERIFY_EXTRA_MAP:-}" ]]; then
 fi
 
 # ─────────────────────────────────────────────────────────── arguments
-mode=fast; dry=0; use_image=0; since=""; explicit_paths=()
+mode=fast; dry=0; use_image=0; since=""; print_ci=0; explicit_paths=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --full)     mode=full ;;
     --fast)     mode=fast ;;
     --dry-run)  dry=1 ;;
+    # Resolve the diff to the .github/workflows/ci.yml JOBS it can have broken,
+    # one per line on stdout, and run nothing. Everything else this script prints
+    # goes to stderr under this flag so the answer is machine-readable while the
+    # reasoning stays in the CI log. scripts/ci-select.sh is the only caller.
+    --print-ci-jobs) print_ci=1; dry=1 ;;
     --image)    use_image=1 ;;
     --since)    since="$2"; shift ;;
     --since=*)  since="${1#--since=}" ;;
@@ -246,6 +326,17 @@ fail_startup=0
 in_registry() { local s; for s in "${suite_ids[@]}"; do [[ "$s" == "$1" ]] && return 0; done; return 1; }
 
 for i in "${!suite_ids[@]}"; do
+  # A suite with no CI job is a suite CI never gates on. That is not a small
+  # omission — it is a whole registered gate that a pull request can skip past
+  # while every check reports green, which is the failure this column exists to
+  # make impossible. Refuse at startup rather than resolve to a quietly smaller
+  # job set later.
+  if [[ -z "${suite_ci[$i]}" ]]; then
+    echo "verify.sh: suite '${suite_ids[$i]}' names no CI job (5th column of the registry)." >&2
+    echo "           Every suite must say which .github/workflows/ci.yml job runs it," >&2
+    echo "           or --print-ci-jobs would silently under-select and CI would skip it." >&2
+    fail_startup=1
+  fi
   t="${suite_target[$i]}"
   if [[ ! -e "$repo/$t" ]]; then
     echo "verify.sh: suite '${suite_ids[$i]}' points at '$t', which does not exist." >&2
@@ -257,6 +348,10 @@ done
 for rule in "${path_map[@]}"; do
   rhs="${rule#*=}"; rhs="${rhs// /}"
   [[ "$rhs" == "-" ]] && continue
+  # QUOTED on purpose. In [[ ]] the right-hand side is a PATTERN unless it is
+  # quoted, and an unquoted * matches every rhs there is — which would skip the
+  # registry check for the whole map and let a typo'd suite name through silently.
+  [[ "$rhs" == '*' ]] && continue
   IFS=',' read -r -a want <<< "$rhs"
   for s in "${want[@]}"; do
     [[ -z "$s" ]] && continue
@@ -315,7 +410,8 @@ select_suite() {  # id, reason
 }
 
 fallback_reason=""
-declare -a unmapped=() explicitly_none=()
+sentinel_reason=""
+declare -a unmapped=() explicitly_none=() sentinel_hits=()
 
 if [[ "$mode" == "full" ]]; then
   for s in "${suite_ids[@]}"; do select_suite "$s" "--full"; done
@@ -333,6 +429,9 @@ else
           matched=1
           if [[ "$rhs" == "-" ]]; then
             explicitly_none+=("$p ($pat)")
+          elif [[ "$rhs" == '*' ]]; then
+            # Quoted for the same reason as the registry check above.
+            sentinel_hits+=("$p ($pat)")
           else
             IFS=',' read -r -a want <<< "$rhs"
             for s in "${want[@]}"; do [[ -n "$s" ]] && select_suite "$s" "$pat"; done
@@ -345,10 +444,21 @@ else
     if [[ ${#unmapped[@]} -gt 0 ]]; then
       fallback_reason="unmapped path(s): ${unmapped[*]}"
     fi
+    if [[ ${#sentinel_hits[@]} -gt 0 ]]; then
+      sentinel_reason="${sentinel_hits[*]}"
+    fi
   fi
+  # Both expand to the same set and they are still kept apart, because the two
+  # say different things to whoever reads the log. The fallback is "I do not know
+  # what this path can break"; the sentinel is "I know, and it is everything."
+  # Collapsing them would make a deliberate rule indistinguishable from a hole in
+  # the map, which is exactly the confusion the map exists to remove.
   if [[ -n "$fallback_reason" ]]; then
     selected=(); reasons=()
     for s in "${suite_ids[@]}"; do select_suite "$s" "FULL fallback"; done
+  elif [[ -n "$sentinel_reason" ]]; then
+    selected=(); reasons=()
+    for s in "${suite_ids[@]}"; do select_suite "$s" "EVERY suite (map rule '= *')"; done
   fi
 fi
 
@@ -385,6 +495,12 @@ done
 selected=("${ordered[@]+"${ordered[@]}"}"); reasons=("${ordered_reasons[@]+"${ordered_reasons[@]}"}")
 
 # ─────────────────────────────────────────────────────────── report the plan
+#
+# Under --print-ci-jobs the plan is still printed in full — it is the reasoning a
+# CI log has to show for "the browser suite did not run" to be readable — but it
+# goes to stderr, so stdout carries the job names and nothing else. fd 3 keeps a
+# handle on the real stdout for the answer at the bottom.
+if [[ $print_ci -eq 1 ]]; then exec 3>&1 1>&2; fi
 hr() { printf '%s\n' "────────────────────────────────────────────────────────────────────────"; }
 hr
 if [[ "$mode" == "full" ]]; then
@@ -392,6 +508,13 @@ if [[ "$mode" == "full" ]]; then
 elif [[ -n "$fallback_reason" ]]; then
   echo "verify: FULL (fallback) — $fallback_reason"
   echo "        An unmapped path is not evidence of a small blast radius."
+elif [[ -n "$sentinel_reason" ]]; then
+  # The sentinel says WHICH path and WHICH rule did it. A selection that silently
+  # expanded to everything would be the same opacity as one that silently shrank:
+  # this lane's whole contract is that it prints what ran, what did not, and why.
+  echo "verify: FULL (by rule) — $sentinel_reason selects EVERY suite"
+  echo "        Not the fallback. The map names this path and says its blast radius"
+  echo "        is the whole registry — see the '= *' row in path_map."
 else
   echo "verify: PARTIAL (change-scoped) — this is NOT a full gate"
 fi
@@ -425,6 +548,26 @@ if [[ ${#skipped[@]} -gt 0 ]]; then
   echo
 fi
 hr
+
+ci_of() { local i; for i in "${!suite_ids[@]}"; do [[ "${suite_ids[$i]}" == "$1" ]] && { echo "${suite_ci[$i]}"; return; }; done; }
+
+if [[ $print_ci -eq 1 ]]; then
+  # Subsumption is safe to read through here because a child and the parent that
+  # contains it always name the SAME CI job — tests/core/test_ci_selection.py
+  # asserts that, so folding e2e-slop into e2e can never fold away the `webapp`
+  # job with it.
+  declare -a ci_jobs=()
+  for s in "${selected[@]+"${selected[@]}"}"; do
+    j="$(ci_of "$s")"
+    [[ -z "$j" ]] && continue          # unreachable: the startup check refuses it
+    seen=0
+    for x in "${ci_jobs[@]+"${ci_jobs[@]}"}"; do [[ "$x" == "$j" ]] && seen=1; done
+    [[ $seen -eq 0 ]] && ci_jobs+=("$j")
+  done
+  echo "CI JOBS (${#ci_jobs[@]}): ${ci_jobs[*]:-<none>}"
+  for j in "${ci_jobs[@]+"${ci_jobs[@]}"}"; do printf '%s\n' "$j" >&3; done
+  exit 0
+fi
 
 [[ $dry -eq 1 ]] && exit 0
 

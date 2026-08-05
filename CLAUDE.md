@@ -206,8 +206,18 @@ DATABASE_URL=postgresql://postgres:pw@127.0.0.1:55432/postgres HQ_REQUIRE_DB=1 \
     --with 'psycopg[binary]' --no-project -- pytest
 ```
 
-CI is unchanged and still runs everything on every PR; the lane speeds up the loop
-before the PR, it does not replace the gate.
+CI resolves the SAME map. `.github/workflows/ci.yml` runs a `select` job that calls
+`scripts/verify.sh --print-ci-jobs` and gates every other job on the answer, because
+billed minutes accrue per job and a docs-only commit was running the browser suite
+twice — about 40 runner-minutes a run, 155 pull-request runs on 2026-08-03. The same
+three rules hold there: an unmapped path runs everything, anything that is not a
+readable pull-request diff runs everything, and nothing runs less thoroughly when it
+runs. `select` itself is never conditional — `land.sh` refuses a check set with no
+passing check, so it is the check that always passes.
+
+Adding a CI job means adding its suite's fifth registry column in `verify.sh`, and
+adding a suite means naming the job that runs it. `tests/core/test_ci_selection.py`
+fails when the two stop agreeing, in either direction.
 
 Database, migration, provider, restore, accessibility, and design work also requires the
 authoritative-boundary evidence in its packet. A test must be proven capable of failing

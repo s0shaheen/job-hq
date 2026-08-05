@@ -114,7 +114,7 @@ def test_a_mapped_path_does_not_fall_back() -> None:
     r = run("webapp/lib/dates.ts")
     assert r.returncode == 0, r.stderr
     assert "FULL (fallback)" not in r.stdout
-    assert selected(r.stdout) == {"typecheck", "vitest"}, r.stdout
+    assert selected(r.stdout) == {"typecheck", "vitest", "e2e-visual"}, r.stdout
 
 
 def test_an_unmapped_path_beside_a_mapped_one_still_forces_full() -> None:
@@ -247,7 +247,11 @@ def test_deliberate_no_suite_paths_are_printed_not_hidden() -> None:
 @pytest.mark.parametrize(
     "path,expected",
     [
-        ("webapp/lib/grid/sort.ts", {"typecheck", "vitest"}),
+        # `e2e-visual` belongs to a lib/ change for the same reason it belongs to
+        # an app/ one: lib/ produces the strings the baselined pages paint, and
+        # visual.spec.ts imports `@/lib/profile/draft` outright. Nothing else in
+        # the webapp gate compares pixels.
+        ("webapp/lib/grid/sort.ts", {"typecheck", "vitest", "e2e-visual"}),
         # `vitest` belongs to a migration change: webapp/tests/unit/
         # types-contract.test.ts PARSES db/migrations/*.sql to derive the row
         # types, so a migration-only edit can turn it red with no webapp file
@@ -257,7 +261,11 @@ def test_deliberate_no_suite_paths_are_printed_not_hidden() -> None:
         # that silently stops running is the defect the ledger exists to catch.
         ("db/migrations/0029_x.sql", {"py-db", "py-migrations", "vitest", "mutants-dry"}),
         ("infra/render/render.py", {"py-render", "py-infra", "mutants-dry"}),
-        (".github/workflows/ci.yml", {"py-workflows", "sysmap"}),
+        # ci.yml itself is the '= *' sentinel and is covered in
+        # tests/core/test_ci_selection.py; deploy.yml is the narrow rule it sits
+        # in front of, and keeping it here proves the sentinel did not swallow
+        # `.github/workflows/*` whole.
+        (".github/workflows/deploy.yml", {"py-workflows", "sysmap"}),
         ("monitor/fetchers/lever.py", {"py-monitor"}),
         ("tracker/digest.py", {"py-tracker"}),
         ("webapp/tests/e2e/visual.spec.ts", {"e2e-visual"}),

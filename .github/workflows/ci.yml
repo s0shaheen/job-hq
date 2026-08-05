@@ -43,14 +43,78 @@ on:
         type: boolean
         default: false
 
+# Checked against 2026-08-03's runs rather than reasoned about, because the
+# cancellations that day were read as waste and are mostly not:
+#
+#   PULL REQUESTS. `github.ref` is `refs/pull/<N>/merge`, which is stable for the
+#   life of the PR, so the group is per-PR and a new push cancels its own
+#   predecessor rather than racing it. That is what the 56 cancelled PR runs are:
+#   e.g. feat/digest-pg-sources pushed four times inside four minutes and each
+#   push killed the run before it (27s, 52s, 4m). Working as intended.
+#
+#   MAIN. cancel-in-progress is false, so main runs QUEUE instead. GitHub keeps
+#   at most one pending run per group, and cancels the pending one when another
+#   arrives — which is what the 9 cancelled main runs are. Checked run
+#   30836617848: `cancelled`, and zero jobs, so zero billed minutes. It never
+#   started. Nothing to reclaim there.
+#
+# So the bill is not cancellation waste, it is that every run that DID execute
+# ran every gate. That is what the `select` job below addresses.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # Which of the gate jobs below can this diff possibly have broken?
+  #
+  # WHY. Billed minutes accrue PER JOB, so every run cost the same ~40 runner-
+  # minutes whatever changed — a docs-only commit ran the entire browser suite
+  # twice. Measured on run 30846546842: webapp shard 1 850s, shard 2 688s,
+  # pinned mutants 240s, visual 169s, tests 125s, db 85s, render 36s. There
+  # were 155 pull-request runs on 2026-08-03.
+  #
+  # WHERE THE MAP IS. `path_map` in scripts/verify.sh — the SAME map the local
+  # change-scoped lane resolves, queried through `--print-ci-jobs`. Not a second
+  # copy in this file: two path maps drift, and the drift is silent in both
+  # directions. tests/core/test_ci_selection.py fails if this file and that map
+  # stop agreeing about which jobs exist or what gates them.
+  #
+  # WHY IT HAS NO `if:` AND NEVER WILL. scripts/land.sh refuses to merge when a
+  # pull request's check set is empty, and again when NONE of its checks passed
+  # (exit 10) — the guard that would have stopped #108 and #109 landing on a red
+  # main. A skipped job does still appear in `gh pr checks`, with bucket
+  # `skipping` (verified against PR #174's five dispatch-only jobs), but
+  # `skipping` is not `pass`. So a docs-only pull request whose every gate
+  # skipped would present nothing but skips and land.sh would refuse it — a
+  # refusal aimed at a merge-over-red, fired at a prose change. This job is the
+  # check that passes, which keeps that refusal meaning what it says.
+  select:
+    name: select (which gates this diff can break)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      webapp:  ${{ steps.pick.outputs.webapp }}
+      visual:  ${{ steps.pick.outputs.visual }}
+      tests:   ${{ steps.pick.outputs.tests }}
+      render:  ${{ steps.pick.outputs.render }}
+      db:      ${{ steps.pick.outputs.db }}
+      mutants: ${{ steps.pick.outputs.mutants }}
+    steps:
+      # fetch-depth 0: the selection is a diff against the base branch, and a
+      # shallow clone has no merge base to diff against. ci-select.sh fetches the
+      # base ref explicitly on top of this and falls back to the FULL set if it
+      # cannot.
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - id: pick
+        run: scripts/ci-select.sh
+
   webapp:
     name: webapp
+    needs: select
+    if: needs.select.outputs.webapp == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Sharded: the e2e suite is the long pole (11.3m of a 13.7m job at 628
@@ -130,9 +194,19 @@ jobs:
       # the data. Named as its own step rather than left to the sharded run
       # below purely for legibility: this is the first gate in the integration
       # order, and "design law violated" has to be readable without paging
-      # through a thousand functional tests. ~25s, shard 1 only.
+      # through a thousand functional tests.
+      #
+      # SHARD 2, not shard 1, and that is the whole of the shard rebalance.
+      # Measured on run 30846546842: the Playwright shards themselves are already
+      # even (532s vs 529s) — the 162s spread between the two JOBS (850s vs 688s)
+      # is entirely the unsharded work bolted onto each. Shard 1 carried lint:copy,
+      # the ledger, vitest (102s) and this sweep (97s); shard 2 carried only the
+      # extra production build (39s). Moving the 97s sweep across leaves ~176s of
+      # extras on shard 1 against ~208s on shard 2 — the closest the discrete
+      # pieces get to even — and drops the pair's wall clock from 850s to ~785s.
+      # Nothing runs less: this is the same step, in the other job.
       - name: Anti-slop computed-style sweep
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         run: npx playwright test tests/e2e/slop.spec.ts
         env:
           HQ_DEMO: "1"
@@ -165,6 +239,8 @@ jobs:
   # is legible on its own, not buried in the functional run.
   visual:
     name: visual (Playwright container)
+    needs: select
+    if: needs.select.outputs.visual == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     container:
@@ -190,10 +266,20 @@ jobs:
           retention-days: 7
 
   tests:
+    needs: select
+    if: needs.select.outputs.tests == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # fetch-depth 0 because tests/core/test_ci_selection.py runs ci-select.sh
+      # against this checkout's real diff, and a shallow clone has no merge base
+      # with origin/main. The first run of that test proved the point the hard
+      # way: on `fetch-depth: 1` the selector fell back to the full set with
+      # "the diff against origin/main would not compute". That is the fail-open
+      # working, and it is also exactly the silent, permanent over-run this test
+      # exists to catch — nothing goes red, the economy just quietly stops.
       - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
       - uses: actions/setup-python@v6
         with: { python-version: "3.11", cache: pip }
       - run: pip install -r requirements.txt
@@ -219,6 +305,8 @@ jobs:
   # themes and fails loudly, by name, on any theme that spills to a second page.
   render:
     name: render service (rendercv 2.8 on 3.12)
+    needs: select
+    if: needs.select.outputs.render == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -248,6 +336,8 @@ jobs:
   # criterion 26 describes. None of that had ever been executed anywhere.
   db:
     name: db (migrations on real Postgres)
+    needs: select
+    if: needs.select.outputs.db == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -298,6 +388,8 @@ jobs:
   # the local one are the same command.
   mutants:
     name: pinned mutants
+    needs: select
+    if: needs.select.outputs.mutants == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
