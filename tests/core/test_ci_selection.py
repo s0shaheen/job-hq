@@ -535,7 +535,7 @@ def test_the_selector_emits_a_verdict_for_every_gate_job() -> None:
         ),
         (
             {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_BASE_REF": "no-such-branch-xyz"},
-            "a base ref that will not fetch is a failure, not a small diff",
+            "a base ref that does not resolve is a failure, not a small diff",
         ),
     ],
 )
@@ -590,6 +590,116 @@ def test_the_selector_narrows_on_a_real_pull_request_diff() -> None:
     )
     want = ci_jobs_for(*changed)
     assert emitted(r.stdout) == {job: job in want for job in gate_jobs(workflow())}
+
+
+def _git_shim_path(tmp_path: Path) -> str:
+    """A $PATH whose `git` refuses to `fetch` and is otherwise the real thing.
+
+    A failed fetch is the normal case inside the verification image — no network,
+    and the parent `.git` of a linked worktree mounted read-only, so `git fetch`
+    cannot even write FETCH_HEAD — and it is unreproducible on a host that has
+    both. Simulating it in the ONE verb that fails keeps these cases deterministic
+    everywhere instead of only where the network happens to be missing.
+    """
+    import shutil
+
+    real = shutil.which("git")
+    assert real, "no git on PATH"
+    bindir = tmp_path / "shim"
+    bindir.mkdir(exist_ok=True)
+    shim = bindir / "git"
+    shim.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "${1:-}" == "fetch" ]]; then\n'
+        '  echo "shim: fetch is disabled" >&2\n'
+        "  exit 1\n"
+        "fi\n"
+        f'exec {real} "$@"\n'
+    )
+    shim.chmod(0o755)
+    return f"{bindir}:{os.environ['PATH']}"
+
+
+def test_a_failed_fetch_outside_actions_still_narrows(tmp_path: Path) -> None:
+    """The defect #175 shipped, stated as a property.
+
+    A fetch that fails is not the same fact as a base that does not exist. Inside
+    the image the fetch ALWAYS fails and origin/main is nonetheless right there,
+    so conflating the two made every full-gate run from a linked worktree — which
+    is every agent in this repo — fail this file. Outside Actions these verdicts
+    gate nothing, so diffing against the ref already present is free.
+    """
+    changed = _real_diff_against_main()
+    if changed is None:
+        pytest.skip("this checkout has no computable diff against origin/main")
+    r = run_select(
+        GITHUB_EVENT_NAME="pull_request",
+        GITHUB_BASE_REF="main",
+        PATH=_git_shim_path(tmp_path),
+    )
+    assert r.returncode == 0, r.stderr
+    # The shim's own message never appears: ci-select.sh sends the fetch's stderr
+    # to /dev/null. Its OWN note is the proof the fetch failed, and without it this
+    # case would pass trivially on any host whose network happens to work.
+    assert "could not fetch origin/main; diffing against the" in r.stderr, (
+        f"the shim did not actually break the fetch, so this proves nothing\n{r.stderr}"
+    )
+    assert "changed path(s) against origin/main" in r.stdout, (
+        "a failed fetch stopped the selector reaching the narrowing path even though "
+        f"origin/main resolves and this checkout has a {len(changed)}-path diff "
+        f"against it:\n{r.stdout}\n{r.stderr}"
+    )
+    assert emitted(r.stdout) == {job: job in ci_jobs_for(*changed) for job in gate_jobs(workflow())}
+
+
+def test_a_failed_fetch_inside_actions_runs_everything(tmp_path: Path) -> None:
+    """The counterexample to the tolerance above, and the reason it is bounded.
+
+    "A stale base only ever widens the diff" is true while the stale ref is an
+    ANCESTOR of the real base: the merge base can only move backwards, and a merge
+    base further back yields more changed paths. It is FALSE for a base that was
+    rewound — force-pushed backwards. Then the stale ref is a descendant of the
+    real tip, the merge base moves forwards, and the diff SHRINKS. Measured on a
+    scratch repository: with main force-pushed from C back to A, the stale base
+    reports one changed path where the true base reports three.
+
+    Nothing offline can tell those apart, so the tolerance is bounded by blast
+    radius instead. Inside Actions the verdicts gate real jobs and a skipped gate
+    is the #108/#109 shape, so a fetch that failed there still runs everything.
+    """
+    out = tmp_path / "out.txt"
+    r = run_select(
+        GITHUB_EVENT_NAME="pull_request",
+        GITHUB_BASE_REF="main",
+        GITHUB_ACTIONS="true",
+        GITHUB_OUTPUT=str(out),
+        PATH=_git_shim_path(tmp_path),
+    )
+    assert r.returncode == 0, r.stderr
+    # This reason is only reachable when the fetch failed, so it is also the proof
+    # the shim engaged — origin/main resolves perfectly well here.
+    assert "could not fetch origin/main" in r.stdout, (
+        f"the full set was selected, but not for the fetch failure:\n{r.stdout}"
+    )
+    assert "does not resolve" not in r.stdout, (
+        f"the full set fired for a missing base rather than an unfetchable one:\n{r.stdout}"
+    )
+    assert emitted(out.read_text()) == {job: True for job in gate_jobs(workflow())}
+
+
+def test_an_unresolvable_base_runs_everything_and_says_so() -> None:
+    """The other half: tolerating a failed fetch must not tolerate a MISSING base.
+
+    `test_the_selector_fails_open` already pins the verdicts for this case. What
+    this adds is the reason, because the two failures now diverge and an operator
+    reading the log has to be able to tell "your base is stale" from "your base
+    does not exist".
+    """
+    r = run_select(GITHUB_EVENT_NAME="pull_request", GITHUB_BASE_REF="no-such-branch-xyz")
+    assert r.returncode == 0, r.stderr
+    assert "does not resolve" in r.stdout, r.stdout
+    got = emitted(r.stdout)
+    assert got and all(got.values()), r.stdout
 
 
 def test_an_undeliverable_verdict_fails_instead_of_reporting_green(tmp_path: Path) -> None:

@@ -26,11 +26,13 @@
 #      merge group — selects EVERY job. The economy is for pull requests only. A
 #      merge that skipped a suite and then broke main costs far more than the
 #      minutes it saved, and red-main.yml pages the ops topic when it happens.
-#   3. Every failure path here selects EVERY job. A base ref that will not fetch,
-#      a diff that will not compute, a verify.sh that exits non-zero: none of
-#      those are evidence of a small change, so none of them may narrow the run.
-#      This script does not have a way to fail closed that is cheaper than being
-#      wrong, so it fails OPEN — toward running more.
+#   3. Every failure path here selects EVERY job. A base ref that does not
+#      RESOLVE, a diff that will not compute, a verify.sh that exits non-zero:
+#      none of those are evidence of a small change, so none of them may narrow
+#      the run. This script does not have a way to fail closed that is cheaper
+#      than being wrong, so it fails OPEN — toward running more. A fetch that
+#      fails while the ref still resolves is the one case that is judged rather
+#      than assumed; the block at the fetch itself carries that argument.
 #   4. The job that runs this script has NO `if:` and always reports. That is
 #      deliberate and it is load-bearing: scripts/land.sh refuses (exit 10) when a
 #      pull request's check set is empty or when NONE of its checks passed, which
@@ -74,10 +76,51 @@ if [[ "$event" != "pull_request" ]]; then
 elif [[ -z "$base_ref" ]]; then
   full "pull_request with no GITHUB_BASE_REF, so there is no base to diff against"
 else
+  # Refresh the base if we can. A failed fetch is not by itself a reason to run
+  # everything: what matters is whether `origin/<base>` RESOLVES. The verification
+  # image is the case that proved the difference — it has no network and mounts
+  # the parent .git read-only, so `git fetch` cannot even write FETCH_HEAD there
+  # while origin/main is perfectly readable. Treating that as fatal made the
+  # selector's own end-to-end test unable to observe narrowing at all, from every
+  # linked worktree, which is every agent in this repo.
+  #
+  # Narrowing against a STALE base is usually safe, and the reason is worth
+  # writing down because it is the whole safety case. `git diff A...HEAD` diffs
+  # the MERGE BASE of A and HEAD against HEAD. If the local ref is merely behind
+  # the real base — an ancestor of it — then every common ancestor it can offer is
+  # also a common ancestor of the real base, so the merge base can only move
+  # BACKWARDS, and a merge base further back yields MORE changed paths, hence more
+  # suites. Wrong in the direction that runs extra work rather than the direction
+  # that skips a gate.
+  #
+  # That argument holds only while the stale ref is an ANCESTOR of the true base,
+  # and one case breaks it: a base that was REWOUND (force-pushed backwards). Then
+  # the stale ref is a DESCENDANT of the true tip, the merge base moves FORWARD,
+  # and the diff gets SMALLER — measured, not assumed: with main force-pushed from
+  # C back to A, the stale base reports 1 changed path where the true base reports
+  # 3. Two of those paths would have selected no gate.
+  #
+  # There is no offline test for "was my base rewound", so the resolution is by
+  # blast radius rather than by detection. Inside Actions these verdicts GATE REAL
+  # JOBS, and a fetch failure there is an anomaly rather than the normal case, so
+  # it keeps the old behaviour and runs everything. Outside Actions the verdicts
+  # gate nothing — they are printed, and the local lane is scripts/verify.sh — so
+  # a stale base is free and the narrowing path stays reachable and testable.
+  fetch_failed=0
   if ! git fetch --no-tags --quiet origin \
        "+refs/heads/${base_ref}:refs/remotes/origin/${base_ref}" 2>/dev/null; then
-    full "could not fetch origin/${base_ref}"
+    fetch_failed=1
+  fi
+  if [[ $fetch_failed -eq 1 && "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    full "could not fetch origin/${base_ref}, and inside Actions a base that may have been rewound cannot be narrowed against"
+  elif ! git rev-parse --verify --quiet "refs/remotes/origin/${base_ref}" >/dev/null; then
+    full "origin/${base_ref} does not resolve, so there is no base to diff against"
   else
+    if [[ $fetch_failed -eq 1 ]]; then
+      echo "ci-select: could not fetch origin/${base_ref}; diffing against the" >&2
+      echo "           ref already here, which is at worst stale and therefore at" >&2
+      echo "           worst too wide. Not inside Actions, so nothing is gated on it." >&2
+    fi
     changed=""
     if ! changed="$(git diff --name-only "origin/${base_ref}...HEAD" 2>/dev/null)"; then
       full "the diff against origin/${base_ref} would not compute"
