@@ -37,6 +37,8 @@
 #     LAND_GATES           override the local gate command
 #     LAND_SKIP_GATES      set to 1 to skip local gates (CI still gates the merge)
 #     LAND_LOCK_DIR        override the per-branch landing lock directory
+#     LAND_BASE_ATTEMPTS   how many times to re-rebase onto a base that moved
+#                          under the green checks before refusing (default: 3)
 #
 # EXIT CODES  (each one is a refusal that really happened, or really could)
 #
@@ -53,6 +55,7 @@
 #     11  the pull request is not in a mergeable state, or merge failed
 #     12  merge reported success but origin/<base> did not move as expected
 #     13  another land.sh is already landing this branch
+#     14  origin/<base> kept moving under the green checks  <-- the two-branch race
 #     20  prerequisites missing (git, gh, jq, auth, repo)
 #
 set -uo pipefail
@@ -62,6 +65,7 @@ MERGE_METHOD="${LAND_MERGE_METHOD:-squash}"
 CHECK_TIMEOUT="${LAND_CHECK_TIMEOUT:-2400}"
 CHECK_GRACE="${LAND_CHECK_GRACE:-240}"
 POLL_INTERVAL="${LAND_POLL_INTERVAL:-15}"
+BASE_ATTEMPTS="${LAND_BASE_ATTEMPTS:-3}"
 
 DRY_RUN=0
 PR_TITLE=""
@@ -145,6 +149,25 @@ for tool in git gh jq; do
   command -v "$tool" >/dev/null 2>&1 \
     || refuse 20 "\`$tool\` is not installed." "land.sh needs git, gh and jq."
 done
+
+# The attempt bound is the ONLY thing standing between the land loop below and an
+# unbounded run, and `[ "$LAND_ATTEMPT" -ge "$BASE_ATTEMPTS" ]` does not fail
+# closed on a non-number: bash prints `integer expression expected`, the test
+# evaluates FALSE, and the loop takes the re-rebase branch every single time. That
+# is not a quiet spin like a bad LAND_CHECK_TIMEOUT — every iteration force-pushes,
+# which regenerates refs/pull/<N>/merge and CANCELS every other open pull
+# request's in-flight CI. One typo would deny CI to the whole repository until
+# somebody noticed. Measured: `LAND_BASE_ATTEMPTS=three` ran until it was killed,
+# force-pushing on every pass.
+case "$BASE_ATTEMPTS" in
+  ''|*[!0-9]*) refuse 20 "LAND_BASE_ATTEMPTS must be a positive integer, not '${BASE_ATTEMPTS}'." \
+                 "It bounds the re-rebase loop, and a value the shell cannot compare" \
+                 "would leave that loop unbounded — force-pushing, and cancelling" \
+                 "every other pull request's CI, until it was killed by hand." ;;
+esac
+[ "$BASE_ATTEMPTS" -ge 1 ] \
+  || refuse 20 "LAND_BASE_ATTEMPTS is ${BASE_ATTEMPTS}; it must be at least 1." \
+       "Zero attempts means no landing can ever complete."
 
 git rev-parse --git-dir >/dev/null 2>&1 \
   || refuse 20 "Not inside a git repository."
@@ -312,6 +335,66 @@ if [ "$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)" != "$$" ]; then
     "Re-run scripts/land.sh once it finishes."
 fi
 ok "holding ${LOCK_DIR}"
+
+# ══════════════════════════════════════════════════════════════ THE LAND LOOP
+#
+# WHY THIS IS A LOOP. A green check set is a statement about a MERGE — this
+# branch on top of that base — and it stops being evidence the moment the base
+# moves. The per-branch lock added for #168 closed two runs on ONE branch. It
+# does nothing about two branches landing at once, which is the common case here
+# because several agents land their own pull requests concurrently:
+#
+#   1. run A and run B each rebase onto origin/<base> at commit X, force-push
+#   2. both wait for checks; both go green — against base X
+#   3. A merges; origin/<base> is now Y
+#   4. B merges. B's checks were computed against X and were never recomputed
+#      against Y, so the merged result was never tested.
+#
+# GitHub will not stop step 4: this repository is private on a plan without
+# branch protection, which is the same property that put #108 and #109 on a
+# broken main.
+#
+# THIS IS MEASURED, NOT HYPOTHETICAL. On 2026-08-04 #161 and #167 landed
+# concurrently: both rebased onto the same base, both went green against it, and
+# they merged one after the other. Main happened to stay green — by luck, because
+# nothing recomputed the second one's checks against the base the first had moved.
+# The reading-side version of the same thing was #167 itself, carrying seven green
+# checks computed against a base from before #142 landed a stricter default-deny;
+# rebased onto real main it was red, and a human caught it. This is the machine
+# catching it.
+#
+# WHY NOT A REPOSITORY-WIDE LOCK, which is the obvious fix. A landing takes about
+# ten minutes and this repo does dozens a day, so serializing every branch turns
+# a day of parallel work into a queue hours long. The defect is not the
+# parallelism; it is that a verdict was reused against a base it was never
+# computed for. So fix the property: prove the base is unchanged at the moment
+# the merge becomes irreversible, and if it moved, go and earn a new verdict.
+#
+# WHY RE-REBASE RATHER THAN REFUSE. It is what a human does, and it is what the
+# existing exit-11 CONFLICTING message already tells the reader to do by hand.
+# Refusing outright would be correct and useless: on a busy day every concurrent
+# landing would refuse, and the operator's only recovery is to re-run this script
+# — which is precisely the loop, but with the ten minutes of gates and CI thrown
+# away and a human in the middle of it. The bound is what keeps that honest: a
+# repository busier than one landing per CI cycle cannot spin here forever, it
+# refuses with exit 14 and says so.
+#
+# WHAT THE RE-REBASE COSTS EVERYONE ELSE, said here because it is not obvious:
+# force-pushing regenerates refs/pull/<N>/merge, and ci.yml keys its concurrency
+# group on that ref, so this branch's new run cancels the in-flight runs of every
+# OTHER open pull request. That is the cancellation the exit-8 refusal explains.
+# It is the cost of the property, not a defect, and it is bounded by
+# LAND_BASE_ATTEMPTS.
+#
+# THE BODY BELOW IS DELIBERATELY NOT RE-INDENTED. It is the same sequence of
+# steps in the same order it has always been — rebase, gates, push, PR, wait,
+# mergeable — and indenting three hundred and fifty lines would bury the one
+# change a reviewer of a merge gate needs to see in a wall of whitespace. The
+# loop opens here and closes at `done`, just above the merge.
+LAND_ATTEMPT=0
+
+while :; do
+LAND_ATTEMPT=$(( LAND_ATTEMPT + 1 ))
 
 # --------------------------------------------------------------- rebase
 
@@ -503,9 +586,15 @@ head_on_github() {
   gh pr view "$PR_NUM" --json headRefOid -q .headRefOid 2>/dev/null || true
 }
 
+# Reset per ATTEMPT, not per run. A second time round the loop is waiting on a
+# different commit's checks, so its grace and timeout windows start again — and
+# `pass_n` in particular must not survive, or the "NONE of them passed" guard
+# below would be answered by the previous attempt's verdict. That is the same
+# class of bug as the one this loop exists to fix, one scope down.
 started="$(date +%s)"
 last_summary=""
 CHECKS=""
+pass_n=0
 
 while [ -z "${SKIP_CHECK_WAIT:-}" ]; do
   now="$(date +%s)"
@@ -708,6 +797,77 @@ case "$MERGE_STATE" in
                      "Re-run scripts/land.sh; the rebase step will pick up the new base." ;;
   *) warn "unusual merge state — proceeding only because checks are green" ;;
 esac
+
+# ------------------------------------------- refusal 14: the base under the checks
+#
+# THE LAST THING BEFORE THE IRREVERSIBLE STEP. Everything above is a verdict
+# about ${HEAD_SHA} sitting on top of ${BASE_BEFORE}. This is where that second
+# half is checked, and it is deliberately the last read in the loop: a gap
+# between this and `gh pr merge` is a window where the race can still happen, so
+# nothing that takes time belongs between them.
+#
+# `git fetch` failing is a REFUSAL, not a warning. "I could not tell whether the
+# base moved" is not "the base did not move", and this script's whole doctrine is
+# that an unreadable answer refuses (exit 10 is the same reasoning about checks).
+#
+# WHAT THIS DOES NOT DO, because #175 makes CI select only the suites a diff can
+# break: it does not compare the new commit's check set with the old one. The
+# check SET is no longer constant across commits — a rebase onto a new base can
+# legitimately change which jobs run — so "these are different jobs from last
+# time" carries no information about safety. A re-rebase therefore goes back
+# through the SAME wait loop and judges the new commit on the checks the new
+# commit actually got. What that loop refuses, it still refuses: an empty or
+# unreadable set is exit 10, a set of nothing but ignored checks is exit 10, and
+# a set where nothing passed is exit 10. Selection changing is not a licence to
+# merge on nothing; exit 10 IS the #108/#109 hole, and it is the one thing here
+# that must never get looser.
+
+step "Re-checking origin/${BASE} before the merge"
+git fetch origin "$BASE" --quiet \
+  || refuse 14 "Could not re-fetch origin/${BASE} to prove it is still ${BASE_BEFORE:0:8}." \
+       "The green checks above were computed against that base. Without a" \
+       "re-read there is no evidence they describe the merge about to happen," \
+       "and an unreadable answer is a refusal, not a pass."
+BASE_NOW="$(git rev-parse "origin/${BASE}")"
+
+if [ "$BASE_NOW" = "$BASE_BEFORE" ]; then
+  ok "origin/${BASE} is still ${BASE_BEFORE:0:8} — the checks above describe THIS merge"
+  break
+fi
+
+# A dry run has no irreversible step to protect, and re-rebasing for it would
+# force-push the branch and burn a full CI cycle to answer a question the caller
+# only asked hypothetically. Say what a real run would do, and stop.
+if [ "$DRY_RUN" = "1" ]; then
+  warn "origin/${BASE} moved ${BASE_BEFORE:0:8} -> ${BASE_NOW:0:8} while this run was working."
+  warn "The checks above were computed against ${BASE_BEFORE:0:8}, so they do not"
+  warn "describe a merge into ${BASE_NOW:0:8}. A real run would re-rebase onto it,"
+  warn "push, and wait for checks again. --dry-run stops here instead."
+  break
+fi
+
+if [ "$LAND_ATTEMPT" -ge "$BASE_ATTEMPTS" ]; then
+  refuse 14 "origin/${BASE} moved under the green checks ${LAND_ATTEMPT} time(s) — giving up." \
+    "  base when the checks started   ${BASE_BEFORE:0:8}" \
+    "  base now                       ${BASE_NOW:0:8}" \
+    "" \
+    "Those checks describe ${HEAD_SHA:0:8} on top of ${BASE_BEFORE:0:8}. Merging" \
+    "them into ${BASE_NOW:0:8} would put a combination on ${BASE} that nothing has" \
+    "ever built or tested — the #108/#109 shape, arrived at from the other side." \
+    "" \
+    "This is not a defect in your branch. ${BASE} is simply moving faster than a" \
+    "CI cycle right now, and each re-rebase raced the next landing. Re-run" \
+    "scripts/land.sh when it is quieter, or raise LAND_BASE_ATTEMPTS (currently" \
+    "${BASE_ATTEMPTS}) if you are willing to pay for more attempts."
+fi
+
+warn "origin/${BASE} moved ${BASE_BEFORE:0:8} -> ${BASE_NOW:0:8} while checks were running."
+warn "The green verdict above belongs to a base that no longer exists, so it is"
+warn "being thrown away rather than spent: re-rebasing onto ${BASE_NOW:0:8} and"
+warn "waiting for checks again (attempt $(( LAND_ATTEMPT + 1 )) of ${BASE_ATTEMPTS})."
+warn "The force-push this needs regenerates refs/pull/${PR_NUM}/merge, which will"
+warn "CANCEL the in-flight runs of other open pull requests. That is expected."
+done
 
 # ----------------------------------------------------------------- merge
 

@@ -84,7 +84,36 @@ case "$1" in
     case "$2" in
       list)   [ -n "${GH_NO_PR:-}" ] || printf '7\n'; exit 0 ;;
       create) : > "$STUB_DIR/pr-created"; exit "${GH_CREATE_FAIL:-0}" ;;
-      checks) cat "${GH_CHECKS_FILE:-/nonexistent}" 2>/dev/null; exit 0 ;;
+      checks)
+        # TWO BRANCHES LANDING AT ONCE. Somebody else's land.sh merges while this
+        # run's checks are being read, so the green verdict this call is about to
+        # return was computed against a base that no longer exists. ONCE, unless
+        # ALWAYS is set: a base that settles is what lets the re-rebase converge,
+        # and a base that never settles is what the attempt bound is for.
+        if [ -n "${GH_ADVANCE_BASE_ALWAYS:-}" ] \
+           || { [ -n "${GH_ADVANCE_BASE_ONCE:-}" ] && [ ! -f "$STUB_DIR/base-advanced" ]; }; then
+          : > "$STUB_DIR/base-advanced"
+          git fetch -q origin main
+          _t="$(git rev-parse 'origin/main^{tree}')"
+          _p="$(git rev-parse origin/main)"
+          _c="$(GIT_AUTHOR_NAME=other GIT_AUTHOR_EMAIL=o@example.invalid \
+                GIT_COMMITTER_NAME=other GIT_COMMITTER_EMAIL=o@example.invalid \
+                git commit-tree "$_t" -p "$_p" -m 'another branch landed')"
+          git push --quiet origin "${_c}:main"
+          git fetch -q origin main
+        fi
+        # GH_CHECKS_FILE_2, from the SECOND poll onward, is the check set the
+        # re-rebased commit gets. It exists because #175 makes CI select the
+        # suites a diff can break, so the check SET is no longer constant across
+        # commits: a rebase onto a new base can legitimately change which jobs
+        # run. Counted rather than keyed on the advance marker, because the
+        # advance happens during attempt 1's own read.
+        _n=$(( $(cat "$STUB_DIR/checks-n" 2>/dev/null || printf 0) + 1 ))
+        printf '%s' "$_n" > "$STUB_DIR/checks-n"
+        if [ "$_n" -ge 2 ] && [ -n "${GH_CHECKS_FILE_2:-}" ]; then
+          cat "$GH_CHECKS_FILE_2" 2>/dev/null; exit 0
+        fi
+        cat "${GH_CHECKS_FILE:-/nonexistent}" 2>/dev/null; exit 0 ;;
       view)
         case "$json" in
           headRefOid)
@@ -102,14 +131,28 @@ case "$1" in
           *) printf 'OPEN\tMERGEABLE\tCLEAN\n'; exit 0 ;;
         esac ;;
       merge)
+        # THE INSTANT THE MERGE BECOMES IRREVERSIBLE, record whether the commit
+        # being merged actually sits on top of the base it is going into. This is
+        # the whole property of the two-branch race and it is observable nowhere
+        # else: after the fact, main holds the branch either way.
+        git fetch -q origin main
+        if git merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
+          printf 'ontop\n' > "$STUB_DIR/merge-basis"
+        else
+          printf 'stale\n' > "$STUB_DIR/merge-basis"
+        fi
         case "${GH_MERGE_MODE:-ok}" in
           ok)
-            git push --quiet origin HEAD:main && git rev-parse HEAD > "$STUB_DIR/merged"
+            # `--force`, because GitHub is not the gate. On a plan without branch
+            # protection it merges a pull request whose head is behind the base
+            # rather than rejecting it the way this bare remote would, and a stub
+            # that refused would hide the defect under test behind a push error.
+            git push --force --quiet origin HEAD:main && git rev-parse HEAD > "$STUB_DIR/merged"
             exit 0 ;;
           fail_but_merged)
             # PRs #122 and #126: the merge happened, `--delete-branch` then failed
             # because a worktree still held the branch, and gh exited non-zero.
-            git push --quiet origin HEAD:main && git rev-parse HEAD > "$STUB_DIR/merged"
+            git push --force --quiet origin HEAD:main && git rev-parse HEAD > "$STUB_DIR/merged"
             exit 1 ;;
           fail) exit 1 ;;
         esac ;;
@@ -134,6 +177,27 @@ CANCELLED_CHECKS = '[{"name":"webapp (1)","state":"CANCELLED","bucket":"cancel",
 FAIL_PLUS_CANCEL = (
     '[{"name":"webapp (1)","state":"CANCELLED","bucket":"cancel","link":"u"},'
     ' {"name":"tests","state":"FAILURE","bucket":"fail","link":"u"}]'
+)
+
+
+# The identity land.sh's OWN git commands run under, and the config they do NOT
+# read. Found by the image lane: on a developer's laptop `git rebase` picks up a
+# global user.name/user.email and works, and inside the verification image — root,
+# no global config — the same rebase dies with "Committer identity unknown" and
+# land.sh reports it as a conflict. Only the base re-check exercises that path, so
+# nothing caught it before: every other case is either `already on top` or a
+# conflict that aborts.
+#
+# Pinning it here rather than in the image is the point. A harness that depends on
+# whoever is running it tests a different script in CI than on the laptop, and the
+# `/dev/null` config files close the other half of that: no `rebase.autostash`, no
+# `merge.conflictstyle`, no personal alias reaching the script under test. The
+# fixture's own `git()` helper has always done this; land.sh's git calls were the
+# gap.
+GIT_ENV = dict(
+    GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+    GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid",
+    GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null",
 )
 
 
@@ -172,10 +236,12 @@ class Land:
         e["PATH"] = f"{self.stub}:{e['PATH']}"
         e["GH_LOG"] = str(self.gh_log)
         e["STUB_DIR"] = str(self.stub)
+        e.update(GIT_ENV)
         for k in ("LAND_GATES", "LAND_POLL_INTERVAL", "LAND_CHECK_GRACE",
                   "LAND_CHECK_TIMEOUT", "LAND_LOCK_DIR", "LAND_TIER",
                   "LAND_SKIP_GATES", "GH_CHECKS_FILE", "GH_HEAD_OVERRIDE",
-                  "GH_MERGE_MODE", "GH_NO_PR"):
+                  "GH_MERGE_MODE", "GH_NO_PR", "GH_CHECKS_FILE_2",
+                  "GH_ADVANCE_BASE_ONCE", "GH_ADVANCE_BASE_ALWAYS", "LAND_BASE_ATTEMPTS"):
             e.pop(k, None)
         e.setdefault("LAND_LOCK_DIR", str(self.lock))
         e.setdefault("LAND_POLL_INTERVAL", "0")
@@ -193,6 +259,7 @@ class Land:
         e["PATH"] = f"{self.stub}:{e['PATH']}"
         e["GH_LOG"] = str(self.gh_log)
         e["STUB_DIR"] = str(self.stub)
+        e.update(GIT_ENV)
         # POP, not setdefault. `land.sh` is itself run with LAND_GATES set — that
         # is how anyone lands a change — so an inherited value survives a
         # setdefault and the land.sh under test recursively runs the caller's
@@ -215,7 +282,8 @@ class Land:
         e.setdefault("LAND_CHECK_GRACE", "0")
         e.setdefault("LAND_CHECK_TIMEOUT", "0")
         for k in ("LAND_TIER", "LAND_SKIP_GATES", "GH_CHECKS_FILE", "GH_HEAD_OVERRIDE",
-                  "GH_MERGE_MODE", "GH_NO_PR"):
+                  "GH_MERGE_MODE", "GH_NO_PR", "GH_CHECKS_FILE_2",
+                  "GH_ADVANCE_BASE_ONCE", "GH_ADVANCE_BASE_ALWAYS", "LAND_BASE_ATTEMPTS"):
             e.pop(k, None)
         e.update(env)
         return subprocess.run(
@@ -223,9 +291,13 @@ class Land:
             cwd=self.work, capture_output=True, text=True, env=e, timeout=180,
         )
 
-    def checks(self, payload: str) -> str:
-        """Write a check-set fixture and return the env value pointing at it."""
-        p = self.root / "checks.json"
+    def checks(self, payload: str, name: str = "checks.json") -> str:
+        """Write a check-set fixture and return the env value pointing at it.
+
+        `name` exists so a test can hand the SECOND poll a different set — see
+        GH_CHECKS_FILE_2 in the stub, and #175's change-scoped CI selection.
+        """
+        p = self.root / name
         p.write_text(payload)
         return str(p)
 
@@ -235,11 +307,7 @@ class Land:
 
 def git(cwd: Path, *args: str) -> None:
     env = dict(os.environ)
-    env.update(
-        GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
-        GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid",
-        GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null",
-    )
+    env.update(GIT_ENV)
     subprocess.run(["git", *args], cwd=cwd, check=True, env=env,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -945,6 +1013,186 @@ def test_the_lock_key_separates_branches(land: Land) -> None:
     assert r.returncode == 0, r.stdout + r.stderr
     # The key names all three, so a second branch gets a different directory.
     assert "acme-job-hq-main-feat-thing" in refusal(r), refusal(r)
+
+
+# ═══════════════════ exit 14: two BRANCHES landing at once, one moving base
+#
+# The lock above closed two runs on ONE branch. This is the other half, and it is
+# the common case here because several agents land their own pull requests at the
+# same time:
+#
+#   1. run A and run B each rebase onto origin/main at X and force-push
+#   2. both wait for checks; both go green — against base X
+#   3. A merges; origin/main is now Y
+#   4. B merges. B's checks were computed against X and never against Y, so the
+#      merged result was never tested by anything.
+#
+# GitHub does not stop step 4 — private repo, no branch protection, the same
+# property that put #108 and #109 on a broken main. PR #167 was the reading-side
+# version: seven green checks computed against a base from before #142 landed a
+# stricter default-deny, and red once rebased onto real main. A human caught that
+# one.
+#
+# The assertion is deliberately about the INSTANT OF THE MERGE rather than about
+# the message: the gh stub records, when `pr merge` is called, whether the commit
+# being merged is a descendant of the base it is going into. After the fact main
+# holds the branch either way, so this is the only moment the property exists.
+
+
+def test_a_base_that_moved_under_the_green_checks_is_never_merged_into(
+    land: Land,
+) -> None:
+    """The race, reproduced. Fails on the script as it stood before exit 14.
+
+    origin/main advances once while the checks are being read — exactly step 3
+    above. The run must not spend that verdict: it re-rebases onto the new base,
+    re-runs the local gates against it, waits for checks again, and only then
+    merges. `merge-basis == ontop` is the property; the gate counter is the proof
+    that a NEW verdict was earned rather than the old one reused.
+    """
+    gate_log = land.root / "gate-runs"
+    r = land.run(
+        GH_CHECKS_FILE=land.checks(PASSING_CHECKS),
+        GH_ADVANCE_BASE_ONCE="1",
+        LAND_GATES=f"printf x >> {gate_log}",
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "LANDED" in r.stdout
+
+    basis = (land.stub / "merge-basis").read_text().strip()
+    assert basis == "ontop", (
+        "land.sh merged a commit that was NOT on top of origin/main: the green "
+        "checks were computed against the old base and the merged result was "
+        f"never tested.\n{r.stdout}{r.stderr}"
+    )
+    assert gate_log.read_text() == "xx", (
+        "the local gates did not re-run against the new base — the verdict was "
+        f"reused, not re-earned (gate runs: {gate_log.read_text()!r})"
+    )
+    assert len([c for c in land.gh_calls() if c.startswith("pr checks")]) >= 2, (
+        "the checks were never re-read after the base moved"
+    )
+    assert "moved" in r.stderr and "re-rebasing" in r.stderr, (
+        "the run must SAY it threw the stale verdict away"
+    )
+    # The cancellation this causes for everyone else is named, because the first
+    # reading of a cancelled check in this repo was "a test is failing".
+    assert "CANCEL the in-flight runs" in r.stderr
+
+
+def test_a_base_that_never_settles_refuses_with_14_rather_than_spinning(
+    land: Land,
+) -> None:
+    """The bound. A repository landing faster than a CI cycle must not put this
+    script in an unbounded rebase loop — and must not merge either. Refusing is
+    the third option, and it is the one that keeps both properties."""
+    r = land.run(
+        GH_CHECKS_FILE=land.checks(PASSING_CHECKS),
+        GH_ADVANCE_BASE_ALWAYS="1",
+        LAND_BASE_ATTEMPTS="2",
+    )
+    assert r.returncode == 14, r.stdout + r.stderr
+    assert "moved under the green checks" in refusal(r)
+    assert "LAND_BASE_ATTEMPTS" in refusal(r), "say how to buy more attempts"
+    assert "not a defect in your branch" in refusal(r)
+    assert not any(c.startswith("pr merge") for c in land.gh_calls()), (
+        "it gave up and merged anyway"
+    )
+    assert not (land.stub / "merge-basis").exists()
+
+
+@pytest.mark.parametrize("bound", ["three", "3.0", " ", "-1", "0"])
+def test_an_attempt_bound_the_shell_cannot_compare_refuses_before_the_loop(
+    land: Land, bound: str
+) -> None:
+    """The bound must itself be sound, because it is the only thing bounding the
+    loop. `[ "$LAND_ATTEMPT" -ge "three" ]` is not false-because-smaller, it is an
+    ERROR that evaluates false — so the loop takes the re-rebase branch forever,
+    and every pass force-pushes, which regenerates refs/pull/<N>/merge and cancels
+    every other open pull request's in-flight CI. That is one typo denying CI to
+    the whole repository, so it is caught at startup rather than discovered.
+
+    Measured before the check existed: `LAND_BASE_ATTEMPTS=three` with a base that
+    never settles ran until the harness killed it at 180s, re-pushing every pass.
+    """
+    r = land.run(
+        GH_CHECKS_FILE=land.checks(PASSING_CHECKS),
+        GH_ADVANCE_BASE_ALWAYS="1",
+        LAND_BASE_ATTEMPTS=bound,
+    )
+    assert r.returncode == 20, r.stdout + r.stderr
+    assert "LAND_BASE_ATTEMPTS" in refusal(r)
+    assert not any(c.startswith("pr merge") for c in land.gh_calls())
+    # Refused before the loop, so nothing was pushed and nobody's CI was cancelled.
+    assert not land.gate_marker.exists()
+
+
+def test_a_dry_run_reports_the_moved_base_instead_of_re_rebasing(land: Land) -> None:
+    """--dry-run has no irreversible step to protect, and re-rebasing for it
+    would force-push the branch and burn a CI cycle to answer a hypothetical.
+    It must say what a real run would do, and stop."""
+    gate_log = land.root / "gate-runs"
+    r = land.run(
+        "--dry-run",
+        GH_CHECKS_FILE=land.checks(PASSING_CHECKS),
+        GH_ADVANCE_BASE_ONCE="1",
+        LAND_GATES=f"printf x >> {gate_log}",
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "A real run would re-rebase" in r.stderr
+    assert gate_log.read_text() == "x", "a dry run re-ran the gates"
+    assert not any(c.startswith("pr merge") for c in land.gh_calls())
+
+
+def test_a_re_rebase_accepts_the_new_base_s_OWN_check_set(land: Land) -> None:
+    """#175 makes CI select only the suites a diff can break, so the check SET is
+    no longer constant across commits: a rebase onto a new base can legitimately
+    change which jobs exist. The re-rebase must judge the new commit on the checks
+    the new commit actually got — not look for the previous set and call its
+    absence a hole.
+    """
+    second = land.checks(
+        '[{"name":"db (migrations on real Postgres)","state":"SUCCESS","bucket":"pass","link":"u"},'
+        ' {"name":"pinned mutants","state":"SUCCESS","bucket":"pass","link":"u"}]',
+        name="checks-after-rebase.json",
+    )
+    r = land.run(
+        GH_CHECKS_FILE=land.checks(PASSING_CHECKS),
+        GH_CHECKS_FILE_2=second,
+        GH_ADVANCE_BASE_ONCE="1",
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (land.stub / "merge-basis").read_text().strip() == "ontop"
+    # And the verdict it merged on is the SECOND set's, not the first's.
+    assert "pinned mutants" not in refusal(r), "the new set was treated as a failure"
+    assert "all checks green (2 passed)" in r.stderr, (
+        f"it did not judge the re-rebased commit on its own 2-check set:\n{r.stderr}"
+    )
+
+
+def test_a_re_rebase_onto_an_empty_check_set_still_refuses_with_10(land: Land) -> None:
+    """The other direction, and the one that matters more. Selection changing must
+    not become a licence to merge on nothing: if the re-rebased commit's check set
+    is empty or unreadable, that is still exit 10 — the #108/#109 hole itself — and
+    the re-rebase must not soften it into "the set just changed"."""
+    r = land.run(
+        GH_CHECKS_FILE=land.checks(PASSING_CHECKS),
+        GH_CHECKS_FILE_2=land.checks("[]", name="checks-empty.json"),
+        GH_ADVANCE_BASE_ONCE="1",
+    )
+    assert r.returncode == 10, r.stdout + r.stderr
+    assert "EMPTY or UNREADABLE check set" in refusal(r)
+    assert not any(c.startswith("pr merge") for c in land.gh_calls())
+    assert not (land.stub / "merge-basis").exists()
+
+
+def test_an_unmoved_base_says_so_rather_than_staying_silent(land: Land) -> None:
+    """The happy path of the same check. A gate that only speaks when it fires
+    cannot be distinguished, in a log, from a gate that is not there."""
+    r = land.run(GH_CHECKS_FILE=land.checks(PASSING_CHECKS))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "the checks above describe THIS merge" in r.stderr
+    assert (land.stub / "merge-basis").read_text().strip() == "ontop"
 
 
 # ═══════════════════════════ exit 8, but say WHICH: cancelled is not failed

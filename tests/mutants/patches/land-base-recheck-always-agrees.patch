@@ -1,0 +1,12 @@
+diff --git a/scripts/land.sh b/scripts/land.sh
+--- a/scripts/land.sh
++++ b/scripts/land.sh
+@@ -791,7 +791,7 @@ git fetch origin "$BASE" --quiet \
+        "The green checks above were computed against that base. Without a" \
+        "re-read there is no evidence they describe the merge about to happen," \
+        "and an unreadable answer is a refusal, not a pass."
+-BASE_NOW="$(git rev-parse "origin/${BASE}")"
++BASE_NOW="$BASE_BEFORE"
+ 
+ if [ "$BASE_NOW" = "$BASE_BEFORE" ]; then
+   ok "origin/${BASE} is still ${BASE_BEFORE:0:8} — the checks above describe THIS merge"

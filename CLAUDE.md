@@ -45,9 +45,12 @@ stale plan. “Implemented on a branch” does not mean integrated, deployed, or
   2026-08-01 when a backgrounded watch died with its parent shell and its non-zero exit
   never reached the `&&`. The script is the enforcement the plan does not provide, so
   routing around it removes the only gate. It refuses on a dirty worktree, on `main`, on
-  failing or pending checks, and on an empty or unreadable check set, and it verifies
-  `origin/main` actually moved before claiming a landing. A refusal is a finding: fix the
-  cause, then re-run it.
+  failing or pending checks, and on an empty or unreadable check set; it refuses when
+  another run is already landing the same branch (exit 13); and immediately before the
+  merge it re-reads `origin/main` and refuses rather than spend a verdict earned against
+  a base that has since moved, re-rebasing a bounded number of times first (exit 14).
+  It then verifies `origin/main` actually moved before claiming a landing. A refusal is a
+  finding: fix the cause, then re-run it.
 - Preserve unrelated worktree changes. Never hand-edit `hq.config.yaml`.
 - Migrations are append-only and integrated serially by one integrator. Create the file
   with `scripts/new-migration.sh <name>`, which stamps `YYYYMMDD_HHMMSS_name.sql` in UTC;

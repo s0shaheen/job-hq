@@ -401,6 +401,46 @@ failing = 4
 # plausible edit to that one line actually does.
 
 [[mutant]]
+id = "land-base-recheck-always-agrees"
+tier = "T4"
+kind = "patch"
+patch = "patches/land-base-recheck-always-agrees.patch"
+guard = "scripts/land.sh — re-reading origin/<base> before the merge, not assuming it"
+property = """
+A green check set is a statement about a MERGE — this head on that base — so \
+before the irreversible step land.sh must establish that origin/<base> is still \
+the commit those checks were computed against, and re-rebase (or refuse with 14) \
+when it is not."""
+runner = "pytest"
+tests = [
+  "tests/core/test_land_script.py::test_a_base_that_moved_under_the_green_checks_is_never_merged_into",
+  "tests/core/test_land_script.py::test_a_base_that_never_settles_refuses_with_14_rather_than_spinning",
+  "tests/core/test_land_script.py::test_a_dry_run_reports_the_moved_base_instead_of_re_rebasing",
+  "tests/core/test_land_script.py::test_a_re_rebase_accepts_the_new_base_s_OWN_check_set",
+  "tests/core/test_land_script.py::test_a_re_rebase_onto_an_empty_check_set_still_refuses_with_10",
+]
+failing = 5
+# `BASE_NOW="$BASE_BEFORE"` rather than deleting the check, for the same reason
+# the lock mutant above uses `mkdir -p`: the SILENT failure is the interesting
+# one. The fetch still runs, the step header still prints, and the run still says
+# "origin/main is still abcd1234 — the checks above describe THIS merge" in green
+# on every landing. Everything a reader or a log would look for is present; only
+# the comparison is gone. That is what a careless edit to this line actually does,
+# and it is exactly the shape of the defect the whole entry is about — a verdict
+# reported about a base nobody re-read.
+#
+# The last two cases are the #175 interaction: CI now selects only the suites a
+# diff can break, so the check SET changes across a rebase. Under this mutation
+# the re-rebase never happens, so the new base's own check set is never read at
+# all — which is why both a changed-but-green set and an empty one detect it.
+#
+# NOT in the list, on purpose:
+# `test_an_unmoved_base_says_so_rather_than_staying_silent` stays GREEN under this
+# mutation, because on a base that really did not move the mutant and the guard
+# agree. A ledger entry that named it would be claiming a detection it does not
+# have.
+
+[[mutant]]
 id = "render-mapped-returns-exc-untouched"
 tier = "T3"
 kind = "patch"
