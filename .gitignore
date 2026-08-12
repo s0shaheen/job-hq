@@ -74,3 +74,8 @@ interview-prep/
 # tests/core/test_no_absolute_symlinks.py fails the build if one returns.
 webapp/node_modules
 /applications
+
+# local agent/CLI state — never committed. .claude holds agent worktrees
+# (personal content); supabase/.temp is Supabase CLI machine state.
+.claude/
+supabase/.temp/

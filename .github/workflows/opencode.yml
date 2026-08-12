@@ -1,0 +1,40 @@
+# Comment "/oc <instruction>" on an issue or PR and an opencode agent runs in
+# this repo's Actions runner, implements, and opens a PR referencing the issue.
+#
+# Owner-gated: comments from anyone but the repo owner are ignored — an issue
+# body or drive-by comment must never become an instruction channel.
+#
+# Model: Haiku (cheap tier) via the existing ANTHROPIC_API_KEY secret. To route
+# to another cheap provider (Grok Code Fast, DeepSeek), add its key as a secret
+# and change `model:` to e.g. openrouter/x-ai/grok-code-fast-1.
+#
+# Setup remaining (issue "Wire opencode + Claude comment-triggered Actions"):
+# install the opencode GitHub App, then prove the loop on one agent-ready T0.
+name: opencode
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  opencode:
+    if: >
+      github.event.comment.author_association == 'OWNER' &&
+      (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+      - uses: anomalyco/opencode/github@latest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          model: anthropic/claude-haiku-4-5

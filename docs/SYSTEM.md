@@ -228,6 +228,7 @@ aws lambda invoke --function-name job-hq-bots \
 | DB apply | `.github/workflows/db-apply.yml` | **dispatch only** |
 | Deploy webapp | `.github/workflows/deploy.yml` | **dispatch only** |
 | live e2e | `.github/workflows/live-e2e.yml` | push (branches `main`; paths `webapp/**`, `db/migrations/**`, `.github/workflows/live-e2e.yml`) · dispatch |
+| opencode | `.github/workflows/opencode.yml` | — |
 | PG snapshot | `.github/workflows/pgdump.yml` | **dispatch only** |
 | Red main pages | `.github/workflows/red-main.yml` | workflow_run (after `CI`; completed) |
 | Resume render & publish | `.github/workflows/resume.yml` | push (branches `main`; paths `resume/**`, `scripts/render-alt.sh`, `scripts/yaml_to_docx.py`, `scripts/publish_to_drive.py`) · dispatch |
