@@ -76,8 +76,11 @@ webapp/node_modules
 /applications
 
 # local agent/CLI state — never committed. .claude holds agent worktrees
-# (personal content); supabase/.temp is Supabase CLI machine state.
-.claude/
+# (personal content); supabase/.temp is Supabase CLI machine state. The one
+# exception is .claude/rules/ — path-scoped agent rules (e.g. the legacy
+# quarantine, issue #188) are repo policy and ARE committed.
+.claude/*
+!.claude/rules/
 supabase/.temp/
 
 # vault-split step 0 (20-personal-vault-audit.md §8/§9): live interview
