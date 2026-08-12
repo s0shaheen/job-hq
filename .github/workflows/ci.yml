@@ -132,7 +132,7 @@ jobs:
         working-directory: webapp
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: "22", cache: npm, cache-dependency-path: webapp/package-lock.json }
       # `npm install`, not `npm ci`, on purpose. Tailwind v4's native oxide
       # binary pulls a DIFFERENT set of platform-optional packages on
@@ -180,7 +180,7 @@ jobs:
       - run: npm test
         if: matrix.shard == 1   # unit tests are shard-independent; once is enough
       - name: Cache Playwright browser
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('webapp/package-lock.json') }}
@@ -220,7 +220,7 @@ jobs:
       # trace setting); the github reporter never writes playwright-report/, so
       # the old path uploaded nothing — seven CI failures of one chronic flake
       # left zero artifacts to diagnose from. The trace zip is the diagnosis.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-traces-shard-${{ matrix.shard }}
@@ -250,7 +250,7 @@ jobs:
         working-directory: webapp
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: "22", cache: npm, cache-dependency-path: webapp/package-lock.json }
       - run: npm install --no-audit --no-fund
       - name: Visual snapshots
@@ -258,7 +258,7 @@ jobs:
           HQ_VISUAL: "1"
           HQ_DEMO: "1"
         run: npx playwright test tests/e2e/visual.spec.ts
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: visual-report
@@ -405,8 +405,8 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
-      - uses: actions/setup-node@v4
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-node@v7
         with: { node-version: "22", cache: npm, cache-dependency-path: webapp/package-lock.json }
       # The scratch worktree the runner builds borrows this rather than
       # installing a second copy; without it every browser mutant would fail on
@@ -414,7 +414,7 @@ jobs:
       - run: npm install --no-audit --no-fund
         working-directory: webapp
       - name: Cache Playwright browser
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('webapp/package-lock.json') }}

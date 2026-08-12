@@ -7,8 +7,11 @@
  * and asserted to go red. Mutating any single check in `report.ts` fails one of
  * these.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import { buildReport, type BuildOptions } from "../coverage/report";
+import { REPO_ROOT } from "../coverage/sources";
 import { CitationResolver } from "../coverage/spec-titles";
 import { blocked, e2e, MISSING, na, via, type SurfaceLedger } from "../coverage/ledger";
 import { RouteExtractor, SpecRoutes } from "../coverage/routes";
@@ -657,5 +660,33 @@ describe("the shipped ledger", () => {
     // green by accident, the live lane arrived without anyone saying so.
     const coveredLive = result.rows.filter((r) => r.mode === "live" && r.cell.verdict === "covered");
     expect(coveredLive).toEqual([]);
+  });
+
+  test("is exactly the committed file, so a hand-carried copy cannot merge", () => {
+    // The file says "Do not hand-edit", but a rule is only real once something
+    // fails when it is broken. CI's webapp job and verify.sh's coverage-ledger
+    // suite both regenerate-and-diff — yet the local T0/T1 lane merges on local
+    // gates, and plain vitest said nothing about the ledger, which is how the
+    // wip-snapshot triage found an 81-line-stale copy about to merge silently.
+    // Byte-for-byte, because the ledger is a coverage CLAIM: any drift means a
+    // row was written by a hand rather than earned through the gate.
+    const path = resolve(REPO_ROOT, "docs/pilot-launch/evidence/ui-coverage.md");
+    const committed = readFileSync(path, "utf8");
+    // The exact content `npm run coverage:ledger` writes: the real report plus
+    // the trailing newline scripts/coverage-ledger.mjs appends.
+    const regenerated = `${buildReport({ generatedBy: "npm run coverage:ledger" }).markdown}\n`;
+    if (committed !== regenerated) {
+      const have = committed.split("\n");
+      const want = regenerated.split("\n");
+      let line = 0;
+      while (line < Math.max(have.length, want.length) && have[line] === want[line]) line++;
+      expect.fail(
+        `docs/pilot-launch/evidence/ui-coverage.md is not what \`npm run coverage:ledger\` ` +
+          `regenerates from this checkout. First drift at line ${line + 1}:\n` +
+          `  committed:   ${JSON.stringify(have[line] ?? "<end of file>")}\n` +
+          `  regenerated: ${JSON.stringify(want[line] ?? "<end of file>")}\n` +
+          `Run \`npm run coverage:ledger\` and commit the result; never hand-edit the file.`,
+      );
+    }
   });
 });

@@ -177,8 +177,9 @@ fi
 # sidecars. If the CPU count ever changes, re-derive again; this number now
 # tracks cores, which is the opposite of what it tracked this morning.
 #
-# The observed cost of NOT having this: four concurrent hq-test containers put
-# the machine at load 134 with the VM process at 1074% CPU. The previous round
+# The observed cost of NOT having this, measured under the original 7.75 GiB
+# VM: four concurrent hq-test containers put the machine at load 134 with the
+# VM process at 1074% CPU. The previous round
 # reached load 317 and stalled six agents at once, and a stalled agent loses its
 # context and its uncommitted work. That is the most expensive failure mode this
 # project has.
@@ -204,7 +205,7 @@ fi
 #
 # What breaks under the alternative: if verify.sh took its lock and THEN called
 # this script, one machine-wide mutex would be held across a region that also
-# needs a slot from a 2-slot semaphore. The budget would collapse to 1 — every
+# needs a slot from this semaphore. The budget would collapse to 1 — every
 # `--image` run serialised behind every other, which removes the point of the
 # fast lane — and worse, the verify.sh running INSIDE the container would queue
 # on a lock it cannot see the holder of (its /tmp is container-local today, but
@@ -219,12 +220,13 @@ held_slot=""
 # empty range and wait forever, announcing "0 of 0 slots are busy". That is a
 # silent hang wearing this script's own uniform — the precise failure the
 # visible-waiting output exists to rule out — so it refuses instead of guessing.
-# (An UNSET or empty variable is not this case: `:-` already gives it 2.)
+# (An UNSET or empty variable is not this case: `:-` already substitutes the
+# default, so only an explicit non-integer value can reach this check.)
 if ! [[ "$slots" =~ ^[0-9]+$ ]] || [[ "$slots" -lt 1 ]]; then
   echo "[test-shell] HQ_TEST_SLOTS=$slots is not a positive integer." >&2
   echo "[test-shell]   It is a count of concurrent containers, so 0 or a word would" >&2
   echo "[test-shell]   queue this run behind a slot that can never exist. Refusing" >&2
-  echo "[test-shell]   rather than hanging. Unset it for the default of 2." >&2
+  echo "[test-shell]   rather than hanging. Unset it to use the default." >&2
   exit 2
 fi
 
@@ -282,8 +284,9 @@ acquire_slot() {
       done
       echo "[test-shell] QUEUED: all $slots of $slots slots are busy (holder pids:$busy)" >&2
       echo "[test-shell]   Waiting for a slot. This is NOT a hang. Heavy suites are" >&2
-      echo "[test-shell]   capped because four at once put this machine at load 134" >&2
-      echo "[test-shell]   and stalled the agents driving them." >&2
+      echo "[test-shell]   capped at the CPU budget: past it, contention makes" >&2
+      echo "[test-shell]   timing-sensitive suites fail at random, and proving such" >&2
+      echo "[test-shell]   a failure is not real costs more than the parallelism saved." >&2
       echo "[test-shell]   HQ_TEST_SLOTS=N raises the cap; HQ_TEST_NO_SLOT=1 opts out." >&2
       announced=1
     fi

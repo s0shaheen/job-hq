@@ -46,7 +46,7 @@ jobs:
         working-directory: webapp
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -75,7 +75,7 @@ jobs:
         run: npx playwright test --list
 
       - name: Cache Playwright browser
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('webapp/package-lock.json') }}
@@ -102,7 +102,7 @@ jobs:
         if: always()
         run: node scripts/live-postflight.mjs live-report.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: live-e2e-traces
