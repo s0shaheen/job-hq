@@ -976,6 +976,195 @@ test("a retry replays the same command rather than issuing a second one", async 
     .toBe(1);
 });
 
+// ------------------------------------- offline and expired-session refusals
+
+test("an offline status change refuses, reverts, and queues nothing", async ({
+  page,
+  context,
+}) => {
+  // DEC-011 on this surface: refuse, revert, say so — and deliberately NO
+  // outbox. The write branch's own comment says why ("nothing here replays a
+  // pipeline gesture"), so the assertion set is the queue's offline test
+  // INVERTED: nothing is held, nothing replays, and the store stays untouched
+  // until a person makes the gesture again. Driven by taking the browser
+  // offline, which makes the server action reject rather than answer — the
+  // same thrown-action catch a timeout reaches, so this test covers that
+  // branch for both causes.
+  await isolate(page, "offline-refuse");
+  await gotoPipeline(page, "?open=Active");
+
+  const mark = await writeCount(page);
+  await context.setOffline(true);
+
+  await page.getByTestId(`status-trigger-${ANTHROPIC}`).click();
+  await page.getByRole("option", { name: "Interview", exact: true }).click();
+
+  // The thrown-action copy, the WHOLE sentence. The auth branch four lines
+  // below it in the component says "Your session expired." — a refactor
+  // collapsing the two branches would still satisfy /Couldn't save/ while
+  // lying about the cause, so each refusal test pins its own exact string.
+  await expect(
+    page.getByText("Couldn't save that. The server did not answer."),
+  ).toBeVisible({ timeout: 20_000 });
+  // With its Retry action: the gesture is not queued anywhere, so the toast
+  // is the only handle the person still has on it.
+  await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+
+  // The ROW reverted — matrix row 113's shape. A toast beside a stale
+  // optimistic "Interview" is the exact bug this branch exists to prevent,
+  // so the rendered status is the assertion and the toast is the garnish.
+  const trigger = page.getByTestId(`status-trigger-${ANTHROPIC}`);
+  await expect(trigger).toContainText("Applied");
+  await expect(trigger).not.toContainText("Interview");
+
+  // Every control came back: `busyId` cleared re-enables the row the failure
+  // was on, and `anyBusy` cleared re-enables everyone else's — a catch that
+  // forgot `setBusyId(null)` freezes the whole surface, which is matrix row
+  // 135's stuck-busy failure and what the settings profile form really shipped.
+  await expect(trigger).toBeEnabled();
+  await expect(page.getByTestId(`status-trigger-${STRIPE}`)).toBeEnabled();
+  await expect(page.getByTestId(`row-${ANTHROPIC}`)).toHaveAttribute("data-busy", "false");
+  await expect(page.getByTestId("pipeline")).toHaveAttribute("data-saving", "false");
+
+  // NOT asserted: where focus lands. The attack list's floor — the trigger
+  // keeps focus, or somewhere recoverable, never `<body>` — is MEASURED
+  // FAILING today, and not because of this branch: every status write
+  // disables the trigger while in flight (`disabled={anyBusy}`), the browser
+  // drops focus from a disabled control, and nothing restores it on settle.
+  // A SUCCESSFUL write lands focus on `<body>` exactly the same way, so this
+  // is a defect in the surface's busy mechanism, not a property of the catch
+  // branch this test proves. Asserting it here would pin a defect to the
+  // wrong owner; it is reported in #199's PR instead, with the probe.
+
+  // The refused write still COUNTS as finished — the counter counts outcomes,
+  // not successes — so this proves the queue drained before the reload reads.
+  await wroteMore(page, mark);
+
+  // Back online, the refusal queued NOTHING: the reload reads the store, and
+  // the store never heard about the gesture. This is the assertion that fails
+  // if somebody adds an offline queue to this surface.
+  await context.setOffline(false);
+  await page.reload();
+  await reloadedAndReady(page);
+  await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).toContainText("Applied");
+
+  // And a fresh gesture lands normally — having been offline once is not a
+  // state the surface stays in.
+  const mark2 = await writeCount(page);
+  await page.getByTestId(`status-trigger-${ANTHROPIC}`).click();
+  await page.getByRole("option", { name: "Interview", exact: true }).click();
+  await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).toContainText("Interview");
+
+  await wroteMore(page, mark2);
+  await page.reload();
+  await reloadedAndReady(page);
+  await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).toContainText("Interview");
+});
+
+test("an offline refusal does not wedge the write chain", async ({ page, context }) => {
+  // The attack the serialized queue invites. Every write on this surface
+  // chains on one `tail` promise, so the branch most likely to break SILENTLY
+  // is a failure that leaves the chain holding a rejection: every later
+  // gesture then queues behind a promise that never runs it, nothing on
+  // screen says so, and the surface just stops saving. So: fail one write
+  // offline, then prove BOTH recovery paths run through that same chain — the
+  // toast's Retry, and an independent gesture on another row — and prove them
+  // against the store after a reload, not against client state.
+  await isolate(page, "offline-chain");
+  await gotoPipeline(page, "?open=Active");
+
+  const mark = await writeCount(page);
+  await context.setOffline(true);
+
+  await page.getByTestId(`status-trigger-${ANTHROPIC}`).click();
+  await page.getByRole("option", { name: "Interview", exact: true }).click();
+  await expect(
+    page.getByText("Couldn't save that. The server did not answer."),
+  ).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).toContainText("Applied");
+
+  // Reconnect, then Retry: the SAME command replayed through the same chain —
+  // the delivery half of the refusal's promise, asserted via the store below.
+  await context.setOffline(false);
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).toContainText("Interview");
+
+  // An independent gesture on ANOTHER row, queued through the same tail. If
+  // the failure wedged the chain, this blur commits nothing and the reload
+  // below finds an empty field.
+  await page.getByTestId(`next-action-${PLAID}`).fill("Ask about the panel format");
+  await page.getByTestId(`next-action-${PLAID}`).blur();
+
+  // Three finished writes: the refusal, the retry, the next action.
+  await wroteMore(page, mark, 3);
+  await page.reload();
+  await reloadedAndReady(page);
+  await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).toContainText("Interview");
+  await expect(page.getByTestId(`next-action-${PLAID}`)).toHaveValue(
+    "Ask about the panel format",
+  );
+});
+
+test("an expired session refuses the write, and signing back in lands it", async ({
+  page,
+}) => {
+  // The auth branch, which no pipeline spec had ever armed: `hq_demo_session`
+  // is checked server-side in `actions.ts` before any store touch, and the
+  // cookie lands MID-JOURNEY — after the surface loaded with a live session —
+  // because that is the state this row of the matrix means. Starting signed
+  // out is a different state with a different surface (`entry-path.spec.ts`).
+  await isolate(page, "session-expired");
+  await gotoPipeline(page, "?open=Active");
+  await page
+    .context()
+    .addCookies([{ name: "hq_demo_session", value: "expired", url: ORIGIN }]);
+
+  const mark = await writeCount(page);
+  await page.getByTestId(`status-trigger-${ANTHROPIC}`).click();
+  await page.getByRole("option", { name: "Interview", exact: true }).click();
+
+  // The AUTH copy, exactly — with its instruction, and WITHOUT a Retry
+  // action. Replaying into a dead session would refuse the same way, and this
+  // surface holds no outbox to park the gesture in, so offering Retry here
+  // would be the "saved on this device" lie the write branch's comment names.
+  await expect(page.getByText("Couldn't save that. Your session expired.")).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.getByText("Sign in and try again.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
+
+  // Reverted — the rendered status, not just the toast — and usable, on this
+  // row and every other.
+  const trigger = page.getByTestId(`status-trigger-${ANTHROPIC}`);
+  await expect(trigger).toContainText("Applied");
+  await expect(trigger).not.toContainText("Interview");
+  await expect(trigger).toBeEnabled();
+  await expect(page.getByTestId(`status-trigger-${STRIPE}`)).toBeEnabled();
+  await expect(page.getByTestId("pipeline")).toHaveAttribute("data-saving", "false");
+
+  // Nothing queued: with the session STILL expired, a reload reads the store
+  // — reads are not gated by the cookie — and the store never heard the
+  // gesture.
+  await wroteMore(page, mark);
+  await page.reload();
+  await reloadedAndReady(page);
+  await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).toContainText("Applied");
+
+  // Signed back in (the cookie IS the session in demo mode), the repeated
+  // gesture lands and persists — the existing persistence shape, which is
+  // also the proof nothing replayed: one write arrives, from this gesture.
+  await page.context().clearCookies({ name: "hq_demo_session" });
+  const mark2 = await writeCount(page);
+  await page.getByTestId(`status-trigger-${ANTHROPIC}`).click();
+  await page.getByRole("option", { name: "Interview", exact: true }).click();
+  await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).toContainText("Interview");
+
+  await wroteMore(page, mark2);
+  await page.reload();
+  await reloadedAndReady(page);
+  await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).toContainText("Interview");
+});
+
 // ------------------------------------------------------------------ a11y
 
 test("the status popover is reachable by keyboard and stays on screen", async ({ page }) => {

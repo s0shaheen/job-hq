@@ -276,13 +276,16 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.degraded]: e2e("apply", "a non-Greenhouse row says what is not supported, not that something failed"),
       [ST.validation]: e2e("apply", "no gap can be saved before somebody chooses"),
       [ST.writePending]: e2e("pipeline", "a failed write reverts the row, and Retry succeeds"),
-      [ST.offline]: MISSING,
+      [ST.offline]: e2e("pipeline", "an offline status change refuses, reverts, and queues nothing"),
       [ST.conflict]: e2e("pipeline", "a conflict toasts AND refreshes the value on screen"),
       [ST.permission]: e2e(
         "entry-path",
         "asking for the pipeline or an application lands on the holding page",
       ),
-      [ST.sessionExpired]: MISSING,
+      [ST.sessionExpired]: e2e(
+        "pipeline",
+        "an expired session refuses the write, and signing back in lands it",
+      ),
       [ST.fatal]: e2e("apply", "a posting the board no longer has is a state, not an error page"),
       [ST.detail]: e2e(
         "pipeline",
@@ -659,14 +662,12 @@ export const BASELINE_MISSING: Baseline = {
     { key: "* | Reduced motion | fixture", reason: "No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run." },
 
     // Session expired, where no spec reaches the surface.
-    { key: "applications | Session expired | fixture", reason: "Session expiry is asserted from /queue only; no spec expires a session mid-journey on /pipeline or /apply." },
     { key: "coverage | Session expired | fixture", reason: "No spec expires a session on /companies or /health." },
     { key: "find-intro | Session expired | fixture", reason: "No spec expires a session on /connections." },
     { key: "billing-landing-email-import-export | Session expired | fixture", reason: "No spec expires a session mid-import." },
 
     // Offline write disabled, away from the queue.
     { key: "jobs | Offline write disabled | fixture", reason: "offline.spec drives /queue; bulk triage from the grid is never exercised offline." },
-    { key: "applications | Offline write disabled | fixture", reason: "A status change or note written while offline is never exercised." },
     { key: "coverage | Offline write disabled | fixture", reason: "Approve and dismiss are never exercised offline." },
     { key: "find-intro | Offline write disabled | fixture", reason: "Starting or pinning an intro is never exercised offline." },
     { key: "billing-landing-email-import-export | Offline write disabled | fixture", reason: "Commit is never exercised offline." },

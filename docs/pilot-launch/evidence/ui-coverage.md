@@ -16,21 +16,21 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 
 | | Cells |
 |---|---:|
-| covered | 110 |
+| covered | 112 |
 | n/a | 48 |
 | blocked on an ADD item | 134 |
-| missing, baselined 2026-08-02 | 212 |
+| missing, baselined 2026-08-02 | 210 |
 | missing, new (fails) | 0 |
 | on an unbuilt surface (not enforced) | 126 |
 | total | 504 |
 
-**Baselined is not covered.** 212 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
+**Baselined is not covered.** 210 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
 
 ## Matrix, fixture mode
 
 | Surface | Loading | Populated | Natural empty | Filter empty | Missing optional fact | Partial/degraded | Validation error | Write pending | Offline write disabled | Conflict | Permission/holding | Session expired | Fatal route error | Selected/detail | Long strings | High volume | Large type | 200% zoom | Narrow viewport | Reduced motion | Provider image failure |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| applications | yes | yes | yes | n/a | yes | yes | yes | yes | gap | yes | yes | gap | yes | yes | gap | yes | yes | yes | yes | gap | gap |
+| applications | yes | yes | yes | n/a | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | yes | gap | gap |
 | autopilot | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | billing-landing-email-import-export | gap | yes | yes | n/a | gap | gap | yes | gap | gap | yes | add | gap | gap | yes | gap | gap | yes | gap | yes | gap | n/a |
 | coverage | yes | yes | yes | yes | yes | yes | yes | yes | gap | gap | yes | gap | yes | yes | gap | gap | gap | gap | yes | gap | gap |
@@ -73,10 +73,10 @@ The Loading cell cited the jobs measurement until the Applications cutover: load
 | Partial/degraded | yes | `tests/e2e/apply.spec.ts` "a non-Greenhouse row says what is not supported, not that something failed" |
 | Validation error | yes | `tests/e2e/apply.spec.ts` "no gap can be saved before somebody chooses" |
 | Write pending | yes | `tests/e2e/pipeline.spec.ts` "a failed write reverts the row, and Retry succeeds" |
-| Offline write disabled | gap | A status change or note written while offline is never exercised. |
+| Offline write disabled | yes | `tests/e2e/pipeline.spec.ts` "an offline status change refuses, reverts, and queues nothing" |
 | Conflict | yes | `tests/e2e/pipeline.spec.ts` "a conflict toasts AND refreshes the value on screen" |
 | Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for the pipeline or an application lands on the holding page" |
-| Session expired | gap | Session expiry is asserted from /queue only; no spec expires a session mid-journey on /pipeline or /apply. |
+| Session expired | yes | `tests/e2e/pipeline.spec.ts` "an expired session refuses the write, and signing back in lands it" |
 | Fatal route error | yes | `tests/e2e/apply.spec.ts` "a posting the board no longer has is a state, not an error page" |
 | Selected/detail | yes | `tests/e2e/pipeline.spec.ts` "the pane takes focus on open and Escape closes it"; `tests/e2e/pipeline.spec.ts` "the pane's subject is in the URL, so a link restores it" |
 | Long strings | gap | No spec asserts a long board-written question label or note wraps rather than truncating. |
@@ -419,12 +419,10 @@ Each line is a hole that already existed when the gate was switched on. Baseline
 |---|---|---|
 | `* | * | live` | 2026-08-02 | The live lane is built and its Supabase project is provisioned, but the lane has never executed: it runs on merge to main and this work is still on a branch. So RLS, entitlement, real sessions and SupabaseDataSource have no OBSERVED rendered-journey coverage. |
 | `* | Reduced motion | fixture` | 2026-08-02 | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
-| `applications | Session expired | fixture` | 2026-08-02 | Session expiry is asserted from /queue only; no spec expires a session mid-journey on /pipeline or /apply. |
 | `coverage | Session expired | fixture` | 2026-08-02 | No spec expires a session on /companies or /health. |
 | `find-intro | Session expired | fixture` | 2026-08-02 | No spec expires a session on /connections. |
 | `billing-landing-email-import-export | Session expired | fixture` | 2026-08-02 | No spec expires a session mid-import. |
 | `jobs | Offline write disabled | fixture` | 2026-08-02 | offline.spec drives /queue; bulk triage from the grid is never exercised offline. |
-| `applications | Offline write disabled | fixture` | 2026-08-02 | A status change or note written while offline is never exercised. |
 | `coverage | Offline write disabled | fixture` | 2026-08-02 | Approve and dismiss are never exercised offline. |
 | `find-intro | Offline write disabled | fixture` | 2026-08-02 | Starting or pinning an intro is never exercised offline. |
 | `billing-landing-email-import-export | Offline write disabled | fixture` | 2026-08-02 | Commit is never exercised offline. |
