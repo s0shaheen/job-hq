@@ -2,205 +2,116 @@
 
 ## Product authority
 
-Job HQ is becoming a standalone, multi-user web product. The web app is the only human
-surface. Postgres is authoritative for product data; object storage is authoritative for
-files and immutable evidence.
+Job HQ is a standalone, multi-user web product. The web app is the only human
+surface. Postgres is authoritative for product data; object storage for files and
+immutable evidence. `product.md` is the one-page statement of what this product is.
 
-Google Sheets, Apps Script, `tracker/`, and the owner-specific resume/application system
-are legacy or transition systems. Do not add a runtime Sheet dependency, mirror,
-fallback, dual write, or synchronization path. Historical import tools may remain
-isolated. If legacy Sheet code must be repaired, preserve its existing
-`core.sheets.Tab` safety contract and do not expand its role.
+Negative invariants — these are dead ends, not options:
 
-The pilot is the full product for activated users. Gmail mailbox ingestion and automatic
-application-status updates are the sole product exclusion. Google authentication must
-not request Gmail mail scopes.
+- **The Sheet era is over as a direction.** Google Sheets, Apps Script, `tracker/`,
+  and the owner resume/application system are legacy, mid-sunset per
+  `docs/plans/SHEET-SUNSET.md` (`SHEET-INVENTORY.md` is the fact table). They still
+  run nightly, so they must keep working — but never add a runtime Sheet dependency,
+  mirror, fallback, dual write, or sync path. Repairs preserve the `core.sheets.Tab`
+  contract without expanding its role. `tests/core/test_legacy_quarantine.py` fails
+  product code that imports them.
+- **No Gmail mail scopes, ever, at the pilot.** Mailbox ingestion is the sole
+  product exclusion; manual application status is authoritative.
+- **No new Python product surface.** Python remains for the contained workers
+  (discovery, render, monitor) behind Postgres; new product behavior lands in the
+  webapp/Supabase world.
+- **No browser offline mutation queue.** Disable writes while offline; safe drafts only.
+- **`HQ_DEMO` never enabled in production.**
 
-## Read before working
+## Session bootstrap
 
-1. `docs/pilot-launch/README.md`
-2. `docs/pilot-launch/09-full-product-contract-v2.md`
-3. `docs/pilot-launch/13-full-product-roadmap.md`
-4. `docs/pilot-launch/15-full-product-requirements-register.md`
-5. The instantiated packet in `docs/pilot-launch/instances/`, if one exists
-6. The relevant plan under `docs/plans/` and `docs/WEBAPP-BUILD.md`
+Start from live state, never a plan document's snapshot: `gh issue list` (the
+roadmap is GitHub issues with milestones P1–P4), current branch vs `origin/main`,
+and the issue you are working. Plans are disposable — they live in the issue/PR and
+die on merge. A `docs/plans/` file is history unless the code says otherwise.
 
-`docs/pilot-launch/archive/` is historical and never an execution source.
-`docs/pilot-launch/packets/` contains coordinator packet families, not direct build
-prompts. A mutating task must be instantiated under
-`docs/pilot-launch/14-work-packet-standard.md` before delegation.
-
-Refresh current branch, migration, deployment, and feature status instead of trusting a
-stale plan. “Implemented on a branch” does not mean integrated, deployed, or verified.
+Read before mutating: `product.md` · the relevant `docs/specs/` capability spec ·
+your issue's spec · `docs/pilot-launch/09-full-product-contract-v2.md` for contract
+questions. `docs/pilot-launch/archive/` is never an execution source.
 
 ## Non-negotiable implementation rules
 
-- Never push directly to `main`. Use a branch and follow the task-specific review and
-  handoff rule; do not merge or deploy without authorization. A `main` change touching
-  `resume/**` can publish the owner’s resume.
-- `scripts/land.sh` is the only sanctioned way to merge to `main`. Do not run
-  `gh pr merge` by hand, and never chain a merge after `gh pr checks --watch`: this
-  repository is private on a plan without branch protection, so GitHub itself will merge
-  over red. That is not hypothetical — PRs #108 and #109 landed on a broken main on
-  2026-08-01 when a backgrounded watch died with its parent shell and its non-zero exit
-  never reached the `&&`. The script is the enforcement the plan does not provide, so
-  routing around it removes the only gate. It refuses on a dirty worktree, on `main`, on
-  failing or pending checks, and on an empty or unreadable check set; it refuses when
-  another run is already landing the same branch (exit 13); and immediately before the
-  merge it re-reads `origin/main` and refuses rather than spend a verdict earned against
-  a base that has since moved, re-rebasing a bounded number of times first (exit 14).
-  It then verifies `origin/main` actually moved before claiming a landing. A refusal is a
-  finding: fix the cause, then re-run it.
+- **`main` is protected and auto-merge is on.** Ship via branch → PR → the `gate`
+  check → `gh pr merge --auto --squash`. GitHub refuses red merges for everyone,
+  admins included. `scripts/land.sh` remains as an optional wrapper (local gates +
+  landing verification); it is no longer the enforcement.
+- **Deploys:** Vercel ships `main` automatically (a protected main is a deployable
+  main). Database changes never ride along — migrations apply only via the
+  dispatch-gated `db-apply` workflow. `deploy.yml` is the rollback/redeploy tool.
 - Preserve unrelated worktree changes. Never hand-edit `hq.config.yaml`.
-- Migrations are append-only and integrated serially by one integrator. Create the file
-  with `scripts/new-migration.sh <name>`, which stamps `YYYYMMDD_HHMMSS_name.sql` in UTC;
-  never hand-format a filename and never add a new serial number. `0001`–`0028` keep
-  their numbers forever — the production `schema_migrations` ledger records them by
-  filename, so renaming one re-runs it. Audit ownership, grants, RLS, constraints, and
-  security-definer search paths.
-- User ownership is derived from authentication at the database/RPC boundary. Unknown,
+- **Migrations are append-only**, serial, one integrator. Create with
+  `scripts/new-migration.sh <name>`; never hand-format a filename or renumber —
+  the production ledger keys on filenames, so renaming re-runs. Audit ownership,
+  grants, RLS, constraints, and security-definer search paths.
+- **Ownership is derived from authentication at the DB/RPC boundary.** Unknown,
   pending, suspended, removed, or wrong-owner access defaults to deny.
-- Browser writes use approved RPC/command paths with idempotency, version/CAS, durable
-  result lookup, and audit. No direct browser DML.
-- Every production data-source capability has an equivalent fixture implementation.
-  `HQ_DEMO` must never be enabled in production.
-- Do not create a browser offline mutation queue. Disable writes while truly offline and
-  preserve only safe drafts.
-- Fail loud rather than guessing missing identity, schema, ownership, provider outcome,
-  or user facts.
-- Never expose secrets, tokens, private user content, resumes, answers, notes, imports,
-  or email bodies in logs, fixtures, telemetry, commits, or chat output.
-- Do not test against a real employer, recipient, payment account, identity, or provider
-  target without an explicit external-side-effect allowlist and owner approval.
+- **Browser writes use approved RPC/command paths** — idempotency, version/CAS,
+  durable result lookup, audit. No direct browser DML.
+- Every production data-source capability has a fixture equivalent.
+- **Fail loud** rather than guessing missing identity, schema, ownership, provider
+  outcome, or user facts.
+- **Never expose secrets, tokens, private user content, resumes, answers, notes,
+  imports, or email bodies** in logs, fixtures, telemetry, commits, or chat.
+- No testing against a real employer, recipient, payment account, identity, or
+  provider target without an explicit allowlist and owner approval.
 
 ## Product safety
 
-- Manual application status is authoritative. Gmail cannot mutate it at launch.
-- Autopilot may submit only for a provider/version accepted by the capability matrix.
-  Unsupported or paused providers get a complete manual handoff.
-- A submission uses the exact approved payload and attachments, prevents duplicates,
-  and records accepted provider evidence. An ambiguous post-submit result is
-  `outcome_unknown` and is never blindly retried.
-- Never infer or submit work authorization, visa, EEO, compensation, legal identity,
-  criminal/background, or unsupported factual answers.
+- Manual application status is authoritative; nothing automated mutates it.
+- Autopilot submits only for capability-matrix-accepted provider/versions; anything
+  else gets a complete manual handoff. Submissions use the exact approved payload,
+  prevent duplicates, record provider evidence; an ambiguous result is
+  `outcome_unknown`, never blindly retried.
+- Never infer or submit work authorization, visa, EEO, compensation, legal
+  identity, criminal/background, or unsupported factual answers.
 - No CAPTCHA bypass, covert anti-bot evasion, LinkedIn user-session automation, or
   automated outreach as the user.
-- Founding users are free forever and exempt from commercial quotas, not from security,
-  abuse, concurrency, provider, or reliability limits.
+- Founding users are free forever — exempt from commercial quotas, not from
+  security, abuse, concurrency, provider, or reliability limits.
 
 ## Design and frontend
 
-The owner’s design is read-only and authoritative for visible behavior:
+The owner's design is read-only and authoritative for visible behavior:
+`/Users/s0shaheen/Downloads/job-hq-design-system` ·
+`/Users/s0shaheen/job-hq-design-context` ·
+`docs/pilot-launch/04-design-parity-standard.md` ·
+`docs/pilot-launch/16-source-manifest.md`.
 
-- `/Users/s0shaheen/Downloads/job-hq-design-system`
-- `/Users/s0shaheen/job-hq-design-context`
-- `docs/pilot-launch/04-design-parity-standard.md`
-- `docs/pilot-launch/16-source-manifest.md`
-
-Do not invent missing UI. Stop on a missing design state and require the named design
-addendum in `docs/pilot-launch/07-decisions-assumptions-risks.md`.
-
-Keep existing write semantics while changing presentation. Required global rules include
-sentence case, tabular numerals, `Not listed` for absent facts, no gradients, uppercase
-transform, letter spacing, italics, em dashes, interpunct glue, opacity-only
-de-emphasis, or radius over 12px.
-
-Every visible change needs fixture/live parity and evidence for loading, empty, error,
-degraded, conflict, permission, session, offline, long-content, large-type, keyboard,
-touch, and phone states. Target WCAG 2.2 AA and the specified viewport/browser matrix.
+Do not invent missing UI: stop on a missing design state and require the named
+addendum in `docs/pilot-launch/07-decisions-assumptions-risks.md`. Keep write
+semantics while changing presentation. Global rules: sentence case, tabular
+numerals, `Not listed` for absent facts, no gradients/uppercase/letter-spacing/
+italics/em-dash decoration, opacity-only de-emphasis, radius ≤ 12px. Visible
+changes need fixture/live parity and the evidence states; target WCAG 2.2 AA.
 
 ## Verification
 
-Four rules that exist because 2026-08-02 measured their absence, and each names the
-cost it is paying down:
-
-1. **Scope a delegated task to 30–45 minutes of work.** Ten agents died or stalled that
-   day; the ones holding hours of work were the expensive ones. Duration is the risk
-   factor, not difficulty — a long task simply has more chances to die.
-2. **Give the author the attack list up front.** Résumé and Autopilot each took three
-   review rounds, and rounds two and three kept finding the same defect class as round
-   one. A reviewer's attack list is cheap to write before the work and expensive to
-   discover after it.
-3. **Do not wait for CI to merge T0/T1 work.** `land.sh` waits for the full check set,
-   which is right for a migration and is twelve idle minutes for a doc change. Local
-   gates plus the red-main alarm are the proportionate gate below T2.
-4. **Do not exceed three concurrent agents on one machine.** Beyond that, timing-sensitive
-   tests fail randomly, and proving a failure is not real costs more than the parallelism
-   saved. It also hid a genuine mobile regression behind noise for four attempts.
-
-Match the rigor to the review tier in `docs/pilot-launch/14-work-packet-standard.md` §4.
-Those tiers exist and were ignored for most of 2026-08-02: doc-only changes, CSS geometry,
-and RLS migrations all got full gates plus independent adversarial review. That uniformity
-was the largest self-inflicted cost of the session, and most of the remaining roadmap is
-T2 surface work.
+Match rigor to tier — set by what the change CAN break, not diff size; a one-line
+grant change is T3. When unsure, go up a tier.
 
 | Tier | Gates | Review |
 |---|---|---|
-| T0 docs/tests, no behavior | typecheck plus the suite that covers the change | coordinator only |
-| T1 isolated logic | that suite, plus its counterexample | one implementation review |
-| T2 UI over frozen commands | change-scoped lane, browser and accessibility proof, ledger cells filled | one review |
-| T3 migration, RLS, RPC, storage, worker, provider | full gates including the database | independent security review plus real-boundary mutation proof |
-| T4 backup, deletion, notifications, billing, submission, release | T3 | plus owner acceptance and rehearsal |
+| T0 docs/tests, no behavior | typecheck + the covering suite | coordinator only |
+| T1 isolated logic | covering suite + its counterexample | one implementation review |
+| T2 UI over frozen commands | change-scoped lane, browser + a11y proof, ledger cells | one review |
+| T3 migration, RLS, RPC, storage, worker, provider | full gates incl. database | independent security review + real-boundary mutation proof |
+| T4 backup, deletion, notifications, billing, submission, release | T3 | + owner acceptance and rehearsal |
 
-A tier is set by what the change CAN break, not by its diff size: a one-line change to a
-policy or a grant is T3. When unsure, go up a tier.
+A T0–T2 reviewer MAY fix a mechanical finding in place, shipping the proving
+mutation with it. Rejection is for design-level problems.
 
-A reviewer at T0–T2 MAY fix a mechanical finding in place rather than rejecting, provided
-the fix ships with the mutation that proves it. Rejection is for design-level problems.
-Three rounds on one branch, each finding the same defect class, is a process failure as
-much as a code one.
-
-Two lanes. Use the fast one while iterating, the full one before declaring anything
-done. Both run inside the prebuilt image, which already has Postgres 16, Python 3.11
-and 3.12 with both dependency sets resolved, Node 22 with the webapp lockfile
-installed, and the Playwright browsers. Build it once:
-
-```sh
-infra/test-image/build.sh          # see infra/test-image/README.md
-```
-
-While iterating, run only the gates your change can have broken — this is the
-change-scoped lane the T0–T2 rows above refer to:
-
-```sh
-scripts/verify.sh --image             # change-scoped
-scripts/verify.sh --image --dry-run   # show the selection, run nothing
-```
-
-It maps changed paths to suites, prints exactly which ones ran and which did not
-and why, and will not describe itself as a full gate. A changed path that matches
-no rule selects EVERY suite: an unknown path is not evidence of a small blast
-radius. Adding a new top-level area means adding its rule, or every change to it
-pays for the full lane.
-
-Before declaring implementation or a release candidate complete, run the full gates:
-
-```sh
-scripts/verify.sh --full --image
-```
-
-That is every registered suite in one run — typecheck, vitest, the copy lint and
-coverage ledger, the production build, the whole Playwright suite including the
-anti-slop sweep and the linux visual baselines, every Python package, the render
-suite on 3.12 with rendercv actually installed, and `tests/db` against a real
-Postgres. `--full` FAILS rather than skipping when a gate cannot run, so a full-gate
-pass cannot be claimed without the database or without the baselines' environment.
-
-The underlying commands, if you are running them by hand:
-
-```sh
-cd webapp
-npx tsc --noEmit
-npx vitest run
-npx playwright test
-
-cd ..
-uv run --python 3.11 --with-requirements requirements.txt --no-project -- pytest
-```
-
-That pytest line SKIPS `tests/db/**` — several hundred cases covering RLS, entitlement,
-idempotency, and every migration's real behaviour — and still reports success. The run
-says so loudly at the end. A full gate claim requires the database too:
+Daily loop (no Docker): `cd webapp && npm run demo`, `npx vitest`, targeted
+Playwright. Change-scoped lane: `scripts/verify.sh --image` (`--dry-run` shows the
+selection; an unmatched path selects EVERY suite — add the rule for new areas).
+Full gates before calling implementation or a release done:
+`scripts/verify.sh --full --image` — it FAILS rather than skips when a gate cannot
+run. The bare pytest line skips `tests/db/**` and says so; a full-gate claim
+requires the database:
 
 ```sh
 docker run --rm -e POSTGRES_PASSWORD=pw -p 55432:5432 -d postgres:16
@@ -209,64 +120,28 @@ DATABASE_URL=postgresql://postgres:pw@127.0.0.1:55432/postgres HQ_REQUIRE_DB=1 \
     --with 'psycopg[binary]' --no-project -- pytest
 ```
 
-CI resolves the SAME map. `.github/workflows/ci.yml` runs a `select` job that calls
-`scripts/verify.sh --print-ci-jobs` and gates every other job on the answer, because
-billed minutes accrue per job and a docs-only commit was running the browser suite
-twice — about 40 runner-minutes a run, 155 pull-request runs on 2026-08-03. The same
-three rules hold there: an unmapped path runs everything, anything that is not a
-readable pull-request diff runs everything, and nothing runs less thoroughly when it
-runs. `select` itself is never conditional — `land.sh` refuses a check set with no
-passing check, so it is the check that always passes.
+A test must be provable-failing via a safe counterexample or mutation. Never fix a
+failure by weakening the test or changing expected behavior without an approved
+contract change. Run `python scripts/sysmap.py` after infrastructure, schedule,
+alert, or schema changes. A red `main` pages the ops topic
+(`red-main.yml`) — fixing it precedes everything; a red PR must not page. Paging
+workflows read their topic from `secrets.HQ_OPS_NTFY_TOPIC`; a hardcoded topic or
+literal fallback is a test failure.
 
-Adding a CI job means adding its suite's fifth registry column in `verify.sh`, and
-adding a suite means naming the job that runs it. `tests/core/test_ci_selection.py`
-fails when the two stop agreeing, in either direction.
+## Working rules (standing, owner-ratified 2026-08-12)
 
-Database, migration, provider, restore, accessibility, and design work also requires the
-authoritative-boundary evidence in its packet. A test must be proven capable of failing
-with a safe counterexample or mutation. Never fix a failure by weakening the test or
-changing the expected behavior without an approved contract change.
-
-Run `python scripts/sysmap.py` after an infrastructure, schedule, alert, or schema
-change when required by CI.
-
-A `main` that concludes red pages the ops topic (`.github/workflows/red-main.yml`); a red
-pull request does not, and must not. If that page fires, main is broken for everyone —
-fixing it precedes whatever you were doing. Any workflow that pages reads its topic from
-`secrets.HQ_OPS_NTFY_TOPIC`; a hardcoded topic or a `|| 'literal'` fallback is a test
-failure, not a convenience.
-
-## Durability of in-flight work
-
-An agent can die at any moment — API error, stream stall, spend interrupt. On 2026-08-02
-five did. The ones that lost everything were the ones holding uncommitted work; the ones
-that lost minutes had pushed.
-
-- **Commit and push after every logical unit, not at the end.** A WIP commit you amend
-  later costs nothing. An unpushed branch is a coin flip.
-- A resumed agent should re-read the branch state before continuing: `main` moves under
-  long tasks, and what you rebased onto an hour ago is probably stale.
-- The coordinator restarts nothing that can be resumed. A stalled agent resumed from its
-  transcript keeps its context; a fresh one re-derives it at full cost.
-
-## What gets enforced by a machine
-
-Every defect class that stopped recurring in this repo stopped when it moved from prose
-into an executable check: the dump-containment test, the display-dictionary sweep, the
-coverage ledger, the pg_catalog-derived default-deny cross-check, the loud database-skip
-banner. Every recurring problem that remains is one where a person or an agent is still
-the enforcement mechanism.
-
-So when a rule is worth keeping, the question is not "is it written down" but "what fails
-when it is broken, and has that failure been observed." A rule nobody has watched fail is
-a rule that passes because it looks at nothing.
-
-## Coordination
-
-Parallelize bounded work only after interfaces and packet boundaries are frozen.
-Migrations, RLS/RPC authority, shared data interfaces, Sheet cutover, credentials,
-backups, billing, submission architecture, and release integration remain serial and
-receive independent review.
-
-Workers return a patch or draft PR plus evidence. The coordinator alone marks work
-accepted, integrated, or released.
+- **Process freeze:** no new gates, lints, tiers, or process documents until the
+  pilot has external users. When a rule is worth keeping, it becomes an executable
+  check that has been watched to fail; prose rules are not enforcement.
+- **Serial by default:** ≤3 concurrent agents, non-overlapping files. Parallelize
+  only bounded work with frozen interfaces. Migrations, RLS/RPC authority, shared
+  data interfaces, credentials, backups, billing, submission architecture, and
+  release integration stay serial with independent review.
+- **Batch PRs by family:** same-tier, same-concern changes ride one PR (docs with
+  docs, tests with tests). Never batch across tiers; never batch independent
+  reverts. Arm auto-merge and keep working — nobody waits on checks.
+- **Task sizing:** 30–45 minutes per delegated task, attack list written up front,
+  spec in the issue (`.github/ISSUE_TEMPLATE/feature-spec.md`).
+- **Durability:** commit and push per logical unit — an unpushed branch is a coin
+  flip. A resumed agent re-reads branch state; the coordinator resumes rather than
+  restarts. Workers return a PR plus evidence; the coordinator alone accepts.
