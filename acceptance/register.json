@@ -1,0 +1,23 @@
+{
+  "_comment": "The machine-checkable definition of pilot-done (issue #193). One entry per pilot-critical behavior, distilled from docs/pilot-launch/15-full-product-requirements-register.md (IDs are that register's IDs; it remains the full normative source). passes flips to true ONLY by a verifier session that is not the implementer, with evidence linked. JSON, not markdown, on purpose: checklists in prose get tampered with; a diff to this file is reviewable.",
+  "entries": [
+    {"id": "FP-SCOPE-002", "requirement": "Gmail mailbox ingestion, classification, and status mutation are disabled", "oracle": "No mail scopes, tokens, schedules, or routes exist", "passes": false, "evidence": null},
+    {"id": "FP-ID-001", "requirement": "Anonymous users reach only public/auth/legal/support routes", "oracle": "Route, DB, RPC, storage matrix", "passes": false, "evidence": null},
+    {"id": "FP-ID-002", "requirement": "Pending users get a holding state with no product data or commands", "oracle": "Direct boundary negatives", "passes": false, "evidence": null},
+    {"id": "FP-ID-004", "requirement": "Unknown plan/capability/identity states default deny", "oracle": "Default-allow mutation fails", "passes": false, "evidence": null},
+    {"id": "FP-ID-005", "requirement": "Ownership derives from authenticated context inside authoritative locks", "oracle": "Client-selected owner rejected", "passes": false, "evidence": null},
+    {"id": "FP-ID-008", "requirement": "Two users are isolated across DB, RPC, storage, cache, export, events, workers, support", "oracle": "Real two-identity matrix", "passes": false, "evidence": null},
+    {"id": "FP-ID-009", "requirement": "Google sign-in neither implies nor requests Gmail mailbox consent", "oracle": "OAuth scope capture", "passes": false, "evidence": null},
+    {"id": "FP-DATA-001", "requirement": "Postgres is the sole authority for identity-linked product state", "oracle": "Runtime/write-path audit", "passes": false, "evidence": null},
+    {"id": "FP-DATA-003", "requirement": "Production performs zero Sheet read/write/sync/reconciliation operations", "oracle": "Runtime tripwire", "passes": false, "evidence": null},
+    {"id": "FP-DATA-004", "requirement": "Every mutation uses an authenticated idempotent command/RPC", "oracle": "Direct DML denial and replay", "passes": false, "evidence": null},
+    {"id": "FP-DATA-006", "requirement": "Versioned resources reject stale writes and preserve drafts", "oracle": "Concurrent-session test", "passes": false, "evidence": null},
+    {"id": "FP-DES-005", "requirement": "Every applicable loading/empty/error/degraded/conflict/offline/session/permission state exists", "oracle": "Route/state manifest", "passes": false, "evidence": null},
+    {"id": "FP-TODAY-001", "requirement": "Today badge, count, and rows use one owner-scoped actionable query contract", "oracle": "DB/read/UI equality", "passes": false, "evidence": null},
+    {"id": "FP-JOBS-002", "requirement": "Jobs search/filter/view/selection/detail URL state round-trips", "oracle": "Property/history tests", "passes": false, "evidence": null},
+    {"id": "FP-APP-001", "requirement": "Applications support add, import, manual status, notes, activity, export — without Gmail", "oracle": "End-to-end journey", "passes": false, "evidence": null},
+    {"id": "FP-APP-002", "requirement": "Human application status is never overwritten by automation", "oracle": "DB mutation test", "passes": false, "evidence": null},
+    {"id": "FP-COV-001", "requirement": "Coverage reflects actual Postgres subscriptions and per-user runs", "oracle": "DB/worker/UI equality", "passes": false, "evidence": null},
+    {"id": "FP-SET-001", "requirement": "Profile supports any US job family/seniority/work model without persona defaults", "oracle": "Diverse corpus", "passes": false, "evidence": null}
+  ]
+}
