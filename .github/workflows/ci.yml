@@ -520,3 +520,26 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python -m monitor.review
+
+  # The single required context for branch protection. Matrix jobs report as
+  # "webapp (1)"/"webapp (2)" when they run but as plain "webapp" when the
+  # scoped lane skips them — so no fixed list of job names can be required
+  # without stranding one lane or the other (PR #216 sat BLOCKED on exactly
+  # this for an hour on 2026-08-12). Protection requires only "gate"; gate
+  # holds the line: any selected suite that failed or was cancelled fails it,
+  # a skipped suite is a suite the diff could not break. Renaming or
+  # consolidating jobs (issue #192) now only has to keep `needs` current.
+  gate:
+    needs: [select, webapp, visual, tests, render, db, mutants]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every selected suite concluded green
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq .
+          test "$(echo "$RESULTS" | jq -r '.select.result')" = "success" \
+            || { echo "::error::select itself did not succeed"; exit 1; }
+          bad=$(echo "$RESULTS" | jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key')
+          [ -z "$bad" ] || { echo "::error::failed or cancelled: $bad"; exit 1; }

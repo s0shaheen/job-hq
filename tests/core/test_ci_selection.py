@@ -58,6 +58,13 @@ CI_YML = REPO / ".github" / "workflows" / "ci.yml"
 # somebody adds and stop requiring it to be selectable.
 DISPATCH_ONLY = {"smoke", "whoami", "bootstrap", "migrate_simplify", "seed_jobs"}
 
+#: Jobs that summarize the selected suites for branch protection rather than run
+#: one. `gate` is the single required context precisely because matrix jobs
+#: change names between their selected and skipped forms (PR #216 sat BLOCKED on
+#: "webapp (1)" never reporting). An aggregator is excused from selection, and
+#: `test_aggregator_jobs_are_all_accounted_for` makes it earn the excuse.
+AGGREGATOR = {"gate"}
+
 SELECT_JOB = "select"
 
 
@@ -74,7 +81,7 @@ def gate_jobs(doc: dict) -> dict[str, dict]:
     return {
         name: body
         for name, body in doc["jobs"].items()
-        if name != SELECT_JOB and name not in DISPATCH_ONLY
+        if name != SELECT_JOB and name not in DISPATCH_ONLY and name not in AGGREGATOR
     }
 
 
@@ -254,6 +261,32 @@ def test_the_select_job_declares_exactly_the_gate_jobs() -> None:
 
 def test_full_mode_reaches_every_gate_job() -> None:
     assert all_jobs() == set(gate_jobs(workflow()))
+
+
+def test_aggregator_jobs_are_all_accounted_for() -> None:
+    """AGGREGATOR is a hand-kept list too, and its excuse is stricter: a job may
+    skip selection only by watching everything selection can produce.
+
+    Each aggregator must still exist, must run unconditionally (`if: always()` —
+    an aggregator that can itself be skipped is a required context that never
+    reports, which is the exact BLOCKED-forever failure it exists to prevent),
+    and must `needs` the selector plus every gate job, or a suite could fail
+    without the gate noticing.
+    """
+    doc = workflow()
+    jobs = doc["jobs"]
+    for name in AGGREGATOR:
+        assert name in jobs, f"'{name}' is on the aggregator list but is not a job"
+        cond = str(jobs[name].get("if", ""))
+        assert "always()" in cond, (
+            f"'{name}' is excused as an aggregator but can be skipped: if={cond!r}"
+        )
+        needs = set(jobs[name].get("needs") or [])
+        expected = set(gate_jobs(doc)) | {SELECT_JOB}
+        assert needs == expected, (
+            f"'{name}' must watch the selector and every gate job; "
+            f"missing {sorted(expected - needs)}, extra {sorted(needs - expected)}"
+        )
 
 
 def test_dispatch_only_jobs_are_all_accounted_for() -> None:
