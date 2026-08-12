@@ -44,6 +44,12 @@ const CLEAN = QUEUE_SORTED.filter((j) => !HAS_APP.has(j.key));
  * deliberately trimmed to six data columns. */
 const QUEUE_EXPORT_COLS = JOB_COLUMNS;
 
+const ORIGIN = "http://127.0.0.1:3210";
+
+/** The interested working set's fixture baseline, derived inline like QUEUED. */
+const INTERESTED = FIXTURE_JOBS.filter((j) => j.triage === "interested").length;
+const interestedCount = (n: number) => `${n} ${n === 1 ? "role" : "roles"}`;
+
 test.beforeEach(async ({ page, context }) => {
   await page.clock.setFixedTime(FIXTURE_NOW);
   // Fresh store per test: bulk triage mutates it, and sharing would make these
@@ -52,7 +58,7 @@ test.beforeEach(async ({ page, context }) => {
     {
       name: "hq_demo_id",
       value: `gs-${Math.random().toString(36).slice(2)}-${Date.now()}`,
-      url: "http://127.0.0.1:3210",
+      url: ORIGIN,
     },
   ]);
 });
@@ -428,6 +434,107 @@ test("a conflict inside the batch applies NOTHING: full revert plus a changed-el
   await expect(companyCell(check, "Notion")).toHaveCount(1);
   await expect(companyCell(check, "Chime")).toHaveCount(0);
   await expect(companyCell(check, "Mercury")).toHaveCount(0);
+});
+
+test("a failed write reverts the whole batch and says so — and the store holds nothing", async ({
+  page,
+  context,
+}, testInfo) => {
+  test.skip(testInfo.project.name === "mobile", "keyboard-only affordance");
+  // The generic write-error branch of the shared write path (#198): decisions.ts
+  // reverts every optimistic row and toasts "Couldn't save that." with Retry.
+  // `hq_demo_fail` arms the store's next WRITE on every resolve while the cookie
+  // is set (get-source.ts), so it is set immediately before the gesture and
+  // cleared immediately after the failure — a read that resolves the store while
+  // it lingers would re-arm the seam under the follow-up gesture below.
+  await gotoJobs(page);
+
+  const picks = CLEAN.slice(0, 3);
+  await selectCompany(page, picks[0].company);
+  await selectCompany(page, picks[1].company);
+  await selectCompany(page, picks[2].company);
+  await expect(bar(page)).toContainText("3 selected");
+
+  await context.addCookies([{ name: "hq_demo_fail", value: "the store said no", url: ORIGIN }]);
+  await page.keyboard.press("i");
+
+  // The failure is on screen with the store's own words and a way forward.
+  await expect(page.getByText("Couldn't save that.")).toBeVisible();
+  await expect(page.getByText("the store said no")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+
+  // Every optimistic row came back — including the two that would have
+  // succeeded alone. A toast beside a wrong grid is the worse bug, so the
+  // assertion is on the CELLS, not merely on the toast having appeared.
+  for (const j of picks) await expect(companyCell(page, j.company)).toHaveCount(1);
+  await expect(page.getByTestId("grid-count")).toHaveText(`${QUEUED} roles`);
+
+  // The surface came back LIVE: onRevert restored the selection the gesture
+  // consumed, and `busy` did not stay stuck holding the controls disabled.
+  await expect(bar(page)).toContainText("3 selected");
+  await expect(bar(page).getByRole("button", { name: "Interested 3" })).toBeEnabled();
+
+  await context.clearCookies({ name: "hq_demo_fail" });
+
+  // The STORE holds nothing — the revert is not a repaint. A second page reads
+  // the interested set fresh (cookie already cleared, so this read re-arms
+  // nothing) and finds only the fixture's own row.
+  const check = await context.newPage();
+  await check.goto("/jobs?set=interested");
+  await expect(check.locator('[data-testid="jobs-grid"][data-ready="true"]')).toBeAttached();
+  await expect(check.getByTestId("grid-count")).toHaveText(interestedCount(INTERESTED));
+  for (const j of picks) await expect(companyCell(check, j.company)).toHaveCount(0);
+
+  // And the returned rows are selectable ROWS, not a dead overlay: toggling one
+  // still moves the count, and a follow-up `i` on the restored selection acts.
+  await selectCompany(page, picks[0].company);
+  await expect(bar(page)).toContainText("2 selected");
+  await selectCompany(page, picks[0].company);
+  await expect(bar(page)).toContainText("3 selected");
+  await page.keyboard.press("i");
+  await expect(page.getByText("Marked 3 roles interested")).toBeVisible();
+  for (const j of picks) await expect(companyCell(page, j.company)).toHaveCount(0);
+  await expect(page.getByTestId("grid-count")).toHaveText(`${QUEUED - 3} roles`);
+});
+
+test("the toast's Retry re-issues the failed batch and lands it once the seam is cleared", async ({
+  page,
+  context,
+}, testInfo) => {
+  test.skip(testInfo.project.name === "mobile", "keyboard-only affordance");
+  await gotoJobs(page);
+
+  const picks = CLEAN.slice(0, 3);
+  await selectCompany(page, picks[0].company);
+  await selectCompany(page, picks[1].company);
+  await selectCompany(page, picks[2].company);
+  await context.addCookies([{ name: "hq_demo_fail", value: "the store said no", url: ORIGIN }]);
+  await page.keyboard.press("i");
+  await expect(page.getByText("Couldn't save that.")).toBeVisible();
+
+  // Cleared BEFORE Retry, necessarily: the cookie re-arms the failure on every
+  // store resolve, so a Retry pressed while it is set fails again, legitimately.
+  await context.clearCookies({ name: "hq_demo_fail" });
+
+  // Retry calls decide() again, which mints a FRESH idempotency key — a
+  // re-issue, not a replay of the failed attempt's key. Triage is by-value, so
+  // the outcome is single either way; that is why everything below asserts
+  // final STORE STATE and never write counts or key equality. Do not "fix"
+  // these assertions into counting calls — that would pin a mechanism the
+  // contract does not promise, and flake the day the re-issue changes shape.
+  await page.getByRole("button", { name: "Retry" }).click();
+
+  await expect(page.getByText("Marked 3 roles interested")).toBeVisible();
+  for (const j of picks) await expect(companyCell(page, j.company)).toHaveCount(0);
+  await expect(page.getByTestId("grid-count")).toHaveText(`${QUEUED - 3} roles`);
+
+  // The working set agrees on a fresh read — the sibling conflict test's store
+  // check, pointed at the set the decision moved rows INTO.
+  const check = await context.newPage();
+  await check.goto("/jobs?set=interested");
+  await expect(check.locator('[data-testid="jobs-grid"][data-ready="true"]')).toBeAttached();
+  await expect(check.getByTestId("grid-count")).toHaveText(interestedCount(INTERESTED + 3));
+  for (const j of picks) await expect(companyCell(check, j.company)).toHaveCount(1);
 });
 
 test("bulk s saves the whole selection for later with a wake date", async ({ page, context }, testInfo) => {

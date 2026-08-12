@@ -645,6 +645,19 @@ export class FixtureDataSource implements DataSource {
     const replay = this.seenBulkKeys.get(input.idempotencyKey);
     if (replay) return replay;
 
+    // The armed failure fails the BATCH as one unit, in the same position the
+    // check holds in setTriage. Left to the per-row apply loop below, the seam
+    // fired mid-batch and surfaced as that loop's "should not happen" fallback
+    // ("bulk apply failed mid-batch") instead of the armed message — modelling
+    // a mid-transaction failure the SQL cannot produce, and hiding the words
+    // the arming test asserts (grid-selection.spec.ts, #198). Found by
+    // watching that test fail.
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
     if (input.postingKeys.length === 0) {
       return { ok: false, kind: "error", message: "no postings selected" };
     }
