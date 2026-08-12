@@ -1,71 +1,79 @@
-# Job Search HQ
+# Job HQ
 
-Salman Shaheen's entire job search as one system: **one Google Sheet** (the cockpit — the
-only thing humans touch), **one repo** (this — the engine), and **Gmail as the status
-ground truth** (ATS emails auto-advance the tracker; "applied" is never marked by hand).
-It absorbs five previously disconnected fragments: the PM job monitor, the scout's
-spreadsheet, Simplify, the inbox, and the RenderCV resume pipeline.
+A multi-user job-search product: one web app over one Postgres. Users track companies,
+jobs, and applications; discovery bots keep the job feed fresh; the app is the only
+human surface. Postgres (Supabase) is authoritative for product data, object storage
+for files and evidence. Manual application status is authoritative — nothing mutates
+it behind the user's back.
 
-**New here, or forgot how it works? → [docs/SYSTEM.md](docs/SYSTEM.md)** — the owner-facing map:
-what runs where, what pages your phone, and the six commands that matter.
+**Stack:** Next.js 15 + React 19 (`webapp/`), Supabase (Postgres, Auth, RLS, Storage),
+Vercel. Python workers for discovery, rendering, and monitoring run behind Postgres
+(AWS Lambda + EventBridge, `infra/`). Migrations are append-only SQL in
+`db/migrations/`, applied deliberately via the `db-apply` workflow — never on merge.
 
-**How it works:** scheduled bots (AWS Lambda + EventBridge; `infra/`) fetch ~640 companies'
-boards through 12 live-verified ATS
-adapters (plus a hiring.cafe wide sweep for everything else) into a **Feed** tab, tag each
-role with Claude Haiku, and push roles matching the YoE rule to the phone via ntfy. Tracker
-bots merge every funnel — Feed ★-picks, the scout's rows, Quick Add URL pastes, Simplify —
-into one deduped **Pipeline** keyed on ATS-native job ids. An Apps Script in Gmail
-classifies every ATS email into an **Email Events** tab; the joiner matches events to
-Pipeline rows and moves statuses forward with evidence links. Any push touching `resume/`
-re-renders both resume variants (hard one-page gate) and publishes them to Drive. All sheet
-writes go through one durable layer — tabs by gid, columns by header, rows by key,
-fill-blanks-only, fail-loud — so human sorting, renaming, and fat-fingering can't corrupt
-anything, and a nightly self-heal + CSV snapshot makes any catastrophe a git restore.
+## The map
 
-## Subsystems
+| Where | What |
+|---|---|
+| `webapp/` | the product — every user-facing surface |
+| `db/migrations/` | the schema, append-only, stamped by `scripts/new-migration.sh` |
+| `docs/specs/` | living capability specs — the current truth per entity |
+| `docs/pilot-launch/` | the product contract and requirements register |
+| `core/`, `monitor/`, `infra/` | Python workers: discovery adapters, render, monitor |
+| `tracker/`, `appsscript/` | **legacy, quarantined** — see below |
+| `.github/workflows/` | CI, deliberate DB apply, nightly ops lanes, alerts |
 
-| Subsystem | Entrypoint | When | What |
-|---|---|---|---|
-| Discovery monitor | `python -m monitor.run` | 07:00 + 18:00 CT | full sweep, reconcile Feed, Health tab, YoE-gated push |
-| Tagging review | `python -m monitor.review` | daily 10:00 CT | Haiku-tags any Feed row discovery couldn't tag inline |
-| Wide sweep | `python -m monitor.wide` | daily 08:30 + 08:50 CT | hiring.cafe (Apify) + TheirStack safety net |
-| Tracker chain | `python -m tracker.promote` → `quickadd` → `scout` → `stale` → `join` | every 2 h | ★-promotions, URL enrich, scout sync + flags, stale flags, email-event join |
-| Simplify import | `python -m tracker.simplify` | dispatch only (retired) — Actions → "Run a bot" | best-effort saved-queue import; Gmail capture sees the same applications |
-| Daily digest | `python -m tracker.digest` | daily 06:40 CT | briefing row (Apps Script emails it ~7:00) + capture/backup watchdogs |
-| Self-heal + snapshot | `python -m tracker.selfheal` + `python -m tracker.snapshot` | nightly 03:23 CT (git) + 03:53 CT (S3) | re-assert schema/protections/gids; per-tab CSVs to `snapshots/hq/` (git) and the versioned S3 bucket |
-| Gmail capture | `appsscript/capture/` | every 15 min (in Gmail) | ATS-mail gate → Haiku classify → Email Events + instant OA/interview pushes |
-| Resume pipeline | `.github/workflows/resume.yml` | on push to `resume/**` | render base + alt (rendercv==2.8), one-page gate, publish to Drive, preview to phone |
-| Resume editor | `editor/` (Vercel) | on demand | phone-first editor for the two YAMLs; comment-preserving commits |
-| Provisioning | `python -m tracker.bootstrap` / `tracker.migrate` | one-time | create/repair the spreadsheet; import legacy history |
+## Working here
 
-Tests: `uv run --python 3.11 --with-requirements requirements.txt --no-project -- pytest`
+Work is tracked as GitHub issues (the feature-spec template is the working unit;
+tier labels `t0`–`t4` set rigor per CLAUDE.md). Branch, PR, CI. `main` is protected:
+required checks must pass and nobody — admin included — merges red. Merging via
+`scripts/land.sh` adds local gates and verifies the landing. Vercel deploys `main`
+automatically; database changes never ride along.
+
+The daily dev loop needs no Docker:
+
+```sh
+cd webapp && npm run demo    # the app on fixtures
+npx vitest                   # unit
+npx playwright test <spec>   # targeted browser proof
+```
+
+Before claiming done, run the change-scoped lane; before a release, the full one
+(both run inside the prebuilt image — `infra/test-image/build.sh` once):
+
+```sh
+scripts/verify.sh --image           # suites this diff can break
+scripts/verify.sh --full --image    # everything, incl. tests/db on real Postgres
+```
+
+The plain pytest line (`uv run --python 3.11 --with-requirements requirements.txt
+--no-project -- pytest`) skips `tests/db/**` and says so loudly; a full-gate claim
+requires the database too. See CLAUDE.md for the tier table and the merge rules.
+
+## The legacy lane (do not extend)
+
+Job HQ began as the owner's personal system with a Google Sheet as its cockpit. That
+era is ending capability-by-capability under `docs/plans/SHEET-SUNSET.md` (owner
+decision 2026-07-27: everyone runs on Postgres through the web app). Until each
+capability's cutover lands, the legacy lane still runs nightly — self-heal, CSV
+snapshots (to the `snapshots` branch, never `main`), digest, Gmail capture — so
+`tracker/` and `appsscript/` are operational but frozen: repairs preserve the
+`core.sheets.Tab` safety contract; new behavior lands in the webapp/Supabase world
+only. `docs/plans/SHEET-INVENTORY.md` is the authoritative fact table for what still
+reads the Sheet.
+
+## Ops
+
+`.github/workflows/red-main.yml` pages the ops ntfy topic when `main` concludes red —
+fixing that precedes everything else. Nightly Postgres backups go to versioned S3
+(`pgdump` lane). Deployment is continuous for the webapp and deliberate for the
+database; both refuse to run over red CI.
 
 ## Docs
 
-- **[docs/ACTIVATION.md](docs/ACTIVATION.md)** — the one-time ~15-minute go-live checklist.
-- **[docs/RUNBOOK.md](docs/RUNBOOK.md)** — every failure mode: symptom → cause → fix.
-- **[docs/SPEC.md](docs/SPEC.md)** — the approved consolidation spec (architecture + decisions).
-- **[CLAUDE.md](CLAUDE.md)** — operating manual for AI sessions: repo map, the sheet
-  durability contract, the resume tailoring system, golden rules.
-- **[docs/scout-instructions.md](docs/scout-instructions.md)** — plain-English daily
-  instructions for the scout.
-- `docs/research/` — six verified research reports (ATS endpoints, Gmail quotas, Sheets
-  durability, Simplify internals, aggregators, resume editing) grounding every design call.
-- `appsscript/README.md` / `editor/README.md` — provisioning for the two Apps Script
-  projects and the editor deploy.
-
-## Cost
-
-**≈ $2–5/month.** Haiku tagging + email classification ~$2–3 · AWS Lambda + EventBridge +
-SSM inside the always-free tier, minus pennies of ECR storage (the 2026-07-25 move off
-Actions minutes removed the only metered wall) · the nightly snapshot-committing self-heal
-still on the GitHub Actions free tier · Apify wide sweep inside the free $5 credit · ntfy,
-Vercel hobby, TheirStack free tier: $0.
-
-## Provenance
-
-Designed, researched (~360 verified fetches, endpoints probed live), spec'd, built, and
-tested in one pass on 2026-07-13, from `docs/SPEC.md`. The 12 ATS adapters were verified
-against live endpoints the same day; re-verify from a real Actions runner via
-CI → Run workflow → smoke (datacenter egress differs from residential). History: the
-`job-monitor` repo and the resume system merged here with both histories preserved.
+- **[CLAUDE.md](CLAUDE.md)** — the operating rules: authority, tiers, verification, safety.
+- **[docs/SYSTEM.md](docs/SYSTEM.md)** — generated system map: schedules, jobs, alerts.
+- **[docs/RUNBOOK.md](docs/RUNBOOK.md)** — failure modes: symptom → cause → fix.
+- **[docs/pilot-launch/README.md](docs/pilot-launch/README.md)** — the pilot contract corpus.
+- **[docs/plans/SHEET-SUNSET.md](docs/plans/SHEET-SUNSET.md)** — the legacy exit map.
