@@ -334,6 +334,69 @@ test("a write that is refused leaves the controls usable and queues nothing", as
   await expect(page).toHaveURL(/\/queue$/);
 });
 
+test("an offline check and save leave the profile form usable and queue nothing", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  // DEC-011 on the OTHER settings form, and the branch that was broken rather
+  // than merely unproven: `profile-form.tsx` awaited both actions through a
+  // `withTimeout` that bounds a promise but does not catch one, so the
+  // rejection an offline server action produces escaped the handler before
+  // `setBusy(null)` ran and every control stayed disabled until reload —
+  // matrix row 135's stuck-busy failure, reachable by going offline.
+  await isolate(page, context, baseURL!, "profile-offline");
+  await page.goto("/settings");
+  await expect(page.getByTestId("profile-form")).toHaveAttribute("data-hydrated", "true");
+
+  // A real change, so the retry at the end has something observable to land.
+  await page.locator("#metros-input").fill("Miami");
+  await page.locator("#metros-input").press("Enter");
+  await expect(page.getByTestId("metros-chips")).toContainText("Miami");
+
+  await page.getByTestId("check-button").click();
+  await expect(page.getByTestId("preview-panel")).toBeVisible({ timeout: 15_000 });
+
+  await context.setOffline(true);
+
+  // Check first: its rejection must land in the preview's own failed state —
+  // not hang the panel on "Checking" with every button dead.
+  await page.getByTestId("check-button").click();
+  await expect(page.getByTestId("preview-failed")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("preview-failed")).toContainText(/connection/i);
+  await expect(page.getByTestId("check-button")).toBeEnabled();
+
+  // Save next: the preferences form's connection sentence, and the controls
+  // come back rather than wedging.
+  await page.getByTestId("save-button").click();
+  const refusal = page.getByText("Couldn't save that. Check your connection and try again.");
+  await expect(refusal).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("save-button")).toBeEnabled();
+  await expect(page.getByTestId("check-button")).toBeEnabled();
+
+  // Let the refusal toast retire so the "no error" assertion below cannot be
+  // reading a leftover of the failure it is checking never recurred.
+  await expect(refusal).toHaveCount(0, { timeout: 15_000 });
+
+  // Back online, a re-check clears the failed panel (its "save anyway" sentence
+  // would otherwise satisfy the failure-text sweep below for the wrong reason)…
+  await context.setOffline(false);
+  await page.getByTestId("check-button").click();
+  await expect(page.getByTestId("preview-panel")).toBeVisible({ timeout: 15_000 });
+
+  // …and pressing Save again lands the change exactly once: the idempotency
+  // key was NOT rotated on the refusal, so this gesture is the same save,
+  // replayed — never a second write.
+  await page.getByTestId("save-button").click();
+  await expect(page.getByTestId("commit-banner")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/couldn.t save|try again/i)).toHaveCount(0);
+
+  // And it is really there — the server has it, not just this render.
+  await page.reload();
+  await expect(page.getByTestId("profile-form")).toHaveAttribute("data-hydrated", "true");
+  await expect(page.getByTestId("metros-chips")).toContainText("Miami");
+});
+
 // ─────────────────────────────────────────────────────────────── loading
 
 test("a slow profile read shows the section's own skeleton, not a spinner", async ({
@@ -375,6 +438,74 @@ test("a slow profile read shows the section's own skeleton, not a spinner", asyn
   // And it gives way to the real thing rather than staying forever.
   await expect(page.getByTestId("profile-form")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("settings-skeleton")).toHaveCount(0);
+});
+
+test("a slow preferences read shows the section's own skeleton beside a working rail", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  // The same claim as the profile test above, for the section that used to have
+  // NO loading state at all: the page was one async read with no boundary, so a
+  // slow read froze navigation with zero feedback. Driven as a rail click for
+  // that test's measured reason — on a cold load the whole tree finishes
+  // together and the boundary is never pending.
+  await isolate(page, context, baseURL!, "slow-prefs");
+  await page.goto("/settings/data");
+  await expect(page.getByTestId("settings-rail")).toBeVisible();
+
+  await context.addCookies([{ name: "hq_demo_slow", value: "3000", url: baseURL! }]);
+  await page.getByTestId("settings-rail-preferences").click();
+
+  // The skeleton is up…
+  await expect(page.getByTestId("preferences-skeleton")).toBeVisible({ timeout: 10_000 });
+  // …and the rail beside it is the NEW page's rail, current section marked and
+  // still taking input — which is what keeping the shell outside the boundary
+  // buys. A route-level `loading.tsx` would pass a naive "skeleton visible"
+  // check while blanking the one control that still works during the read.
+  const current = page.getByTestId("settings-rail").locator("[aria-current=page]");
+  await expect(current).toHaveText("Preferences");
+  await page.getByTestId("settings-rail-data").focus();
+  await expect(page.getByTestId("settings-rail-data")).toBeFocused();
+  // …and it is content-shaped: bars standing where the five control rows land.
+  const bars = page.getByTestId("preferences-skeleton").locator("span.bg-raised");
+  expect(await bars.count()).toBeGreaterThan(8);
+
+  // It gives way to the real controls, with the version-token wrapper the other
+  // suites wait on intact.
+  await expect(page.getByTestId("preferences-form")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("preferences-skeleton")).toHaveCount(0);
+  await expect(page.locator("[data-display-version]")).toBeAttached();
+});
+
+test("a slow answers read shows a card-shaped skeleton, and it is not the empty state", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await isolate(page, context, baseURL!, "slow-answers");
+  await page.goto("/settings");
+  await expect(page.getByTestId("profile-form")).toHaveAttribute("data-hydrated", "true");
+
+  await context.addCookies([{ name: "hq_demo_slow", value: "3000", url: baseURL! }]);
+  await page.getByTestId("answers-link").click();
+
+  // The skeleton is up, and the header above it — the part outside the boundary
+  // — already says where you are.
+  await expect(page.getByTestId("answers-skeleton")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("heading", { name: "Application answers" })).toBeVisible();
+  const bars = page.getByTestId("answers-skeleton").locator("span.bg-raised");
+  expect(await bars.count()).toBeGreaterThan(6);
+
+  // Loading and empty stay distinguishable: "still asking" must not satisfy the
+  // locators that mean "the server answered and found nothing".
+  await expect(page.getByTestId("library-empty")).toHaveCount(0);
+  await expect(page.getByTestId("exceptions-empty")).toHaveCount(0);
+
+  await expect(page.getByTestId("answers-surface")).toHaveAttribute("data-hydrated", "true", {
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId("answers-skeleton")).toHaveCount(0);
 });
 
 // ──────────────────────────────────────────────────────── narrow and a11y

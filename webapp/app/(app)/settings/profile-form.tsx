@@ -135,7 +135,20 @@ export default function ProfileForm({
   async function check() {
     setBusy("check");
     setPreview({ kind: "running" });
-    const res = await withTimeout(previewProfileAction(criteria), WRITE_TIMEOUT_MS);
+    let res: Awaited<ReturnType<typeof previewProfileAction>> | { timedOut: true };
+    try {
+      res = await withTimeout(previewProfileAction(criteria), WRITE_TIMEOUT_MS);
+    } catch {
+      // A server action REJECTS when the network is gone — `withTimeout` only
+      // bounds a promise, it does not catch one. Uncaught, the rejection
+      // escapes this handler before `setBusy(null)` runs and every control
+      // stays disabled until reload (matrix row 135's stuck-busy failure,
+      // reached by going offline). `preferences-form.tsx`'s branch: the check
+      // is refused, the controls come back, and nothing is queued (DEC-011).
+      setBusy(null);
+      setPreview({ kind: "failed", message: "check your connection and try again" });
+      return;
+    }
     setBusy(null);
     if ("timedOut" in res) {
       setPreview({ kind: "failed", message: "it took too long" });
@@ -154,10 +167,23 @@ export default function ProfileForm({
 
   async function save() {
     setBusy("save");
-    const res = await withTimeout(
-      commitProfileAction(criteria, idemRef.current, version),
-      WRITE_TIMEOUT_MS,
-    );
+    let res: Awaited<ReturnType<typeof commitProfileAction>> | { timedOut: true };
+    try {
+      res = await withTimeout(
+        commitProfileAction(criteria, idemRef.current, version),
+        WRITE_TIMEOUT_MS,
+      );
+    } catch {
+      // The offline path, `check()`'s reason and `preferences-form.tsx`'s
+      // branch and copy: the write is refused, every control comes back, and
+      // nothing is queued to replay later (DEC-011). The key is deliberately
+      // NOT rotated — the request may have died before OR after reaching the
+      // server, and the same key is what makes pressing Save again a replay
+      // rather than a second write.
+      setBusy(null);
+      toast.error("Couldn't save that. Check your connection and try again.");
+      return;
+    }
     setBusy(null);
 
     if ("timedOut" in res) {
@@ -169,6 +195,15 @@ export default function ProfileForm({
     if (!res.ok) {
       if (res.kind === "conflict") {
         toast.error("Your profile changed on another device. Showing the latest.");
+        // The value that LOST must not stay on screen under a toast saying
+        // somebody else's landed (matrix row 113, and `answers-surface.tsx`'s
+        // conflict branch stated for a form). `router.refresh()` alone cannot
+        // do it: it re-renders the server tree, but this component keeps its
+        // state across the refresh, so the losing draft would sit in the
+        // fields under a fresh version token — measured, not assumed, by
+        // `profile.spec.ts`'s stale-token test failing exactly there. The
+        // conflict result carries the server's row; show it.
+        if (res.current.criteria) setCriteria(res.current.criteria);
         router.refresh();
         return;
       }

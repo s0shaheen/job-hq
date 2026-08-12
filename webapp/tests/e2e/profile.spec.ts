@@ -344,6 +344,88 @@ test("double-clicking Save leaves one change and no error", async ({ page }) => 
   await expect(page.getByTestId("metros-chips")).toContainText("Miami");
 });
 
+test("a save with a stale token yields to the other device and shows its write", async ({
+  page,
+  context,
+}) => {
+  // The conflict branch, driven the only way it happens: two tabs sharing ONE
+  // demo store. The second page is opened in the SAME context on purpose — a
+  // per-page `hq_demo_id` would give each tab its own store and make the
+  // conflict unreachable, which is the isolation trap, not the isolation rule.
+  await isolate(page, "conflict");
+  await gotoSettings(page);
+  const before = await versionOnce(page);
+
+  // The other tab saves first, moving the server's token…
+  const other = await context.newPage();
+  await gotoSettings(other);
+  await addChip(other, "metros", "Miami");
+  await check(other);
+  await other.getByTestId("save-button").click();
+  await expect(other.getByTestId("commit-banner")).toBeVisible({ timeout: 15_000 });
+  // POLLED, not sampled: the banner is client state and arrives before the
+  // router.refresh() that re-renders the server's token, so an instant read
+  // here races the refresh and loses on a slow worker.
+  await expect.poll(async () => version(other), { timeout: 15_000 }).not.toBe(before);
+  const theirs = await version(other);
+  await other.close();
+
+  // …and this tab, still holding the old token, tries to land its own change.
+  await addChip(page, "metros", "Boston");
+  await check(page);
+  await page.getByTestId("save-button").click();
+
+  await expect(
+    page.getByText("Your profile changed on another device. Showing the latest."),
+  ).toBeVisible({ timeout: 15_000 });
+
+  // The FIELDS after the refresh, not just the toast: a toast beside stale
+  // fields is matrix row 113. The version token becomes the OTHER tab's, and
+  // the chips show its write rather than this tab's losing draft.
+  await expect.poll(async () => version(page), { timeout: 15_000 }).toBe(theirs);
+  await expect(page.getByTestId("metros-chips")).toContainText("Miami");
+  await expect(page.getByTestId("metros-chips")).not.toContainText("Boston");
+});
+
+test("an expired session refuses the save, keeps the form usable, and queues nothing", async ({
+  page,
+}) => {
+  await isolate(page, "expired");
+  await gotoSettings(page);
+  const before = await versionOnce(page);
+
+  await addChip(page, "metros", "Miami");
+  await check(page);
+
+  // The session expires BETWEEN the check and the save — the cookie arms the
+  // auth branch of the server action, exactly as `entry-path.spec.ts` uses it.
+  await page
+    .context()
+    .addCookies([{ name: "hq_demo_session", value: "expired", url: ORIGIN }]);
+  await page.getByTestId("save-button").click();
+
+  await expect(page.getByText("Your session expired. Sign in and try again.")).toBeVisible({
+    timeout: 15_000,
+  });
+  // Usable, not wedged — and nothing landed: no banner, and the token this
+  // page holds is still the one it read before the refusal.
+  await expect(page.getByTestId("save-button")).toBeEnabled();
+  await expect(page.getByTestId("check-button")).toBeEnabled();
+  await expect(page.getByTestId("commit-banner")).toHaveCount(0);
+  expect(await version(page)).toBe(before);
+
+  // Signed back in, the same gesture lands — which is also the proof nothing
+  // was queued: ONE application arrives, from this press, not a replay plus it.
+  await page.context().clearCookies({ name: "hq_demo_session" });
+  await page.getByTestId("save-button").click();
+  await expect(page.getByTestId("commit-banner")).toBeVisible({ timeout: 15_000 });
+  await expect.poll(async () => version(page), { timeout: 15_000 }).not.toBe(before);
+
+  await page.reload();
+  await expect(page.getByTestId("profile-form")).toHaveAttribute("data-hydrated", "true");
+  await expect(page.getByTestId("metros-chips")).toContainText("Miami");
+});
+
 /**
  * A store nothing has touched, even when the dev server outlives the test run.
  *

@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { getDataSource } from "@/lib/data/get-source";
+import { AnswersSkeleton } from "./answers-skeleton";
 import { AnswersSurface } from "./answers-surface";
 
 export const metadata = { title: "Application answers" };
@@ -18,10 +20,7 @@ export const dynamic = "force-dynamic";
  * same two the prepare engine takes — one place to look at what an application
  * would be answered with, and one place to change it.
  */
-export default async function AnswersPage() {
-  const src = await getDataSource();
-  const [answers, rules] = await Promise.all([src.answers(), src.policyRules()]);
-
+export default function AnswersPage() {
   return (
     <div className="min-w-0">
       <header className="border-b border-border px-4 py-3 sm:px-6">
@@ -39,7 +38,20 @@ export default async function AnswersPage() {
         </p>
       </header>
 
-      <AnswersSurface answers={answers} rules={rules} />
+      {/* The header above stays outside the boundary — it says where you are
+          and its Search profile link still works while the read is slow, which
+          is the same division of labour as the rail on the five shell
+          sections. A route-level `loading.tsx` would blank it. */}
+      <Suspense fallback={<AnswersSkeleton />}>
+        <AnswersSection />
+      </Suspense>
     </div>
   );
+}
+
+async function AnswersSection() {
+  const src = await getDataSource();
+  const [answers, rules] = await Promise.all([src.answers(), src.policyRules()]);
+
+  return <AnswersSurface answers={answers} rules={rules} />;
 }
