@@ -67,6 +67,16 @@ AGGREGATOR = {"gate"}
 
 SELECT_JOB = "select"
 
+#: Pre-release suites (#192): still selection-wired, but on pull_request they
+#: additionally require the 'full-run' label. They keep running on every push
+#: to main (where red pages) and on dispatch. The exact clause is pinned so a
+#: paraphrase that quietly widens or narrows the lane fails here.
+PRE_RELEASE = {"visual", "mutants"}
+PRE_RELEASE_CLAUSE = (
+    " && (github.event_name != 'pull_request' || "
+    "contains(github.event.pull_request.labels.*.name, 'full-run'))"
+)
+
 
 # ──────────────────────────────────────────────────────────────── the sources
 
@@ -205,6 +215,8 @@ def _assert_every_gate_is_wired(doc: dict) -> None:
         assert SELECT_JOB in needs, f"job '{name}' does not depend on '{SELECT_JOB}'"
         cond = str(body.get("if", ""))
         expected = f"needs.{SELECT_JOB}.outputs.{name} == 'true'"
+        if name in PRE_RELEASE:
+            expected += PRE_RELEASE_CLAUSE
         assert cond.strip() == expected, (
             f"job '{name}' is gated on {cond!r}, not on its own output {expected!r}. "
             "A job wired to the wrong output runs when something else changed and "

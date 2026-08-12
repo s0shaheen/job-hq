@@ -240,7 +240,11 @@ jobs:
   visual:
     name: visual (Playwright container)
     needs: select
-    if: needs.select.outputs.visual == 'true'
+    # Pre-release lane (#192): pixel baselines are post-merge protection, not
+    # per-PR tax. They still run on every push to main (red main pages), on
+    # dispatch, and on any PR labeled 'full-run' — they no longer gate ordinary
+    # PRs. The gate job treats their skip as unbreakable-by-this-diff.
+    if: needs.select.outputs.visual == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-run'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     container:
@@ -389,7 +393,9 @@ jobs:
   mutants:
     name: pinned mutants
     needs: select
-    if: needs.select.outputs.mutants == 'true'
+    # Pre-release lane (#192): same rule as visual — main pushes, dispatch, and
+    # 'full-run'-labeled PRs only.
+    if: needs.select.outputs.mutants == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-run'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
