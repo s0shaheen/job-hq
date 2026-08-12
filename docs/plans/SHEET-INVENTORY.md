@@ -72,8 +72,8 @@ credential is invisible to the web app today.
 ## 2. Scheduled dispatch — what actually runs
 
 `infra/app/handler.py:31 JOBS` is the one job registry; `infra/terraform/variables.tf:84
-var.jobs` is the one schedule table. Seven lanes fire on EventBridge; an eighth,
-`selfheal`, is the last GitHub Actions cron. Eight in total, on two schedulers.
+var.jobs` is the one schedule table. Eight lanes fire on EventBridge; a ninth,
+`selfheal`, is the last GitHub Actions cron. Nine in total, on two schedulers.
 
 | Schedule | Cron (UTC) | Modules | Touches Sheet | Class |
 |---|---|---|---|---|
@@ -82,6 +82,7 @@ var.jobs` is the one schedule table. Seven lanes fire on EventBridge; an eighth,
 | `tracker` | `31 0/2 * * ?` | `tracker.promote`, `.quickadd`, `.scout`, `.stale`, `.join`, `.outbox` | yes — all six | a |
 | `digest` | `40 11 * * ?` | `tracker.digest` | yes — Digest tab `sent_at` interlock, Config heartbeats | a |
 | `snapshot` | `53 8 * * ?` | `tracker.snapshot` | yes — its entire product is tab CSVs | a, then c |
+| `pgdump` | `13 9 * * ?` | `tracker.pgdump` | no — `pg_dump` of the public schema to S3; its beat lands in Postgres (`core.beats`) | — (sheet-free; survives revocation) |
 | `wide_cafe` | `30 13 * * ?` | `monitor.wide --source cafe` | yes | a |
 | `wide_theirstack` | `50 13 * * ?` | `monitor.wide --source theirstack` | yes | a |
 | `selfheal` | `23 8 * * *` (GitHub Actions, `selfheal.yml`) | `tracker.selfheal` | yes — it re-asserts the Sheet schema | c after cutover |
@@ -91,9 +92,10 @@ Dispatch-only, never scheduled (`handler.JOBS`, no `var.jobs` entry): `seed_univ
 seeds — class (b) by intent, but they are reachable from the same Lambda as every
 scheduled lane, which is the isolation gap RM-12's fourth exit criterion names.
 
-**Every scheduled entrypoint reaches a Sheet. There is no sheet-free scheduled lane.**
+**Every scheduled entrypoint except `pgdump` reaches a Sheet. `pgdump` is the one
+sheet-free scheduled lane.**
 
-A ninth clock exists outside AWS and Actions: the Gmail Apps Script's own triggers,
+A tenth clock exists outside AWS and Actions: the Gmail Apps Script's own triggers,
 `appsscript/capture/Code.gs:107-111` — `runCapture` every 15 minutes, `sendDigest` daily
 at 07:00, and an `onEdit` spreadsheet trigger. These write the Sheet through
 `SpreadsheetApp` under Apps Script authorization, **not** the service account, so
