@@ -54,15 +54,32 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           HQ_PG_USER_ID: ${{ secrets.HQ_PG_USER_ID }}
         run: python -m tracker.snapshot
-      - name: Commit snapshots + registry re-pins
+      - name: Commit snapshots + registry re-pins (snapshots branch, never main)
+        # Vault-split Step 2 (docs/pilot-launch/20-personal-vault-audit.md §9, issue
+        # #184): the restore point moves off main. A bot commit on main has no CI run
+        # and a non-member author — on 2026-08-12 that blocked BOTH deploy paths, and
+        # it is why main's tip was rarely deployable. The snapshots branch is the same
+        # restore point under a different ref, INTERIM until the owner vault exists
+        # and this lane leaves the repo. The code that RUNS is still main's checkout;
+        # only the commit lands elsewhere. hq.config.yaml re-pins land there too — a
+        # genuine gid change (rare) gets merged to main by hand, deliberately.
         run: |
           git config user.name "hq-bot"
           git config user.email "bot@users.noreply.github.com"
-          git add snapshots/ hq.config.yaml || true
-          git commit -m "chore: nightly HQ snapshot ${{ matrix.user }} $(date -u +%Y-%m-%d)" || echo "no changes"
+          git fetch origin +refs/heads/snapshots:refs/remotes/origin/snapshots || true
+          if git rev-parse -q --verify refs/remotes/origin/snapshots >/dev/null; then
+            git worktree add /tmp/snap -B snapshots origin/snapshots
+          else
+            git worktree add /tmp/snap -b snapshots   # first run: the branch starts at today's main
+          fi
+          rsync -a --delete --exclude=pg/ snapshots/ /tmp/snap/snapshots/
+          cp hq.config.yaml /tmp/snap/hq.config.yaml
+          cd /tmp/snap
+          git add snapshots/ hq.config.yaml
+          git commit -m "chore: nightly HQ snapshot ${{ matrix.user }} $(date -u +%Y-%m-%d)" || { echo "no changes"; exit 0; }
           for i in 1 2 3; do
-            git push && break
-            echo "push rejected (matrix leg race) — rebasing"; git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin snapshots && break
+            echo "push rejected (matrix leg race) — rebasing"; git pull --rebase origin snapshots
           done
       - name: Ops alert on failure
         if: failure() || cancelled()

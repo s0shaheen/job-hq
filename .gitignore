@@ -79,3 +79,10 @@ webapp/node_modules
 # (personal content); supabase/.temp is Supabase CLI machine state.
 .claude/
 supabase/.temp/
+
+# vault-split step 0 (20-personal-vault-audit.md §8/§9): live interview
+# material and call recordings must never be one `git add -A` from history.
+interview-prep/
+*.m4a
+*.wav
+*.aac
