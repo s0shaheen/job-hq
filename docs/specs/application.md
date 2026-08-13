@@ -44,7 +44,17 @@ manual row. Gmail-derived automatic status is the launch exclusion: capture lane
   the only door a suggestion has), `app_add_note`, `app_set_next_action`. Rows are also
   born and buried by triage: `app_set_triage` (`0003_write_path.sql`) creates a `Queued`
   application on `interested` and removes it only while still `Queued`.
-- **Capture lane** — the Gmail Apps Script posts to `/api/capture`
+- **Import** — the wizard (`webapp/app/(app)/import/**`) writes through the
+  security-definer functions of `0011_import.sql` as amended by
+  `20260813_011502_import_unset_marker.sql`. An import may write only the five
+  columns of `hq_import_writable_columns()`; a blank cell preserves the stored
+  value; a cell holding exactly the explicit-unset marker
+  (`hq_import_unset_marker()`, mirrored byte-identically as `UNSET_MARKER` in
+  `webapp/lib/import/round-trip.ts`) clears its field on the clearable subset
+  (`hq_import_clearable_columns()`: `next_action`, `next_action_date`,
+  `applied_date`) and is refused by name anywhere else. Clears are reported per
+  column (disposition `cleared`), restored by `app_import_undo`, and idempotent
+  on replay.
   (`webapp/app/api/capture/route.ts`, bearer token), which calls
   `hq_capture_email_events` via the server-only service client
   (`webapp/lib/supabase/service.ts`). This writes `email_events` and suggestions; it
@@ -72,4 +82,7 @@ manual row. Gmail-derived automatic status is the launch exclusion: capture lane
   logical effect with idempotent replay (see `docs/specs/write-path.md`).
 - Concurrent edits surface as errcode `40001` conflicts against `updated_at`; the UI
   re-reads and shows the server's row rather than guessing.
+- An imported blank never erases; only the explicit-unset marker clears, only on
+  the clearable columns, and never silently — refusals are per-row and named,
+  clears are per-column report lines.
 - All tables here are behind the entitlement pair from `0027_entitlement.sql`.

@@ -66,6 +66,56 @@ export const WRITABLE_COLUMNS = [
 export type WritableColumn = (typeof WRITABLE_COLUMNS)[number];
 
 /**
+ * The explicit-unset marker: the one cell value that means "clear this field".
+ *
+ * A blank cell stays "I did not fill this in" — that rule is 0011's and is
+ * unchanged. This is the deliberate gesture a blank deliberately is not.
+ *
+ * BYTE-IDENTICAL to `public.hq_import_unset_marker()` in migration
+ * 20260813_011502_import_unset_marker.sql — `tests/db/test_import.py` parses
+ * this constant and compares, exactly as it pins `WRITABLE_COLUMNS`.
+ *
+ * It must never begin with `= + - @ TAB CR`: `escapeField` neutralises a
+ * formula lead with an apostrophe on CSV export, and a marker in that set
+ * would come back as `'[unset]` — matching nothing — the first time a file
+ * round-tripped without passing through Excel. `export-round-trip.test.ts`
+ * pins that property.
+ */
+export const UNSET_MARKER = "[unset]";
+
+/**
+ * The columns the marker may clear: `WRITABLE_COLUMNS` minus `status` (an
+ * application always has a status; there is no empty rung to clear to) and
+ * minus `notes` (append-only history — an import may add, never erase).
+ *
+ * DATABASE column names, byte-identical to
+ * `public.hq_import_clearable_columns()`; `tests/db/test_import.py` pins the
+ * pair. A marker in any OTHER column is refused by the database with the
+ * column named — never silently imported as the literal text.
+ */
+export const CLEARABLE_COLUMNS = [
+  "next_action",
+  "next_action_date",
+  "applied_date",
+] as const;
+
+export type ClearableColumn = (typeof CLEARABLE_COLUMNS)[number];
+
+export function isClearableColumn(column: string): column is ClearableColumn {
+  return (CLEARABLE_COLUMNS as readonly string[]).includes(column);
+}
+
+/**
+ * Is this cell the marker? EXACT match only — the marker inside a longer
+ * string is content, not a gesture. Callers pass values that already went
+ * through the blank-trim (the conflict jsonb stores `hq_import_mapped_value`'s
+ * output; the fixture trims with `blankTrim`), so no second trim grammar here.
+ */
+export function isUnsetMarker(value: string): boolean {
+  return value === UNSET_MARKER;
+}
+
+/**
  * Database column name -> the mapped-payload key that feeds it.
  *
  * The mirror of `public.hq_import_mapped_value(jsonb, text)`'s CASE in migration

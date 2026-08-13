@@ -10,7 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import {
   conflictCells,
+  isClearableColumn,
   isFullyResolved,
+  isUnsetMarker,
   writableColumnLabel,
   type ConflictChoice,
 } from "@/lib/import/round-trip";
@@ -513,7 +515,18 @@ function ConflictDialog({
                         {side === "mine" ? "What it says now" : "What your file says"}
                       </span>
                       <span className="block text-text-2">
-                        {(side === "mine" ? cell.mine : cell.theirs) || "(empty)"}
+                        {/* The marker is a gesture, not a spelling: the file
+                            says "clear this field", and showing the literal
+                            would make the choice read as importing text. Only
+                            on a column it can actually clear — anywhere else
+                            the literal is shown, because the database will
+                            refuse it by name and the person should see what
+                            the cell really holds. */}
+                        {side === "theirs" &&
+                        isUnsetMarker(cell.theirs) &&
+                        isClearableColumn(cell.column)
+                          ? "Clear this field"
+                          : (side === "mine" ? cell.mine : cell.theirs) || "(empty)"}
                       </span>
                     </span>
                   </label>

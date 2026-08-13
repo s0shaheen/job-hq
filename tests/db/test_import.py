@@ -1344,7 +1344,446 @@ def test_a_cell_the_resolver_kept_is_not_reported_as_imported(conn, user):
     )
 
 
+# ------------------------------------------------- the explicit unset marker
+#
+# Issue #202's T3 half. The blank rule above is UNCHANGED — an empty cell still
+# preserves — and the marker is the deliberate gesture a blank deliberately is
+# not: a cell holding exactly `[unset]` clears its field, only on the clearable
+# columns, and the report says so. Everything here runs against the functions
+# `20260813_011502_import_unset_marker.sql` replaced.
+
+# This file's own copy of the marker, pinned against BOTH sources of truth in
+# `test_the_unset_marker_matches_the_typescript` below — a hand-typed literal
+# that drifted would otherwise make every test here exercise the wrong bytes.
+MARKER = "[unset]"
+
+
+def _clearable_setup(conn, user):
+    """One application with every clearable column holding a live value."""
+    return conn.execute(
+        """insert into public.applications
+             (user_id, company, title, status, next_action, next_action_date, applied_date)
+           values (%s, 'Ramp', 'PM', 'Interview', 'call Priya', '2026-08-01', '2026-06-01')
+           returning id""",
+        (user,),
+    ).fetchone()[0]
+
+
+def test_the_marker_clears_and_a_blank_still_preserves(conn, user):
+    """The two rules side by side in ONE row, because their difference is the
+    feature: a blank cell preserves, the marker erases, and the report accounts
+    for the erasure per column (the acceptance criterion is "clear that field
+    and say so in the report")."""
+    app_id = _clearable_setup(conn, user)
+    batch, result = import_file(conn, [
+        ({"company": "Ramp", "title": "PM", "status": "",
+          "nextAction": MARKER, "nextActionDate": MARKER, "appliedDate": ""},
+         GH(9700), "strong"),
+    ])
+    assert result["updated"] == 1 and result["failed"] == 0, result
+    row = conn.execute(
+        """select status, next_action, next_action_date, applied_date
+             from public.applications where id = %s""",
+        (app_id,),
+    ).fetchone()
+    assert row[0] == "Interview", "a blank status stopped preserving"
+    assert row[1] == "", "the marker did not clear the next action"
+    assert row[2] is None, "the marker did not clear the next action date"
+    assert str(row[3]) == "2026-06-01", "a blank applied date stopped preserving"
+
+    conn.execute("select public.app_import_report(%s)", (batch,))
+    report = {
+        (r[0], r[1]): r[2]
+        for r in conn.execute(
+            """select column_name, disposition, rows_affected
+                 from public.import_column_reports where batch_id = %s""",
+            (batch,),
+        ).fetchall()
+    }
+    assert report.get(("Next action", "cleared")) == 1, (
+        "a cleared value is missing from the report — a silent erase is worse "
+        "than a silent drop"
+    )
+    assert report.get(("Next action date", "cleared")) == 1
+    assert ("Applied", "cleared") not in report, "a BLANK cell claimed a cleared line"
+    assert ("Next action", "imported") not in report, (
+        "a cleared cell was double-counted as imported"
+    )
+
+
+def test_the_marker_inside_a_longer_string_is_content_not_a_gesture(conn, user):
+    """The attack list's first entry: exact match only. A note that merely
+    mentions the marker is text somebody typed, and eating the rest of the cell
+    to honour a substring would be a destructive guess."""
+    app_id = _clearable_setup(conn, user)
+    import_file(conn, [
+        ({"company": "Ramp", "title": "PM", "nextAction": f"well {MARKER} maybe"},
+         GH(9710), "strong"),
+    ])
+    assert conn.execute(
+        "select next_action from public.applications where id = %s", (app_id,)
+    ).fetchone()[0] == f"well {MARKER} maybe", (
+        "a marker inside a longer string was treated as the gesture"
+    )
+
+
+@pytest.mark.parametrize(
+    "field,column",
+    [
+        ("status", "status"),      # writable, but there is no empty rung
+        ("notes", "notes"),        # writable, but history is append-only
+        ("company", "company"),    # engine-owned
+        ("url", "url"),            # engine-owned
+    ],
+)
+def test_the_marker_in_a_non_clearable_column_is_refused_by_name(conn, user, field, column):
+    """The attack list's second entry: refused, never ignored. Silently
+    importing the literal `[unset]` as somebody's status is how a person learns
+    the feature does not exist by finding the marker in their pipeline."""
+    app_id = _clearable_setup(conn, user)
+    mapped = {"company": "Ramp", "title": "PM", "nextAction": "new action"}
+    mapped[field] = MARKER
+    batch, result = import_file(conn, [(mapped, GH(9720), "strong")])
+    assert result["failed"] == 1, f"a marker in {column} was not refused: {result}"
+    outcome, error = conn.execute(
+        "select outcome, error from public.import_rows where batch_id = %s and row_number = 1",
+        (batch,),
+    ).fetchone()
+    assert outcome == "failed"
+    assert "can only clear" in error and column in error, (
+        f"the refusal does not name the column: {error!r}"
+    )
+    # The refusal is the whole ROW: nothing else in it landed either.
+    row = conn.execute(
+        "select status, next_action from public.applications where id = %s", (app_id,)
+    ).fetchone()
+    assert row == ("Interview", "call Priya"), "a refused row still wrote something"
+    assert conn.execute(
+        "select count(*) from public.application_notes where application_id = %s", (app_id,)
+    ).fetchone()[0] == 0
+
+
+def test_the_marker_cannot_reach_another_users_row(conn):
+    """Wrong-owner denied. The marker adds a new WRITE (the clear), so the
+    cross-tenant negative is re-proven for it specifically: an hq_id from
+    someone else's export resolves to nothing, and their value survives."""
+    other = make_user(conn, f"{uuid.uuid4()}@example.com")
+    as_user(conn, other)
+    victim = conn.execute(
+        """insert into public.applications (user_id, company, title, status, next_action)
+           values (%s, 'Ramp', 'PM', 'Offer', 'call Priya') returning id""",
+        (other,),
+    ).fetchone()[0]
+    version = conn.execute(
+        "select updated_at from public.applications where id = %s", (victim,)
+    ).fetchone()[0].isoformat()
+
+    mine = make_user(conn, f"{uuid.uuid4()}@example.com")
+    as_user(conn, mine)
+    batch, result = import_file(conn, [
+        ({"company": "Ramp", "title": "PM", "nextAction": MARKER,
+          "hqId": str(victim), "hqVersion": version}, GH(9730), "strong"),
+    ])
+    assert row_states(conn, batch)[1] != "round-trip"
+    assert conn.execute(
+        "select next_action from public.applications where id = %s", (victim,)
+    ).fetchone()[0] == "call Priya", (
+        "a marker in someone else's file cleared their row — a cross-tenant "
+        "write dressed up as a spreadsheet"
+    )
+    # The row landed as the caller's OWN new application, marker read as absent.
+    assert result["created"] == 1
+    mine_row = conn.execute(
+        "select next_action from public.applications where user_id = %s", (mine,)
+    ).fetchone()
+    assert mine_row[0] == "", "the marker imported as the literal on a new row"
+
+
+def test_a_replayed_marker_commit_is_stable(conn, user):
+    """Idempotent replay, for the commit that clears: the same key returns the
+    stored result, and a second import of the same file finds nothing left to
+    clear — a no-op, not a report line and not an error."""
+    app_id = _clearable_setup(conn, user)
+    rows = [({"company": "Ramp", "title": "PM", "nextAction": MARKER}, GH(9740), "strong")]
+    batch = create_batch(conn, rows=1)
+    stage(conn, batch, [(1, {"n": "1"})])
+    apply_mapping(conn, batch, [(1, rows[0][0], rows[0][1], rows[0][2])])
+    preview(conn, batch)
+    key = str(uuid.uuid4())
+    first = commit(conn, batch, idem=key)
+    assert first["updated"] == 1
+    replay = commit(conn, batch, idem=key)
+    assert replay == first, "a replayed marker commit recomputed instead of returning its result"
+    assert conn.execute(
+        "select next_action from public.applications where id = %s", (app_id,)
+    ).fetchone()[0] == ""
+
+    batch2, r2 = import_file(conn, [rows[0]])
+    assert r2["updated"] == 1 and r2["failed"] == 0, r2
+    assert conn.execute(
+        "select next_action from public.applications where id = %s", (app_id,)
+    ).fetchone()[0] == ""
+    conn.execute("select public.app_import_report(%s)", (batch2,))
+    assert conn.execute(
+        """select count(*) from public.import_column_reports
+            where batch_id = %s and disposition = 'cleared'""",
+        (batch2,),
+    ).fetchone()[0] == 0, (
+        "clearing an already-empty field claimed a cleared line — the report "
+        "counts what happened, not what the file offered"
+    )
+
+
+def test_undo_restores_a_cleared_value(conn, user):
+    """AC 21 extended to the clear: `revert.before` holds the erased values, so
+    the one-gesture escape works for the one write that erases."""
+    app_id = _clearable_setup(conn, user)
+    batch, result = import_file(conn, [
+        ({"company": "Ramp", "title": "PM", "nextAction": MARKER, "nextActionDate": MARKER},
+         GH(9750), "strong"),
+    ])
+    assert result["updated"] == 1
+    assert conn.execute(
+        "select next_action from public.applications where id = %s", (app_id,)
+    ).fetchone()[0] == ""
+
+    undo(conn, batch)
+    row = conn.execute(
+        "select next_action, next_action_date from public.applications where id = %s",
+        (app_id,),
+    ).fetchone()
+    assert row[0] == "call Priya", "undo did not restore a cleared value"
+    assert str(row[1]) == "2026-08-01"
+
+
+def test_a_stale_marker_is_a_conflict_and_mine_cancels_the_clear(conn, user):
+    """A marker against a value somebody edited since the export is a QUESTION,
+    not a write — the same rule as typed text — and the conflict carries the
+    RAW marker as `theirs` so the resolver can present the gesture. Answering
+    'mine' discards the clear exactly as it discards typed text."""
+    app_id, version = _roundtrip_setup(conn, user, stale=True)
+    batch = create_batch(conn, rows=1)
+    stage(conn, batch, [(1, {"c": "Ramp"})])
+    apply_mapping(conn, batch, [
+        (1, {"company": "Ramp", "title": "PM", "nextAction": MARKER,
+             "nextActionDate": MARKER,
+             "hqId": str(app_id), "hqVersion": version}, GH(9760), "strong"),
+    ])
+    result = preview(conn, batch)
+    assert result["unresolved"] == 1, "a stale marker slipped past the conflict gate"
+    conflict = conn.execute(
+        "select conflict from public.import_rows where batch_id = %s and row_number = 1",
+        (batch,),
+    ).fetchone()[0]
+    assert conflict["next_action"] == {"mine": "send follow-up", "theirs": MARKER}, (
+        "the conflict lost the raw marker — the resolver cannot present the gesture"
+    )
+    # The marker compared by its EFFECT: "clear the next action date" against a
+    # date that is already empty is nothing and nothing, and asking a person to
+    # adjudicate that would be noise.
+    assert "next_action_date" not in conflict, (
+        "a marker against an already-empty field was raised as a conflict"
+    )
+
+    conn.execute(
+        "select public.app_import_resolve(%s, %s, %s)",
+        (batch, 1, json.dumps({"next_action": "mine"})),
+    )
+    result = commit(conn, batch)
+    assert result["updated"] == 1
+    assert conn.execute(
+        "select next_action from public.applications where id = %s", (app_id,)
+    ).fetchone()[0] == "send follow-up", "'keep mine' still cleared the field"
+
+
+def test_a_resolved_theirs_marker_still_clears_and_is_reported(conn, user):
+    """The other answer: 'use the file' on a marker cell clears through the
+    resolved path — the path where the version token is stale by design."""
+    app_id, version = _roundtrip_setup(conn, user, stale=True)
+    batch = create_batch(conn, rows=1)
+    stage(conn, batch, [(1, {"c": "Ramp"})])
+    apply_mapping(conn, batch, [
+        (1, {"company": "Ramp", "title": "PM", "nextAction": MARKER,
+             "hqId": str(app_id), "hqVersion": version}, GH(9770), "strong"),
+    ])
+    preview(conn, batch)
+    conn.execute(
+        "select public.app_import_resolve(%s, %s, %s)",
+        (batch, 1, json.dumps({"next_action": "theirs"})),
+    )
+    result = commit(conn, batch)
+    assert result["updated"] == 1, result
+    assert conn.execute(
+        "select next_action from public.applications where id = %s", (app_id,)
+    ).fetchone()[0] == "", "an answered 'use the file' marker did not clear"
+
+    conn.execute("select public.app_import_report(%s)", (batch,))
+    assert conn.execute(
+        """select rows_affected from public.import_column_reports
+            where batch_id = %s and column_name = 'Next action' and disposition = 'cleared'""",
+        (batch,),
+    ).fetchone()[0] == 1
+
+
+# --------------------------------------------- fail-closed resolver answers
+#
+# The #236 security review's finding, closed and held closed. A resolved row is
+# exempt from the commit's version re-check — the raised conflict is why the
+# resolver ran — so for that row the choices block is the only guard between
+# the file and a value edited after the export. `app_import_resolve` accepts
+# any SUBSET of the writable columns (including '{}'), so a partial answer
+# must not let the unanswered cells write through the exemption: unanswered is
+# 'mine', and a conflicted cell writes only on an explicit 'theirs'.
+
+
+def _stale_two_cell_batch(conn, user, *, next_action_value):
+    """A stale round trip whose file states TWO conflicted cells: a typed
+    status and `next_action_value` (typed text or the marker)."""
+    app_id, version = _roundtrip_setup(conn, user, stale=True)
+    batch = create_batch(conn, rows=1)
+    stage(conn, batch, [(1, {"c": "Ramp"})])
+    apply_mapping(conn, batch, [
+        (1, {"company": "Ramp", "title": "PM", "status": "Rejected",
+             "nextAction": next_action_value,
+             "hqId": str(app_id), "hqVersion": version}, GH(9780), "strong"),
+    ])
+    result = preview(conn, batch)
+    assert result["unresolved"] == 1
+    conflict = conn.execute(
+        "select conflict from public.import_rows where batch_id = %s and row_number = 1",
+        (batch,),
+    ).fetchone()[0]
+    assert set(conflict) == {"status", "next_action"}, conflict
+    return app_id, batch
+
+
+def test_an_unanswered_marker_cell_is_kept_not_cleared(conn, user):
+    """The finding itself: answer ONE of a row's two conflicted cells and the
+    unanswered MARKER cell must not erase the value it conflicted with. Before
+    the fail-closed rule, this exact sequence cleared `next_action` through
+    the resolved-row exemption — silent destruction through the stale-version
+    guard."""
+    app_id, batch = _stale_two_cell_batch(conn, user, next_action_value=MARKER)
+    conn.execute(
+        "select public.app_import_resolve(%s, %s, %s)",
+        (batch, 1, json.dumps({"status": "theirs"})),
+    )
+    result = commit(conn, batch)
+    assert result["updated"] == 1, result
+    row = conn.execute(
+        "select status, next_action from public.applications where id = %s", (app_id,)
+    ).fetchone()
+    assert row[0] == "Rejected", "the cell explicitly answered 'theirs' did not write"
+    assert row[1] == "send follow-up", (
+        "an UNANSWERED marker cell cleared the field — a partial resolve rode "
+        "the resolved-row exemption straight through the stale-version guard"
+    )
+    # And the report says so, by claiming nothing for the kept cell.
+    conn.execute("select public.app_import_report(%s)", (batch,))
+    report = {
+        (r[0], r[1]) for r in conn.execute(
+            """select column_name, disposition from public.import_column_reports
+                where batch_id = %s""", (batch,)).fetchall()
+    }
+    assert ("Next action", "cleared") not in report, (
+        "the report claims a clear that must not have happened"
+    )
+    assert ("Next action", "imported") not in report
+    assert ("Status", "imported") in report
+
+
+def test_an_unanswered_typed_cell_is_kept(conn, user):
+    """The pre-existing variant, closed by the same rule: unanswered stale
+    TEXT must not overwrite the newer edit either."""
+    app_id, batch = _stale_two_cell_batch(conn, user, next_action_value="archive it")
+    conn.execute(
+        "select public.app_import_resolve(%s, %s, %s)",
+        (batch, 1, json.dumps({"status": "theirs"})),
+    )
+    result = commit(conn, batch)
+    assert result["updated"] == 1, result
+    row = conn.execute(
+        "select status, next_action from public.applications where id = %s", (app_id,)
+    ).fetchone()
+    assert row[0] == "Rejected"
+    assert row[1] == "send follow-up", (
+        "an unanswered typed cell overwrote a value edited after the export"
+    )
+
+
+def test_a_bare_empty_resolve_keeps_every_cell(conn, user):
+    """`app_import_resolve` called directly with '{}' — legal at the app
+    boundary is not the question; this function is granted to `authenticated`.
+    The CHOSEN design, stated in the migration: resolve still ACCEPTS a
+    partial or empty set (the write-side guarantee has to live in the commit
+    regardless, and a second enforcement site is a second thing to drift), and
+    the commit reads an empty answer as "keep every cell as it is"."""
+    app_id, batch = _stale_two_cell_batch(conn, user, next_action_value=MARKER)
+    conn.execute(
+        "select public.app_import_resolve(%s, %s, %s)", (batch, 1, json.dumps({}))
+    )
+    result = commit(conn, batch)
+    assert result["updated"] == 1, result
+    row = conn.execute(
+        "select status, status_actor, next_action from public.applications where id = %s",
+        (app_id,),
+    ).fetchone()
+    assert row[0] == "Screen", "an empty resolve wrote the file's stale status"
+    assert row[2] == "send follow-up", "an empty resolve cleared a field"
+    # Nothing landed, so nothing is claimed and nothing was locked.
+    assert row[1] == "system"
+    conn.execute("select public.app_import_report(%s)", (batch,))
+    assert conn.execute(
+        """select count(*) from public.import_column_reports
+            where batch_id = %s and disposition in ('imported', 'cleared')""",
+        (batch,),
+    ).fetchone()[0] == 0
+
+
 # ------------------------------------------------------------- the twin lists
+
+def test_the_unset_marker_matches_the_typescript(conn):
+    """`hq_import_unset_marker()` is spelled again as `UNSET_MARKER` in
+    `webapp/lib/import/round-trip.ts` — and a third time at the top of this
+    section. All three compared byte for byte, `WRITABLE_COLUMNS`'s mechanism:
+    a marker that drifted between SQL and TypeScript would clear in one place
+    and import as literal text in the other."""
+    ts = (ROOT / "webapp" / "lib" / "import" / "round-trip.ts").read_text()
+    m = re.search(r'UNSET_MARKER\s*=\s*"([^"]+)"', ts)
+    assert m, "UNSET_MARKER not found in webapp/lib/import/round-trip.ts"
+    from_sql = conn.execute("select public.hq_import_unset_marker()").fetchone()[0]
+    assert m.group(1) == from_sql, (
+        "the unset marker differs between SQL and TypeScript"
+    )
+    assert MARKER == from_sql, "this file's own MARKER literal drifted"
+    # The property the CSV round trip rests on: `escapeField` neutralises a
+    # formula lead with an apostrophe, so a marker starting with one would come
+    # back unrecognisable from its own export.
+    assert from_sql[0] not in "=+-@\t\r", (
+        "the marker begins with a formula-lead character — the CSV export "
+        "would neutralise it and the round trip would break"
+    )
+
+
+def test_the_clearable_column_set_matches_the_typescript(conn):
+    """`hq_import_clearable_columns()` is spelled again as `CLEARABLE_COLUMNS`
+    in round-trip.ts. Same parse, same reason as the writable pin below."""
+    ts = (ROOT / "webapp" / "lib" / "import" / "round-trip.ts").read_text()
+    m = re.search(r"CLEARABLE_COLUMNS\s*=\s*\[(.*?)\]", ts, re.S)
+    assert m, "CLEARABLE_COLUMNS not found in webapp/lib/import/round-trip.ts"
+    from_ts = [x for x in re.findall(r'"([^"]+)"', m.group(1))]
+    from_sql = conn.execute("select public.hq_import_clearable_columns()").fetchone()[0]
+    assert from_ts == from_sql, (
+        "the columns a marker may clear differ between SQL and TypeScript — "
+        "the wizard would present a clear the database refuses, or refuse one "
+        "it performs"
+    )
+    writable = conn.execute("select public.hq_import_writable_columns()").fetchone()[0]
+    assert set(from_sql) < set(writable), (
+        "clearable must stay a STRICT subset of writable: status has no empty "
+        "rung and notes are append-only history"
+    )
+
 
 def test_the_writable_column_set_matches_the_typescript(conn):
     """`hq_import_writable_columns()` is spelled out again in

@@ -44,7 +44,8 @@ export type ImportDisposition =
   | "read-only"
   | "locked"
   | "unmapped"
-  | "unknown-column";
+  | "unknown-column"
+  | "cleared";
 
 /**
  * Everything the mapping step decided, stored server-side on the batch.
@@ -202,6 +203,8 @@ export function explainDisposition(r: ImportColumnReportView): string {
       return "Not mapped to anything, so nothing from this column was imported.";
     case "unknown-column":
       return "Not a column this app knows, so nothing from it was imported.";
+    case "cleared":
+      return `${rows} cleared — those cells carried the unset marker, which is the one way an import erases a value.`;
     default:
       return "";
   }

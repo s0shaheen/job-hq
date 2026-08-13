@@ -137,6 +137,9 @@ import type { Disposition } from "./view-models";
 import { FIXTURE_COMPANIES } from "./company-fixtures";
 import { isTerminalStatus } from "@/lib/status";
 import {
+  CLEARABLE_COLUMNS,
+  isClearableColumn,
+  isUnsetMarker,
   isWritableColumn,
   MAPPED_KEY,
   WRITABLE_COLUMNS,
@@ -222,6 +225,13 @@ type FixtureImportRow = ImportRowView & {
    * Only the commit knows.
    */
   wroteColumns?: string[];
+  /**
+   * Which clearable columns the unset marker actually ERASED — the mirror of
+   * `revert.cleared`. Only the commit knows, for `wroteColumns`'s reason: a
+   * marker the resolver answered 'mine', or one that found the field already
+   * empty, cleared nothing and must not be reported as if it had.
+   */
+  clearedColumns?: string[];
   /** The values as they were, for the revert. */
   revertBefore?: {
     status: string;
@@ -2754,7 +2764,11 @@ export class FixtureDataSource implements DataSource {
         const t = blankTrim(r.mapped[MAPPED_KEY[column]]);
         if (!t) continue;
         const m = this.writableValue(app, column);
-        if (t !== m) diff[column] = { mine: m, theirs: t };
+        // The marker compared by its EFFECT, as the SQL does: "make this
+        // empty" against an already-empty field is no conflict at all, while
+        // `theirs` keeps the RAW marker so the resolver shows the gesture.
+        const effective = isUnsetMarker(t) && isClearableColumn(column) ? "" : t;
+        if (effective !== m) diff[column] = { mine: m, theirs: t };
       }
       if (Object.keys(diff).length > 0) {
         r.conflictState = "unresolved";
@@ -2961,18 +2975,76 @@ export class FixtureDataSource implements DataSource {
         row.matchKind === "round-trip" &&
         (value("hqVersion") !== "" || row.conflictState === "resolved");
 
+      // The refusal scan, mirroring the SQL's exactly: a marker in a column it
+      // cannot clear fails the ROW by name, never imports the literal. The
+      // pairs are the vocabulary `hq_import_mapped_value` translates.
+      const marked = (
+        [
+          ["company", "company"],
+          ["title", "title"],
+          ["url", "url"],
+          ["location", "location"],
+          ["status", "status"],
+          ["notes", "notes"],
+          ["next_action", "nextAction"],
+          ["next_action_date", "nextActionDate"],
+          ["applied_date", "appliedDate"],
+          ["hq_id", "hqId"],
+          ["hq_version", "hqVersion"],
+        ] as const
+      )
+        .filter(([column, key]) => !isClearableColumn(column) && isUnsetMarker(value(key)))
+        .map(([column]) => column)
+        .sort();
+
+      // The clear flags, from the RAW mapped text — the SQL computes them
+      // before its date coercion erases the evidence; here the text one is
+      // blanked immediately so no later branch writes the literal.
+      let clearNext = isUnsetMarker(value("nextAction"));
+      let clearNextDate = isUnsetMarker(value("nextActionDate"));
+      let clearApplied = isUnsetMarker(value("appliedDate"));
+      if (clearNext) next = "";
+      if (clearNextDate) nextDate = null;
+      if (clearApplied) applied = null;
+
       if (row.conflictState === "resolved") {
-        if (row.choices.status === "mine") status = "";
-        if (row.choices.notes === "mine") note = "";
-        if (row.choices.next_action === "mine") next = "";
-        if (row.choices.next_action_date === "mine") nextDate = null;
-        if (row.choices.applied_date === "mine") applied = null;
+        // FAIL CLOSED, mirroring the SQL exactly (the #236 security finding):
+        // a conflicted cell writes only on an explicit 'theirs' — unanswered
+        // means 'mine', because a resolved row is exempt from the version
+        // re-check and this block is all that stands between a partial resolve
+        // and a value somebody edited after the export.
+        const keepMine = (column: string) =>
+          (column in row.conflict && row.choices[column] !== "theirs") ||
+          row.choices[column] === "mine";
+        if (keepMine("status")) status = "";
+        if (keepMine("notes")) note = "";
+        if (keepMine("next_action")) {
+          next = "";
+          clearNext = false;
+        }
+        if (keepMine("next_action_date")) {
+          nextDate = null;
+          clearNextDate = false;
+        }
+        if (keepMine("applied_date")) {
+          applied = null;
+          clearApplied = false;
+        }
       }
 
       if (row.matchKind === "duplicate-in-file") {
         row.outcome = "skipped";
         row.error = "skipped: an earlier row in this file is the same job";
         skipped += 1;
+        continue;
+      }
+
+      // After the duplicate skip (a row that writes nothing has nothing to
+      // refuse), before either write path — the SQL's order.
+      if (marked.length > 0) {
+        row.outcome = "failed";
+        row.error = `the unset marker can only clear ${CLEARABLE_COLUMNS.join(", ")} — not ${marked.join(", ")}`;
+        failed += 1;
         continue;
       }
 
@@ -3001,18 +3073,30 @@ export class FixtureDataSource implements DataSource {
           nextActionDate: app.nextActionDate,
           appliedDate: app.appliedDate,
         };
+        // What this row ACTUALLY cleared: marker present AND a live value
+        // erased. Clearing an already-empty field is a no-op, not a report
+        // line. Recorded before the write, which is the last moment the old
+        // values exist.
+        row.clearedColumns = [
+          ...(clearNext && (app.nextAction ?? "") !== "" ? ["nextAction"] : []),
+          ...(clearNextDate && app.nextActionDate !== null ? ["nextActionDate"] : []),
+          ...(clearApplied && app.appliedDate !== null ? ["appliedDate"] : []),
+        ];
         Object.assign(app, {
           status: writeStatus ? status : app.status,
           statusActor: writeStatus && roundTrip ? ("user" as const) : app.statusActor,
-          // A blank cell is "I did not fill this in", never "delete it".
-          nextAction: next !== "" ? next : app.nextAction,
-          nextActionDate: nextDate ?? app.nextActionDate,
-          appliedDate: applied ?? app.appliedDate,
+          // The marker clears; a blank cell is still "I did not fill this in",
+          // never "delete it".
+          nextAction: clearNext ? null : next !== "" ? next : app.nextAction,
+          nextActionDate: clearNextDate ? null : (nextDate ?? app.nextActionDate),
+          appliedDate: clearApplied ? null : (applied ?? app.appliedDate),
           updatedAt: this.bumpedApp(app),
         });
         if (note) this.appendNote(app.id, note, "import");
         row.outcome = "updated";
         row.wroteUpdatedAt = app.updatedAt;
+        // A cleared column is deliberately NOT in `wroteColumns` — nothing was
+        // imported into it; `clearedColumns` is its account.
         row.wroteColumns = [
           ...(writeStatus ? ["status"] : []),
           ...(note ? ["notes"] : []),
@@ -3171,6 +3255,19 @@ export class FixtureDataSource implements DataSource {
         (r) => ["created", "updated"].includes(r.outcome) && (r.wroteColumns ?? []).includes(field),
       ).length;
       if (n > 0) list.push({ column: label, disposition: "imported", rows: n, sample: [] });
+    }
+
+    // The columns the marker ERASED — the report saying so is half the
+    // feature. From `clearedColumns`, recorded by the commit.
+    for (const [label, field] of [
+      ["Next action", "nextAction"],
+      ["Next action date", "nextActionDate"],
+      ["Applied", "appliedDate"],
+    ] as const) {
+      const n = rows.filter(
+        (r) => r.outcome === "updated" && (r.clearedColumns ?? []).includes(field),
+      ).length;
+      if (n > 0) list.push({ column: label, disposition: "cleared", rows: n, sample: [] });
     }
 
     return list.sort(

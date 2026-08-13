@@ -4,7 +4,12 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { FixtureDataSource } from "@/lib/data/fixture-source";
 import type { ApplicationView, JobView } from "@/lib/data/view-models";
-import { MAPPED_KEY, WRITABLE_COLUMNS } from "@/lib/import/round-trip";
+import {
+  CLEARABLE_COLUMNS,
+  MAPPED_KEY,
+  UNSET_MARKER,
+  WRITABLE_COLUMNS,
+} from "@/lib/import/round-trip";
 import type { MappedImportRow } from "@/lib/data/source";
 
 /**
@@ -515,6 +520,263 @@ describe("an import never destroys", () => {
     expect(notes.map((n) => [n.body, n.author])).toEqual(
       expect.arrayContaining([["the file's note", "import"]]),
     );
+  });
+});
+
+// ------------------------------------------------- the explicit unset marker
+//
+// The fake half of migration 20260813_011502_import_unset_marker.sql; the
+// Postgres half is `tests/db/test_import.py`'s marker section. A blank cell
+// still preserves — the marker is the deliberate gesture a blank is not.
+
+const MARKER_SQL = readFileSync(
+  path.join(REPO, "db", "migrations", "20260813_011502_import_unset_marker.sql"),
+  "utf8",
+);
+
+describe("the explicit unset marker", () => {
+  it("clears a clearable field while a blank in the same row preserves", async () => {
+    const src = store([
+      app({
+        id: 4,
+        status: "Interview",
+        nextAction: "call Priya",
+        nextActionDate: "2026-08-01",
+        appliedDate: "2026-06-01",
+      }),
+    ]);
+    const { batchId } = await runImport(src, [
+      {
+        mapped: {
+          company: "Ramp",
+          title: "Product Manager",
+          status: "",
+          nextAction: UNSET_MARKER,
+          nextActionDate: UNSET_MARKER,
+          appliedDate: "",
+        },
+        jobKey: "greenhouse-1300",
+        strength: "strong",
+      },
+    ]);
+    const row = (await src.applications())[0];
+    expect(row.status).toBe("Interview");
+    expect(row.nextAction).toBeNull();
+    expect(row.nextActionDate).toBeNull();
+    expect(row.appliedDate).toBe("2026-06-01");
+
+    // And the report says so, per column — a silent erase is worse than a
+    // silent drop.
+    const report = await src.importReport(batchId);
+    const cleared = report.filter((r) => r.disposition === "cleared");
+    expect(cleared.map((r) => [r.column, r.rows])).toEqual([
+      ["Next action", 1],
+      ["Next action date", 1],
+    ]);
+  });
+
+  it("inside a longer string it is content, not a gesture", async () => {
+    const src = store([app({ id: 4, nextAction: "call Priya" })]);
+    await runImport(src, [
+      {
+        mapped: {
+          company: "Ramp",
+          title: "Product Manager",
+          nextAction: `well ${UNSET_MARKER} maybe`,
+        },
+        jobKey: "greenhouse-1310",
+        strength: "strong",
+      },
+    ]);
+    expect((await src.applications())[0].nextAction).toBe(`well ${UNSET_MARKER} maybe`);
+  });
+
+  it.each([
+    ["status", "status"],
+    ["notes", "notes"],
+    ["company", "company"],
+  ])("in %s it is refused by name, never imported as the literal", async (column, field) => {
+    const src = store([app({ id: 4, status: "Interview", nextAction: "call Priya" })]);
+    const { commit, batchId } = await runImport(src, [
+      {
+        mapped: {
+          company: "Ramp",
+          title: "Product Manager",
+          nextAction: "new action",
+          [field]: UNSET_MARKER,
+        },
+        jobKey: "greenhouse-1320",
+        strength: "strong",
+      },
+    ]);
+    expect(commit.ok && commit.failed).toBe(1);
+    const loaded = await src.importBatch(batchId);
+    expect(loaded?.rows[0].outcome).toBe("failed");
+    expect(loaded?.rows[0].error).toContain("can only clear");
+    expect(loaded?.rows[0].error).toContain(column);
+    // The SQL's own words, so the two halves cannot drift apart silently.
+    expect(MARKER_SQL).toContain("the unset marker can only clear %s — not %s");
+    expect(loaded?.rows[0].error).toContain(
+      `the unset marker can only clear ${CLEARABLE_COLUMNS.join(", ")}`,
+    );
+    // The refusal is the whole row: nothing else in it landed either.
+    const row = (await src.applications())[0];
+    expect(row.status).toBe("Interview");
+    expect(row.nextAction).toBe("call Priya");
+    expect(await src.notes(4)).toHaveLength(0);
+  });
+
+  it("a stale marker is a conflict carrying the raw marker, and 'mine' cancels the clear", async () => {
+    const src = store([
+      app({ id: 6, nextAction: "send follow-up", updatedAt: "2026-07-20T10:00:00.000Z" }),
+    ]);
+    const { preview, batchId } = await runImport(
+      src,
+      [
+        {
+          mapped: {
+            company: "Ramp",
+            title: "Product Manager",
+            nextAction: UNSET_MARKER,
+            nextActionDate: UNSET_MARKER,
+            hqId: "6",
+            hqVersion: "2020-01-01T00:00:00.000Z",
+          },
+          jobKey: "greenhouse-1330",
+          strength: "strong",
+        },
+      ],
+      { roundTrip: true },
+    );
+    expect(preview.ok && preview.unresolved).toBe(1);
+    const loaded = await src.importBatch(batchId);
+    // The raw marker rides as `theirs`, so the resolver can present the
+    // gesture; the empty date raises nothing — clearing nothing is not a
+    // question.
+    expect(loaded?.rows[0].conflict.next_action).toEqual({
+      mine: "send follow-up",
+      theirs: UNSET_MARKER,
+    });
+    expect(loaded?.rows[0].conflict.next_action_date).toBeUndefined();
+
+    await src.resolveImportRow({ batchId, rowNumber: 1, choices: { next_action: "mine" } });
+    const commit = await src.commitImportChunk({
+      batchId,
+      limit: 200,
+      idempotencyKey: `commit-${Math.random()}`,
+    });
+    expect(commit.ok && commit.updated).toBe(1);
+    expect((await src.applications())[0].nextAction).toBe("send follow-up");
+    // Cancelled means not reported either.
+    const report = await src.importReport(batchId);
+    expect(report.find((r) => r.disposition === "cleared")).toBeUndefined();
+  });
+
+  it("an unanswered conflicted cell fails closed — the clear does not ride the exemption", async () => {
+    // The #236 security finding, the fake half. A resolved row skips the
+    // version re-check, so a PARTIAL resolve must not let the unanswered
+    // marker cell erase the value it conflicted with — unanswered is 'mine',
+    // and a conflicted cell writes only on an explicit 'theirs'.
+    const src = store([
+      app({
+        id: 6,
+        status: "Screen",
+        nextAction: "send follow-up",
+        updatedAt: "2026-07-20T10:00:00.000Z",
+      }),
+    ]);
+    const { preview, batchId } = await runImport(
+      src,
+      [
+        {
+          mapped: {
+            company: "Ramp",
+            title: "Product Manager",
+            status: "Rejected",
+            nextAction: UNSET_MARKER,
+            hqId: "6",
+            hqVersion: "2020-01-01T00:00:00.000Z",
+          },
+          jobKey: "greenhouse-1350",
+          strength: "strong",
+        },
+      ],
+      { roundTrip: true },
+    );
+    expect(preview.ok && preview.unresolved).toBe(1);
+    await src.resolveImportRow({ batchId, rowNumber: 1, choices: { status: "theirs" } });
+    const commit = await src.commitImportChunk({
+      batchId,
+      limit: 200,
+      idempotencyKey: `commit-${Math.random()}`,
+    });
+    expect(commit.ok && commit.updated).toBe(1);
+    const row = (await src.applications())[0];
+    expect(row.status).toBe("Rejected");
+    expect(row.nextAction).toBe("send follow-up");
+    const report = await src.importReport(batchId);
+    expect(report.find((r) => r.disposition === "cleared")).toBeUndefined();
+  });
+
+  it("a bare empty resolve keeps every cell — unanswered stale text included", async () => {
+    const src = store([
+      app({
+        id: 6,
+        status: "Screen",
+        nextAction: "send follow-up",
+        updatedAt: "2026-07-20T10:00:00.000Z",
+      }),
+    ]);
+    const { batchId } = await runImport(
+      src,
+      [
+        {
+          mapped: {
+            company: "Ramp",
+            title: "Product Manager",
+            status: "Rejected",
+            nextAction: "archive it",
+            hqId: "6",
+            hqVersion: "2020-01-01T00:00:00.000Z",
+          },
+          jobKey: "greenhouse-1360",
+          strength: "strong",
+        },
+      ],
+      { roundTrip: true },
+    );
+    await src.resolveImportRow({ batchId, rowNumber: 1, choices: {} });
+    const commit = await src.commitImportChunk({
+      batchId,
+      limit: 200,
+      idempotencyKey: `commit-${Math.random()}`,
+    });
+    expect(commit.ok && commit.updated).toBe(1);
+    const row = (await src.applications())[0];
+    expect(row.status).toBe("Screen");
+    expect(row.nextAction).toBe("send follow-up");
+  });
+
+  it("undo restores a cleared value", async () => {
+    const src = store([app({ id: 4, nextAction: "call Priya", nextActionDate: "2026-08-01" })]);
+    const { batchId } = await runImport(src, [
+      {
+        mapped: {
+          company: "Ramp",
+          title: "Product Manager",
+          nextAction: UNSET_MARKER,
+          nextActionDate: UNSET_MARKER,
+        },
+        jobKey: "greenhouse-1340",
+        strength: "strong",
+      },
+    ]);
+    expect((await src.applications())[0].nextAction).toBeNull();
+    const undone = await src.undoImport({ batchId, idempotencyKey: `undo-${Math.random()}` });
+    expect(undone.ok).toBe(true);
+    const row = (await src.applications())[0];
+    expect(row.nextAction).toBe("call Priya");
+    expect(row.nextActionDate).toBe("2026-08-01");
   });
 });
 

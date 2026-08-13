@@ -4,15 +4,19 @@ vi.mock("server-only", () => ({}));
 
 import { FIXTURE_APPLICATIONS } from "@/lib/data/fixtures";
 import { APPLICATION_COLUMNS } from "@/lib/export/columns";
-import { toCsv } from "@/lib/export/delimited";
+import { escapeField, toCsv } from "@/lib/export/delimited";
 import { parseExportRequest } from "@/lib/export/scope";
 import { buildXlsx } from "@/lib/export/xlsx";
 import { isRoundTrip, suggestMapping } from "@/lib/import/map-columns";
 import { cellText, readDelimited } from "@/lib/import/read";
 import {
+  CLEARABLE_COLUMNS,
   HQ_ID_HEADER,
   HQ_VERSION_HEADER,
+  isUnsetMarker,
   ROUND_TRIP_COLUMNS,
+  UNSET_MARKER,
+  WRITABLE_COLUMNS,
 } from "@/lib/import/round-trip";
 
 /**
@@ -190,6 +194,69 @@ describe("the one cell a CSV round trip does not preserve", () => {
       toCsv([{ ...APPS[0], nextAction: "-15" }], ROUND_TRIP_COLUMNS),
     );
     expect(rows[0][headers.indexOf("Next action")]).toBe("-15");
+  });
+});
+
+describe("the explicit-unset marker, in both directions of the round trip", () => {
+  /**
+   * The marker is a CONTRACT with the database — `hq_import_unset_marker()`
+   * in migration 20260813_011502 returns the same bytes, and
+   * `tests/db/test_import.py` pins the pair. What THIS file owns is the CSV
+   * seam: the marker must survive `toCsv` → `readDelimited` untouched, or a
+   * person's deliberate "clear this" would arrive as text that clears nothing.
+   */
+
+  it("survives the CSV seam byte-for-byte — export writes it, the importer reads it back", () => {
+    const { headers, rows } = readBack(
+      toCsv([{ ...APPS[0], nextAction: UNSET_MARKER }], ROUND_TRIP_COLUMNS),
+    );
+    expect(rows[0][headers.indexOf("Next action")]).toBe(UNSET_MARKER);
+  });
+
+  it("never begins with a formula lead — the property the byte-identity rests on", () => {
+    // `escapeField` prefixes an apostrophe to `= + - @ TAB CR`. A marker in
+    // that set would come back as `'[unset]`, matching nothing, the first time
+    // a CSV round-tripped without passing through Excel — a silent total
+    // failure of the feature that would read as "the marker sometimes works".
+    expect(/^[=+\-@\t\r]/.test(UNSET_MARKER)).toBe(false);
+    expect(escapeField(UNSET_MARKER, ",")).toBe(UNSET_MARKER);
+  });
+
+  it("is never invented by an export — an absent value emits a blank, not the marker", () => {
+    // The other direction of the invariance: export → import of the same file
+    // changes nothing. A cleared field exports as an empty cell, and an empty
+    // cell imports as "I did not fill this in" — so the identity loop holds
+    // and nothing round-trips into a clear nobody asked for.
+    const { headers, rows } = readBack(
+      toCsv(
+        [{ ...APPS[0], nextAction: null, nextActionDate: null, appliedDate: null }],
+        ROUND_TRIP_COLUMNS,
+      ),
+    );
+    expect(rows[0][headers.indexOf("Next action")]).toBe("");
+    expect(rows[0][headers.indexOf("Next action date")]).toBe("");
+    expect(rows[0][headers.indexOf("Applied")]).toBe("");
+    for (const cell of rows[0]) expect(cell).not.toBe(UNSET_MARKER);
+  });
+
+  it("matches exactly, never as a substring — the marker inside a longer string is content", () => {
+    expect(isUnsetMarker(UNSET_MARKER)).toBe(true);
+    expect(isUnsetMarker(`call Priya ${UNSET_MARKER}`)).toBe(false);
+    expect(isUnsetMarker(`${UNSET_MARKER} maybe`)).toBe(false);
+    expect(isUnsetMarker("[UNSET]")).toBe(false);
+    expect(isUnsetMarker("")).toBe(false);
+  });
+
+  it("clears only writable columns — the clearable set is a strict subset", () => {
+    // `status` (no empty rung exists) and `notes` (append-only history) are
+    // writable but NOT clearable; the database refuses the marker on them by
+    // name rather than importing the literal. Pinned here so nobody widens the
+    // clearable list without meeting that reasoning.
+    for (const column of CLEARABLE_COLUMNS) {
+      expect(WRITABLE_COLUMNS).toContain(column);
+    }
+    expect(CLEARABLE_COLUMNS).not.toContain("status");
+    expect(CLEARABLE_COLUMNS).not.toContain("notes");
   });
 });
 

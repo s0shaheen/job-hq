@@ -39,6 +39,7 @@ const DISPOSITION_TONE = {
   locked: "warn",
   unmapped: "neutral",
   "unknown-column": "neutral",
+  cleared: "ok",
 } as const;
 
 const DISPOSITION_LABEL = {
@@ -47,6 +48,7 @@ const DISPOSITION_LABEL = {
   locked: "Your choice kept",
   unmapped: "Not mapped",
   "unknown-column": "Not a column here",
+  cleared: "Cleared",
 } as const;
 
 type UndoOk = Extract<UndoActionResult, { ok: true }>;
