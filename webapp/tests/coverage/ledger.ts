@@ -128,7 +128,13 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
         "asking for the queue lands on the holding page, and the queue is not rendered on the way",
       ),
       [ST.sessionExpired]: e2e("offline", "the held decision is applied once the session is back"),
-      [ST.fatal]: MISSING,
+      // Two titles because the state has two halves: the boundary renders
+      // instead of a white screen, and its own Try again control recovers.
+      [ST.fatal]: e2e(
+        "error",
+        "an armed read failure renders the boundary, not a blank page or a stuck skeleton",
+        "Try again recovers through the boundary once the failure clears",
+      ),
       // BLOCKED, not covered, and the difference is the point (17 §2).
       //
       // The cutover replaced the one-card stack with the owner's list, so half
@@ -191,7 +197,9 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
         "asking for the jobs grid lands on the holding page with no rows anywhere",
       ),
       [ST.sessionExpired]: e2e("grid-views", "an expired session answers with the auth copy, not a crash"),
-      [ST.fatal]: MISSING,
+      // The boundary is app-level, so one spec proves it once and loops the
+      // shell surfaces rather than four issues proving it four times.
+      [ST.fatal]: e2e("error", "the boundary is app-level: jobs, pipeline and companies render it too"),
       // Two things, because the redesign split them. Selection is the checkbox
       // track; the DETAIL is a pane that opens on row click, which is the state
       // §5 names and which no selection test looks at.
@@ -697,9 +705,10 @@ export const BASELINE_MISSING: Baseline = {
     { key: "billing-landing-email-import-export | Missing optional fact | fixture", reason: "A mapped column the file never supplied is never asserted to read Not listed." },
     { key: "billing-landing-email-import-export | Partial/degraded | fixture", reason: "A partially parseable workbook is never exercised." },
 
-    // Fatal route error.
-    { key: "today | Fatal route error | fixture", reason: "No spec forces /queue to throw; only the 404 path is covered." },
-    { key: "jobs | Fatal route error | fixture", reason: "A malformed view falls back loudly, but a thrown render is never exercised." },
+    // Fatal route error. The today and jobs entries closed with the
+    // hq_demo_fail_read seam and error.spec.ts; these two remain because the
+    // spec's loop is the shell surfaces, and /connections and the wizard are
+    // not in it.
     { key: "find-intro | Fatal route error | fixture", reason: "No spec forces /connections to throw." },
     { key: "billing-landing-email-import-export | Fatal route error | fixture", reason: "No spec forces the wizard to throw; an unknown batch id is not asserted." },
 

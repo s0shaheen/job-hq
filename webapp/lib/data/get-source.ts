@@ -94,6 +94,26 @@ const FAIL_COOKIE = "hq_demo_fail";
 const WARM_OVER_CAP_COOKIE = "hq_warm_over_cap";
 
 /**
+ * Makes THIS resolve throw, so a failed server READ is reachable and
+ * `app/error.tsx` can be proven to render rather than a white screen.
+ *
+ * `hq_demo_fail` fails the next WRITE and leaves reads alone, so the app-level
+ * error boundary — the last state on the parity matrix with no way in — had
+ * never rendered in any test on any surface. A cookie for the reason every
+ * sibling seam is a cookie: an E2E drives the real UI and needs to change what
+ * the SERVER does mid-journey, and a cookie is the only channel it has.
+ *
+ * Read inside `isDemoMode()` ONLY, exactly as narrowly as its siblings — a
+ * deployment that fell back to fixtures for a missing env var must not let a
+ * visitor error its pages by setting a cookie. And thrown AFTER the entitlement
+ * gate, never before: a pending or suspended session with this cookie set must
+ * still be refused with `NotEntitledError`, because a seam that could jump the
+ * auth ordering would be a test convenience weakening a security boundary.
+ * `tests/unit/get-source-seam.test.ts` pins both properties.
+ */
+const FAIL_READ_COOKIE = "hq_demo_fail_read";
+
+/**
  * Seeds this demo store's DISPLAY PREFERENCES, for the same reason
  * `hq_demo_fail` seeds a failure: an E2E drives the real UI and needs the
  * SERVER to start from a state, and a cookie is the only channel it has.
@@ -347,6 +367,7 @@ export async function getDataSource(): Promise<DataSource> {
     let id = "shared";
     let seed: SeedName = "full";
     let fail: string | undefined;
+    let failRead: string | undefined;
     let overCap: string | undefined;
     let display: string | undefined;
     let entitlementCookie: string | undefined;
@@ -356,6 +377,7 @@ export async function getDataSource(): Promise<DataSource> {
       id = jar.get(DEMO_COOKIE)?.value || "shared";
       seed = parseSeed(jar.get(SEED_COOKIE)?.value);
       fail = jar.get(FAIL_COOKIE)?.value;
+      failRead = jar.get(FAIL_READ_COOKIE)?.value;
       overCap = jar.get(WARM_OVER_CAP_COOKIE)?.value;
       display = jar.get(DISPLAY_COOKIE)?.value;
       entitlementCookie = jar.get(DEMO_ENTITLEMENT_COOKIE)?.value;
@@ -369,6 +391,14 @@ export async function getDataSource(): Promise<DataSource> {
     // POSTed straight at its own endpoint.
     const demoEnt = demoEntitlement(entitlementCookie);
     if (!isActive(demoEnt)) throw new NotEntitledError(demoEnt.status);
+    // AFTER the gate, and the ordering is the contract, not an accident: a
+    // refused session with the seam armed is refused, never errored. The throw
+    // sits before the store resolves because a failed read has no store to
+    // answer from — arming or seeding one first would be work the failure
+    // pretends never happened.
+    if (failRead) {
+      throw new Error("hq_demo_fail_read is set: this demo read refuses to answer.");
+    }
     const store = demoStore(id, seed);
     // BEFORE the failure arming below, not after: `failNextWrite` is consumed
     // by the first WRITE, and seeding preferences is one. Armed the other way

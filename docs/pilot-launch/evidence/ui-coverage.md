@@ -16,15 +16,15 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 
 | | Cells |
 |---|---:|
-| covered | 115 |
+| covered | 117 |
 | n/a | 48 |
 | blocked on an ADD item | 134 |
-| missing, baselined 2026-08-02 | 207 |
+| missing, baselined 2026-08-02 | 205 |
 | missing, new (fails) | 0 |
 | on an unbuilt surface (not enforced) | 126 |
 | total | 504 |
 
-**Baselined is not covered.** 207 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
+**Baselined is not covered.** 205 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
 
 ## Matrix, fixture mode
 
@@ -35,13 +35,13 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 | billing-landing-email-import-export | gap | yes | yes | n/a | gap | gap | yes | gap | gap | yes | add | gap | gap | yes | gap | gap | yes | gap | yes | gap | n/a |
 | coverage | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | gap | gap | gap | gap | yes | gap | gap |
 | find-intro | gap | yes | yes | yes | yes | yes | yes | yes | gap | gap | yes | gap | gap | yes | gap | add | gap | gap | yes | gap | n/a |
-| jobs | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | gap | yes | yes | yes | yes | gap | yes | gap | yes |
+| jobs | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | gap | yes |
 | operator-admin | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | resume | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | settings-auth-onboarding | yes | yes | yes | n/a | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | gap | gap | gap | yes | gap | n/a |
 | shared-shell-and-components | n/a | yes | yes | n/a | n/a | gap | n/a | yes | yes | n/a | yes | yes | yes | n/a | gap | n/a | yes | yes | yes | gap | n/a |
 | system-and-mobile | n/a | yes | n/a | n/a | n/a | yes | n/a | yes | yes | n/a | yes | yes | yes | n/a | gap | n/a | yes | yes | add | gap | n/a |
-| today | yes | yes | yes | yes | yes | gap | n/a | yes | yes | yes | yes | yes | gap | add | yes | gap | yes | yes | yes | gap | yes |
+| today | yes | yes | yes | yes | yes | gap | n/a | yes | yes | yes | yes | yes | yes | add | yes | gap | yes | yes | yes | gap | yes |
 
 Live mode is not shown as a matrix because it has one value everywhere. Every live cell is missing: the whole Playwright suite runs `HQ_DEMO=1` against `FixtureDataSource`, so no browser test has ever touched the real data path, real session handling, or RLS.
 
@@ -223,7 +223,7 @@ Routes: `/jobs`
 | Conflict | yes | `tests/e2e/grid-selection.spec.ts` "a conflict inside the batch applies NOTHING: full revert plus a changed-elsewhere toast" |
 | Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for the jobs grid lands on the holding page with no rows anywhere" |
 | Session expired | yes | `tests/e2e/grid-views.spec.ts` "an expired session answers with the auth copy, not a crash" |
-| Fatal route error | gap | A malformed view falls back loudly, but a thrown render is never exercised. |
+| Fatal route error | yes | `tests/e2e/error.spec.ts` "the boundary is app-level: jobs, pipeline and companies render it too" |
 | Selected/detail | yes | `tests/e2e/jobs-redesign.spec.ts` "opens on row click, over a list that stays interactive"; `tests/e2e/grid-selection.spec.ts` "checkboxes build a selection, and Clear empties it" |
 | Long strings | yes | `tests/e2e/grid.spec.ts` "the long fixture row stays one row tall and keeps its full text reachable" |
 | High volume | yes | `tests/e2e/grid-perf.spec.ts` "row 25: the DOM holds a bounded number of rows at any scroll position" |
@@ -401,7 +401,7 @@ Routes: `/queue`
 | Conflict | yes | `tests/e2e/offline.spec.ts` "a conflict on replay says the decision lost, instead of pretending it landed" |
 | Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for the queue lands on the holding page, and the queue is not rendered on the way" |
 | Session expired | yes | `tests/e2e/offline.spec.ts` "the held decision is applied once the session is back" |
-| Fatal route error | gap | No spec forces /queue to throw; only the 404 path is covered. |
+| Fatal route error | yes | `tests/e2e/error.spec.ts` "an armed read failure renders the boundary, not a blank page or a stuck skeleton"; `tests/e2e/error.spec.ts` "Try again recovers through the boundary once the failure clears" |
 | Selected/detail | add | ADD-013: Selection is covered by triage.spec.ts, but the detail pane the handoff opens on Enter is unbuilt, so the surface cannot enter half of this state. |
 | Long strings | yes | `tests/e2e/layout.spec.ts` "long titles and long company names do not break the decision row" |
 | High volume | gap | No spec drives the queue at thousands of cards. |
@@ -431,8 +431,6 @@ Each line is a hole that already existed when the gate was switched on. Baseline
 | `shared-shell-and-components | Partial/degraded | fixture` | 2026-08-02 | The shell with a dependency named as unavailable is never rendered. |
 | `billing-landing-email-import-export | Missing optional fact | fixture` | 2026-08-02 | A mapped column the file never supplied is never asserted to read Not listed. |
 | `billing-landing-email-import-export | Partial/degraded | fixture` | 2026-08-02 | A partially parseable workbook is never exercised. |
-| `today | Fatal route error | fixture` | 2026-08-02 | No spec forces /queue to throw; only the 404 path is covered. |
-| `jobs | Fatal route error | fixture` | 2026-08-02 | A malformed view falls back loudly, but a thrown render is never exercised. |
 | `find-intro | Fatal route error | fixture` | 2026-08-02 | No spec forces /connections to throw. |
 | `billing-landing-email-import-export | Fatal route error | fixture` | 2026-08-02 | No spec forces the wizard to throw; an unknown batch id is not asserted. |
 | `billing-landing-email-import-export | Write pending | fixture` | 2026-08-02 | Commit's in-flight state is never asserted; only its result is. |
