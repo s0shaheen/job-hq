@@ -1050,3 +1050,124 @@ def test_suspension_revokes_the_capture_tokens_too(conn, states):
         "a suspended account kept a live capture token — the service-role lanes "
         "can still write on its behalf"
     )
+
+
+# ═══════════════════════ the #223 decision: middleware fails open, the store does not
+#
+# Issue #223 (decided 2026-08-12, inside #196) keeps the middleware route gate
+# failing OPEN on an entitlement row it cannot read, on one condition among
+# others: a real-Postgres proof that the store denies that session anyway. These
+# two tests are that proof, one per way the row can fail to answer. The webapp's
+# half of the same condition — `getDataSource()` throwing on the same signals —
+# is `webapp/tests/unit/entitlement-boundary.test.ts`.
+
+
+def test_an_absent_entitlement_row_is_denied_at_the_store_even_when_middleware_waves_it_through(conn):
+    """The #223 condition, driven: the row is GONE and the deny still holds.
+
+    The state is precisely the one middleware cannot be trusted with: a session
+    whose `public.users` row exists but whose `entitlements` row does not — a
+    signup whose entitlement insert half-failed, or an account provisioned by a
+    path that skipped the trigger. It differs from the sweep's `unknown` state
+    (a uuid that was never an account) in that everything EXCEPT the entitlement
+    row says this person is real. Middleware may wave the request through
+    (`unreadable` fails open by decision, and even a clean read answers only
+    with a redirect); the store answers with the boundary: `hq_is_entitled()` is
+    false on absence, so the restrictive policies return zero rows and the guard
+    trigger refuses the write. Absence is never permission.
+
+    The account is proven ENTITLED first — reads its own row, writes through the
+    RPC — so the denial afterwards is caused by the deletion and nothing else.
+
+    KILLED BY: `tests/mutants/sql/entitlement-absence-becomes-permission.sql` —
+    re-declaring `hq_is_entitled()` to answer true for any signed-in session
+    whose row is merely missing (`coalesce(…, auth.uid() is not null)`). Pinned
+    in `tests/mutants/manifest.toml`.
+    """
+    uid = make_user(conn, f"absent-{uuid.uuid4()}@example.com")
+
+    _as(conn, uid)
+    conn.execute(
+        "select public.app_save_view(null, 'mine', 'queue', '{}'::jsonb, false, %s, null)",
+        (str(uuid.uuid4()),))
+    assert conn.execute("select count(*) from public.saved_views").fetchone()[0] >= 1, (
+        "positive control: an entitled account must read the row it just wrote")
+    assert conn.execute("select public.hq_is_entitled()").fetchone()[0] is True
+
+    _system(conn)
+    conn.execute("delete from public.entitlements where user_id = %s", (uid,))
+
+    _as(conn, uid)
+    assert conn.execute("select public.hq_is_entitled()").fetchone()[0] is False, (
+        "an absent entitlement row must read as NOT entitled")
+    assert conn.execute("select count(*) from public.saved_views").fetchone()[0] == 0, (
+        "the session's own rows must vanish from its reads the moment the row is gone")
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        conn.execute(
+            "select public.app_save_view(null, 'again', 'queue', '{}'::jsonb, false, %s, null)",
+            (str(uuid.uuid4()),))
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        conn.execute(
+            "insert into public.saved_views (user_id, name, surface, state) "
+            "values (%s, 'direct', 'queue', '{}'::jsonb)", (uid,))
+    _system(conn)
+
+
+def test_an_unreadable_entitlement_row_denies_by_error_rather_than_leaking(conn):
+    """The other way the row can fail to answer: the read itself is refused.
+
+    The app-side `unreadable` is a query that errored. Its nearest store-side
+    reproduction is a session whose role cannot read `entitlements` at all —
+    here, SELECT revoked from `authenticated` — while the request proceeds as if
+    middleware had waved it through. What must NOT happen is the leaking
+    direction: policies quietly evaluating to "entitled" (or to rows) while the
+    predicate's own read is broken. What does happen, and what this pins, is
+    deny-by-error: `hq_is_entitled()` runs with the CALLER's rights (0027
+    declares it deliberately not `security definer`), so the predicate raises,
+    every query behind a policy that calls it raises with it, and zero rows are
+    delivered anywhere.
+
+    Scope, stated: the engine lane and the inside of definer RPCs read with
+    OWNER rights and still see the store's truth — this breakage reaches exactly
+    the browser-role surface, which is the surface the middleware decision is
+    about. The grant is restored in `finally` and the positive control re-runs
+    afterwards, so the denial is provably CAUSED by the revoke and the schema
+    leaves this test the way it arrived.
+
+    KILLED BY: `tests/mutants/sql/entitlement-predicate-security-definer.sql` —
+    re-declaring the predicate `security definer`, which answers from the
+    owner's wider rights and turns the raise into a leak. Pinned in
+    `tests/mutants/manifest.toml`.
+    """
+    uid = make_user(conn, f"unread-{uuid.uuid4()}@example.com")
+    key = make_posting(conn, f"gh-{uuid.uuid4().hex[:8]}", "UnreadableCorp")
+    _system(conn)
+    conn.execute(
+        "insert into public.user_postings (user_id, posting_key, disposition) "
+        "values (%s, %s, 'qualified') on conflict do nothing", (uid, key))
+
+    _as(conn, uid)
+    assert conn.execute("select count(*) from public.user_postings").fetchone()[0] >= 1, (
+        "positive control: the account is entitled and reads its row before the revoke")
+
+    _system(conn)
+    conn.execute("revoke select on public.entitlements from authenticated")
+    try:
+        _as(conn, uid)
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("select public.hq_is_entitled()")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("select count(*) from public.user_postings")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute(
+                "insert into public.user_postings (user_id, posting_key, disposition) "
+                "values (%s, %s, 'qualified')", (uid, key))
+    finally:
+        conn.execute("reset role")
+        conn.execute("grant select on public.entitlements to authenticated")
+
+    _as(conn, uid)
+    assert conn.execute("select count(*) from public.user_postings").fetchone()[0] >= 1, (
+        "the mechanism must come back when the read does — the denial above was the "
+        "revoke's doing, not a broken harness")
+    _system(conn)

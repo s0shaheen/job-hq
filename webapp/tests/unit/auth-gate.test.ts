@@ -127,9 +127,37 @@ describe("the gate itself — what updateSession actually does (m8)", () => {
     }
   });
 
-  it("redirects a gated page to /login — a 307 that turns a POST into a GET", async () => {
+  it("redirects a gated page to /login for a navigation", async () => {
     const { status, location } = await decide("/queue");
     expect(location).toMatch(/\/login$/);
     expect(status).toBe(307);
+  });
+
+  it("never 307s a session-expired POST — the gesture is answered in-band (#196)", async () => {
+    // A session that expires mid-gesture must get { ok: false, kind: "auth" }
+    // from the server action, or 401 from the route handler — never a 307. A
+    // 307 preserves the method, so the POST would be re-issued at /login,
+    // which answers with a page where the caller expected a result, and the
+    // UI could never say "your session ended". The deny is not lost by
+    // passing through: every action opens with a session check, the gated
+    // routes answer 401, and `getDataSource()` throws for a request with no
+    // claims before a row moves (proven in entitlement-boundary.test.ts).
+    //
+    // KILLED BY: restoring the unconditional `redirectTo(request, "/login")`
+    // for the no-claims case.
+    for (const p of ["/queue", "/api/export", "/api/import/upload"]) {
+      const res = await updateSession(
+        new NextRequest(`http://localhost${p}`, { method: "POST" }),
+      );
+      expect(res.headers.get("location"), `${p} must not redirect a POST`).toBeNull();
+      expect(res.status, p).toBe(200);
+    }
+  });
+
+  it("still redirects a signed-out GET even where a POST passes through", async () => {
+    // The pair that makes the POST case above a measurement rather than a
+    // description: same path, other method, opposite answer.
+    const { location } = await decide("/api/export");
+    expect(location).toMatch(/\/login$/);
   });
 });

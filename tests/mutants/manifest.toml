@@ -294,6 +294,47 @@ failing = 1
 # (has_column_privilege True -> False across it). Had it not, re-applying the
 # migration would leave this mutation in place and poison every later test.
 
+[[mutant]]
+id = "entitlement-absence-becomes-permission"
+tier = "T3"
+kind = "sql"
+sql = "sql/entitlement-absence-becomes-permission.sql"
+restore = "0027_entitlement.sql"
+guard = "public.hq_is_entitled() answers false on a missing entitlement row"
+property = """
+Absence is never permission (#223's condition on the middleware fail-open \
+decision, #196): a session whose users row exists but whose entitlements row \
+is GONE reads zero rows and cannot write, even though middleware may have \
+waved the request through. The mutation coalesces the missing row onto \
+"signed in is enough" — pending and suspended rows still answer false, so \
+only the absent-row denial can catch it."""
+runner = "pytest"
+needs = ["database"]
+tests = [
+  "tests/db/test_default_deny.py::test_an_absent_entitlement_row_is_denied_at_the_store_even_when_middleware_waves_it_through",
+]
+failing = 1
+
+[[mutant]]
+id = "entitlement-predicate-security-definer"
+tier = "T3"
+kind = "sql"
+sql = "sql/entitlement-predicate-security-definer.sql"
+restore = "0027_entitlement.sql"
+guard = "public.hq_is_entitled() runs with the CALLER's rights (deliberately not security definer, 0027)"
+property = """
+A session whose role cannot read `entitlements` — the store-side shape of the \
+app layer's `unreadable` — is denied BY ERROR, never answered by somebody \
+else's rights. The mutation is the one-word tidy-up that adds `security \
+definer`: the body is byte-for-byte the shipped one, and with it the predicate \
+reads the table the caller cannot, the raise disappears, and rows flow."""
+runner = "pytest"
+needs = ["database"]
+tests = [
+  "tests/db/test_default_deny.py::test_an_unreadable_entitlement_row_denies_by_error_rather_than_leaking",
+]
+failing = 1
+
 # ═══════════════════════════════════════════════════════════ 2. the web app
 
 [[mutant]]

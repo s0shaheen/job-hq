@@ -189,7 +189,28 @@ export async function updateSession(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (!claims && !isPublicPath(pathname)) {
-    return redirectTo(request, "/login");
+    // A GET is a person navigating; send them to sign in. Anything else is a
+    // GESTURE whose session died mid-flight — a server action POSTing to its
+    // own page path, or a fetch to an API route — and a 307 is the one answer
+    // that helps nobody: it preserves the method, so the POST is re-issued at
+    // /login, which answers with a page where the caller expected a result,
+    // and the true refusal never reaches the code that could say "your
+    // session ended" (#196's session-expiry criterion, measured on
+    // /api/capture the day it shipped 307'd).
+    //
+    // Passing the gesture through is safe because this redirect was never the
+    // boundary. The write actions open with a session check and answer
+    // { ok: false, kind: "auth" }; the gated API routes answer 401
+    // (`/api/export`, `/api/import/upload`); and anything that checks neither
+    // — a read-only action like `exportCountsAction`, a handler somebody
+    // forgets — is still refused at the data layer, because `getDataSource()`
+    // resolves no claims, reads NOT_ENTITLED, and throws before a row moves.
+    // That last layer is the one that holds by construction rather than by
+    // convention, and it is the #223 posture, below.
+    if (request.method === "GET" || request.method === "HEAD") {
+      return redirectTo(request, "/login");
+    }
+    return supabaseResponse;
   }
 
   /**
@@ -217,6 +238,20 @@ export async function updateSession(request: NextRequest) {
    * holding page during a Supabase blip is an outage this product would be
    * inflicting on itself. The request continues to the data layer, which fails
    * CLOSED on the same signal. Open here, closed there, on purpose.
+   *
+   * THE POSTURE IS A DECISION, NOT A LEFTOVER: issue #223, decided 2026-08-12
+   * as part of #196. Middleware runs on every request including the holding
+   * page and the signed-out surfaces, so failing closed here would turn a
+   * transient store blip into a lockout of even the pages that exist to
+   * explain a lockout. The deny holds at the layers that are the boundary
+   * regardless of what this file believes: `getDataSource()` throws on the
+   * same `unreadable`, `api-guard` answers 403, and 0027's restrictive
+   * policies + `hq_entitlement_guard` refuse at the database. The rationale
+   * is recorded in `docs/specs/user-entitlement.md`; the real-Postgres proof
+   * that an absent or unreadable entitlement row is denied at the store even
+   * when this gate waves the request through lives in
+   * `tests/db/test_default_deny.py`. If the #196 security review refutes the
+   * rationale, the decision reverses there.
    */
   const sub = typeof claims?.sub === "string" ? claims.sub : "";
   // Narrowed once. Handing `SupabaseClient` straight to `readEntitlement` twice
