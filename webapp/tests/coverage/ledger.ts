@@ -327,10 +327,24 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.degraded]: e2e("companies", "does not render NaN on an empty universe"),
       [ST.validation]: e2e("companies", "the submit button is inert until something parses"),
       [ST.writePending]: e2e("companies", "a failed write reverts the whole batch and says so"),
-      [ST.offline]: MISSING,
-      [ST.conflict]: MISSING,
+      [ST.offline]: e2e(
+        "companies",
+        "an offline approve reverts the whole batch, says so, and queues nothing",
+      ),
+      // Both write paths, because they resolve a conflict differently on
+      // purpose: the atomic batch reverts everything and refreshes, while the
+      // single-row flag settles on the server's returned row. Citing one
+      // would credit the cell with half its claim.
+      [ST.conflict]: e2e(
+        "companies",
+        "a stale row from another tab conflicts the batch: NOTHING applies, and the store keeps the other tab's decision",
+        "a stale sweep toggle settles on the SERVER's row, not the optimistic guess",
+      ),
       [ST.permission]: e2e("entry-path", "asking for companies or health lands on the holding page"),
-      [ST.sessionExpired]: MISSING,
+      [ST.sessionExpired]: e2e(
+        "companies",
+        "an expired session reverts the decision and says so; a fresh session lands the same gesture",
+      ),
       [ST.fatal]: e2e("companies", "a bogus set or sort renders the default rather than crashing"),
       [ST.detail]: e2e("companies", "a selection stays accessible and does not shift the rows"),
       [ST.longStrings]: MISSING,
@@ -662,18 +676,15 @@ export const BASELINE_MISSING: Baseline = {
     { key: "* | Reduced motion | fixture", reason: "No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run." },
 
     // Session expired, where no spec reaches the surface.
-    { key: "coverage | Session expired | fixture", reason: "No spec expires a session on /companies or /health." },
     { key: "find-intro | Session expired | fixture", reason: "No spec expires a session on /connections." },
     { key: "billing-landing-email-import-export | Session expired | fixture", reason: "No spec expires a session mid-import." },
 
     // Offline write disabled, away from the queue.
     { key: "jobs | Offline write disabled | fixture", reason: "offline.spec drives /queue; bulk triage from the grid is never exercised offline." },
-    { key: "coverage | Offline write disabled | fixture", reason: "Approve and dismiss are never exercised offline." },
     { key: "find-intro | Offline write disabled | fixture", reason: "Starting or pinning an intro is never exercised offline." },
     { key: "billing-landing-email-import-export | Offline write disabled | fixture", reason: "Commit is never exercised offline." },
 
     // Conflict, where no second writer is simulated.
-    { key: "coverage | Conflict | fixture", reason: "No spec simulates a second device reviewing the same company batch." },
     { key: "find-intro | Conflict | fixture", reason: "No spec simulates a second device pinning the same connection." },
 
     // Loading skeletons.

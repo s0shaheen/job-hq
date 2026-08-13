@@ -16,15 +16,15 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 
 | | Cells |
 |---|---:|
-| covered | 112 |
+| covered | 115 |
 | n/a | 48 |
 | blocked on an ADD item | 134 |
-| missing, baselined 2026-08-02 | 210 |
+| missing, baselined 2026-08-02 | 207 |
 | missing, new (fails) | 0 |
 | on an unbuilt surface (not enforced) | 126 |
 | total | 504 |
 
-**Baselined is not covered.** 210 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
+**Baselined is not covered.** 207 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
 
 ## Matrix, fixture mode
 
@@ -33,7 +33,7 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 | applications | yes | yes | yes | n/a | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | yes | gap | gap |
 | autopilot | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | billing-landing-email-import-export | gap | yes | yes | n/a | gap | gap | yes | gap | gap | yes | add | gap | gap | yes | gap | gap | yes | gap | yes | gap | n/a |
-| coverage | yes | yes | yes | yes | yes | yes | yes | yes | gap | gap | yes | gap | yes | yes | gap | gap | gap | gap | yes | gap | gap |
+| coverage | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | gap | gap | gap | gap | yes | gap | gap |
 | find-intro | gap | yes | yes | yes | yes | yes | yes | yes | gap | gap | yes | gap | gap | yes | gap | add | gap | gap | yes | gap | n/a |
 | jobs | yes | yes | yes | yes | yes | yes | yes | yes | gap | yes | yes | yes | gap | yes | yes | yes | yes | gap | yes | gap | yes |
 | operator-admin | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
@@ -161,10 +161,10 @@ Routes: `/coverage`, `/companies`, `/companies/add`, `/health`
 | Partial/degraded | yes | `tests/e2e/companies.spec.ts` "does not render NaN on an empty universe" |
 | Validation error | yes | `tests/e2e/companies.spec.ts` "the submit button is inert until something parses" |
 | Write pending | yes | `tests/e2e/companies.spec.ts` "a failed write reverts the whole batch and says so" |
-| Offline write disabled | gap | Approve and dismiss are never exercised offline. |
-| Conflict | gap | No spec simulates a second device reviewing the same company batch. |
+| Offline write disabled | yes | `tests/e2e/companies.spec.ts` "an offline approve reverts the whole batch, says so, and queues nothing" |
+| Conflict | yes | `tests/e2e/companies.spec.ts` "a stale row from another tab conflicts the batch: NOTHING applies, and the store keeps the other tab's decision"; `tests/e2e/companies.spec.ts` "a stale sweep toggle settles on the SERVER's row, not the optimistic guess" |
 | Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for companies or health lands on the holding page" |
-| Session expired | gap | No spec expires a session on /companies or /health. |
+| Session expired | yes | `tests/e2e/companies.spec.ts` "an expired session reverts the decision and says so; a fresh session lands the same gesture" |
 | Fatal route error | yes | `tests/e2e/companies.spec.ts` "a bogus set or sort renders the default rather than crashing" |
 | Selected/detail | yes | `tests/e2e/companies.spec.ts` "a selection stays accessible and does not shift the rows" |
 | Long strings | gap | No spec asserts a long company name wraps inside its cell. |
@@ -419,14 +419,11 @@ Each line is a hole that already existed when the gate was switched on. Baseline
 |---|---|---|
 | `* | * | live` | 2026-08-02 | The live lane is built and its Supabase project is provisioned, but the lane has never executed: it runs on merge to main and this work is still on a branch. So RLS, entitlement, real sessions and SupabaseDataSource have no OBSERVED rendered-journey coverage. |
 | `* | Reduced motion | fixture` | 2026-08-02 | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
-| `coverage | Session expired | fixture` | 2026-08-02 | No spec expires a session on /companies or /health. |
 | `find-intro | Session expired | fixture` | 2026-08-02 | No spec expires a session on /connections. |
 | `billing-landing-email-import-export | Session expired | fixture` | 2026-08-02 | No spec expires a session mid-import. |
 | `jobs | Offline write disabled | fixture` | 2026-08-02 | offline.spec drives /queue; bulk triage from the grid is never exercised offline. |
-| `coverage | Offline write disabled | fixture` | 2026-08-02 | Approve and dismiss are never exercised offline. |
 | `find-intro | Offline write disabled | fixture` | 2026-08-02 | Starting or pinning an intro is never exercised offline. |
 | `billing-landing-email-import-export | Offline write disabled | fixture` | 2026-08-02 | Commit is never exercised offline. |
-| `coverage | Conflict | fixture` | 2026-08-02 | No spec simulates a second device reviewing the same company batch. |
 | `find-intro | Conflict | fixture` | 2026-08-02 | No spec simulates a second device pinning the same connection. |
 | `find-intro | Loading | fixture` | 2026-08-02 | /connections has no skeleton assertion. |
 | `billing-landing-email-import-export | Loading | fixture` | 2026-08-02 | The wizard has no skeleton assertion. |

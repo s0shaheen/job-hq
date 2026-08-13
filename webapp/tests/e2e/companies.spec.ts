@@ -319,6 +319,209 @@ test.describe("the two review verbs", () => {
     await ready(page);
     for (const name of names) await expect(nameCell(page, name)).toHaveCount(0);
   });
+
+  test("a stale row from another tab conflicts the batch: NOTHING applies, and the store keeps the other tab's decision", async ({
+    page,
+    context,
+  }) => {
+    // The two-tab trap, spelled out because it is the whole test: the second
+    // page gets NO isolate() of its own. `isolate` writes the context cookie,
+    // so `context.newPage()` resolves the SAME demo store — give the second
+    // page its own `hq_demo_id` and it edits a different universe, tab A's
+    // token is never stale, and this test green-lights a conflict branch it
+    // never reached. (grid-selection.spec.ts's sibling test is the pattern.)
+    await isolate(page, "conflict-batch");
+    await page.goto("/companies");
+    await ready(page);
+
+    const cells = page.locator('[role="gridcell"][data-col="name"]');
+    const before = await cells.count();
+    const names = [
+      (await cells.nth(0).locator(NAME_TEXT).innerText()).trim(),
+      (await cells.nth(1).locator(NAME_TEXT).innerText()).trim(),
+      (await cells.nth(2).locator(NAME_TEXT).innerText()).trim(),
+    ];
+
+    // Tab B, same store: approve the first row. Its `updatedAt` moves, and the
+    // copy tab A is still holding is now stale.
+    const other = await context.newPage();
+    await other.goto("/companies");
+    await ready(other);
+    await nameCell(other, names[0]).click();
+    await other.getByTestId("bulk-approve").click();
+    await expect(other.getByText(/Added .* to your universe/)).toBeVisible();
+    await other.close();
+
+    // Tab A, unrefreshed: a batch that includes the stale row.
+    await cells.nth(0).click();
+    await cells.nth(2).click({ modifiers: ["Shift"] });
+    await expect(page.getByTestId("review-count")).toHaveText("3 selected");
+    await page.getByTestId("bulk-approve").click();
+
+    // The conflict copy, exactly — not the offline copy, not the generic one.
+    await expect(
+      page.getByText("Changed on another device. Nothing was applied; showing the latest.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+
+    // Every row reverted, INCLUDING the two whose tokens were fine — the
+    // transaction is all-or-nothing and the screen must say what the store
+    // holds, not apologise beside a half-applied grid.
+    await expect(nameCell(page, names[1])).toHaveCount(1);
+    await expect(nameCell(page, names[2])).toHaveCount(1);
+
+    // No Undo for a batch that never landed: `lastBatch` is set on success
+    // only, and the success toast never fired.
+    await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0);
+
+    // "Showing the latest" is a refresh, not a promise: the other tab's
+    // approval leaves this tab's review set once it lands.
+    await expect(nameCell(page, names[0])).toHaveCount(0);
+    await expect(cells).toHaveCount(before - 1);
+
+    // The STORE proves atomicity on a fresh read: the universe gained exactly
+    // the other tab's approval, and neither of tab A's riders.
+    const check = await context.newPage();
+    await check.goto("/companies?set=universe");
+    await ready(check);
+    await expect(nameCell(check, names[0])).toHaveCount(1);
+    await expect(nameCell(check, names[1])).toHaveCount(0);
+    await expect(nameCell(check, names[2])).toHaveCount(0);
+    await check.close();
+
+    // The surface recovered: a follow-up selection raises the bar — which
+    // offers no Undo for the conflicted batch — and the gesture lands, because
+    // the refreshed rows carry fresh tokens.
+    await nameCell(page, names[1]).click();
+    await expect(page.getByTestId("review-count")).toHaveText("1 selected");
+    await expect(page.getByTestId("bulk-undo-company")).toHaveCount(0);
+    await page.getByTestId("bulk-approve").click();
+    await expect(page.getByText(/Added .* to your universe/)).toBeVisible();
+    await expect(nameCell(page, names[1])).toHaveCount(0);
+  });
+
+  test("an offline approve reverts the whole batch, says so, and queues nothing", async ({
+    page,
+    context,
+  }) => {
+    // The absence of an outbox here is DESIGNED (the companies-surface.tsx
+    // module comment; DEC-011): `lib/outbox.ts` speaks single-posting triage
+    // gestures, so an undeliverable review reverts and says so rather than
+    // claiming a durability this path does not have. This test pins both
+    // halves — the honest revert AND the nothing-queued.
+    await isolate(page, "verbs-offline");
+    await page.goto("/companies");
+    await ready(page);
+    const cells = page.locator('[role="gridcell"][data-col="name"]');
+    const before = await cells.count();
+    const names = [
+      (await cells.nth(0).locator(NAME_TEXT).innerText()).trim(),
+      (await cells.nth(1).locator(NAME_TEXT).innerText()).trim(),
+    ];
+
+    await cells.nth(0).click();
+    await cells.nth(1).click({ modifiers: ["Shift"] });
+    await expect(page.getByTestId("review-count")).toHaveText("2 selected");
+
+    await context.setOffline(true);
+    await page.getByTestId("bulk-approve").click();
+
+    // The offline copy, exactly. The auth branch has its own words; a refactor
+    // collapsing the two must fail on one of these two tests.
+    await expect(
+      page.getByText("Couldn't save that. You may be offline.", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Nothing was changed. Try again when you're back.", { exact: true }),
+    ).toBeVisible();
+
+    // The revert lands on REAL ROWS: every optimistic row is back, and the
+    // grid did not strand on a skeleton or an empty state.
+    await expect(cells).toHaveCount(before);
+    for (const name of names) await expect(nameCell(page, name)).toHaveCount(1);
+    await expect(page.getByTestId("empty-state")).toHaveCount(0);
+    await expect(page.getByTestId("companies-skeleton")).toHaveCount(0);
+
+    // Nothing queued, nothing undoable: no pending-work banner (the outbox's
+    // one visible artifact), no Undo for a batch that never landed.
+    await expect(page.getByTestId("pending-work")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0);
+
+    // Back online, SAME page state — no reload yet: the controls survived the
+    // revert. A fresh click selects, and the keyboard verb still acts.
+    await context.setOffline(false);
+    await nameCell(page, names[0]).click();
+    await expect(page.getByTestId("review-count")).toHaveText("1 selected");
+    await page.keyboard.press("a");
+    await expect(page.getByText(/Added .* to your universe/)).toBeVisible();
+    await expect(nameCell(page, names[0])).toHaveCount(0);
+
+    // Reload after reconnect: the store holds ONLY what the human repeated.
+    // names[1] rode in the offline batch and nowhere else — if it shows up
+    // approved, something queued and replayed the failed write.
+    await page.reload();
+    await ready(page);
+    await expect(cells).toHaveCount(before - 1);
+    await expect(nameCell(page, names[1])).toHaveCount(1);
+    await page.goto("/companies?set=universe");
+    await ready(page);
+    await expect(nameCell(page, names[0])).toHaveCount(1);
+    await expect(nameCell(page, names[1])).toHaveCount(0);
+  });
+
+  test("an expired session reverts the decision and says so; a fresh session lands the same gesture", async ({
+    page,
+    context,
+  }) => {
+    // `hq_demo_session=expired` was named in a comment in this file and set by
+    // nothing — the auth branch at companies-surface.tsx had no proof. Same
+    // arming pattern as `hq_demo_fail` above: cookie on, gesture, cookie off.
+    await isolate(page, "verbs-session");
+    await page.goto("/companies");
+    await ready(page);
+    const cells = page.locator('[role="gridcell"][data-col="name"]');
+    const before = await cells.count();
+    const name = (await cells.nth(0).locator(NAME_TEXT).innerText()).trim();
+
+    await cells.nth(0).click();
+    await expect(page.getByTestId("review-count")).toHaveText("1 selected");
+
+    await context.addCookies([{ name: "hq_demo_session", value: "expired", url: ORIGIN }]);
+    await page.getByTestId("bulk-approve").click();
+
+    // The auth copy, exactly — and NOT the offline copy. Two different
+    // failures with two different ways out; asserting both strings is what
+    // makes a branch-collapsing refactor fail instead of shipping.
+    await expect(
+      page.getByText("Couldn't save that. Your session expired.", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("Sign in and try again.", { exact: true })).toBeVisible();
+    await expect(page.getByText("You may be offline")).toHaveCount(0);
+
+    // Full revert, no Undo: the row is exactly where it was.
+    await expect(cells).toHaveCount(before);
+    await expect(nameCell(page, name)).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0);
+
+    // Signing back in is clearing the cookie; the REPEATED gesture must land.
+    // The selection does not survive the revert (pruneSelection drops hidden
+    // keys, matrix row 72, working as designed), so the human selects again.
+    await context.clearCookies({ name: "hq_demo_session" });
+    await nameCell(page, name).click();
+    await expect(page.getByTestId("review-count")).toHaveText("1 selected");
+    await page.getByTestId("bulk-approve").click();
+    await expect(page.getByText(/Added .* to your universe/)).toBeVisible();
+    await expect(nameCell(page, name)).toHaveCount(0);
+
+    // And it SURVIVES A RELOAD — the second gesture wrote, the first did not.
+    await page.reload();
+    await ready(page);
+    await expect(cells).toHaveCount(before - 1);
+    await page.goto("/companies?set=universe");
+    await ready(page);
+    await expect(nameCell(page, name)).toHaveCount(1);
+  });
 });
 
 // ---------------------------------------------------------------- the sweep flag
@@ -389,6 +592,70 @@ test.describe("the per-row sweep flag", () => {
     await expect(
       page.locator('[role="row"]', { has: nameCell(page, name) }).getByTestId("sweep-toggle"),
     ).toHaveAttribute("data-enabled", "true");
+  });
+
+  test("a stale sweep toggle settles on the SERVER's row, not the optimistic guess", async ({
+    page,
+    context,
+  }) => {
+    // Matrix row 113's shape: the screen must match the store, not just
+    // apologise. The conflict branch takes `res.current` — the row the server
+    // returned — rather than reverting blind to the captured value.
+    //
+    // Same two-tab trap as the batch test: the second page gets NO isolate()
+    // of its own, or there is no shared store and no conflict.
+    await isolate(page, "sweep-conflict");
+    await page.goto("/companies?set=universe");
+    await ready(page);
+    const row = page
+      .locator('[role="row"]')
+      .filter({ has: page.locator('[data-testid="sweep-toggle"][data-enabled="true"]') })
+      .first();
+    const name = (await row.locator(`[data-col="name"] ${NAME_TEXT}`).innerText()).trim();
+
+    // Tab B, same store: toggle the row OFF and back ON. The server ends where
+    // tab A's screen already is — enabled — but two version bumps ahead. The
+    // round trip is the point: after tab A's stale toggle below, the
+    // optimistic guess (off) and the server's row (on) DISAGREE, so a branch
+    // that kept the guess and merely apologised fails here. One toggle in tab
+    // B could not see that — guess and server would both read off.
+    const other = await context.newPage();
+    await other.goto("/companies?set=universe");
+    await ready(other);
+    const otherToggle = other
+      .locator('[role="row"]', { has: nameCell(other, name) })
+      .getByTestId("sweep-toggle");
+    await otherToggle.click();
+    await expect(otherToggle).toHaveAttribute("data-enabled", "false");
+    await otherToggle.click();
+    await expect(otherToggle).toHaveAttribute("data-enabled", "true");
+    await other.close();
+
+    // Tab A, stale token: the switch draws the guess, the store says conflict,
+    // and the screen settles on the SERVER's row — with the conflict copy,
+    // exactly, and no "Nothing was applied" clause: this branch applies the
+    // latest, it does not revert to the past.
+    const toggle = page
+      .locator('[role="row"]', { has: nameCell(page, name) })
+      .getByTestId("sweep-toggle");
+    await toggle.click();
+    await expect(
+      page.getByText("Changed on another device. Showing the latest.", { exact: true }),
+    ).toBeVisible();
+    await expect(toggle).toHaveAttribute("data-enabled", "true");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    // And the settled row carries the server's VERSION TOKEN, not the stale
+    // one: the next toggle lands. A blind revert would leave the stale token
+    // in place and conflict forever — this is what distinguishes `res.current`
+    // from a repaint that happens to show the right value.
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("data-enabled", "false");
+    await page.reload();
+    await ready(page);
+    await expect(
+      page.locator('[role="row"]', { has: nameCell(page, name) }).getByTestId("sweep-toggle"),
+    ).toHaveAttribute("data-enabled", "false");
   });
 
   test("typing in the search box does not fire a review verb", async ({ page }) => {
