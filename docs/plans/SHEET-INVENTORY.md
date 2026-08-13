@@ -169,15 +169,78 @@ is already store-agnostic.
 | `monitor/companysource.py` | `HQ_COMPANIES_SOURCE`, default `sheet`; the `pg` branch still calls `store.read_companies()` on its empty-universe guard | the switch itself is the mirror path. Coupled to the `SheetStore` *protocol*, never to `HQ` — so the containment guard in §7 does not see it, which is called out there rather than papered over |
 | `core/outbox.py` + `tracker/outbox.py` | the Outbox tab is the quiet-hours queue | **none** — no queue table or RPC exists |
 | `tracker/join.py` | Email Events + Pipeline tabs, Config `heartbeat_capture` latch | **dual write** — `hq_apply_email_event` `:271-287`, passing the Sheet's `status`/`status_actor` as `p_current_*` so pg's lock honours the Sheet's human claim |
-| `tracker/digest.py` | six tab reads for content, Digest tab `sent_at`, Config beats | **dual write on beats only** (`:501`, `:578`); the content has no pg source |
-| `tracker/snapshot.py` | every tab via `hq.tab(l).ws.get_all_values()` `:78` | **dual write on beats only** `:119`; the CSVs' replacement is the `pg_dump` lane, which is currently hard-disabled |
+| `tracker/digest.py` | six tab reads for content, Digest tab `sent_at`, Config beats | **CORRECTED — see §3.1.** Four of the six reads need no migration; `scout_daily` stays a Sheet read while its writer runs; only the `sent_at` latch needs schema |
+| `tracker/snapshot.py` | every tab via `hq.tab(l).ws.get_all_values()` `:78` | **dual write on beats only** `:119`; the CSVs' replacement is the EventBridge `pgdump` lane (`tracker.pgdump`, daily to the versioned S3 bucket, #148) — live. Only the Actions workflow `pgdump.yml` is disabled, by design, as incident evidence (`PKT-DUMP-DISABLE.md`); do not touch it |
 | `tracker/promote.py` | Feed `interested` → Pipeline, `promoted_at` latch | none engine-side; the web app's triage is the analogue |
 | `tracker/quickadd.py` | Quick Add tab → Pipeline | none engine-side; the web app's add/paste is the analogue |
-| `tracker/stale.py` | Pipeline `stale` flag | none — no `stale` column pg-side |
-| `tracker/scout.py` | the scout's own tabs | none — no scout tables in `db/migrations` |
+| `tracker/stale.py` | Pipeline `stale` flag | **CORRECTED — see §3.1.** `stale` is a derivation, not a fact; `applications` already holds both its inputs and must NOT get a column |
+| `tracker/scout.py` | the scout's own tabs | none — no scout tables in `db/migrations`. **It still RUNS and still writes `scout_daily` nightly**, which is why `tracker/digest.py` keeps reading that tab rather than dropping the section: parking a reader while its writer runs is §6's ordering rule backwards, and costs the owner information that still exists |
 | `tracker/simplify.py` | Config alert latch, Pipeline writes | none. Dispatch-only and currently unusable (cookies not in SSM) |
 | `core/fakes.py` | fakes the gspread layer under a real `HQ`/`Tab` | test-only; dies with `core/sheets.py`, and ~25 test files with it |
 | `core/config.py:243`, `monitor/config.py:51` | `sheet_id` resolution and its fail-loud refusal | — |
+
+### 3.1 Corrections — two rows above overstated the remaining work
+
+Measured by reading `tracker/digest.py` against `db/migrations/**` rather than by
+reading this file. The full workings are in `docs/plans/DIGEST-PG-SOURCES.md`; both
+corrections are recorded HERE because this is the document the next agent budgets from,
+and in both places it was budgeting for schema that does not need to exist.
+
+**Correction 1 — `stale` is a derivation, not a fact, and must not become a column.**
+
+The row above read "none — no `stale` column pg-side", which is true and is not a gap.
+`tracker/stale.py` does not *store* staleness; it recomputes it every two hours from
+`status` and `last_activity` and writes the result into a cell. Both inputs are already
+columns on `applications` (`0001_init.sql:153`, `:159`), and `core.schema.STATUS_ORDER`
+supplies the scope. A reader recomputes the flag in four lines.
+
+Recomputing is not merely *adequate*, it is better than the column would be: the cell is
+only as fresh as the last `tracker.stale` run, while a computed flag is correct at digest
+time. And adding `applications.stale` would create **a second writer of a derived value**
+— re-importing, into the store meant to fix it, exactly the staleness the cell has. So
+this is a schema item that should be struck rather than scheduled.
+
+The Sheet writer in `tracker/stale.py` stays; §6 forbids removing it. What changes is
+that nothing downstream has to wait for a migration to stop reading its output.
+
+**Correction 2 — `bot_runs` already answers the heartbeat question, better than Config
+does, and nothing reads it.**
+
+The `HQ.heartbeat` row below says only the four lanes in `core.beats.LANES` have a
+Postgres home. That undercounts. `public.bot_runs` (`0023_bot_runs.sql`) carries one row
+per Lambda invocation — `job`, `started_at`, `finished_at`, `ok` — written by
+`core/runlog.py` for every entry in `infra/app/handler.py:JOBS`. Five of the nine lanes
+the digest watchdog watches map straight onto it:
+
+| Watched lane | `bot_runs.job` |
+|---|---|
+| `monitor` | `monitor` |
+| `review` | `review` |
+| `tracker` | `tracker` |
+| `cafe` | `wide_cafe` |
+| `theirstack` | `wide_theirstack` |
+
+It is also **stronger evidence than the cell it replaces**, which is the part worth
+carrying forward: a Config stamp says something wrote a timestamp, while a `bot_runs` row
+filtered on `ok = true` says the job SUCCEEDED. A lane failing on every invocation
+refreshes its Config stamp each run and reads healthy on the tab; it goes stale in
+`bot_runs` and warns. Widening `core.beats.LANES` would have been the wrong fix, and
+`0023_bot_runs.sql` argues why at length — `channel_runs` is the discovery ledger at a
+different grain, and `core.beats` already writes `digest` and `snapshot` rows into it as
+heartbeats, so a job row there would collide with the lane the watchdog reads.
+
+Four lanes stay Sheet-sourced and every one is correct: `capture` is the Apps Script
+tripwire and never reaches the Lambda; `selfheal` is the Actions cron and never reaches
+`handler.py` — and is one of the Sheet's only two backups, so §6 forbids dropping its
+read while the Sheet is authoritative; and `snapshot`/`snapshot_s3` cannot be told apart
+by `bot_runs`, which records the invocation and not the mode, so `core.beats` over
+`channel_runs` remains right for that pair.
+
+**Both corrections are the same shape, and it is now the third instance in this codebase:
+the Postgres home exists and nothing reads it.** That is worth treating as the default
+hypothesis rather than the surprise. Before designing schema for a Sheet read, check
+whether a table already answers the question — this file has now been wrong in that
+direction three times, and every time the fix was a reader.
 
 ### Cross-cutting facilities with no Postgres home
 
@@ -187,8 +250,10 @@ These are what make the remaining rows hard, and none of them is a single module
   `wide.py`, `linkedin_backfill.py`, `sheet.py`, `join.py`, `simplify.py`, `digest.py`.
 - **`HQ.log`** — the line-item audit. `bot_runs` and `channel_runs` record runs, not
   lines.
-- **`HQ.heartbeat`** — roughly ten lanes beat into Config; only the four in
-  `core.beats.LANES` have a Postgres home.
+- **`HQ.heartbeat`** — roughly ten lanes beat into Config. Four have a home in
+  `core.beats.LANES`, and **five more are answerable from `bot_runs` today** — see
+  §3.1, correction 2. `capture` and `selfheal` are the two with neither, and both
+  for reasons that are correct rather than pending.
 - **The Health, Digest, Quick Add, Outbox and Scout tabs** — no table, no RPC, no
   fixture.
 
@@ -219,7 +284,9 @@ cursor (`read/write_sweep_cursor`), per-company seeded state (`mark_seeded`), th
 latch (`mark_pushed`), the per-company `min_yoe` map (`read_min_yoe`), and the Health
 rows (`write_health`). Beyond that seam, the cross-cutting facilities above each need a
 home too — an engine settings/cursor store, a notification queue for the Outbox, a
-line-item audit for `HQ.log`, and beats for the six lanes `core.beats.LANES` omits.
+line-item audit for `HQ.log`, and beats for the lanes `core.beats.LANES` omits — of
+which **five need no schema at all**, being answerable from `bot_runs` (§3.1), leaving
+`capture` and `selfheal`, whose absence is correct rather than pending.
 
 None of that can be written here. Migrations are append-only and integrated serially by
 one integrator, and that role is held on another branch. **This is a stop-and-ask.**
@@ -243,8 +310,12 @@ is worth naming rather than discovering twice:
   may not author.
 - **No Sheet writer may be removed while the Sheet is authoritative**, and that
   includes the two backup lanes. `tracker/snapshot.py` and `selfheal.yml` are the only
-  copies of a store the product still depends on, and the Postgres backup that would
-  replace them (`pgdump.yml`) is hard-disabled pending RM-01.
+  copies of a store the product still depends on. The Postgres backup that replaces
+  them after cutover is live — the EventBridge `pgdump` lane (`tracker.pgdump`,
+  daily to the versioned S3 bucket, #148); only the Actions workflow `pgdump.yml`
+  is disabled, by design, as incident evidence. But that lane dumps the *store*,
+  not the Sheet, so while the Sheet is authoritative it backs up the mirror and
+  the constraint stands unchanged.
 
 So the removals available before the migration lands are exactly: dead code, doc
 accuracy, and enforcement. Everything else is downstream of one schema decision.
@@ -256,8 +327,10 @@ path carries its traffic and a test proves the lane cannot silently fall back. T
 writer comes out in a **later** commit, after the export in §8 step 1.
 
 The reason is not tidiness. Until discovery moves, the Sheet is the authoritative store,
-and `tracker/snapshot.py` plus `selfheal.yml` are its only two backups — while the
-Postgres backup that would replace them is hard-disabled pending RM-01. Deleting a Sheet
+and `tracker/snapshot.py` plus `selfheal.yml` are its only two backups. The Postgres
+backup lane is live (EventBridge `tracker.pgdump`, daily to the versioned S3 bucket,
+#148 — the Actions `pgdump.yml` stub stays disabled by design, as incident evidence),
+but it copies the store, not the Sheet. Deleting a Sheet
 writer early does not just remove a legacy path; on those two modules it removes the only
 copies of live data. Any future packet that proposes removing a writer must first say
 which store is authoritative for that data on the day the change lands.
