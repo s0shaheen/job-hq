@@ -7,8 +7,10 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Button, LogoAvatar } from "@/components/ds";
 import type { ProposeCompaniesResult } from "@/lib/data/source";
+import { neutralizeFormulaLead } from "@/lib/export/delimited";
+import { decodeBytes, MAX_UPLOAD_BYTES, sniffFormat } from "@/lib/import/bytes";
 import { proposeCompaniesAction } from "../actions";
-import { MAX_NAME_LENGTH, MAX_PASTE_NAMES, parsePastedNames } from "../paste";
+import { MAX_NAME_LENGTH, MAX_PASTE_NAMES, overlongLines, parsePastedNames } from "../paste";
 
 /**
  * The paste box.
@@ -30,19 +32,24 @@ export default function AddForm() {
   const [text, setText] = React.useState("");
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [fileError, setFileError] = React.useState<string | null>(null);
+  /**
+   * Where the text in the box came from — the provenance tag the write carries
+   * (0008's closed vocabulary; `import` is already in it). Set to `import` when
+   * a file fills the box and it STAYS `import` through hand edits, because
+   * fixing a bad split does not change where the list came from. Clearing the
+   * box ends the gesture and the next paste is a paste again.
+   */
+  const [origin, setOrigin] = React.useState<"paste" | "import">("paste");
+  const fileRef = React.useRef<HTMLInputElement>(null);
 
   const names = React.useMemo(() => parsePastedNames(text), [text]);
   const overLimit = names.length > MAX_PASTE_NAMES;
   // Long lines are dropped by the parser rather than truncated (truncating would
-  // invent a company name), so the form says so instead of losing them silently.
-  const droppedLong = React.useMemo(
-    () =>
-      text
-        .split(/[\n\r,\t]+/)
-        .map((s) => s.trim())
-        .filter((s) => s.length > MAX_NAME_LENGTH).length,
-    [text],
-  );
+  // invent a company name), so the form fails each one BY ITS LINE NUMBER — an
+  // address into the text still in the box — instead of losing them silently.
+  // The rest of the list is unaffected: one bad row never sinks the chunk.
+  const overlong = React.useMemo(() => overlongLines(text), [text]);
 
   const submit = async () => {
     if (pending || names.length === 0 || overLimit) return;
@@ -52,7 +59,7 @@ export default function AddForm() {
     try {
       res = await proposeCompaniesAction({
         names,
-        source: "paste",
+        source: origin,
         idempotencyKey: crypto.randomUUID(),
       });
     } catch {
@@ -74,6 +81,8 @@ export default function AddForm() {
 
     const already = res.companies.length - res.added;
     setText("");
+    setOrigin("paste");
+    if (fileRef.current) fileRef.current.value = "";
     toast(
       res.added === 0
         ? "Those are already in your universe"
@@ -90,6 +99,59 @@ export default function AddForm() {
     );
     // Refresh so the grid's server read picks the new rows up on arrival.
     router.refresh();
+  };
+
+  /**
+   * The CSV file path — a front door onto the SAME box, never a second parser.
+   *
+   * The file is read here, in the browser, exactly where the paste has always
+   * been parsed: its decoded text lands in the textarea, so the preview, the
+   * per-line failures, the bounds and the submit are the one existing flow, and
+   * the names previewed are byte-identical to a paste of the same text
+   * (issue #202's contract). Nothing new reaches the server — the only write
+   * stays `proposeCompaniesAction`, which enforces its own bounds again, as does
+   * `app_propose_companies` under it. Landing in the box rather than in a
+   * separate preview is also what keeps a bad row FIXABLE: the failure notice
+   * names a line, and the line is right there to edit.
+   *
+   * The refusals reuse `lib/import/bytes.ts` — the wizard's own caps, magic-byte
+   * sniff and strict-then-cp1252 decode — so a `.numbers` file, a password-locked
+   * workbook or a windows-1252 export behaves identically on both import
+   * surfaces. A real workbook is refused rather than parsed: this path reads
+   * text, and pretending to read xlsx with a different engine than the wizard's
+   * would give the two doors different answers for the same file.
+   */
+  const readFile = async (file: File) => {
+    setFileError(null);
+    if (file.size > MAX_UPLOAD_BYTES) {
+      const mb = (file.size / (1024 * 1024)).toFixed(1);
+      const cap = MAX_UPLOAD_BYTES / (1024 * 1024);
+      setFileError(
+        `That file is ${mb} MB and the limit is ${cap} MB. A list of ${MAX_PASTE_NAMES} names is far smaller than that. Export just the company column and try again.`,
+      );
+      return;
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(await file.arrayBuffer());
+    } catch {
+      setFileError("That file could not be read. Check it is still there and try again.");
+      return;
+    }
+    const format = sniffFormat(file.name, bytes);
+    if (format.kind === "rejected") {
+      setFileError(format.message);
+      return;
+    }
+    if (format.kind === "xlsx") {
+      setFileError(
+        "That is an Excel workbook. Save the company column as CSV (File → Save As → CSV) and choose that file, or copy the column and paste it above.",
+      );
+      return;
+    }
+    setText(decodeBytes(bytes).text);
+    setOrigin("import");
+    setError(null);
   };
 
   return (
@@ -133,7 +195,11 @@ export default function AddForm() {
         <span className="text-xs font-medium text-text-2">Company names</span>
         <textarea
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            // An emptied box ends the file gesture; the next list is a paste.
+            if (e.target.value === "") setOrigin("paste");
+          }}
           rows={10}
           data-testid="paste-box"
           placeholder={"Northern Trust\nCboe Global Markets\nGrainger, Aon, Exelon"}
@@ -145,6 +211,40 @@ export default function AddForm() {
           One per line, or comma-separated. Up to {MAX_PASTE_NAMES} at a time.
         </span>
       </label>
+
+      {/* The file door onto the same box. Reading happens in `readFile` above;
+          everything after it — preview, failures, submit — is the paste flow,
+          which is the entire design. */}
+      <div className="mt-3 rounded-lg border border-border bg-surface p-3">
+        <label className="block text-xs font-medium text-text-2" htmlFor="company-csv">
+          Or read them from a CSV file
+        </label>
+        <input
+          ref={fileRef}
+          id="company-csv"
+          type="file"
+          accept=".csv,.tsv,.tab,.txt"
+          data-testid="company-csv-file"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void readFile(file);
+          }}
+          className="mt-1.5 block w-full text-xs text-text-2 file:mr-3 file:rounded-md
+                     file:border file:border-border-strong file:bg-surface file:px-2.5
+                     file:py-1.5 file:text-xs file:font-medium file:text-text-2
+                     hover:file:bg-raised focus-visible:outline-2
+                     focus-visible:outline-offset-2 focus-visible:outline-ring"
+        />
+        <p className="mt-1 text-2xs text-muted">
+          A .csv or .tsv of company names, up to {MAX_UPLOAD_BYTES / (1024 * 1024)} MB. It lands
+          in the box above and is previewed the same way. An Excel workbook needs saving as CSV first.
+        </p>
+        {fileError ? (
+          <p role="alert" data-testid="company-csv-error" className="mt-2 text-xs text-danger">
+            {fileError}
+          </p>
+        ) : null}
+      </div>
 
       {/* The parse, previewed. This is the feature. */}
       {text.trim() ? (
@@ -187,12 +287,29 @@ export default function AddForm() {
               ) : null}
             </ul>
           ) : null}
-          {droppedLong > 0 ? (
-            <p className="mt-2 text-2xs text-warn">
-              {droppedLong} {droppedLong === 1 ? "line was" : "lines were"} longer than{" "}
-              {MAX_NAME_LENGTH} characters and {droppedLong === 1 ? "was" : "were"} left out.
-              Trimming one to a name would invent a company.
-            </p>
+          {overlong.length > 0 ? (
+            // Each failed row, by the line it lives on — an address into the box,
+            // so it can be fixed rather than hunted. The echoed snippet passes
+            // through the export path's formula neutralizer: a hostile cell like
+            // `=IMPORTXML(...)` must already be inert here, before anyone copies
+            // it back into a spreadsheet.
+            <div data-testid="paste-overlong" className="mt-2 text-2xs text-warn">
+              <p>
+                {overlong.length} {overlong.length === 1 ? "row is" : "rows are"} longer than{" "}
+                {MAX_NAME_LENGTH} characters and {overlong.length === 1 ? "was" : "were"} left
+                out. Trimming one to a name would invent a company:
+              </p>
+              <ul className="mt-1">
+                {overlong.slice(0, 4).map((o, i) => (
+                  <li key={`${o.line}-${i}`} className="truncate tabular-nums">
+                    Line {o.line} · {neutralizeFormulaLead(o.name).slice(0, 60)}…
+                  </li>
+                ))}
+                {overlong.length > 4 ? (
+                  <li className="tabular-nums">and {overlong.length - 4} more</li>
+                ) : null}
+              </ul>
+            </div>
           ) : null}
           {overLimit ? (
             <p role="alert" className="mt-2 text-2xs text-danger">

@@ -49,7 +49,12 @@ world is explicitly unmeasured (`ORACLE_UNMEASURED` in `webapp/lib/grid/coverage
 - **Browser writes** — server actions in `webapp/app/(app)/companies/actions.ts` call
   `app_set_company_review_bulk` and `app_set_company_flags`
   (`0008_company_review.sql`), `app_propose_companies` (user-added companies enter as
-  tier 3, source `manual`), and `app_set_linkedin_company_id`. The sweep toggle
+  tier 3, source `manual`), and `app_set_linkedin_company_id`. The add form takes names
+  by paste or by CSV file (#202): the file is decoded in the browser with the import
+  wizard's own byte machinery (`webapp/lib/import/bytes.ts` — caps, magic-byte sniff,
+  strict-UTF-8-then-cp1252) and its text lands in the same box, so one splitter
+  (`paste.ts`), one preview, and one write path (`proposeCompaniesAction`, source
+  `import`) serve both doors; an over-length row fails alone, named by line number. The sweep toggle
   (`sweep-toggle.tsx`) writes `monitor` only and renders `Not listed` for a non-approved
   row because the database would refuse the write; states are
   `Not listed | Paused | Watching | In scans` (`webapp/lib/grid/company-columns.tsx`).

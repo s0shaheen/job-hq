@@ -36,16 +36,27 @@ const FORMULA_LEAD = /^[=+\-@\t\r]/;
  */
 const INERT_LEAD = /^[-+]?\d+(\.\d+)?$|^-+$/;
 
+/**
+ * Neutralize with Excel's own text marker, the apostrophe (the OWASP
+ * recommendation). A tab prefix was rejected: tab is itself in the
+ * dangerous set, and in clipboard TSV it forces quoting and bets that the
+ * paste parser honours quotes — one that does not splits on the tab and
+ * shifts every later column, the exact corruption quoting exists to
+ * prevent. The apostrophe is visible when Excel opens the file, which is
+ * the honest failure: the human sees exactly the text the board published.
+ *
+ * Exported on its own for the surfaces that echo a cell back OUTSIDE a
+ * generated file — the companies add flow quotes an imported cell in its
+ * per-line notices, and a quoted `=IMPORTXML(...)` must already be inert by
+ * the time anyone copies it back into a spreadsheet. One regex pair, one
+ * exemption, everywhere.
+ */
+export function neutralizeFormulaLead(value: string): string {
+  return FORMULA_LEAD.test(value) && !INERT_LEAD.test(value) ? `'${value}` : value;
+}
+
 export function escapeField(value: string, delimiter: string): string {
-  // Neutralize with Excel's own text marker, the apostrophe (the OWASP
-  // recommendation). A tab prefix was rejected: tab is itself in the
-  // dangerous set, and in clipboard TSV it forces quoting and bets that the
-  // paste parser honours quotes — one that does not splits on the tab and
-  // shifts every later column, the exact corruption quoting exists to
-  // prevent. The apostrophe is visible when Excel opens the file, which is
-  // the honest failure: the human sees exactly the text the board published.
-  const neutralized =
-    FORMULA_LEAD.test(value) && !INERT_LEAD.test(value) ? `'${value}` : value;
+  const neutralized = neutralizeFormulaLead(value);
   const needsQuotes =
     neutralized.includes(delimiter) ||
     neutralized.includes('"') ||

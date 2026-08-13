@@ -45,18 +45,28 @@ export const MAX_NAME_LENGTH = 200;
  */
 const MARKERS = /^(?:(?:[-–—•*]|\d+[.)])\s*)+/;
 
+/**
+ * One raw segment to one candidate name — THE normalization, shared by the
+ * parser and the per-line diagnostics below so they cannot disagree about
+ * which segments survive. A diagnostic that re-implemented this with its own
+ * trims would eventually flag a line the parser keeps, or miss one it drops.
+ */
+function normalizeCandidate(raw: string): string {
+  return raw
+    .trim()
+    // A CSV cell's wrapping quotes.
+    .replace(/^["']+|["']+$/g, "")
+    .trim()
+    .replace(MARKERS, "")
+    .replace(/[;]+$/, "")
+    .trim();
+}
+
 export function parsePastedNames(blob: string): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   for (const raw of blob.split(/[\n\r,\t]+/)) {
-    const name = raw
-      .trim()
-      // A CSV cell's wrapping quotes.
-      .replace(/^["']+|["']+$/g, "")
-      .trim()
-      .replace(MARKERS, "")
-      .replace(/[;]+$/, "")
-      .trim();
+    const name = normalizeCandidate(raw);
     if (!name || name.length > MAX_NAME_LENGTH) continue;
     const lower = name.toLowerCase();
     // Deduped case-insensitively, matching what app_propose_companies does — so
@@ -65,5 +75,36 @@ export function parsePastedNames(blob: string): string[] {
     seen.add(lower);
     out.push(name);
   }
+  return out;
+}
+
+/**
+ * The rows `parsePastedNames` DROPS for length, each with the 1-based line it
+ * came from — so a five-hundred-line file can say "line 212" instead of "one
+ * of them, somewhere".
+ *
+ * Failing the row and keeping the rest is the contract (a malformed row must
+ * not sink the chunk), and naming the line is what makes the failure fixable:
+ * the text sits in the box, and the line number is an address into it. Only
+ * over-length is a failure here — a blank line, a pure-marker line and a
+ * duplicate are ordinary paste shapes the parser absorbs by design, and a
+ * blank is "nothing was provided", never an error and never a default.
+ *
+ * The candidate check is `normalizeCandidate`, the parser's own, so this
+ * flags exactly what the parser drops: a 210-character quoted cell whose
+ * quotes strip down to 195 characters is KEPT by the parser and must not be
+ * flagged here (the add form's previous count, which measured the raw
+ * segment, got that case wrong).
+ */
+export type OverlongLine = { line: number; name: string };
+
+export function overlongLines(blob: string): OverlongLine[] {
+  const out: OverlongLine[] = [];
+  blob.split(/\r\n|[\n\r]/).forEach((lineText, i) => {
+    for (const raw of lineText.split(/[,\t]+/)) {
+      const name = normalizeCandidate(raw);
+      if (name.length > MAX_NAME_LENGTH) out.push({ line: i + 1, name });
+    }
+  });
   return out;
 }

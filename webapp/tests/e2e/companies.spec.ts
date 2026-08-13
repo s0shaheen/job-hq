@@ -1127,6 +1127,137 @@ test.describe("adding companies by paste", () => {
   });
 });
 
+// ---------------------------------------------------------------- CSV file
+
+test.describe("adding companies from a CSV file", () => {
+  // The whole design under test: the file lands in the SAME box the paste path
+  // owns, so there is ONE preview and the names are byte-identical to a paste
+  // of the same text (#202). Everything downstream — bounds, submit, review —
+  // is the paste flow, which the describe above already holds.
+
+  test("a CSV file lands in the box, previews once, and proposes into review", async ({
+    page,
+  }) => {
+    await isolate(page, "csv-flow");
+    await page.goto("/companies/add");
+
+    // BOM + CRLF + a quoted cell + a blank line: the shapes a real export has.
+    await page.getByTestId("company-csv-file").setInputFiles({
+      name: "companies.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from('﻿"Meridian Analytics"\r\nHalcyon Systems\r\n\r\nBraeburn Capital\r\n'),
+    });
+
+    // The BOM was stripped from the BYTES — not welded onto the first name.
+    await expect(page.getByTestId("paste-box")).toHaveValue(/^"Meridian/);
+    const preview = page.getByTestId("paste-preview");
+    await expect(preview).toContainText("3 companies will be proposed");
+    await expect(preview).toContainText("Meridian Analytics");
+
+    await page.getByTestId("paste-submit").click();
+    // The completion count is the SERVER's added count, and the review set must
+    // agree with it row for row — the two assertions below are one claim.
+    await expect(page.getByText(/Added 3 proposals/)).toBeVisible();
+
+    await page.goto("/companies?set=review");
+    await ready(page);
+    for (const name of ["Meridian Analytics", "Halcyon Systems", "Braeburn Capital"]) {
+      await expect(nameCell(page, name)).toHaveCount(1);
+    }
+  });
+
+  test("a malformed row fails alone, by line number — the rest of the file lands", async ({
+    page,
+  }) => {
+    await isolate(page, "csv-line");
+    await page.goto("/companies/add");
+
+    // Line 2 is over the 200-character bound AND formula-led, so this also pins
+    // the echo-back rule: the snippet in the notice must arrive neutralized
+    // (leading apostrophe), while the two good rows are untouched.
+    const hostile = "=" + "x".repeat(220);
+    await page.getByTestId("company-csv-file").setInputFiles({
+      name: "companies.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(`Aldgate Partners\n${hostile}\nStonebriar Holdings\n`),
+    });
+
+    await expect(page.getByTestId("paste-preview")).toContainText(
+      "2 companies will be proposed",
+    );
+    const notice = page.getByTestId("paste-overlong");
+    await expect(notice).toContainText("Line 2");
+    await expect(notice).toContainText("'=xxx");
+
+    await page.getByTestId("paste-submit").click();
+    await expect(page.getByText(/Added 2 proposals/)).toBeVisible();
+    await page.goto("/companies?set=review");
+    await ready(page);
+    for (const name of ["Aldgate Partners", "Stonebriar Holdings"]) {
+      await expect(nameCell(page, name)).toHaveCount(1);
+    }
+  });
+
+  test("a workbook is refused by name; nothing lands and nothing can submit", async ({
+    page,
+  }) => {
+    await isolate(page, "csv-refuse");
+    await page.goto("/companies/add");
+
+    // ZIP magic bytes under an .xlsx name — sniffed as a workbook, refused with
+    // the fix in the sentence, exactly as the import wizard would refuse it.
+    await page.getByTestId("company-csv-file").setInputFiles({
+      name: "companies.xlsx",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00]),
+    });
+
+    const error = page.getByTestId("company-csv-error");
+    await expect(error).toContainText(/Excel workbook/);
+    await expect(page.getByTestId("paste-box")).toHaveValue("");
+    await expect(page.getByTestId("paste-submit")).toBeDisabled();
+
+    // The refusal state is part of the surface: it must hold up under axe too.
+    const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+    const serious = results.violations.filter((v) =>
+      ["serious", "critical"].includes(v.impact ?? ""),
+    );
+    expect(
+      serious.map((v) => `${v.id}: ${v.nodes[0]?.failureSummary ?? ""}`),
+      "axe violations with the file refusal shown",
+    ).toEqual([]);
+  });
+
+  test("names already tracked come back as already-there counts, never silently", async ({
+    page,
+  }) => {
+    // Dedup surfaces in the completion state and in the review set, both of
+    // which the server answers — a silent drop would show up here as a count
+    // that flatters the file. The second visit is a fresh page load, so the
+    // claim covers the store, not a client-side session.
+    await isolate(page, "csv-dupe");
+    await page.goto("/companies/add");
+    await page.getByTestId("company-csv-file").setInputFiles({
+      name: "first.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from("Ostrander Group\nWhitfield Energy\n"),
+    });
+    await page.getByTestId("paste-submit").click();
+    await expect(page.getByText(/Added 2 proposals/)).toBeVisible();
+
+    await page.goto("/companies/add");
+    await page.getByTestId("company-csv-file").setInputFiles({
+      name: "second.csv",
+      mimeType: "text/csv",
+      // Case-shifted duplicates plus one new row: the count must split 1 / 2.
+      buffer: Buffer.from("ostrander group\nWHITFIELD ENERGY\nCalloway Freight\n"),
+    });
+    await page.getByTestId("paste-submit").click();
+    await expect(page.getByText(/Added 1 proposal/)).toBeVisible();
+    await expect(page.getByText(/2 were already there/)).toBeVisible();
+  });
+});
+
 // ---------------------------------------------------------------- the API route
 
 test.describe("POST /api/companies/propose", () => {
