@@ -264,6 +264,18 @@ def full_user(conn, tag: str) -> dict:
     conn.execute(
         "insert into public.notification_outbox (user_id, dedupe_key, event) "
         "values (%s, %s, 'digest')", (uid, str(uuid.uuid4())))
+    # The transactional-mail ledger and suppression list (#203) both carry the
+    # account's ADDRESS — `recipient` / `address` — which is exactly what the
+    # post-delete identifier sweep hunts for. Their `on delete cascade` is what
+    # keeps `test_what_survives_…` at two survivors.
+    conn.execute(
+        "insert into public.email_sends "
+        "(user_id, kind, send_key, recipient, status, provider, provider_message_id) "
+        "values (%s, 'lifecycle.activation', %s, %s, 'sent', 'fixture', 'msg-cascade')",
+        (uid, f"evt:cascade-{uuid.uuid4().hex[:12]}", email))
+    conn.execute(
+        "insert into public.email_suppressions (user_id, address, reason, source) "
+        "values (%s, %s, 'manual', 'operator')", (uid, email.lower()))
     conn.execute(
         "insert into public.channel_runs (user_id, channel) values (%s, 'monitor')",
         (uid,))

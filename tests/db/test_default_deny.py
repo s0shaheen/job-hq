@@ -547,6 +547,16 @@ AUTHENTICATED_CANNOT_READ: dict[str, str] = {
         "text naming companies and roles, and no design state exists for a "
         "held-notifications surface. The owner-read policy is written but has no "
         "grant behind it, so a later `grant select` arrives already gated.",
+    "email_sends":
+        "server lane only. 20260813_055534 (#203) revokes select as well as write "
+        "from `public, anon, authenticated`: the transactional-mail ledger carries "
+        "addresses and send outcomes, and no design state exists for a mail-history "
+        "surface. The owner-read policy is written but has no grant behind it, the "
+        "notification_outbox shape verbatim.",
+    "email_suppressions":
+        "server lane only. 20260813_055534 (#203), same posture: the bounce/"
+        "complaint list is consulted inside hq_email_claim_send by the service "
+        "role, and a browser session has no question that needs it.",
 }
 
 

@@ -71,6 +71,10 @@ const UNGATED_ROUTES: Record<string, string> = {
     "the PKCE exchange that CREATES the session — an entitlement cannot exist before it runs",
   "app/auth/signout/route.ts":
     "signing out has to work from the holding surface, which is the whole point of it",
+  "app/api/email/dispatch/route.ts":
+    "bearer CRON_SECRET (constant-time, 503 when unconfigured); the caller is a cron " +
+    "tick or the operator's curl, acting on SQL-editor activations for users whose " +
+    "browsers are not involved",
 };
 
 describe("every route handler is behind the entitlement gate", () => {

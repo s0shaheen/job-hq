@@ -56,6 +56,16 @@ database boundary — no client-selected `user_id` is ever authoritative.
   and revokes the user's capture tokens so suspension reaches lanes with no browser
   session), `hq_pending_users`. Founding-user status is assigned by this audited
   activation path, never inferred from signup date or client input (contract v2 §6).
+- **Lifecycle email (#203)** — the `events` rows those operator RPCs write are consumed by
+  `POST /api/email/dispatch` (bearer `CRON_SECRET`; `webapp/lib/email/`), which sends the
+  activation/suspension notice through Resend at most once per event:
+  `public.email_sends` (`20260813_055534_email_sends.sql`) is claimed before any provider
+  call and its unique `send_key` (`evt:<events.id>`) is the dedupe, so an RPC replay —
+  which writes no second event — sends nothing. `public.email_suppressions` is consulted
+  inside the claim. Both tables are server-lane only (browser roles hold nothing) and
+  cascade with the account. With no `RESEND_API_KEY`/`EMAIL_SENDER` the send is recorded
+  as a named `skipped` row, never dropped silently, and mail failure never costs the
+  activation itself (`tests/db/test_email_sends.py`; RUNBOOK § Turning a new signup on).
 
 ## The default-deny mechanism
 

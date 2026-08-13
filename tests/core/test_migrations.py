@@ -440,6 +440,48 @@ def test_the_digest_rpc_the_landing_page_calls_exists_and_takes_what_it_is_passe
     }
 
 
+def test_the_email_rpcs_the_dispatcher_calls_exist_and_take_what_they_are_passed():
+    """The same contract, for the three RPCs behind `/api/email/dispatch` (#203).
+
+    Identical gap to capture and digest: the caller is `SupabaseEmailStore` in
+    `webapp/lib/supabase/service.ts` — outside `supabase-source.ts`, so
+    `RPC_CALLS` never sees it — the vitest suite drives the fixture store, and
+    the db suite calls the SQL directly. A typo in any of the three names is a
+    404 the dispatch loop would grind on every tick, mailing nobody.
+    """
+    src = (ROOT / "webapp" / "lib" / "supabase" / "service.ts").read_text()
+
+    for const, method in (
+        ("EMAIL_CLAIM_RPC", "async claimSend("),
+        ("EMAIL_RECORD_RPC", "async recordSend("),
+    ):
+        m = re.search(rf'{const}\s*=\s*"(\w+)"', src)
+        assert m, f"no {const} constant in webapp/lib/supabase/service.ts — did it move?"
+        fn = m.group(1)
+        declared = set(_sql_function_params(ALL_SQL, fn) or [])
+        assert declared, f"/api/email/dispatch calls {fn}() but no migration defines it"
+        body = src[src.index(method) : src.index("if (error)", src.index(method))]
+        passed = set(re.findall(r"(p_\w+):", body))
+        assert passed, f"no p_* arguments found after {method} — parser out of date?"
+        # EQUALITY, the engine-owns-both-ends rule: an undeclared argument fails
+        # to resolve the overload, and a declared one the caller stops passing is
+        # worse because it is silent — `p_provider_message_id` going missing
+        # would strip every sent row of its provider evidence.
+        assert passed == declared, {
+            "function": fn,
+            "passed but not declared": sorted(passed - declared),
+            "declared but not passed": sorted(declared - passed),
+        }
+
+    # The pending read is called with NO arguments (`p_limit` has a default the
+    # dispatcher accepts), so the check is existence, not parameter equality.
+    m = re.search(r'EMAIL_PENDING_RPC\s*=\s*"(\w+)"', src)
+    assert m, "no EMAIL_PENDING_RPC constant in webapp/lib/supabase/service.ts — did it move?"
+    assert _sql_function_params(ALL_SQL, m.group(1)) is not None, (
+        f"/api/email/dispatch calls {m.group(1)}() but no migration defines it"
+    )
+
+
 def test_the_reconcile_rpc_the_engine_calls_exists_in_a_migration():
     """The same contract this file checks for the web app, for the one RPC the ENGINE calls.
 

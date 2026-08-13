@@ -56,6 +56,51 @@ export function getServiceEnv(): ServiceEnv | null {
 }
 
 /**
+ * Transactional email (#203) — the flag IS the configuration.
+ *
+ * Two values, both owner-provisioned deployment secrets and neither in the
+ * repo (`secrets.HQ_OPS_NTFY_TOPIC`'s handling; a hardcoded fallback is a test
+ * failure):
+ *
+ *   RESEND_API_KEY — the provider credential. No `NEXT_PUBLIC_` prefix, read at
+ *     request time on the server, so it is unreachable from a client bundle by
+ *     construction; `lib/email/resend.ts` — the only module that USES it — adds
+ *     `import "server-only"`, and `tests/unit/service-key-containment.test.ts`
+ *     pins this file as its one reader. The `SUPABASE_SERVICE_KEY` shape.
+ *   EMAIL_SENDER — the verified from identity, e.g. `Job Search HQ <a@b.c>`.
+ *     Owner input under ADR-011 (sender domain, support identity); until the
+ *     domain is verified there is nothing true to put here.
+ *
+ * `null` means transactional email is OFF, and the dispatch path records that
+ * as a named `skipped` row in the send ledger — a loud skip, never a silent
+ * success and never a crash of the action the mail rides on.
+ */
+export type EmailEnv = {
+  apiKey: string;
+  sender: string;
+};
+
+export function getEmailEnv(): EmailEnv | null {
+  const apiKey = process.env.RESEND_API_KEY;
+  const sender = process.env.EMAIL_SENDER;
+  if (!apiKey || !sender) return null;
+  return { apiKey, sender };
+}
+
+/**
+ * Why email is off, for the ledger's `reason` column — named, so a skipped row
+ * says which owner input is missing rather than "disabled".
+ */
+export function emailDisabledReason(): string {
+  const missing = [
+    process.env.RESEND_API_KEY ? null : "RESEND_API_KEY",
+    process.env.EMAIL_SENDER ? null : "EMAIL_SENDER",
+  ].filter((n): n is string => n !== null);
+  if (missing.length === 0) return "";
+  return `email disabled: ${missing.join(" and ")} not set`;
+}
+
+/**
  * The logo.dev PUBLISHABLE token — client-safe BY DESIGN, and the deliberate
  * inverse of `getServiceEnv` above.
  *

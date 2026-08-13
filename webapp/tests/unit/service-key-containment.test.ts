@@ -103,17 +103,22 @@ describe("the service client module", () => {
     expect(readFileSync(SERVICE, "utf8")).toMatch(/^import "server-only";/m);
   });
 
-  it("is imported by the two token handlers and by nothing else", () => {
-    // Both are sessionless endpoints authenticating a caller with a credential
-    // this app minted. A THIRD name appearing here is the thing to argue about in
-    // a diff: a page component or a server action importing this reopens the
-    // client-bundle question that `server-only` and the missing `NEXT_PUBLIC_`
-    // prefix exist to close.
+  it("is imported by the three sessionless handlers and by nothing else", () => {
+    // All three are sessionless endpoints authenticating their caller with a
+    // credential this app minted (bearer token, HMAC link, CRON_SECRET). A
+    // FOURTH name appearing here is the thing to argue about in a diff: a page
+    // component or a server action importing this reopens the client-bundle
+    // question that `server-only` and the missing `NEXT_PUBLIC_` prefix exist
+    // to close.
     const importers = FILES.filter((f) => f !== SERVICE)
       .filter((f) => /from "@\/lib\/supabase\/service"/.test(readFileSync(f, "utf8")))
       .map(rel)
       .sort();
-    expect(importers).toEqual(["lib/capture/handler.ts", "lib/digest/handler.ts"]);
+    expect(importers).toEqual([
+      "lib/capture/handler.ts",
+      "lib/digest/handler.ts",
+      "lib/email/handler.ts",
+    ]);
   });
 
   it("is the only module that constructs a supabase client with a non-anon key", () => {
@@ -123,11 +128,12 @@ describe("the service client module", () => {
       .map(rel)
       .sort();
     // Each handler calls it to decide its own unconfigured answer before building
-    // anything; the client module calls it to build. All three are intended and
-    // all three are listed.
+    // anything; the client module calls it to build. All are intended and all
+    // are listed.
     expect(users).toEqual([
       "lib/capture/handler.ts",
       "lib/digest/handler.ts",
+      "lib/email/handler.ts",
       "lib/env.ts",
       "lib/supabase/service.ts",
     ]);
@@ -188,6 +194,57 @@ describe("the Apify vendor token", () => {
     }
     for (const f of built) {
       expect(readFileSync(f, "utf8"), f).not.toContain("APIFY_TOKEN");
+    }
+  });
+});
+
+/**
+ * The Resend key for transactional email (#203) — same containment, same
+ * failure mode: `NEXT_PUBLIC_RESEND_API_KEY` would inline a send-as-the-product
+ * credential into every browser bundle, which is the issue's own acceptance
+ * criterion ("the module is server-only and the key never reaches a client
+ * bundle", FP-ID-010's shape). The threefold guarantee:
+ *   1. `RESEND_API_KEY` has no `NEXT_PUBLIC_` prefix, so it is never inlined.
+ *   2. `lib/email/resend.ts` — the only module that USES the credential —
+ *      carries `import "server-only"`; the key reaches it through
+ *      `getEmailEnv()`'s return value, never a second env read.
+ *   3. the env name is READ in exactly one file, so a second holder has to
+ *      argue for itself in a diff.
+ */
+describe("the Resend key", () => {
+  it("is READ from the environment in exactly one file", () => {
+    const readers = FILES.filter((f) =>
+      /process\.env\.RESEND_API_KEY/.test(readFileSync(f, "utf8")),
+    )
+      .map(rel)
+      .sort();
+    expect(readers).toEqual(["lib/env.ts"]);
+  });
+
+  it("is never a NEXT_PUBLIC_ name anywhere", () => {
+    for (const f of FILES) {
+      expect(readFileSync(f, "utf8"), rel(f)).not.toMatch(/NEXT_PUBLIC_\w*RESEND/);
+    }
+  });
+
+  it("the provider module carries the server-only marker", () => {
+    const resend = path.join(WEBAPP, "lib", "email", "resend.ts");
+    expect(readFileSync(resend, "utf8")).toMatch(/^import "server-only";/m);
+  });
+
+  it("never appears in a built client bundle", () => {
+    // The Apify canary's shape: proven against the actual build when one is
+    // present, skipped (not vacuous — the three source canaries above stand)
+    // when the app has not been built.
+    const staticDir = path.join(WEBAPP, ".next", "static");
+    let built: string[];
+    try {
+      built = walkDir(staticDir).filter((f) => /\.(js|mjs|css)$/.test(f));
+    } catch {
+      return;
+    }
+    for (const f of built) {
+      expect(readFileSync(f, "utf8"), f).not.toContain("RESEND_API_KEY");
     }
   });
 });

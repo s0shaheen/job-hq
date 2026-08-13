@@ -678,6 +678,26 @@ billing lands. They are **not** exempt from the security and spend limits: the w
 daily cap applies to them unchanged, and suspending a founding account refuses it exactly
 like any other.
 
+**Lifecycle email (#203, migration 20260813_055534).** Activating or suspending writes the
+`events` row above, and `POST /api/email/dispatch` (bearer `CRON_SECRET`) turns each such
+event into at most one transactional email through Resend — the ledger in
+`public.email_sends` makes replays and re-runs no-ops, and `public.email_suppressions` is
+consulted inside the claim. Until the owner provisions `RESEND_API_KEY` and `EMAIL_SENDER`
+(ADR-011's open items) the flag is off: every dispatch records a **named `skipped` row** per
+event and sends nothing — loud, not silent. To dispatch by hand after activating someone:
+
+```sh
+curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" https://<app-host>/api/email/dispatch
+```
+
+No schedule is armed yet; the cadence decision (a `crons` entry in `webapp/vercel.json`)
+rides the same owner slot as the key. The ledger is the debugging surface:
+`select send_key, kind, recipient, status, reason from public.email_sends order by id desc;`
+A row stuck at `claimed` is a dispatcher that died mid-send — ambiguous on purpose, never
+retried; decide by checking the Resend dashboard for the recipient, then leave it or record
+the outcome via `hq_email_record_send`. To stop all mail to an address:
+`select public.hq_email_suppress('<address>', 'manual', 'operator');`
+
 ## The capture endpoint (`/api/capture`) — mint, rotate, revoke
 
 The Gmail Apps Script dual-writes: the **Email Events** tab first (still authoritative — the

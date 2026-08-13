@@ -16,6 +16,13 @@ import {
   type DigestTriageInput,
   type DigestWriteOutcome,
 } from "@/lib/digest/store";
+import type {
+  ClaimOutcome,
+  EmailStore,
+  LifecycleSendKind,
+  PendingLifecycleSend,
+  SendRecord,
+} from "@/lib/email/store";
 
 /**
  * The service-role client, and the ONLY module in this app that builds one.
@@ -188,6 +195,89 @@ export class SupabaseDigestStore implements DigestStore {
       throw new Error(`${DIGEST_RPC} returned no triage row`);
     }
     return { outcome: "applied", triage: row.triage, posting: triageRowPosting(row) };
+  }
+}
+
+/** 20260813_055534 (#203). Named so `tests/core/test_migrations.py` can prove
+ *  each exists with these parameters — a typo in an RPC name is a 404 the
+ *  dispatch loop would grind on. */
+export const EMAIL_PENDING_RPC = "hq_email_pending_lifecycle";
+export const EMAIL_CLAIM_RPC = "hq_email_claim_send";
+export const EMAIL_RECORD_RPC = "hq_email_record_send";
+
+/**
+ * The THIRD store in this module, same argument as the second: the caller
+ * (`/api/email/dispatch`) has no session and cannot have one — it acts on
+ * operator decisions made in the SQL editor, for users whose browsers are not
+ * involved. Same exception, not a new one; the containment test's file list
+ * stays at one name.
+ *
+ * Every method throws on a store error rather than reporting an empty queue or
+ * a landed outcome: a dead ledger must read as dead, because "no pending mail"
+ * and "could not ask" are different facts and only one of them is calm.
+ */
+export class SupabaseEmailStore implements EmailStore {
+  private readonly client: SupabaseClient;
+
+  constructor(client?: SupabaseClient) {
+    this.client = client ?? serviceClient();
+  }
+
+  async pendingLifecycle(): Promise<PendingLifecycleSend[]> {
+    const { data, error } = await this.client.rpc(EMAIL_PENDING_RPC);
+    if (error) throw new Error(`${EMAIL_PENDING_RPC} failed: ${error.message}`);
+    if (!Array.isArray(data)) {
+      throw new Error(`${EMAIL_PENDING_RPC} returned no rows array`);
+    }
+    return data.map((row: Record<string, unknown>) => ({
+      sendKey: String(row.send_key ?? ""),
+      userId: String(row.user_id ?? ""),
+      eventKind: String(row.event_kind ?? ""),
+      email: String(row.email ?? ""),
+      name: String(row.name ?? ""),
+      occurredAt: String(row.occurred_at ?? ""),
+    }));
+  }
+
+  async claimSend(input: {
+    sendKey: string;
+    userId: string;
+    kind: LifecycleSendKind;
+    recipient: string;
+  }): Promise<ClaimOutcome> {
+    const { data, error } = await this.client.rpc(EMAIL_CLAIM_RPC, {
+      p_send_key: input.sendKey,
+      p_user_id: input.userId,
+      p_kind: input.kind,
+      p_recipient: input.recipient,
+    });
+    if (error) throw new Error(`${EMAIL_CLAIM_RPC} failed: ${error.message}`);
+    const row = data as { claimed?: unknown; status?: unknown; reason?: unknown } | null;
+    if (!row || typeof row.claimed !== "boolean") {
+      // The function always answers `{claimed, status, …}`. Anything else is a
+      // different function than this was written against, and treating it as
+      // a claim would send mail nothing recorded.
+      throw new Error(`${EMAIL_CLAIM_RPC} returned no claim verdict`);
+    }
+    if (row.claimed) return { claimed: true };
+    return {
+      claimed: false,
+      status: String(row.status ?? ""),
+      reason: String(row.reason ?? ""),
+    };
+  }
+
+  async recordSend(sendKey: string, record: SendRecord): Promise<void> {
+    const { error } = await this.client.rpc(EMAIL_RECORD_RPC, {
+      p_send_key: sendKey,
+      p_status: record.status,
+      p_provider: record.provider,
+      p_provider_message_id: record.status === "sent" ? record.providerMessageId : "",
+      p_reason: record.status === "sent" ? "" : record.reason,
+    });
+    // Including P0002 ("no claimed row"): the dispatch loop only records what
+    // it just claimed, so an unclaimed key here is a harness bug, not a state.
+    if (error) throw new Error(`${EMAIL_RECORD_RPC} failed: ${error.message}`);
   }
 }
 
