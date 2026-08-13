@@ -45,9 +45,15 @@ stays private (`docs/pilot-launch/10-data-authority-and-transition.md` §2).
   `/queue`, the layout badge, `/apply/[applicationId]`, and `/api/export`. Visibility of
   the shared row is ownership-derived: policy `postings_visible_to_gated_users`
   (`0002_invariants.sql`) shows a posting only to users holding a `user_postings` row,
-  so a shared fetch never exposes who watches what. Writes are two RPCs only:
-  `app_set_triage` (`0003_write_path.sql`) and `app_set_triage_bulk`
-  (`0006_bulk_triage.sql`). Triage has side effects on the pipeline: `interested`
+  so a shared fetch never exposes who watches what. Writes are three RPCs only:
+  `app_set_triage` (`0003_write_path.sql`), `app_set_triage_bulk`
+  (`0006_bulk_triage.sql`), and `app_add_job`
+  (`20260813_025743_app_add_job.sql`) — the quick-add write, which inserts the
+  shared `postings` row iff its natural key is new (never an update: the shared
+  row's facts are not one user's to rewrite) and gates the caller via
+  `user_postings` (`qualified`, reason `added:you`; the PK is the dedup, a
+  repeat is `outcome: duplicate`). The surface that calls it lands with #182.
+  Triage has side effects on the pipeline: `interested`
   inserts a `Queued` application; leaving `interested` deletes it only while it is still
   `Queued`.
 - **Digest links** — `/d/[token]` (`webapp/app/d/[token]/route.ts`, HMAC) calls
@@ -67,5 +73,7 @@ stays private (`docs/pilot-launch/10-data-authority-and-transition.md` §2).
 - The engine writes as `service_role` only, through the guard hatch in
   `hq_entitlement_guard()` (`0027_entitlement.sql`).
 - While the mirror era lasts, Postgres postings are derived data: fixing feed content
-  means fixing the writer, not hand-editing rows. The cutover gates are in
-  `docs/pilot-launch/10-data-authority-and-transition.md` §4.
+  means fixing the writer, not hand-editing rows. The one exception is
+  `source = 'quickadd'` rows, born in Postgres from a user's paste; if the
+  engine later sees the same natural key, its upsert enriches them. The cutover
+  gates are in `docs/pilot-launch/10-data-authority-and-transition.md` §4.
