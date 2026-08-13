@@ -33,7 +33,10 @@ That is where this work stops, said on screen rather than papered over.
 This doc remains the compaction anchor for the feature: the thesis, the decisions,
 the open forks. Grounding research (all claims cited + confidence-tagged there,
 2026-07-25): `docs/research/auto-apply-landscape.md` (product landscape),
-`docs/research/ats-apply-mechanics.md` (per-ATS ground truth).
+`docs/research/ats-apply-mechanics.md` (per-ATS ground truth). Added 2026-08-13:
+`docs/research/simplify-copilot-teardown.md` — how Simplify Copilot actually works
+(server-shipped per-ATS XPath tables + generic executor), the free/premium boundary,
+their private-beta Autopilot, and the spec inputs for #206/#207.
 
 The ask, verbatim shape: **select rows in the grid → hit Apply → the system
 completes each application to the best of its ability** — more configurable
