@@ -231,6 +231,58 @@ test("selecting rows raises a bar that states its count, and one gesture decides
   await expect(bar).toHaveCount(0);
 });
 
+test("a decision made on another device first conflicts the batch: nothing applies, and the newer decision is kept", async ({
+  page,
+  context,
+}) => {
+  // Tab A loads the queue and holds (soon to be) stale row versions.
+  await gotoQueue(page);
+  const rows = page.getByTestId("decision-row");
+  const before = await rows.count();
+  const titles = [
+    await rows.nth(0).getByTestId("row-title").innerText(),
+    await rows.nth(1).getByTestId("row-title").innerText(),
+  ];
+
+  // Tab B, same store, passes on the first row — tab A's copy of that row is
+  // now stale, and the store already holds a decision for it.
+  const other = await context.newPage();
+  await other.goto("/queue");
+  await expect(other.locator('[data-testid="triage"][data-ready="true"]')).toBeAttached();
+  await other.getByTestId("pass").click();
+  await expect(other.getByText("Passed", { exact: true })).toBeVisible();
+
+  // Tab A: one batch over the stale row and a clean one.
+  await rows.nth(0).getByRole("checkbox").check();
+  await rows.nth(1).getByRole("checkbox").check();
+  const bar = page.getByTestId("selection-bar");
+  await bar.getByRole("button", { name: "Interested 2" }).click();
+
+  await expect(page.getByText(/changed on another device/i)).toBeVisible();
+
+  // Full revert: BOTH rows are still on screen as undecided — including the
+  // clean one that would have succeeded alone, because the store applied
+  // nothing — and the selection came back with them.
+  await expect(rows).toHaveCount(before);
+  await expect(rows.nth(0).getByTestId("row-title")).toHaveText(titles[0]);
+  await expect(rows.nth(1).getByTestId("row-title")).toHaveText(titles[1]);
+  await expect(bar).toContainText("2 selected");
+
+  // No Undo: nothing was applied, so there is nothing to undo. Offering one
+  // would promise an inverse for a write that never happened.
+  await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0);
+
+  // The STORE proves atomicity: a fresh read holds ONLY tab B's pass. Tab A's
+  // interested batch applied to neither row — the stale one still shows the
+  // other device's decision (it left the queue), the clean one is undecided.
+  const check = await context.newPage();
+  await check.goto("/queue");
+  await expect(check.locator('[data-testid="triage"][data-ready="true"]')).toBeAttached();
+  const checkRows = check.getByTestId("decision-row");
+  await expect(checkRows).toHaveCount(before - 1);
+  await expect(checkRows.first().getByTestId("row-title")).toHaveText(titles[1]);
+});
+
 test("shift-click selects the range between the two rows clicked", async ({ page }) => {
   await gotoQueue(page);
   const rows = page.getByTestId("decision-row");

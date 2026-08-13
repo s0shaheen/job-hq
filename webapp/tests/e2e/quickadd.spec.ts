@@ -48,10 +48,11 @@ async function paste(page: Page, text: string) {
 /**
  * The preview rows, scoped to the list rather than to the page.
  *
- * `getByRole("listitem")` alone would also match the failed-work banner's
- * list, which the shell renders above every surface when the outbox has a
- * rejected gesture in it. That banner is not this surface's and counting it
- * would make "3 links found" occasionally read as four rows.
+ * `getByRole("listitem")` alone would also match any other list the shell
+ * happens to render around this surface — it once matched the retired
+ * failed-work banner's — and counting a foreign row would make "3 links
+ * found" occasionally read as four rows. Scoping is what keeps the count
+ * honest no matter what the chrome grows.
  */
 const preview = (page: Page) => page.getByTestId("quickadd-previews").getByRole("listitem");
 const addButton = (page: Page) => page.getByRole("button", { name: /^Add( \d+)? to Today$/ });

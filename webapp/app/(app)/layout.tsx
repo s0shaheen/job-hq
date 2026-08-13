@@ -4,7 +4,7 @@ import { getSupabaseEnv } from "@/lib/env";
 import { getDataSource } from "@/lib/data/get-source";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/ds";
-import { PendingWork } from "@/components/pending-work";
+import { OutboxCleanup } from "@/components/outbox-cleanup";
 import { Toaster } from "@/components/ui/toaster";
 import SignOut from "./sign-out";
 
@@ -73,8 +73,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   // `active` is not passed: `AppNav` derives it from the pathname, which this
-  // server component does not have. The onboarding guard and session-level
-  // pending-work/toast behavior above and below are unchanged by the frame.
+  // server component does not have. The onboarding guard above and the toast
+  // behavior below are unchanged by the frame.
   return (
     <>
       <AppShell
@@ -82,7 +82,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         userName={email ?? undefined}
         userAction={email ? <SignOut /> : undefined}
       >
-        <PendingWork />
+        <OutboxCleanup />
         {children}
       </AppShell>
       <Toaster />

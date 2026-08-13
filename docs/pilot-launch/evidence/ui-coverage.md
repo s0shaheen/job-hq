@@ -16,15 +16,15 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 
 | | Cells |
 |---|---:|
-| covered | 122 |
-| n/a | 38 |
+| covered | 119 |
+| n/a | 44 |
 | blocked on an ADD item | 134 |
-| missing, baselined 2026-08-02 | 210 |
+| missing, baselined 2026-08-02 | 207 |
 | missing, new (fails) | 0 |
 | on an unbuilt surface (not enforced) | 126 |
 | total | 504 |
 
-**Baselined is not covered.** 210 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
+**Baselined is not covered.** 207 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
 
 ## Matrix, fixture mode
 
@@ -39,7 +39,7 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 | operator-admin | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | resume | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | settings-auth-onboarding | yes | yes | yes | n/a | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | gap | gap | gap | yes | gap | n/a |
-| shared-shell-and-components | n/a | yes | yes | n/a | n/a | gap | n/a | yes | yes | n/a | yes | yes | yes | n/a | gap | n/a | yes | yes | yes | gap | n/a |
+| shared-shell-and-components | n/a | yes | yes | n/a | n/a | gap | n/a | n/a | n/a | n/a | yes | n/a | yes | n/a | gap | n/a | yes | yes | yes | gap | n/a |
 | system-and-mobile | yes | yes | yes | n/a | yes | yes | yes | yes | yes | yes | yes | yes | yes | n/a | gap | n/a | yes | yes | add | gap | n/a |
 | today | yes | yes | yes | yes | yes | gap | n/a | yes | yes | yes | yes | yes | yes | add | yes | gap | yes | yes | yes | gap | yes |
 
@@ -338,11 +338,11 @@ The shell has no route of its own; it is the chrome every routed surface renders
 | Missing optional fact | n/a | the shell renders no posting or application facts |
 | Partial/degraded | gap | The shell with a dependency named as unavailable is never rendered. |
 | Validation error | n/a | the shell has no form |
-| Write pending | yes | `tests/e2e/offline.spec.ts` "no banner when there is nothing pending" |
-| Offline write disabled | yes | `tests/e2e/offline.spec.ts` "a rejected replay leaves a visible notice, not a vanished banner" |
+| Write pending | n/a | the shell issues no writes since #222 removed the pending-work banner; a write's in-flight state is reported by the surface that issued it |
+| Offline write disabled | n/a | the shell holds no queue and issues no writes (DEC-011): an offline refusal is reported by the surface whose write it refused |
 | Conflict | n/a | a conflict is reported by the surface that issued the write, never by the shell |
 | Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "the holding page carries none of the app shell a signed-in user gets" |
-| Session expired | yes | `tests/e2e/offline.spec.ts` "it is not confused with being offline" |
+| Session expired | n/a | an expired session is reported by the surface whose write it refused, and the signed-out entry path by entry-path.spec.ts; the shell renders no session state of its own |
 | Fatal route error | yes | `tests/e2e/routing.spec.ts` "an unknown address keeps the app shell and offers a way back" |
 | Selected/detail | n/a | the shell selects nothing |
 | Long strings | gap | No spec asserts a long toast or nav count stays inside the shell. |
@@ -368,11 +368,11 @@ The mobile project is a Pixel 7 viewport and nothing else: the repo issues zero 
 | Missing optional fact | yes | `tests/e2e/quickadd.spec.ts` "a field the posting never stated reads Not listed, never an invention" |
 | Partial/degraded | yes | `tests/e2e/resilience.spec.ts` "a slow data source shows a skeleton rather than a blank screen" |
 | Validation error | yes | `tests/e2e/quickadd.spec.ts` "a row with nothing to key on is refused, in words, before anything is written" |
-| Write pending | yes | `tests/e2e/offline.spec.ts` "a full localStorage still holds the decision for this tab, and says so" |
-| Offline write disabled | yes | `tests/e2e/offline.spec.ts` "undo works offline, because nothing was ever sent"; `tests/e2e/quickadd.spec.ts` "offline, the control is disabled and says why — nothing is queued" |
+| Write pending | yes | `tests/e2e/quickadd.spec.ts` "a failed write says so and leaves the row addable, never half-saved" |
+| Offline write disabled | yes | `tests/e2e/quickadd.spec.ts` "offline, the control is disabled and says why — nothing is queued" |
 | Conflict | yes | `tests/e2e/quickadd.spec.ts` "a job already tracked says so and offers the one that exists" |
 | Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "an address that does not exist still lands on the holding page, not on a 404 with a nav"; `tests/e2e/quickadd.spec.ts` "a pending account is refused the surface, and no paste box is rendered" |
-| Session expired | yes | `tests/e2e/offline.spec.ts` "the decision is held and the banner offers a way back in"; `tests/e2e/quickadd.spec.ts` "an expired session refuses the write and does not lose the paste" |
+| Session expired | yes | `tests/e2e/quickadd.spec.ts` "an expired session refuses the write and does not lose the paste" |
 | Fatal route error | yes | `tests/e2e/routing.spec.ts` "an unknown address keeps the app shell and offers a way back" |
 | Selected/detail | n/a | the system surface selects nothing; /add edits the row it is about, in place |
 | Long strings | gap | No spec anywhere renders non-Latin script, emoji, CJK or RTL text; every long-string assertion in the estate is Latin-only. |
@@ -396,11 +396,11 @@ Routes: `/queue`
 | Missing optional fact | yes | `tests/e2e/triage.spec.ts` "an unstated value reads 'Not listed' rather than being hidden" |
 | Partial/degraded | gap | A queue rendered with the engine's scoring unavailable is never exercised. |
 | Validation error | n/a | the queue takes no typed input; its only gestures are the four triage verbs |
-| Write pending | yes | `tests/e2e/undo-delivery.spec.ts` "undo after the flush delivered the decision really undoes it" |
-| Offline write disabled | yes | `tests/e2e/offline.spec.ts` "the decision survives a reload while still offline" |
-| Conflict | yes | `tests/e2e/offline.spec.ts` "a conflict on replay says the decision lost, instead of pretending it landed" |
+| Write pending | yes | `tests/e2e/triage.spec.ts` "keyboard triage advances the queue and can be undone" |
+| Offline write disabled | yes | `tests/e2e/offline.spec.ts` "an offline decision refuses, reverts the batch, and queues nothing" |
+| Conflict | yes | `tests/e2e/triage.spec.ts` "a decision made on another device first conflicts the batch: nothing applies, and the newer decision is kept" |
 | Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "asking for the queue lands on the holding page, and the queue is not rendered on the way" |
-| Session expired | yes | `tests/e2e/offline.spec.ts` "the held decision is applied once the session is back" |
+| Session expired | yes | `tests/e2e/offline.spec.ts` "an expired session refuses the write, and signing back in lands it" |
 | Fatal route error | yes | `tests/e2e/error.spec.ts` "an armed read failure renders the boundary, not a blank page or a stuck skeleton"; `tests/e2e/error.spec.ts` "Try again recovers through the boundary once the failure clears" |
 | Selected/detail | add | ADD-013: Selection is covered by triage.spec.ts, but the detail pane the handoff opens on Enter is unbuilt, so the surface cannot enter half of this state. |
 | Long strings | yes | `tests/e2e/layout.spec.ts` "long titles and long company names do not break the decision row" |

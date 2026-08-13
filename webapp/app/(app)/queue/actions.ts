@@ -44,7 +44,8 @@ async function demoSessionExpired(): Promise<boolean> {
  * session by REDIRECTING to /login, which is right for a page navigation and
  * useless for a server action — the browser gets a redirect where it expected
  * a result, and the decision evaporates with no error anyone can act on.
- * Answering explicitly lets the client hold the gesture and replay it.
+ * Answering explicitly lets the client revert the gesture and say why
+ * (DEC-011: refused visibly, never queued).
  */
 async function hasSession(): Promise<boolean> {
   if (!getSupabaseEnv()) return true; // unconfigured/demo: nothing to expire

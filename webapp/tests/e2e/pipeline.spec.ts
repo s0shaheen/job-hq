@@ -983,13 +983,13 @@ test("an offline status change refuses, reverts, and queues nothing", async ({
   context,
 }) => {
   // DEC-011 on this surface: refuse, revert, say so — and deliberately NO
-  // outbox. The write branch's own comment says why ("nothing here replays a
-  // pipeline gesture"), so the assertion set is the queue's offline test
-  // INVERTED: nothing is held, nothing replays, and the store stays untouched
-  // until a person makes the gesture again. Driven by taking the browser
-  // offline, which makes the server action reject rather than answer — the
-  // same thrown-action catch a timeout reaches, so this test covers that
-  // branch for both causes.
+  // queue. The write branch's own comment says why ("nothing here replays a
+  // pipeline gesture"), and since #222 this is every write surface's rule:
+  // nothing is held, nothing replays, and the store stays untouched until a
+  // person makes the gesture again. Driven by taking the browser offline,
+  // which makes the server action reject rather than answer — the same
+  // thrown-action catch a timeout reaches, so this test covers that branch
+  // for both causes.
   await isolate(page, "offline-refuse");
   await gotoPipeline(page, "?open=Active");
 
@@ -1124,8 +1124,8 @@ test("an expired session refuses the write, and signing back in lands it", async
   await page.getByRole("option", { name: "Interview", exact: true }).click();
 
   // The AUTH copy, exactly — with its instruction, and WITHOUT a Retry
-  // action. Replaying into a dead session would refuse the same way, and this
-  // surface holds no outbox to park the gesture in, so offering Retry here
+  // action. Replaying into a dead session would refuse the same way, and
+  // nothing parks the gesture anywhere (DEC-011), so offering Retry here
   // would be the "saved on this device" lie the write branch's comment names.
   await expect(page.getByText("Couldn't save that. Your session expired.")).toBeVisible({
     timeout: 15_000,

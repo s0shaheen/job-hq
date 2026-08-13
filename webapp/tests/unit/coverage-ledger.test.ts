@@ -446,14 +446,21 @@ describe("the state proof", () => {
     expect(problems).toHaveLength(1);
     expect(problems[0].kind).toBe("state");
 
-    // And the seam itself passes, from either end.
-    for (const body of [`await context.setOffline(true);`, `await seedOutbox(page, []);`]) {
-      const real = new SpecRoutes(
-        "t.spec.ts",
-        `test("a", async ({ page, context }) => { await page.goto("/queue"); ${body} });`,
-      );
-      expect(proveState("Offline write disabled", real.navigations("a")!, null)).toEqual([]);
-    }
+    // And the seam itself passes.
+    const real = new SpecRoutes(
+      "t.spec.ts",
+      `test("a", async ({ page, context }) => { await page.goto("/queue"); await context.setOffline(true); });`,
+    );
+    expect(proveState("Offline write disabled", real.navigations("a")!, null)).toEqual([]);
+
+    // The RETIRED seam does not. #222 removed the outbox, so seeding one is no
+    // longer a way into this state; a citation leaning on it must red rather
+    // than crediting a queue the product no longer has.
+    const retired = new SpecRoutes(
+      "t.spec.ts",
+      `test("a", async ({ page }) => { await page.goto("/queue"); await seedOutbox(page, []); });`,
+    );
+    expect(proveState("Offline write disabled", retired.navigations("a")!, null)).toHaveLength(1);
   });
 
   test("a state with no required mechanism is not guessed at — it is recorded as nobody's check", () => {

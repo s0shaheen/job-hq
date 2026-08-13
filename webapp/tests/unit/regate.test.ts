@@ -228,8 +228,8 @@ describe("the fixture store applies a plan the same way the SQL does", () => {
     // A mutant removing this survived the first pass, because a plan BUILT by
     // `buildRegatePlan` never contains such an entry. The plan the server gets
     // is not always freshly built: the engine's own nightly re-gate may have
-    // landed between the preview and the save, or an outbox may be replaying a
-    // gesture from yesterday. Applying it anyway bumps a version token and
+    // landed between the preview and the save, or a retry may be replaying a
+    // request from yesterday. Applying it anyway bumps a version token and
     // writes an audit row for a change that is not one, and hands every other
     // open tab a conflict caused by nothing.
     const src = new FixtureDataSource();

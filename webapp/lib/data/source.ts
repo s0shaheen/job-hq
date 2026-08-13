@@ -482,7 +482,7 @@ export type UnpinWarmIntroResult =
  *
  * `note` is REQUIRED when the move is a reopen (terminal → live). The database
  * enforces that, not this type — `app_set_status` refuses an empty body, so the
- * rule holds for a replayed outbox gesture and for any other caller.
+ * rule holds for a replayed retry, a hand-made request, and any other caller.
  */
 export type StatusInput = {
   applicationId: number;
@@ -542,7 +542,7 @@ export type AppWriteResult =
 //
 // Every mutating one carries an idempotency key, exactly as the triage and
 // pipeline writes do, because every one of them is retried by something: the
-// upload route chunks, the commit loop chunks, and the outbox replays.
+// upload route chunks, the commit loop chunks, and a person presses Retry.
 
 export type CreateImportInput = {
   filename: string;

@@ -5,23 +5,23 @@
  *
  * 07 §1 is the governing rule for the whole redesign: writes go only through
  * the existing RPC layer, carrying idempotency keys; optimistic with undo;
- * deferrals kept, conflicts reverted. **The redesign changes what controls look
- * like, never how they write.** So this module is a MOVE, not a rewrite — every
- * branch below came from the original grid and behaves identically. It lives here
- * so the new table can reuse it verbatim instead of growing a second copy, and
- * so that when the old grid is deleted at cutover the machinery survives the
- * deletion of its first host.
+ * conflicts reverted. **The redesign changes what controls look like, never
+ * how they write.** This module is shared verbatim by /jobs and /queue, so the
+ * two surfaces cannot drift apart.
  *
- * Two rules carried over from the queue, because they are the same rules:
+ * Two rules, and they are the same rules the pipeline and companies surfaces
+ * already prove:
  *
  *   1. Every gesture is optimistic with an honest failure path. A conflict
  *      reverts EVERYTHING — the batch is atomic in the store, so the screen
  *      must be too, including the rows that would have succeeded alone.
- *   2. An undeliverable decision is HELD in the outbox, never silently dropped.
- *      The outbox speaks single-row gestures, so a deferred batch rides as N
- *      entries under derived keys; the flush delivers them row by row, which
- *      forfeits atomicity but not the decisions. The atomic path needed the
- *      server, and the server is the thing we could not reach.
+ *   2. An undeliverable decision REFUSES AND REVERTS, visibly (DEC-011). No
+ *      queue, no localStorage, no "saved on this device": a write that did not
+ *      reach the store leaves the screen exactly as it was and says so, rather
+ *      than claiming a durability the path does not have. The localStorage
+ *      outbox that once held these gestures was removed by #222; the toast is
+ *      the only handle the person still has on a refused gesture, which is why
+ *      the error branch carries Retry.
  *
  * The caller owns the WORDS. `decide()` takes its toast label as a parameter
  * rather than building one, because the label is dictionary vocabulary (02 §6)
@@ -31,10 +31,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { setTriageAction } from "@/app/(app)/queue/actions";
-import type { BulkTriageInput, BulkWriteResult, WriteResult } from "@/lib/data/source";
+import type { BulkTriageInput, BulkWriteResult } from "@/lib/data/source";
 import type { JobView, Triage } from "@/lib/data/view-models";
-import { dequeue, enqueue, takeDelivered } from "@/lib/outbox";
 import { setTriageBulkAction } from "./bulk-actions";
 
 /** Same window as the queue's — one undo vocabulary everywhere. */
@@ -50,12 +48,11 @@ export type DecideOptions = {
   snooze?: string;
   /** The toast headline. Dictionary words, supplied by the surface (02 §6). */
   label: string;
-  /** Undo labels for the deferred (outbox) path, one per target. */
-  undoLabel: (job: JobView) => string;
   /**
-   * Called when the write came back as nothing and the screen must revert.
-   * The surface restores whatever it snapshotted (its selection, typically);
-   * the row patches are restored here, since this module owns them.
+   * Called whenever the write came back as nothing and the screen must revert
+   * — offline, expired session, conflict, or a plain rejection. The surface
+   * restores whatever it snapshotted (its selection, typically); the row
+   * patches are restored here, since this module owns them.
    */
   onRevert?: () => void;
 };
@@ -121,53 +118,6 @@ export function useDecisions(rows: JobView[]): DecisionsApi {
   );
 
   /**
-   * Undo one row the background flush delivered while its toast was up — the
-   * queue's undoDelivered, except this restores the row's PRIOR triage (a bulk
-   * gesture over the whole table may start from any value, not just "").
-   */
-  const undoDeliveredRow = React.useCallback(
-    async (written: JobView, prior: JobView, undoLabel: (j: JobView) => string) => {
-      const input = {
-        postingKey: written.key,
-        triage: prior.triage,
-        snoozeUntil: prior.triage === "snoozed" ? (prior.snoozeUntil ?? null) : null,
-        idempotencyKey: crypto.randomUUID(),
-        expectedUpdatedAt: written.updatedAt,
-      };
-      let undo: WriteResult;
-      try {
-        undo = await setTriageAction(input);
-      } catch {
-        // The undo never reached the server: hold it, don't drop it.
-        const idem = crypto.randomUUID();
-        enqueue({
-          id: idem,
-          input: { ...input, idempotencyKey: idem },
-          label: `Undo ${undoLabel(written)}`,
-          queuedAt: Date.now(),
-          reason: "offline",
-        });
-        patchRows([{ ...written, triage: prior.triage, snoozeUntil: input.snoozeUntil }]);
-        return;
-      }
-      if (undo.ok) {
-        patchRows([undo.job]);
-        return;
-      }
-      if (undo.kind === "auth") {
-        toast.error("Couldn't undo because your session expired.", {
-          description: "Sign in and try again.",
-        });
-      } else if (undo.kind === "conflict") {
-        toast.warning("Couldn't undo because this was changed somewhere else.");
-      } else {
-        toast.error("Couldn't undo that.", { description: undo.message });
-      }
-    },
-    [patchRows],
-  );
-
-  /**
    * The ONE undo for a delivered batch: the inverse batch, fresh idempotency
    * key, guarded by the updatedAt values the delivery returned. The data layer
    * applies one triage per call, so a selection whose rows had MIXED prior
@@ -175,7 +125,7 @@ export function useDecisions(rows: JobView[]): DecisionsApi {
    * since an undecided set is all-"" by definition.
    */
   const undoBulk = React.useCallback(
-    async (written: JobView[], priors: JobView[], undoLabel: (j: JobView) => string) => {
+    async (written: JobView[], priors: JobView[]) => {
       type Group = { triage: Triage; snoozeUntil: string | null; written: JobView[] };
       const groups = new Map<string, Group>();
       for (let i = 0; i < written.length; i++) {
@@ -197,27 +147,13 @@ export function useDecisions(rows: JobView[]): DecisionsApi {
             expectedUpdatedAt: g.written.map((w) => w.updatedAt),
           });
         } catch {
-          // Offline mid-undo: same doctrine as the queue — the undo is a
-          // decision, it goes to the outbox and the rows read as undone.
-          for (const w of g.written) {
-            const idem = crypto.randomUUID();
-            enqueue({
-              id: idem,
-              input: {
-                postingKey: w.key,
-                triage: g.triage,
-                snoozeUntil: g.snoozeUntil,
-                idempotencyKey: idem,
-                expectedUpdatedAt: w.updatedAt,
-              },
-              label: `Undo ${undoLabel(w)}`,
-              queuedAt: Date.now(),
-              reason: "offline",
-            });
-          }
-          patchRows(
-            g.written.map((w) => ({ ...w, triage: g.triage, snoozeUntil: g.snoozeUntil })),
-          );
+          // DEC-011: the undo is a write like any other — refused, never
+          // queued. The rows keep their decided state, because reading as
+          // "undone" a write the server never heard would be the screen lying
+          // about the store.
+          toast.error("Couldn't undo. The server didn't answer.", {
+            description: "Reload to see where the decision landed.",
+          });
           continue;
         }
         if (res.ok) {
@@ -241,9 +177,9 @@ export function useDecisions(rows: JobView[]): DecisionsApi {
 
   /**
    * One decision, N rows, one transaction, one undo. The optimistic update
-   * lands first; the failure branches mirror the queue's because they are the
-   * same failures — with one difference the atomicity contract forces: a
-   * conflict reverts EVERY row, since the store applied none of them.
+   * lands first; every failure reverts EVERY row, since the store applied
+   * none of them — showing some rows decided while the store holds nothing is
+   * the half-applied screen the transaction exists to rule out.
    */
   const decide = React.useCallback(
     async (triage: Triage, options: DecideOptions): Promise<void> => {
@@ -258,81 +194,33 @@ export function useDecisions(rows: JobView[]): DecisionsApi {
       const snoozeUntil = triage === "snoozed" ? (options.snooze ?? null) : null;
       patchRows(targets.map((j) => ({ ...j, triage, snoozeUntil })));
 
-      const idem = crypto.randomUUID();
       const input: BulkTriageInput = {
         postingKeys: targets.map((j) => j.key),
         triage,
         snoozeUntil,
-        idempotencyKey: idem,
+        idempotencyKey: crypto.randomUUID(),
         expectedUpdatedAt: targets.map((j) => j.updatedAt),
       };
 
-      /** Hold, don't discard (the queue's rule). */
-      const defer = (reason: "offline" | "auth") => {
-        for (let i = 0; i < targets.length; i++) {
-          enqueue({
-            id: `${idem}:${i}`,
-            input: {
-              postingKey: targets[i].key,
-              triage,
-              snoozeUntil,
-              idempotencyKey: `${idem}:${i}`,
-              expectedUpdatedAt: targets[i].updatedAt,
-            },
-            label: options.undoLabel(targets[i]),
-            queuedAt: Date.now(),
-            reason,
-          });
-        }
+      /** Refuse and revert, visibly (DEC-011). Nothing is queued anywhere. */
+      const refuse = (say: () => void) => {
+        restorePatches(patchSnapshot);
+        options.onRevert?.();
         busyRef.current = false;
         setBusy(false);
-        toast(options.label, {
-          description:
-            reason === "auth"
-              ? "Saved on this device. Sign in to apply it."
-              : "Saved on this device. It'll sync when you're back online.",
-          action: {
-            label: "Undo",
-            onClick: () => {
-              // Row by row, the queue's three-way branch: still local (drop
-              // it), delivered behind our back (compensating write), or gone
-              // without a trace (say so — restoring the row would lie).
-              let lost = 0;
-              for (let i = 0; i < targets.length; i++) {
-                if (dequeue(`${idem}:${i}`)) {
-                  restorePatches([patchSnapshot[i]]);
-                  continue;
-                }
-                const w = takeDelivered(`${idem}:${i}`);
-                if (w) void undoDeliveredRow(w, priors[i], options.undoLabel);
-                else lost++;
-              }
-              if (lost > 0) {
-                toast.error(
-                  lost === targets.length
-                    ? "Couldn't undo that."
-                    : `Couldn't undo ${lost} of them.`,
-                  {
-                    description:
-                      "The decision already left this device. Reload to see where it landed.",
-                  },
-                );
-              }
-            },
-          },
-          duration: UNDO_MS,
-        });
+        say();
       };
 
       let result: BulkWriteResult;
       try {
         result = await setTriageBulkAction(input);
       } catch {
-        defer("offline");
-        return;
-      }
-      if (!result.ok && result.kind === "auth") {
-        defer("auth");
+        // The thrown-action branch: offline, or a server that never answered.
+        refuse(() =>
+          toast.error("Couldn't save that. You may be offline.", {
+            description: "Nothing was changed. Try again when you're back.",
+          }),
+        );
         return;
       }
       busyRef.current = false;
@@ -346,7 +234,7 @@ export function useDecisions(rows: JobView[]): DecisionsApi {
         toast(options.label, {
           action: {
             label: "Undo",
-            onClick: () => void undoBulk(written, priors, options.undoLabel),
+            onClick: () => void undoBulk(written, priors),
           },
           duration: UNDO_MS,
         });
@@ -354,11 +242,17 @@ export function useDecisions(rows: JobView[]): DecisionsApi {
       }
 
       // All-or-nothing came back as nothing: every row reverts, including the
-      // ones that would have succeeded alone — showing them decided while the
-      // store holds nothing is the half-applied screen the transaction exists
-      // to rule out.
+      // ones that would have succeeded alone.
       restorePatches(patchSnapshot);
       options.onRevert?.();
+      if (result.kind === "auth") {
+        // No Retry: replaying into a dead session refuses the same way, and
+        // nothing holds the gesture, so the honest offer is the way back in.
+        toast.error("Couldn't save that. Your session expired.", {
+          description: "Sign in and try again.",
+        });
+        return;
+      }
       if (result.kind === "conflict") {
         toast.warning("Changed on another device. Nothing was applied. Showing the latest.");
         router.refresh();
@@ -369,7 +263,7 @@ export function useDecisions(rows: JobView[]): DecisionsApi {
         action: { label: "Retry", onClick: () => void decide(triage, options) },
       });
     },
-    [patchRows, restorePatches, undoBulk, undoDeliveredRow, router],
+    [patchRows, restorePatches, undoBulk, router],
   );
 
   return { effRows, patchRows, busy, decide };

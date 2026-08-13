@@ -9,7 +9,7 @@ import {
   Kbd,
   SelectionBar,
 } from "@/components/ds";
-import { decisionToast, reasonSentence, toastFor } from "@/lib/dictionary";
+import { decisionToast, reasonSentence } from "@/lib/dictionary";
 import { SNOOZE_DAYS, useDecisions } from "@/app/(app)/jobs/decisions";
 import { localIsoDaysFromNow, postedAge } from "@/lib/dates";
 import { safeHref } from "@/lib/url/safe-href";
@@ -35,19 +35,16 @@ import {
  * **The write CONTRACT is unchanged; the entry point moved by one function.**
  * The controller is `useDecisions`, the queue's own machinery lifted out for
  * Jobs: a fresh `crypto.randomUUID()` idempotency key and `expectedUpdatedAt`
- * on every write, optimistic with an 8s undo, deferral to the outbox when the
- * write cannot reach the server, and a conflict that reverts the WHOLE batch
- * because the store applied none of it.
+ * on every write, optimistic with an 8s undo, refuse-and-revert when the
+ * write cannot reach the store (DEC-011 — the refusal is visible and nothing
+ * is ever queued; #222 removed the outbox that once held these), and a
+ * conflict that reverts the WHOLE batch because the store applied none of it.
  *
  * One thing genuinely differs and it should be said plainly rather than filed
  * under "same code path": every decision now goes through
  * `setTriageBulkAction`, including a single row, where the old queue called
- * `setTriageAction`. Both validate at the boundary and both are idempotent, but
- * the deferred gesture's outbox id changes shape — `<uuid>` becomes
- * `<uuid>:<i>` — because a batch rides as N entries. That is Jobs' shipped
- * path, `PendingWork` already delivers those ids, and `outbox.test.ts` drives
- * the compensating-write branch through it; it is not a new mechanism, it is
- * this surface adopting the other one.
+ * `setTriageAction`. Both validate at the boundary and both are idempotent.
+ * It is not a new mechanism, it is this surface adopting Jobs' shipped path.
  *
  * This file owns the rendering loop, the cursor, the selection and the words —
  * 07 §1's line exactly: the redesign changes what controls look like, never
@@ -170,7 +167,6 @@ export default function TodayList({
         // later" — and Undo is the toast's own right-aligned action, never
         // glued into the message.
         label: decisionToast(word, targets.length),
-        undoLabel: (job) => `${toastFor(word === "Passed" ? "Pass" : word)}: ${job.company}`,
         // A batch that came back as nothing must leave the screen exactly as it
         // was, and the selection is part of that screen: clearing it optimistically
         // and not restoring it would leave the user re-picking rows the store

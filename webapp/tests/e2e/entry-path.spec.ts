@@ -287,7 +287,6 @@ test.describe("an account that is not turned on", () => {
     // refused account what exists behind the gate, or offer them a gesture they
     // are not allowed to make.
     await expect(page.locator('nav[aria-label="Sections"]')).toHaveCount(0);
-    await expect(page.getByTestId("pending-work")).toHaveCount(0);
     await expect(page.getByTestId("export-open")).toHaveCount(0);
     await assertNoProductData(page);
   });

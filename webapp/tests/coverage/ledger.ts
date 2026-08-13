@@ -120,14 +120,21 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.missingFact]: e2e("triage", "an unstated value reads 'Not listed' rather than being hidden"),
       [ST.degraded]: MISSING,
       [ST.validation]: na("the queue takes no typed input; its only gestures are the four triage verbs"),
-      [ST.writePending]: e2e("undo-delivery", "undo after the flush delivered the decision really undoes it"),
-      [ST.offline]: e2e("offline", "the decision survives a reload while still offline"),
-      [ST.conflict]: e2e("offline", "a conflict on replay says the decision lost, instead of pretending it landed"),
+      // The undo window is the queue's pending-write journey: the write is
+      // optimistic, the toast holds its inverse for 8s, and the citation
+      // proves the inverse is real. (It cited the outbox flush's undo until
+      // #222 removed the flush.)
+      [ST.writePending]: e2e("triage", "keyboard triage advances the queue and can be undone"),
+      [ST.offline]: e2e("offline", "an offline decision refuses, reverts the batch, and queues nothing"),
+      [ST.conflict]: e2e(
+        "triage",
+        "a decision made on another device first conflicts the batch: nothing applies, and the newer decision is kept",
+      ),
       [ST.permission]: e2e(
         "entry-path",
         "asking for the queue lands on the holding page, and the queue is not rendered on the way",
       ),
-      [ST.sessionExpired]: e2e("offline", "the held decision is applied once the session is back"),
+      [ST.sessionExpired]: e2e("offline", "an expired session refuses the write, and signing back in lands it"),
       // Two titles because the state has two halves: the boundary renders
       // instead of a white screen, and its own Try again control recovers.
       [ST.fatal]: e2e(
@@ -383,7 +390,7 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
   "shared-shell-and-components": {
     routes: ["*"],
     routeProofNote:
-      "The shell — the (app) layout, nav, toasts, dialogs and the pending-work banner — has no route of its own: it is the chrome every routed surface renders inside, so any app route renders it and the route proof asks only that a citation reach one.",
+      "The shell — the (app) layout, nav, toasts and dialogs — has no route of its own: it is the chrome every routed surface renders inside, so any app route renders it and the route proof asks only that a citation reach one.",
     note: "The shell has no route of its own; it is the chrome every routed surface renders inside.",
     fixture: {
       [ST.loading]: na("the shell renders synchronously; each surface owns its own skeleton row"),
@@ -393,14 +400,25 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
       [ST.missingFact]: na("the shell renders no posting or application facts"),
       [ST.degraded]: MISSING,
       [ST.validation]: na("the shell has no form"),
-      [ST.writePending]: e2e("offline", "no banner when there is nothing pending"),
-      [ST.offline]: e2e("offline", "a rejected replay leaves a visible notice, not a vanished banner"),
+      // These three read `covered` until #222: the pending-work banner was the
+      // shell's own write-state UI, and the outbox tests proved it. With the
+      // queue removed (DEC-011) the shell issues no writes and holds no write
+      // state, so the states belong to the surfaces — the same split the
+      // Conflict row below has always recorded.
+      [ST.writePending]: na(
+        "the shell issues no writes since #222 removed the pending-work banner; a write's in-flight state is reported by the surface that issued it",
+      ),
+      [ST.offline]: na(
+        "the shell holds no queue and issues no writes (DEC-011): an offline refusal is reported by the surface whose write it refused",
+      ),
       [ST.conflict]: na("a conflict is reported by the surface that issued the write, never by the shell"),
       [ST.permission]: e2e(
         "entry-path",
         "the holding page carries none of the app shell a signed-in user gets",
       ),
-      [ST.sessionExpired]: e2e("offline", "it is not confused with being offline"),
+      [ST.sessionExpired]: na(
+        "an expired session is reported by the surface whose write it refused, and the signed-out entry path by entry-path.spec.ts; the shell renders no session state of its own",
+      ),
       [ST.fatal]: e2e("routing", "an unknown address keeps the app shell and offers a way back"),
       [ST.detail]: na("the shell selects nothing"),
       [ST.longStrings]: MISSING,
@@ -562,7 +580,7 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
   "system-and-mobile": {
     routes: ["*", "/add"],
     routeProofNote:
-      "The 404 handler, the offline and expired-session banners and the mobile viewport are not addresses: they are behaviours that appear over whatever route the user was on, including addresses that do not exist. So the proof asks that a citation reach some app route, and the surface's claim is what happens there. /add is named beside the wildcard because it IS an address, and because a reader of this list should be able to see that the quick-add cells below belong to a route rather than to a behaviour.",
+      "The 404 handler and the mobile viewport are not addresses: they are behaviours that appear over whatever route the user was on, including addresses that do not exist. So the proof asks that a citation reach some app route, and the surface's claim is what happens there. /add is named beside the wildcard because it IS an address, and because a reader of this list should be able to see that the quick-add cells below belong to a route rather than to a behaviour.",
     note:
       "The mobile project is a Pixel 7 viewport and nothing else: the repo issues zero tap, touchscreen or gesture calls, so every phone assertion here is about composition, never about touch input. " +
       "QUICK ADD JOINED THIS SURFACE, and it is why eight cells below moved off `n/a`. " +
@@ -591,17 +609,17 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
         "quickadd",
         "a row with nothing to key on is refused, in words, before anything is written",
       ),
-      [ST.writePending]: e2e("offline", "a full localStorage still holds the decision for this tab, and says so"),
-      [ST.offline]: {
-        verdict: "covered",
-        cites: [
-          { spec: "tests/e2e/offline.spec.ts", title: "undo works offline, because nothing was ever sent" },
-          {
-            spec: "tests/e2e/quickadd.spec.ts",
-            title: "offline, the control is disabled and says why — nothing is queued",
-          },
-        ],
-      },
+      // The outbox citations that shared these three cells died with the
+      // outbox (#222); what remains is /add's own write, whose refusals
+      // quickadd.spec.ts proves directly.
+      [ST.writePending]: e2e(
+        "quickadd",
+        "a failed write says so and leaves the row addable, never half-saved",
+      ),
+      [ST.offline]: e2e(
+        "quickadd",
+        "offline, the control is disabled and says why — nothing is queued",
+      ),
       // The create path's conflict, and the difference from the other surfaces'
       // is worth stating rather than hiding behind a shared word. A status or a
       // triage conflicts on `updated_at`: somebody else changed the row since
@@ -624,19 +642,10 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
           },
         ],
       },
-      [ST.sessionExpired]: {
-        verdict: "covered",
-        cites: [
-          {
-            spec: "tests/e2e/offline.spec.ts",
-            title: "the decision is held and the banner offers a way back in",
-          },
-          {
-            spec: "tests/e2e/quickadd.spec.ts",
-            title: "an expired session refuses the write and does not lose the paste",
-          },
-        ],
-      },
+      [ST.sessionExpired]: e2e(
+        "quickadd",
+        "an expired session refuses the write and does not lose the paste",
+      ),
       [ST.fatal]: e2e("routing", "an unknown address keeps the app shell and offers a way back"),
       [ST.detail]: na("the system surface selects nothing; /add edits the row it is about, in place"),
       [ST.longStrings]: MISSING,

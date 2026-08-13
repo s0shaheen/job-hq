@@ -103,8 +103,8 @@ not the requirement. This is the actual list, with what enforces each.
 | 13 | Motion sickness | `prefers-reduced-motion` zeroes transitions | ✅ |
 | 14 | Visual drift | `visual.spec.ts` — queue, jobs grid, and a selection, both themes × both viewports, as `-linux` baselines recorded and checked in the **same** Playwright container (the `visual` CI job). Verified stable on a second render, so it does not flake; the bare `webapp` job skips it so a font mismatch never turns that job red | ✅ |
 | 15 | Empty states unrendered | `empty.spec.ts` — per-surface zero-row test in both viewports, seeded via `hq_demo_seed`; the queue distinguishes **filtered-out from nothing-found** and names the binding constraint; axe runs on the empty page | ✅ |
-| 16 | Session expires mid-action | The action answers `kind: "auth"` rather than letting middleware redirect a POST; the gesture goes to the outbox and is delivered on the next page load after sign-in | ✅ |
-| 17 | Offline / flaky network | `lib/outbox.ts` — the decision is kept, not reverted; banner, auto-replay on reconnect, safe because every gesture carries its idempotency key | ✅ |
+| 16 | Session expires mid-action | The action answers `kind: "auth"` rather than letting middleware redirect a POST; the surface refuses and reverts visibly, and the repeated gesture lands after sign-in (`offline.spec.ts`). The outbox that once held the gesture was removed by #222 (DEC-011) | ✅ |
+| 17 | Offline / flaky network | Refuse and revert, visibly; nothing is queued, and a reload proves the store never heard the gesture (`offline.spec.ts`, DEC-011). The localStorage outbox that once kept the decision was removed by #222 | ✅ |
 | 18 | Perf collapse at 5k rows | Virtualization + a measured render budget — see rows 46–47 | ✅ |
 | 19 | Back/forward + deep links | URL is the source of truth for the grid's set/filters/sort/search/group; `grid-url.spec.ts` — see rows 52, 57 | ✅ |
 | 20 | Types drift from the DB | `types-contract.test.ts` parses `CREATE TABLE`/`ADD COLUMN` in the migrations and the row types in `lib/types.ts` and fails on any column-set, nullability, or scalar-kind divergence. Caught a real inversion: `string \| null` on a `NOT NULL` column. (The RPC-call contract is the Python `test_migrations.py`) | ✅ |
@@ -120,7 +120,7 @@ not the requirement. This is the actual list, with what enforces each.
 | 30 | Decorative text fails contrast because of an opacity multiplier | `Kbd` carries no opacity; it is exactly as legible as the text it sits in. Caught by axe on the Export button | ✅ |
 | 31 | **The store exists once per server bundle, so acknowledged writes vanish** | Demo store hung off `globalThis`; `persistence.spec.ts` reloads after a decision, checks it reached `/pipeline`, and cross-checks the export's row count against the screen | ✅ |
 | 32 | **Undo restores the pre-write row, so the card conflicts forever** | The undo and conflict paths re-insert the row the SERVER returned, never the captured one; `persistence.spec.ts` runs triage → undo → decide again | ✅ |
-| 33 | **A failed or offline Undo is silently swallowed** | The undo branches on its `WriteResult` and falls back to the outbox instead of a bare `.then()` | ✅ |
+| 33 | **A failed or offline Undo is silently swallowed** | The undo branches on its result and every failure is a visible toast — refused, never queued, never a bare `.then()` (#222) | ✅ |
 | 34 | **Triage hotkeys fire behind an open modal** | The window handler ignores keys while a Radix dialog is open | ✅ |
 | 35 | **Snooze stores the UTC day, not the local one** (AC 14) | `lib/dates.ts` + `dates.test.ts` against a pinned clock *and* a pinned timezone, incl. a DST boundary | ✅ |
 | 36 | **A missing env var serves fixtures as real data, with no auth gate** | Fixtures require explicit `HQ_DEMO`; middleware sends an unconfigured deployment to `/setup`; `getDataSource` throws rather than guessing | ✅ |

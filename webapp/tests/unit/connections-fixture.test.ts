@@ -228,7 +228,7 @@ describe("setLinkedinCompanyId", () => {
     });
     const again = await src.setLinkedinCompanyId({
       companyId: RAMP.id,
-      linkedinId: "7777", // different intent, same key — a double-tap or an outbox flush
+      linkedinId: "7777", // different intent, same key — a double-tap or a replayed retry
       idempotencyKey: key,
       expectedUpdatedAt: null,
     });
@@ -732,8 +732,8 @@ describe("importConnections", () => {
   });
 
   it("replays one key rather than importing the chunk twice", async () => {
-    // The outbox flushes on reconnect and two tabs can flush at once. Without the
-    // replay, a flaky network doubles somebody's network.
+    // A retried upload can land twice and two tabs can commit at once. Without
+    // the replay, a flaky network doubles somebody's network.
     const store = emptyStore();
     const key = idem();
     const rows = [row({ fullName: "Ada Okonkwo", profileUrl: "https://www.linkedin.com/in/ada" })];

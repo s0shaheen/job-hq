@@ -30,7 +30,8 @@ async function demoSessionExpired(): Promise<boolean> {
 /**
  * Checked here rather than left to middleware, exactly as the single-row
  * action explains: a redirect where the client expected a result evaporates
- * the decision. Answering `auth` lets the client hold the gesture and replay.
+ * the decision. Answering `auth` lets the client revert the gesture and say
+ * why (DEC-011: refused visibly, never queued).
  */
 async function hasSession(): Promise<boolean> {
   if (!getSupabaseEnv()) return true; // unconfigured/demo: nothing to expire

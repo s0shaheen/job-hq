@@ -13,28 +13,24 @@ import type { JobView } from "@/lib/data/view-models";
  * its patches onto whatever base it is handed, so if the base follows the
  * server, the row an undo restores is no longer in it and cannot be shown. The
  * compensating write reaches the database and the screen never admits it: the
- * exact "screen says one thing, database says another" failure the outbox
- * comments were written to prevent.
+ * exact "screen says one thing, database says another" failure this estate
+ * exists to prevent.
  *
- * This is a UNIT test on purpose. `undo-delivery.spec.ts` found the bug in a
- * browser, but only when the server's re-render happened to land before the
- * Undo click — re-broken deliberately, that spec passed. A test that catches a
- * defect only sometimes is not the guard this needs, so the ordering is forced
- * here instead of raced.
+ * This is a UNIT test on purpose. The bug was first caught in a browser (by
+ * the retired undo-delivery.spec.ts), but only when the server's re-render
+ * happened to land before the Undo click — re-broken deliberately, that spec
+ * passed. A test that catches a defect only sometimes is not the guard this
+ * needs, so the ordering is forced here instead of raced.
  *
  * MUTATION: change `const [base] = React.useState(initial)` to
  * `const base = initial` in `today-list.tsx` and the final assertion fails —
  * the row never comes back.
  */
 
-const { setTriageActionMock, setTriageBulkActionMock } = vi.hoisted(() => ({
-  setTriageActionMock: vi.fn(),
+const { setTriageBulkActionMock } = vi.hoisted(() => ({
   setTriageBulkActionMock: vi.fn(),
 }));
 
-vi.mock("@/app/(app)/queue/actions", () => ({
-  setTriageAction: (i: unknown) => setTriageActionMock(i),
-}));
 vi.mock("@/app/(app)/jobs/bulk-actions", () => ({
   setTriageBulkAction: (i: unknown) => setTriageBulkActionMock(i),
 }));
@@ -73,7 +69,6 @@ beforeEach(() => {
   toastMock.mockReset();
   toastMock.error.mockReset();
   toastMock.warning.mockReset();
-  setTriageActionMock.mockReset();
   setTriageBulkActionMock.mockReset();
 });
 

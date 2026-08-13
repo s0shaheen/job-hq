@@ -363,9 +363,10 @@ export default function PipelineTable({ initial, reviewItems = [], warm, warmInt
    *   conflict — settle on `result.current` and say so. A toast alone leaves the
    *              stale value on screen, which is matrix row 113: the user is told
    *              something changed and shown the thing that did not.
-   *   auth     — revert and say the session expired. Deliberately NOT the queue's
-   *              outbox: nothing here replays a pipeline gesture, and offering
-   *              "saved on this device" for a write that is not queued anywhere
+   *   auth     — revert and say the session expired. Nothing queues or replays
+   *              a pipeline gesture (DEC-011 — the rule every surface now
+   *              follows, since #222 removed the queue's outbox), so offering
+   *              "saved on this device" for a write that is not held anywhere
    *              would be a lie about durability.
    *   error    — revert and offer Retry.
    */

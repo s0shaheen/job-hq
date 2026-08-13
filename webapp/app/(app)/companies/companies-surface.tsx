@@ -34,12 +34,10 @@ import { setCompanyFlagsAction, setCompanyReviewAction } from "./actions";
  *   * **The server's rows win, not the optimistic guesses.** Their `updatedAt` is
  *     what makes the undo batch conflict-checkable (the stale-object lesson, N-wide).
  *
- * What is deliberately NOT ported from /jobs: the offline outbox. `lib/outbox.ts`
- * speaks single-POSTING triage gestures — its queue shape, its replay and its
- * "delivered" bookkeeping are all `TriageInput` — and widening it to a second
- * entity is its own change with its own failure modes, not a line in this file. So
- * an undeliverable review says so and reverts, which is honest, rather than
- * claiming a durability this path does not have. Recorded as a known gap.
+ * An undeliverable review says so and reverts, rather than claiming a
+ * durability this path does not have. That is DEC-011 — no browser offline
+ * mutation queue — and since #222 removed the jobs outbox it is the one rule
+ * every write surface follows, this one included.
  */
 
 /** Same window as the queue's and /jobs' — one undo vocabulary everywhere. */
@@ -198,8 +196,9 @@ export default function CompaniesSurface({ rows }: { rows: CompanyView[] }) {
           expectedUpdatedAt: targets.map((c) => c.updatedAt),
         });
       } catch {
-        // No outbox on this path (see the module comment): an undeliverable review
-        // reverts and says so, rather than claiming a durability it does not have.
+        // No queue on this path (DEC-011; the module comment): an undeliverable
+        // review reverts and says so, rather than claiming a durability it does
+        // not have.
         restorePatches(patchSnapshot);
         busyRef.current = false;
         setBusy(false);

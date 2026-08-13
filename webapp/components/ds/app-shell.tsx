@@ -33,7 +33,7 @@ type Destination = { label: NavDestination; href: string; icon: LucideIcon };
  *
  * Today points at `/queue` for the same reason, in the other direction. The
  * Today surface IS the queue chassis — it is where the decision machinery, the
- * outbox, the session-expiry journey and twenty inbound links already live, and
+ * session-expiry journey and twenty inbound links already live, and
  * moving the route would be a redirect on the app's most-linked path for no
  * gain a reader can see. `/today` held a placeholder until this cutover and now
  * redirects here, so a bookmark of it still lands on the built surface.

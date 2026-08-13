@@ -77,10 +77,10 @@ is server-only and used by the capture and digest handlers alone.
 - One command, one logical effect, one audit event, one durable result. A replayed key
   must return the first result, never apply twice.
 - Conflicts are surfaced, never silently merged; the server's row wins the screen.
-- Offline: writes are refused and nothing is queued (DEC-011; stated in
-  `webapp/app/(app)/settings/preferences-form.tsx` and followed by the companies
-  surface). One pre-DEC-011 exception survives: `webapp/lib/outbox.ts`, a
-  localStorage outbox for single-posting triage only, flushed by
-  `webapp/components/pending-work.tsx`. It contradicts CLAUDE.md's "no browser offline
-  mutation queue" rule; treat it as legacy to remove, not a pattern to copy.
+- Offline: writes are refused and nothing is queued (DEC-011), on every surface.
+  The one pre-DEC-011 exception — `webapp/lib/outbox.ts`, a localStorage outbox
+  for single-posting triage flushed by `webapp/components/pending-work.tsx` —
+  was removed by #222; jobs/queue triage now refuses and reverts like everything
+  else, and leftover pre-removal localStorage entries are dropped on load
+  (`webapp/components/outbox-cleanup.tsx` records why drop beat flush).
 - Fail loud: missing identity, malformed input, and unknown state raise; nothing guesses.

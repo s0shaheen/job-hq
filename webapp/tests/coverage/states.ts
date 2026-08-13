@@ -95,11 +95,11 @@ export const STATE_ENTRY: Readonly<Record<string, StateEntry | null>> = {
   // rather than /offline/i and /session/i.
   "Offline write disabled": {
     mechanism:
-      "have undelivered work — take the browser offline with `context.setOffline(true)`, or seed the outbox directly",
-    // Both are real. `offline.spec.ts` proves the rejected-replay banner by
-    // seeding the outbox and reloading rather than by going offline, which
-    // reaches the same state by the same seam from the other end.
-    evidence: [/setOffline/, /outbox/i],
+      "attempt the write with the network gone — take the browser offline with `context.setOffline(true)`",
+    // The one way in since #222 removed the outbox: with no queue to seed,
+    // entering this state means making a real gesture against a network that
+    // is not there, and asserting the refusal.
+    evidence: [/setOffline/],
   },
   "200% zoom": {
     mechanism:

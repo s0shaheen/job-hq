@@ -85,8 +85,8 @@ function validateCommon(input: {
  *
  * Auth first, then validation. The order matters: an expired session with a
  * malformed payload should be reported as the expired session, because that is
- * the one the user can act on — and `kind: "auth"` sends the gesture to the
- * outbox instead of discarding it.
+ * the one the user can act on — `kind: "auth"` names the cause and its fix,
+ * where a validation message would send them fixing the wrong thing.
  */
 async function guard(
   input: { applicationId?: unknown; idempotencyKey?: unknown; expectedUpdatedAt?: unknown },

@@ -394,7 +394,6 @@ export default function JobsTable({
         targets,
         snooze: triage === "snoozed" ? localIsoDaysFromNow(SNOOZE_DAYS) : undefined,
         label: decisionToast(word, targets.length),
-        undoLabel: (j) => `${decisionToast(word, 1)}: ${j.company}, ${j.title}`,
         onRevert: () => setSelRaw(selSnapshot),
       });
     },

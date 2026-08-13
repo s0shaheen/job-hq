@@ -405,11 +405,10 @@ test.describe("the two review verbs", () => {
     page,
     context,
   }) => {
-    // The absence of an outbox here is DESIGNED (the companies-surface.tsx
-    // module comment; DEC-011): `lib/outbox.ts` speaks single-posting triage
-    // gestures, so an undeliverable review reverts and says so rather than
-    // claiming a durability this path does not have. This test pins both
-    // halves — the honest revert AND the nothing-queued.
+    // The absence of a queue here is DESIGNED (the companies-surface.tsx
+    // module comment; DEC-011): an undeliverable review reverts and says so
+    // rather than claiming a durability this path does not have. This test
+    // pins both halves — the honest revert AND the nothing-queued.
     await isolate(page, "verbs-offline");
     await page.goto("/companies");
     await ready(page);
@@ -443,9 +442,7 @@ test.describe("the two review verbs", () => {
     await expect(page.getByTestId("empty-state")).toHaveCount(0);
     await expect(page.getByTestId("companies-skeleton")).toHaveCount(0);
 
-    // Nothing queued, nothing undoable: no pending-work banner (the outbox's
-    // one visible artifact), no Undo for a batch that never landed.
-    await expect(page.getByTestId("pending-work")).toHaveCount(0);
+    // Nothing queued, nothing undoable: no Undo for a batch that never landed.
     await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0);
 
     // Back online, SAME page state — no reload yet: the controls survived the

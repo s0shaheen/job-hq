@@ -384,7 +384,7 @@ describe("optimistic concurrency", () => {
   it("replays a key rather than conflicting on it", async () => {
     // Ordering inside the fake: replay is checked BEFORE the version token. A
     // retry that already landed must return its result, not a conflict about a
-    // write it made itself — which is what the offline outbox does on reconnect.
+    // write it made itself — the property every Retry action leans on.
     const before = await get(APPS.anthropicApplied);
     const key = idem();
     const first = ok(
