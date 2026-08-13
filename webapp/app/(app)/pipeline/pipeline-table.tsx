@@ -350,6 +350,51 @@ export default function PipelineTable({ initial, reviewItems = [], warm, warmInt
   const [writes, setWrites] = React.useState(0);
 
   /**
+   * Where focus goes when the queue settles — the busy disable's missing half
+   * (#232, FP-DES-007).
+   *
+   * ════════════════════════════════════════════════════════════════════════════
+   * THE DEFECT, MEASURED
+   *
+   * Every status trigger is `disabled={anyBusy}` while a write is in flight, and
+   * the browser drops focus from a disabled control. So EVERY status write —
+   * success or failure — landed keyboard focus on `document.body`, exactly the
+   * stranding the pane, the withdraw dialog, and the custom-status field each
+   * fixed for themselves. #199's probe measured it on a plain successful write.
+   *
+   * The capture lives here, at the one choke point every write on this surface
+   * goes through, for the same reason the withdraw gate does: a control added
+   * later is covered without knowing this exists.
+   *
+   * ════════════════════════════════════════════════════════════════════════════
+   * THE SUCCESSOR RULE
+   *
+   * On settle, focus returns to the first of these that still exists and is
+   * enabled — and never to `<body>`:
+   *
+   *   1. the exact element that held focus when the write was made;
+   *   2. the record's status control where it now renders — the open pane's
+   *      first, else the row's, which after a band move is a NEW node the old
+   *      capture cannot reach (the row remounts under another band's list);
+   *   3. the toggle of the band that now holds the record — when the write
+   *      moved the row into a collapsed band, that toggle is the one control
+   *      that can reveal it again;
+   *   4. the first band toggle on the surface, when the record left the list
+   *      entirely (a revalidation dropped it).
+   *
+   * And it never STEALS: if settle finds focus already somewhere real — the
+   * pane's close button after Confirm/Dismiss hand it there, a field the user
+   * moved to during the write — the restoration stands down. That guard is what
+   * lets the capture arm on every write, next-action blurs included, without
+   * yanking focus from someone mid-type.
+   *
+   * An element plus the row id, not a DOM node alone: the element answers "is
+   * the trigger still there", the id is what the successor steps query by after
+   * a re-render has replaced every node the gesture touched.
+   */
+  const settleFocus = React.useRef<{ el: HTMLElement; id: number } | null>(null);
+
+  /**
    * Every write on this surface, in one place.
    *
    * The four branches are the substance, and a second copy of them is a second
@@ -428,6 +473,17 @@ export default function PipelineTable({ initial, reviewItems = [], warm, warmInt
         }
         return false;
       };
+
+      // Captured at GESTURE time, synchronously: one render later the busy
+      // disable has already dropped focus to <body> and there is nothing left
+      // to read. The last gesture wins — the queue serializes writes, and the
+      // control focus belongs back on is the one the person touched last. A
+      // gesture that held no focus (a commit fired by clicking empty space)
+      // DISARMS instead: the write took focus from nobody, so settling it must
+      // hand focus to nobody.
+      const active = document.activeElement;
+      settleFocus.current =
+        active instanceof HTMLElement && active !== document.body ? { el: active, id } : null;
 
       setPending((n) => n + 1);
       const settle = async () => {
@@ -682,6 +738,47 @@ export default function PipelineTable({ initial, reviewItems = [], warm, warmInt
   }, [selectedId]);
 
   const anyBusy = busyId !== null;
+
+  /**
+   * The restoration itself — `settleFocus`'s comment carries the rule.
+   *
+   * In an effect keyed on the busy state, and that sequencing is the second
+   * half of #232's attack list: focusing a control that is still `disabled` is
+   * SILENTLY lost, so calling `.focus()` inside the write path — after
+   * `setBusyId(null)` but before React commits the render that removes the
+   * attribute — restores nothing and looks like it did. An effect cannot run
+   * early like that: React commits the re-enabled DOM first, then runs this.
+   *
+   * Gated on the QUEUE being quiet, not just `busyId`: between two queued
+   * writes `busyId` clears for a render while `pending` — incremented
+   * synchronously at gesture time — still covers the write whose turn is next,
+   * so a mid-queue quiet window cannot fire a premature restore.
+   */
+  React.useEffect(() => {
+    if (anyBusy || pending > 0) return;
+    const target = settleFocus.current;
+    if (target === null) return;
+    settleFocus.current = null;
+    // Never steal. If focus is already somewhere real, someone put it there —
+    // the pane's Confirm/Dismiss handing it to Close, a person typing in a
+    // field the busy window never disabled — and this effect stands down.
+    const held = document.activeElement;
+    if (held instanceof HTMLElement && held !== document.body) return;
+    const usable = (el: HTMLElement | null): HTMLElement | null =>
+      el !== null && el.isConnected && !el.matches(":disabled") ? el : null;
+    const find = (selector: string) => usable(document.querySelector<HTMLElement>(selector));
+    const row = rowsRef.current.find((r) => r.id === target.id);
+    const next =
+      usable(target.el) ??
+      find(
+        `[data-testid="application-pane"][data-application="${target.id}"]` +
+          ` [data-testid="status-trigger-${target.id}"]`,
+      ) ??
+      find(`[data-testid="status-trigger-${target.id}"]`) ??
+      (row === undefined ? null : find(`[data-testid="group-toggle-${statusBand(row.status)}"]`)) ??
+      find(`[data-testid^="group-toggle-"]`);
+    next?.focus();
+  }, [anyBusy, pending]);
 
   /** Rows that are still live: everything the Closed band does not hold. */
   const inFlight = React.useMemo(

@@ -126,6 +126,40 @@ async function openPane(page: Page, id: number) {
   await expect(page).toHaveTitle(/Applications/);
 }
 
+/**
+ * Change one row's status entirely from the keyboard.
+ *
+ * The focus-floor tests (#232) have to be keyboard-driven to mean anything: a
+ * pointer user re-acquires a control by aiming at it, a keyboard user is
+ * WHEREVER focus is, so the floor only exists for the path this drives.
+ *
+ * ArrowDown-walks the listbox to the target instead of counting presses from
+ * the vocabulary order, so a reordered status list cannot make this pick the
+ * wrong status silently — the highlight assertion fails loudly instead. The
+ * walk is bounded by the vocabulary's size (eleven statuses plus Custom).
+ */
+async function pickStatusByKeyboard(page: Page, id: number, status: string) {
+  const trigger = page.getByTestId(`status-trigger-${id}`);
+  await trigger.focus();
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press("Enter");
+  const option = page.getByRole("option", { name: status, exact: true });
+  await expect(option).toBeVisible();
+  // Exactly one option is highlighted at a time; walk the highlight down to the
+  // target. Each step WAITS for a highlighted option to exist before deciding:
+  // sampling the target's own attribute between fast presses outran Radix's
+  // highlight render once, overshot, and failed the pick — which read as a
+  // focus-floor failure and was the helper racing itself.
+  const highlighted = page.locator('[role="option"][data-highlighted]');
+  for (let i = 0; i < 15; i++) {
+    await expect(highlighted).toHaveCount(1);
+    if ((await highlighted.textContent())?.trim() === status) break;
+    await page.keyboard.press("ArrowDown");
+  }
+  await expect(option).toHaveAttribute("data-highlighted", "");
+  await page.keyboard.press("Enter");
+}
+
 /** The fixture ids, named so a test reads as its intent. */
 const STRIPE = 1; // Interview
 const PLAID = 2; // Applied + suggests Rejected
@@ -879,6 +913,96 @@ test("the Withdraw button leaves focus inside the pane, not on the body", async 
   await expect(page.getByTestId("application-pane")).toHaveCount(0);
 });
 
+/**
+ * The focus floor on the busy mechanism itself (#232, FP-DES-007).
+ *
+ * The four tests below are the assertion the offline test's probe comment used
+ * to only DESCRIBE: every status trigger is `disabled={anyBusy}` while a write
+ * is in flight, the browser drops focus from a disabled control, and until the
+ * settle-restore in `pipeline-table.tsx` nothing put it back — so every status
+ * write, success or failure, stranded a keyboard user on `<body>`.
+ *
+ * One per branch of the successor rule (the rule itself is documented on
+ * `settleFocus` in the component): the trigger survives, the trigger survives a
+ * failure's revert, the row remounts under an open band, and the row vanishes
+ * into the collapsed archive. `toBeFocused` retries, so each test also waits
+ * out the re-enable race the rule's second attack names — a restore that fired
+ * against a still-disabled control would be silently lost and never pass these.
+ */
+
+test("a settled status write returns keyboard focus to its trigger", async ({ page }) => {
+  await isolate(page, "focus-floor-ok");
+  await gotoPipeline(page, "?open=Active");
+
+  const mark = await writeCount(page);
+  await pickStatusByKeyboard(page, ANTHROPIC, "Interview");
+  await wroteMore(page, mark);
+
+  // The write disabled this trigger while in flight, so focus WAS dropped —
+  // this is the restoration working, not focus never having moved.
+  const trigger = page.getByTestId(`status-trigger-${ANTHROPIC}`);
+  await expect(trigger).toContainText("Interview");
+  await expect(trigger).toBeEnabled();
+  await expect(trigger).toBeFocused();
+});
+
+test("a FAILED status write puts focus back on the reverted trigger", async ({ page }) => {
+  // The failure path drops focus the identical way — the disable does it, not
+  // the outcome — and a stranded keyboard user beside a Retry toast cannot
+  // reach either the toast or the gesture they came from.
+  await isolate(page, "focus-floor-fail");
+  await gotoPipeline(page, "?demo=failnext&open=Active");
+
+  const mark = await writeCount(page);
+  await pickStatusByKeyboard(page, ANTHROPIC, "Interview");
+  await expect(page.getByText(/Couldn't save that/)).toBeVisible({ timeout: 20_000 });
+  await wroteMore(page, mark);
+
+  const trigger = page.getByTestId(`status-trigger-${ANTHROPIC}`);
+  await expect(trigger).toContainText("Applied");
+  await expect(trigger).toBeEnabled();
+  await expect(trigger).toBeFocused();
+});
+
+test("a write that moves the row to an open band keeps focus on the record's control", async ({
+  page,
+}) => {
+  // Attack list, first entry: the node that held focus does not survive the
+  // write. Moving Applied → Offer re-parents the row from Active's list into
+  // Offers', which REMOUNTS it — every node the gesture touched is detached by
+  // settle. The successor rule's second step re-finds the record's control by
+  // identity, so focus follows the record into its new band.
+  await isolate(page, "focus-floor-follow");
+  await gotoPipeline(page);
+
+  const mark = await writeCount(page);
+  await pickStatusByKeyboard(page, ANTHROPIC, "Offer");
+  await wroteMore(page, mark);
+
+  await expect(page.getByTestId("group-Offers").getByTestId(`row-${ANTHROPIC}`)).toBeVisible();
+  const trigger = page.getByTestId(`status-trigger-${ANTHROPIC}`);
+  await expect(trigger).toContainText("Offer");
+  await expect(trigger).toBeFocused();
+});
+
+test("a write into the collapsed archive lands focus on that band's toggle", async ({ page }) => {
+  // The same attack with nowhere to follow to: Closed starts collapsed, so the
+  // record's control does not render at all after the write. The documented
+  // successor is the toggle of the band that now holds the record — the one
+  // control that can reveal the row again, one keypress from where focus lands.
+  await isolate(page, "focus-floor-archive");
+  await gotoPipeline(page);
+
+  const mark = await writeCount(page);
+  await pickStatusByKeyboard(page, ANTHROPIC, "Rejected");
+  await wroteMore(page, mark);
+
+  await expect(page.getByTestId(`row-${ANTHROPIC}`)).toHaveCount(0);
+  const toggle = page.getByTestId("group-toggle-Closed");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toBeFocused();
+});
+
 // ---------------------------------------------------------------- failures
 
 test("a conflict toasts AND refreshes the value on screen", async ({ page }) => {
@@ -1026,15 +1150,12 @@ test("an offline status change refuses, reverts, and queues nothing", async ({
   await expect(page.getByTestId(`row-${ANTHROPIC}`)).toHaveAttribute("data-busy", "false");
   await expect(page.getByTestId("pipeline")).toHaveAttribute("data-saving", "false");
 
-  // NOT asserted: where focus lands. The attack list's floor — the trigger
-  // keeps focus, or somewhere recoverable, never `<body>` — is MEASURED
-  // FAILING today, and not because of this branch: every status write
-  // disables the trigger while in flight (`disabled={anyBusy}`), the browser
-  // drops focus from a disabled control, and nothing restores it on settle.
-  // A SUCCESSFUL write lands focus on `<body>` exactly the same way, so this
-  // is a defect in the surface's busy mechanism, not a property of the catch
-  // branch this test proves. Asserting it here would pin a defect to the
-  // wrong owner; it is reported in #199's PR instead, with the probe.
+  // And the floor #199's probe could only MEASURE failing (#232): settle put
+  // focus back on the trigger rather than leaving it on `<body>`, where the
+  // busy disable dropped it. The keyboard-driven proofs — success, failure,
+  // both row-moved successors — live in the focus section; this line pins the
+  // thrown-action branch in situ, where the probe that found the defect ran.
+  await expect(trigger).toBeFocused();
 
   // The refused write still COUNTS as finished — the counter counts outcomes,
   // not successes — so this proves the queue drained before the reload reads.
