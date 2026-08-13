@@ -12,7 +12,7 @@ import type { FullConfig } from "@playwright/test";
 import { LiveAdmin } from "./admin";
 import { readLiveEnv } from "./env";
 import { signInCookies, storageState } from "./session";
-import { SEED_USERS } from "./seed-plan";
+import { SEED_NAMESPACE, SEED_USERS } from "./seed-plan";
 import { AUTH_DIR, storageStatePath } from "./paths";
 
 export default async function globalSetup(config: FullConfig): Promise<void> {
@@ -27,10 +27,17 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     config.projects.find((p) => p.name.startsWith("live-"))?.use?.baseURL ??
     "http://127.0.0.1:3210";
 
-  process.stderr.write(`live lane: seeding project ${env.ref} (NOT production)\n`);
+  // The namespace is printed BEFORE anything is created. A run whose log does
+  // not name its namespace is a run whose orphans nobody can attribute, and the
+  // first question about a leaked row is always "whose was it".
+  process.stderr.write(
+    `live lane: seeding project ${env.ref} (NOT production) in namespace ${SEED_NAMESPACE}\n`,
+  );
   const admin = new LiveAdmin(env);
   const seeded = await admin.seed();
-  process.stderr.write(`live lane: seeded ${seeded.size} synthetic users\n`);
+  process.stderr.write(
+    `live lane: seeded ${seeded.size} synthetic users in namespace ${admin.namespace}\n`,
+  );
 
   // Old jars are removed before new ones are written. A stale file from a
   // previous run would otherwise satisfy `mode.ts`'s existence check while

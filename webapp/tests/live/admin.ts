@@ -2,7 +2,7 @@
  * SEEDING AND TEARDOWN against the dedicated test project.
  *
  * Everything here holds the service_role key, so every function in this file
- * bypasses every RLS policy in the schema. Two rules follow and neither is
+ * bypasses every RLS policy in the schema. Three rules follow and none is
  * optional:
  *
  *   1. NOTHING runs before `readLiveEnv` has refused production. The guard is
@@ -11,22 +11,39 @@
  *   2. Every DELETE is scoped by `seed-plan.ts`'s predicates, never by "all
  *      users" or "all postings". The project guard says which database; the
  *      predicates say which rows. A single guard is one typo from a disaster.
+ *   3. Every DELETE is scoped to THIS RUN'S NAMESPACE as well. CI and a laptop
+ *      share one project, so two namespaces can be live at once; a teardown
+ *      that deleted the whole seed family would delete the run beside it,
+ *      which is the collision the namespace exists to prevent, reintroduced at
+ *      the far end.
  *
  * IDEMPOTENT BY CONSTRUCTION: seeding deletes its own prior output first, so a
  * re-run from any state — half-seeded, fully seeded, aborted mid-way — lands in
  * the same place. It depends on nobody having clicked anything, which is the
  * point: a lane that needs a human to prepare it is a lane that stops running.
+ *
+ * And because a CANCELLED run never reaches teardown at all, seeding also reaps
+ * namespaces older than two hours before it starts. See `reap`.
  */
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 import { readLiveEnv, type LiveEnv } from "./env";
 import {
+  assertNamespace,
   assertOwnersDisjoint,
+  buildSeedPostings,
+  buildSeedUsers,
+  chooseReapable,
+  isNamespacedSeedAddress,
+  isNamespacedSeedPostingKey,
   isSeedAddress,
   isSeedPostingKey,
+  REAP_MAX_AGE_MS,
   SEED_CRITERIA,
-  SEED_POSTINGS,
-  SEED_USERS,
+  SEED_KEY_LIKE,
+  SEED_NAMESPACE,
+  type SeedPosting,
   type SeedRole,
+  type SeedUser,
 } from "./seed-plan";
 
 /** A seeded user, once it exists. */
@@ -36,10 +53,66 @@ export interface SeededUser {
   readonly userId: string;
 }
 
-export class LiveAdmin {
-  private readonly client: SupabaseClient;
+/**
+ * EXACTLY the Supabase surface this file uses, named as an interface.
+ *
+ * Not tidiness: it is what lets the collision and orphan-reclamation properties
+ * be DEMONSTRATED rather than asserted. Two concurrent seeds against two
+ * namespaces is a claim about interleaving, and the only honest way to show it
+ * without a shared cloud project — which is the very thing being contended for —
+ * is to run the real seeder against an in-memory backend that answers this
+ * interface. `tests/unit/live-namespace.test.ts` does exactly that.
+ *
+ * The real client is cast to it once, at construction, and nowhere else.
+ */
+export interface AdminResult<T = unknown> {
+  data?: T;
+  error?: { message: string } | null;
+}
+// Extends `PromiseLike` because PostgREST's builder is itself a thenable, and
+// `delete().eq(...)` in `seed()` is awaited with no terminal call. Modelling
+// that honestly here is what keeps the fake and the real client interchangeable.
+export interface AdminTable extends PromiseLike<AdminResult> {
+  select(columns: string): AdminTable;
+  eq(column: string, value: unknown): AdminTable;
+  in(column: string, values: readonly unknown[]): PromiseLike<AdminResult<unknown>>;
+  like(column: string, pattern: string): PromiseLike<AdminResult<unknown>>;
+  maybeSingle<T = Record<string, unknown>>(): PromiseLike<AdminResult<T | null>>;
+  delete(): AdminTable;
+  upsert(rows: readonly unknown[], options: { onConflict: string }): PromiseLike<AdminResult>;
+}
+export interface AdminClient {
+  auth: {
+    admin: {
+      listUsers(page: { page: number; perPage: number }): PromiseLike<
+        AdminResult<{ users?: { id: string; email?: string | null; created_at?: string }[] }>
+      >;
+      createUser(input: {
+        email: string;
+        password: string;
+        email_confirm: boolean;
+      }): PromiseLike<AdminResult<{ user?: { id: string } | null }>>;
+      deleteUser(id: string): PromiseLike<AdminResult>;
+    };
+  };
+  from(table: string): AdminTable;
+  rpc(name: string, args: Record<string, unknown>): PromiseLike<AdminResult>;
+}
 
-  constructor(readonly env: LiveEnv) {
+export class LiveAdmin {
+  private readonly client: AdminClient;
+  /** The namespace this instance owns. Every delete it issues is scoped to it. */
+  readonly namespace: string;
+  private readonly users: readonly SeedUser[];
+  private readonly postings: readonly SeedPosting[];
+
+  constructor(
+    readonly env: LiveEnv,
+    options: { namespace?: string; client?: AdminClient } = {},
+  ) {
+    this.namespace = assertNamespace(options.namespace ?? SEED_NAMESPACE);
+    this.users = buildSeedUsers(this.namespace);
+    this.postings = buildSeedPostings(this.namespace);
     // Re-run the refusal on the values actually being used. `readLiveEnv` already
     // ran it, but a `LiveEnv` can be constructed by hand in a test or a future
     // caller, and the check that matters is the one on the credentials this
@@ -52,27 +125,34 @@ export class LiveAdmin {
       HQ_LIVE_SEED_PASSWORD: env.password,
     });
     if (result.kind !== "ready") throw new Error("unreachable: demanded env resolved absent");
-    this.client = createClient(env.url, env.serviceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    this.client =
+      options.client ??
+      (createClient(env.url, env.serviceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      }) as unknown as AdminClient);
   }
 
   /**
-   * Every auth user on the project whose address is one of ours.
+   * Every auth user on the project whose address belongs to this lane, in ANY
+   * namespace, with the timestamp the reaper needs.
    *
    * Paged rather than assuming one page: `listUsers` defaults to 50, and a
    * teardown that silently stops at 50 leaves users behind, which then collide
    * with the next seed and produce a failure nobody can read.
    */
-  private async ourAuthUsers(): Promise<{ id: string; email: string }[]> {
-    const found: { id: string; email: string }[] = [];
+  private async familyAuthUsers(): Promise<
+    { id: string; email: string; createdAt?: string }[]
+  > {
+    const found: { id: string; email: string; createdAt?: string }[] = [];
     for (let page = 1; page <= 40; page += 1) {
       const { data, error } = await this.client.auth.admin.listUsers({ page, perPage: 200 });
       if (error) throw new Error(`listUsers failed on page ${page}: ${error.message}`);
       const users = data?.users ?? [];
       for (const u of users) {
         const email = u.email ?? "";
-        if (isSeedAddress(email)) found.push({ id: u.id, email: email.toLowerCase() });
+        if (isSeedAddress(email)) {
+          found.push({ id: u.id, email: email.toLowerCase(), createdAt: u.created_at });
+        }
       }
       if (users.length < 200) return found;
     }
@@ -80,24 +160,29 @@ export class LiveAdmin {
   }
 
   /**
-   * Remove everything this lane created. Safe to call on a project it has never
-   * touched, and safe to call twice.
+   * Remove everything THIS NAMESPACE created. Safe to call on a project it has
+   * never touched, safe to call twice, and — the property that makes one
+   * project shareable at all — it leaves every other namespace alone.
    */
   async teardown(): Promise<{ users: number; postings: number }> {
-    const users = await this.ourAuthUsers();
+    const users = (await this.familyAuthUsers()).filter((u) =>
+      isNamespacedSeedAddress(u.email, this.namespace),
+    );
     for (const user of users) {
       // Belt and braces: the list was already filtered, but this is the call
       // that destroys an account, so the predicate is re-applied at the point of
       // destruction rather than trusted from ten lines up.
-      if (!isSeedAddress(user.email)) {
-        throw new Error(`refusing to delete non-seed address ${user.email}`);
+      if (!isNamespacedSeedAddress(user.email, this.namespace)) {
+        throw new Error(`refusing to delete address outside ${this.namespace}: ${user.email}`);
       }
       const { error } = await this.client.auth.admin.deleteUser(user.id);
       if (error) throw new Error(`deleteUser(${user.email}) failed: ${error.message}`);
     }
 
-    const keys = SEED_POSTINGS.map((p) => p.key).filter(isSeedPostingKey);
-    if (keys.length !== SEED_POSTINGS.length) {
+    const keys = this.postings
+      .map((p) => p.key)
+      .filter((k) => isNamespacedSeedPostingKey(k, this.namespace));
+    if (keys.length !== this.postings.length) {
       throw new Error("a seed posting key does not carry the seed prefix; teardown cannot scope");
     }
     // `user_postings` has `on delete cascade` from `postings`, so this is the
@@ -110,7 +195,85 @@ export class LiveAdmin {
   }
 
   /**
-   * Create the four synthetic users and their rows. Returns them keyed by role.
+   * Reclaim namespaces a cancelled run abandoned.
+   *
+   * Called at the START of seeding, the same place `scripts/test-shell.sh` reaps
+   * orphaned containers, and for the same reason: the run that leaked is by
+   * definition not around to clean up, so the next run has to. See
+   * `chooseReapable` for the three rules and why age is computed here rather
+   * than pushed into a server-side filter.
+   *
+   * `now` and `maxAgeMs` are arguments so the reclamation can be demonstrated
+   * without waiting two hours.
+   */
+  async reap(
+    opts: { now?: number; maxAgeMs?: number } = {},
+  ): Promise<{ users: number; postings: number; unknownAge: number }> {
+    const now = opts.now ?? Date.now();
+    const maxAgeMs = opts.maxAgeMs ?? REAP_MAX_AGE_MS;
+
+    const userRows = (await this.familyAuthUsers()).map((u) => ({
+      id: u.id,
+      name: u.email,
+      createdAt: u.createdAt,
+    }));
+    const users = chooseReapable(userRows, {
+      namespace: this.namespace,
+      isFamily: isSeedAddress,
+      isMine: isNamespacedSeedAddress,
+      now,
+      maxAgeMs,
+    });
+    for (const row of users.reap) {
+      const { error } = await this.client.auth.admin.deleteUser(row.id);
+      if (error) throw new Error(`reaping ${row.name} failed: ${error.message}`);
+    }
+
+    // `like` on the family prefix, then the age arithmetic here. The pattern is
+    // built from `SEED_PREFIX` and a literal `%`; the namespace never reaches it,
+    // which is one of the reasons `assertNamespace` refuses `%` and `_`.
+    const { data, error } = await this.client
+      .from("postings")
+      .select("key, created_at")
+      .like("key", SEED_KEY_LIKE);
+    if (error) throw new Error(`listing seed postings failed: ${error.message}`);
+    const postingRows = ((data ?? []) as { key: string; created_at?: string }[]).map((p) => ({
+      id: p.key,
+      name: p.key,
+      createdAt: p.created_at,
+    }));
+    const postings = chooseReapable(postingRows, {
+      namespace: this.namespace,
+      isFamily: isSeedPostingKey,
+      isMine: isNamespacedSeedPostingKey,
+      now,
+      maxAgeMs,
+    });
+    if (postings.reap.length > 0) {
+      const { error: deleteError } = await this.client
+        .from("postings")
+        .delete()
+        .in(
+          "key",
+          postings.reap.map((r) => r.id),
+        );
+      if (deleteError) throw new Error(`reaping seed postings failed: ${deleteError.message}`);
+    }
+
+    const unknownAge = users.unknownAge.length + postings.unknownAge.length;
+    if (unknownAge > 0) {
+      // Reported, never reaped. An unreadable timestamp is the one case where
+      // doing nothing is the safe answer, and saying nothing is not.
+      process.stderr.write(
+        `live lane: ${unknownAge} seed row(s) have an unreadable created_at and were ` +
+          `left in place; if this number grows, the reaper has stopped working\n`,
+      );
+    }
+    return { users: users.reap.length, postings: postings.reap.length, unknownAge };
+  }
+
+  /**
+   * Create this namespace's five synthetic users and their rows, keyed by role.
    *
    * The entitlement is set through the OPERATOR RPCs (`hq_activate_user`,
    * `hq_suspend_user`) rather than by writing `entitlements.status` directly.
@@ -120,12 +283,13 @@ export class LiveAdmin {
    * a state the product itself can never produce.
    */
   async seed(): Promise<Map<SeedRole, SeededUser>> {
-    assertOwnersDisjoint();
+    assertOwnersDisjoint(this.users);
+    await this.reap();
     await this.teardown();
 
     const seeded = new Map<SeedRole, SeededUser>();
 
-    for (const plan of SEED_USERS) {
+    for (const plan of this.users) {
       const { data, error } = await this.client.auth.admin.createUser({
         email: plan.email,
         password: this.env.password,
@@ -148,7 +312,7 @@ export class LiveAdmin {
         .from("entitlements")
         .select("status")
         .eq("user_id", userId)
-        .maybeSingle();
+        .maybeSingle<{ status: string }>();
       if (entError) throw new Error(`reading entitlement for ${plan.email}: ${entError.message}`);
       if (!ent) {
         throw new Error(
@@ -187,7 +351,7 @@ export class LiveAdmin {
     // see SEED_CRITERIA. Seeded for the refused users too: their refusal must
     // come from the entitlement gate, not from an incomplete profile, or the
     // pending and suspended journeys would pass for the wrong reason.
-    const onboarding = SEED_USERS.filter((plan) => plan.onboarded).map((plan) => {
+    const onboarding = this.users.filter((plan) => plan.onboarded).map((plan) => {
       const user = seeded.get(plan.role);
       if (!user) throw new Error(`seeded user missing for ${plan.role}`);
       return { user_id: user.userId, criteria: SEED_CRITERIA, notify: {} };
@@ -203,7 +367,7 @@ export class LiveAdmin {
     // actually looks like, and teardown deleted the user rather than the row —
     // so a re-seed could otherwise leave a stale profile behind and quietly
     // onboard the one user whose whole purpose is not being onboarded.
-    const unonboarded = SEED_USERS.filter((plan) => !plan.onboarded);
+    const unonboarded = this.users.filter((plan) => !plan.onboarded);
     for (const plan of unonboarded) {
       const user = seeded.get(plan.role);
       if (!user) throw new Error(`seeded user missing for ${plan.role}`);
@@ -215,7 +379,7 @@ export class LiveAdmin {
     // shared rows once, then hand each owner only its own.
     const today = new Date().toISOString().slice(0, 10);
     const { error: postingsError } = await this.client.from("postings").upsert(
-      SEED_POSTINGS.map((p) => ({
+      this.postings.map((p) => ({
         key: p.key,
         company: p.company,
         title: p.title,
@@ -230,7 +394,7 @@ export class LiveAdmin {
     );
     if (postingsError) throw new Error(`seeding postings failed: ${postingsError.message}`);
 
-    const ownerships = SEED_USERS.flatMap((plan) => {
+    const ownerships = this.users.flatMap((plan) => {
       const user = seeded.get(plan.role);
       if (!user) throw new Error(`seeded user missing for ${plan.role}`);
       return plan.postingKeys.map((key) => ({

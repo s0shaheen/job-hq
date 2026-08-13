@@ -8,7 +8,24 @@
 # needs the test project's service_role key, and a workflow that hands a
 # database-destroying credential to code from a fork is a supply-chain hole. It
 # is also slow: a build, a seed, a teardown. Fixture mode stays the fast inner
-# loop; this runs after the merge and before a release.
+# loop; this runs after the merge and before a release. (#178 proposed gating
+# pull requests with it; #228 rejected that. If per-PR coverage is ever wanted,
+# it joins the full-run label lane — never every PR.)
+#
+# Two hygiene properties, both salvaged from #178 because they are true on any
+# trigger:
+#
+#   NAMESPACE — every row a run creates carries `HQ_LIVE_SEED_NAMESPACE`
+#   (`main` here, `local` on a laptop), and teardown is scoped to it, so a
+#   developer's run and CI can never delete each other's rows. What a
+#   cancelled run abandons is reclaimed: the same namespace's next seed tears
+#   it down exactly, and an age-based reaper reclaims namespaces nobody seeds
+#   again. See `webapp/tests/live/seed-plan.ts`.
+#
+#   THE SERVICE_ROLE KEY — when the secret is absent (a rotation that dropped
+#   it, a fork if a PR trigger is ever added), this lane does not quietly
+#   skip: it FAILS, loudly, in its first step. A lane that passes because it
+#   could not authenticate is an empty gate wearing a green check.
 name: live e2e
 
 on:
@@ -26,10 +43,11 @@ on:
   workflow_dispatch: {}
 
 concurrency:
-  # NOT cancel-in-progress. A cancelled run skips its teardown and leaves four
-  # synthetic users on the project; the next run's seed would then fail on the
-  # unique-email constraint with a message about identity merging that has
-  # nothing to do with the change being tested. Queue instead.
+  # NOT cancel-in-progress. A cancelled run skips its teardown; the namespace
+  # design means the next seed reclaims what it left rather than failing on
+  # it, but a cancelled main run is still a live-path regression nobody
+  # measured. Queue instead. Queueing is also what lets the whole lane share
+  # the single `main` namespace: two runs of this workflow can never overlap.
   group: live-e2e
   cancel-in-progress: false
 
@@ -41,10 +59,54 @@ jobs:
     # `main` only, restated as a condition. `push.branches` already says so, but
     # `workflow_dispatch` does not, and this job holds a service_role key.
     if: github.ref == 'refs/heads/main'
+    env:
+      # THE NAMESPACE every row this run creates will carry.
+      #
+      # A literal, because every run this workflow can start IS main: the
+      # trigger is push[main] plus dispatch, and the job condition above pins
+      # the dispatch to main too. It must never be `local` — that is the
+      # laptop default, and CI sharing it would let a developer's run and CI
+      # delete each other's rows mid-journey, which is the collision the
+      # namespace exists to prevent. Stable per lane rather than per run, so a
+      # re-run reclaims what a cancelled predecessor abandoned instead of
+      # accumulating a fresh dead set of five users. `assertNamespace` refuses
+      # a malformed value at config load. See webapp/tests/live/seed-plan.ts.
+      HQ_LIVE_SEED_NAMESPACE: main
     defaults:
       run:
         working-directory: webapp
     steps:
+      # THE CREDENTIAL REFUSAL, BEFORE THE CHECKOUT.
+      #
+      # Without the service_role key this lane cannot seed, and a lane that
+      # cannot run must not report anything a merge path could mistake for a
+      # pass. The tempting shape is `if: <secret present>`, which makes the
+      # job SKIP — and a skipped-and-therefore-neutral live lane among a dozen
+      # green checks is the empty-check-set hole, one job wide. So the step is
+      # UNCONDITIONAL and exits 1, first, before anything else runs.
+      #
+      # Gated on the SECRET being absent because absent credentials are the
+      # actual hazard whatever the cause: a rotation that dropped the secret
+      # reads exactly like a repository that never had it, and neither may
+      # read as a pass. (A fork pull request would be the same failure with a
+      # third cause, if a PR trigger ever existed here — it must not, per
+      # #228.)
+      #
+      # `working-directory: .` because the job default is `webapp`, which does
+      # not exist until the checkout below.
+      - name: Refuse to pass without the test project's credentials
+        working-directory: .
+        env:
+          HAS_KEY: ${{ secrets.HQ_LIVE_SUPABASE_SERVICE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          if [ "${HAS_KEY}" = "true" ]; then
+            echo "live lane credentials are present"
+            exit 0
+          fi
+          echo "::error title=Live lane is not configured::HQ_LIVE_SUPABASE_SERVICE_KEY is unset on this repository, so the only gate that can prove RLS, entitlement and real sessions reach the rendered UI cannot run — and it will not report a success it did not earn. See webapp/tests/live/README.md section 1.6."
+          exit 1
+
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v7
         with:
@@ -71,8 +133,13 @@ jobs:
         # `--list` loads the very config the real run loads, which is where
         # `readLiveEnv` lives. Reusing the shipped path rather than a parallel
         # copy of the check is the point: a preflight with its own idea of the
-        # rules is a preflight that can disagree with the thing it gates.
-        run: npx playwright test --list
+        # rules is a preflight that can disagree with the thing it gates. It
+        # resolves the NAMESPACE too (`assertNamespace`, which refuses a token
+        # that would break the teardown predicates), and the namespace is
+        # echoed so a leaked row can be attributed to the run that made it.
+        run: |
+          echo "seed namespace: ${HQ_LIVE_SEED_NAMESPACE}"
+          npx playwright test --list
 
       - name: Cache Playwright browser
         uses: actions/cache@v6
@@ -84,8 +151,10 @@ jobs:
 
       # Seeding, the run, and teardown are all inside `playwright test`:
       # `globalSetup` seeds and mints sessions, `globalTeardown` deletes them.
-      # Teardown runs on failure too, and seeding tears down first, so an
-      # abandoned run costs a message rather than a manual cleanup.
+      # Teardown runs on failure too, and seeding tears its own namespace down
+      # first — and REAPS any namespace an earlier cancelled run abandoned more
+      # than two hours ago — so an abandoned run costs a message rather than a
+      # manual cleanup.
       - name: Run the live-data lane
         env:
           HQ_LIVE_E2E: "1"

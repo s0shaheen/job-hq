@@ -7,7 +7,9 @@ main once — an env line that lost its indentation when a neighbouring line
 was deleted — and nothing in CI noticed, because the tests only ever ran
 Python. A workflow is code; it gets parsed like code.
 """
+import os
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -372,3 +374,130 @@ def test_red_main_pages_only_for_failures_on_main():
     assert "github.event.workflow_run.event != 'pull_request'" in condition
     assert "failure" in condition
     assert "success" not in condition
+
+
+#: The live lane's first step: the one that decides what "no credentials" means.
+_LIVE_REFUSAL = "Refuse to pass without the test project's credentials"
+
+
+def test_the_live_lane_refuses_rather_than_skipping_without_its_credentials():
+    """A lane that cannot authenticate must not report success.
+
+    Without the service_role key the lane cannot seed. The tempting response
+    is `if: <secret present>`, which makes the job SKIP — and a skipped,
+    therefore neutral, live lane sitting among a dozen real green checks is
+    how the only gate that can see RLS looks at nothing while the merge path
+    reads green. That is the empty-check-set hole, one job wide.
+
+    So the step is UNCONDITIONAL, runs FIRST, and exits 1. This test runs its
+    actual shell body under both conditions rather than reading it, because
+    "the script says exit 1" and "the script exits 1" have been different
+    things before."""
+    wf = next(w for w in WORKFLOWS if w.name == "live-e2e.yml")
+    doc = yaml.safe_load(wf.read_text())
+    step = _named_step(_LIVE_REFUSAL, "live-e2e.yml")
+
+    # Unconditional. An `if:` here is how it would silently become a skip.
+    assert "if" not in step, f"{_LIVE_REFUSAL!r} is conditional; it must always run"
+    # And FIRST, before the checkout: nothing else in the job may run before
+    # the question "do we hold the credential" has been answered.
+    assert doc["jobs"]["live"]["steps"][0].get("name") == _LIVE_REFUSAL
+
+    body = step["run"]
+    with_key = subprocess.run(
+        ["bash", "-c", body],
+        env={"PATH": os.environ["PATH"], "HAS_KEY": "true"},
+        capture_output=True,
+        text=True,
+    )
+    assert with_key.returncode == 0, f"configured repo was refused: {with_key.stdout}"
+
+    unconfigured = subprocess.run(
+        ["bash", "-c", body],
+        env={"PATH": os.environ["PATH"], "HAS_KEY": "false"},
+        capture_output=True,
+        text=True,
+    )
+    assert unconfigured.returncode == 1, "an unconfigured repo must FAIL the lane, not skip it"
+    assert "::error" in unconfigured.stdout, "the refusal must annotate, not just exit"
+    assert "HQ_LIVE_SUPABASE_SERVICE_KEY is unset" in unconfigured.stdout
+
+
+def _seed_plan_source() -> str:
+    plan = Path(__file__).resolve().parents[2] / "webapp" / "tests" / "live" / "seed-plan.ts"
+    return plan.read_text()
+
+
+def test_the_live_lane_names_the_namespace_its_rows_will_carry():
+    """Every run this workflow can start seeds the shared project, and every
+    row it creates must carry a namespace CI owns — never `local`, which is
+    the laptop default (`DEFAULT_NAMESPACE` in seed-plan.ts). If CI seeded
+    under the laptop namespace, a developer's run and a CI run would delete
+    each other's users mid-journey, and the failure would read as an RLS bug.
+
+    The two files are compared rather than trusted to agree: the workflow's
+    literal and seed-plan.ts's default drifting into the same token is exactly
+    the kind of change no reviewer connects across a .yml and a .ts."""
+    wf = next(w for w in WORKFLOWS if w.name == "live-e2e.yml")
+    doc = yaml.safe_load(wf.read_text())
+    namespace = doc["jobs"]["live"]["env"]["HQ_LIVE_SEED_NAMESPACE"]
+
+    assert namespace == "main", (
+        f"live-e2e.yml seeds under {namespace!r}. Every run it can start is a "
+        "main run (push[main] plus a dispatch its job condition pins to main), "
+        "and the namespace must be stable per lane so a re-run reclaims a "
+        "cancelled predecessor instead of accumulating orphans."
+    )
+
+    m = re.search(r'DEFAULT_NAMESPACE\s*=\s*"([^"]+)"', _seed_plan_source())
+    assert m, "DEFAULT_NAMESPACE is not where this test can read it"
+    assert namespace != m.group(1), (
+        f"CI's namespace equals the laptop default {m.group(1)!r}; a developer's "
+        "run and CI would then tear down each other's rows"
+    )
+
+    # One namespace requires one run at a time: the whole lane shares a fixed
+    # concurrency group and QUEUES, so two `main`-namespace runs never overlap.
+    assert doc["concurrency"]["group"] == "live-e2e"
+    assert doc["concurrency"]["cancel-in-progress"] is False, (
+        "a cancelled main run skips teardown and measures nothing; queue instead"
+    )
+
+
+def test_the_live_lane_cannot_outlive_the_reaper_that_would_reclaim_it():
+    """The reaper's safety rests on a number in a DIFFERENT file, and nothing
+    else holds the two together.
+
+    `seed-plan.ts` deletes any seed row outside the current namespace whose own
+    `created_at` is older than `REAP_MAX_AGE_MS`. A run that is still LIVE is a
+    foreign namespace to every other run — CI's `main` is foreign to a laptop's
+    `local` and vice versa — so the only thing stopping one run's reaper from
+    deleting another live run's users mid-journey is that no run survives long
+    enough to reach the cutoff: `timeout-minutes: 25` against a two-hour reap
+    age. That argument lives in prose in three places; raising the job timeout
+    to four hours (a plausible response to a slow build) would silently make a
+    concurrent seed eat live runs, and the failure would read as a flaky RLS
+    assertion.
+
+    So the two numbers are compared, with room to spare: the cutoff must be at
+    least twice the longest run the workflow can produce."""
+    wf = next(w for w in WORKFLOWS if w.name == "live-e2e.yml")
+    doc = yaml.safe_load(wf.read_text())
+    timeout_minutes = doc["jobs"]["live"]["timeout-minutes"]
+    assert isinstance(timeout_minutes, int), "the live job must bound its own runtime"
+
+    m = re.search(r"REAP_MAX_AGE_MS\s*=\s*([0-9*\s]+);", _seed_plan_source())
+    assert m, "REAP_MAX_AGE_MS is not where this test can read it"
+    # Digits and `*` only — the regex above admits nothing else.
+    reap_ms = 1
+    for factor in m.group(1).split("*"):
+        reap_ms *= int(factor.strip())
+
+    assert timeout_minutes * 60_000 * 2 <= reap_ms, (
+        f"live-e2e.yml allows a run to last {timeout_minutes} minutes while the "
+        f"reaper reclaims foreign seed rows after {reap_ms // 60_000} minutes. A "
+        "run slower than the cutoff is a foreign namespace to every other run, so "
+        "a concurrent seed would delete its users out from under it and the "
+        "failure would read as an RLS bug. Lower the timeout or raise "
+        "REAP_MAX_AGE_MS in webapp/tests/live/seed-plan.ts."
+    )

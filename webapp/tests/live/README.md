@@ -118,6 +118,7 @@ gh workflow run live-e2e.yml
 | `HQ_LIVE_SUPABASE_ANON_KEY` | yes | Reaches the browser bundle, exactly as in production. |
 | `HQ_LIVE_SUPABASE_SERVICE_KEY` | yes | Seeding and teardown only. Never reaches the app's build. |
 | `HQ_LIVE_SEED_PASSWORD` | yes | The synthetic users' password. No default, by design. |
+| `HQ_LIVE_SEED_NAMESPACE` | no | The per-run namespace every seeded row carries. `main` in CI, `local` when unset. See section 7.1. |
 
 Absence is answered two different ways, and the caller states which:
 
@@ -147,7 +148,8 @@ HQ_LIVE_SEED_PASSWORD=... \
 ## 3. What it seeds
 
 Five synthetic users (`seed-plan.ts`), all on `example.com`, all carrying the
-`hq-live-e2e` prefix:
+`hq-live-e2e` prefix and the run's namespace (section 7.1) — so the addresses below read
+`hq-live-e2e+main-active@example.com` in CI:
 
 | Role | Entitlement | Profile | Owns |
 |---|---|---|---|
@@ -179,9 +181,10 @@ policy that stopped working would render them.
 
 **Idempotent, with no human in the loop.** Seeding tears down first, so a re-run from any
 state — half-seeded, fully seeded, aborted — lands in the same place. Teardown is scoped
-twice: by project (the production guard) and by row (`isSeedAddress` / `isSeedPostingKey`,
-which require both the reserved domain and the seed prefix). A single guard is one typo
-from a disaster.
+three ways: by project (the production guard), by row shape (`isSeedAddress` /
+`isSeedPostingKey`, which require both the reserved domain and the seed prefix), and by
+namespace (`isNamespacedSeedAddress`, so one run cannot delete a concurrent run's users).
+A single guard is one typo from a disaster.
 
 ---
 
@@ -265,7 +268,66 @@ list by using `tests/e2e/support/mode.ts` instead of the demo cookies directly.
 
 On **merge to main** and **before a release** (`.github/workflows/live-e2e.yml`), never on
 a pull request. It needs a database-destroying credential, which must not be handed to code
-from a fork, and it is slow. Fixture mode stays the fast inner loop.
+from a fork, and it is slow. Fixture mode stays the fast inner loop. (#178 proposed gating
+pull requests with this lane; #228 rejected that. If per-PR coverage is ever wanted, it
+joins the full-run label lane — never every PR.)
 
 Failures page the ops topic, for the same reason a red main does: a silent failure here
 returns the estate to the state it was in before this lane existed — the one nobody noticed.
+
+### 7.1 The per-run namespace
+
+The lane seeds one shared project, and more than one thing can touch it: CI, and a
+developer running the lane by hand. Every row a run creates therefore carries
+`HQ_LIVE_SEED_NAMESPACE`:
+
+| Where | Namespace | Addresses |
+|---|---|---|
+| CI (`push` to main, `workflow_dispatch`) | `main` | `hq-live-e2e+main-active@example.com` |
+| a laptop with the variable unset | `local` | `hq-live-e2e+local-active@example.com` |
+
+Posting keys and posting **titles** carry it too — titles because the RLS specs assert on
+them, and a title shared between two runs would make "I cannot see the other owner's rows"
+a statement about an ambiguous key.
+
+The token is stable per lane rather than per run, for two reasons that both matter: a
+re-run reuses the namespace instead of leaving a fresh dead set of five users behind every
+time, and — because seeding tears its own namespace down before creating anything — a
+re-run reclaims whatever a cancelled predecessor left.
+
+`assertNamespace` refuses anything outside `[a-z0-9-]{1,31}`. That is not cosmetic: the
+token is interpolated into an email local part, so `a@evil.com` would produce
+`hq-live-e2e+a@evil.com-active@example.com`, which still starts with the prefix and still
+ends with the reserved domain — `isSeedAddress` would call it ours. `%` and `_` are `like`
+wildcards and would widen the reaper's match.
+
+### 7.2 Teardown that survives a cancellation
+
+A cancelled run never reaches `globalTeardown`, so seeding also **reaps**: any seed row in
+any *other* namespace whose own `created_at` is more than two hours old is removed before
+the new namespace is created. Three rules, and each one is a way to get it wrong:
+
+- only rows in the seed family are candidates, so a real account is never one;
+- the **current** namespace is never age-reaped — a run slower than the cutoff must not
+  delete its own users out from under itself;
+- an unparseable or future timestamp is reported and left alone. Clock skew has to fail in
+  the direction of reaping late.
+
+Age is computed from the row's own timestamp rather than pushed into a server-side filter,
+which is the lesson `scripts/test-shell.sh`'s container reaper already paid for: the
+obvious filter (`docker ps --filter until=`) is rejected outright, so a reaper written
+against it matches nothing, forever, silently.
+
+`tests/unit/live-namespace.test.ts` runs the real `LiveAdmin` — real seeder, real teardown,
+real reaper — against an in-memory project, seeds two namespaces concurrently, and shows a
+cancelled run's namespace being reclaimed. The two-hour cutoff and the workflow's
+25-minute job timeout are held together by
+`tests/core/test_workflows.py::test_the_live_lane_cannot_outlive_the_reaper_that_would_reclaim_it`.
+
+### 7.3 Absent credentials fail; they do not skip
+
+The workflow's first step — before the checkout — detects an absent service_role key and
+**exits 1** with an actionable message. It does not skip: a skipped, therefore neutral,
+live lane among a dozen green checks would let the merge path read green while the only
+gate that can see RLS looked at nothing. A rotation that dropped the secret and a
+repository that never had it read identically, and neither may read as a pass.

@@ -25,6 +25,7 @@ export default async function globalTeardown(): Promise<void> {
   const admin = new LiveAdmin(resolved.env);
   const removed = await admin.teardown();
   process.stderr.write(
-    `live lane: removed ${removed.users} synthetic users and ${removed.postings} seed postings\n`,
+    `live lane: removed ${removed.users} synthetic users and ${removed.postings} seed ` +
+      `postings from namespace ${admin.namespace}\n`,
   );
 }
