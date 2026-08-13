@@ -367,21 +367,18 @@ test.describe("the Warm-intro cell on /pipeline", () => {
 // ───────────────────────────────────────────────────────────────── axe
 
 test.describe("the results panel is accessible", () => {
-  for (const scheme of ["light", "dark"] as const) {
-    test(`passes axe with the results panel open — ${scheme}`, async ({ page }) => {
-      await isolate(page, `axe-${scheme}`);
-      await warmMode(page, "results");
-      await page.emulateMedia({ colorScheme: scheme });
-      await page.goto("/jobs?set=all");
-      await jobsReady(page);
-      await findIntroOn(page, "Ramp").click();
-      await page.getByTestId("warm-intro-search").click();
-      await expect(page.getByTestId("warm-intro-results")).toBeVisible();
+  test("passes axe with the results panel open", async ({ page }) => {
+    await isolate(page, "axe");
+    await warmMode(page, "results");
+    await page.goto("/jobs?set=all");
+    await jobsReady(page);
+    await findIntroOn(page, "Ramp").click();
+    await page.getByTestId("warm-intro-search").click();
+    await expect(page.getByTestId("warm-intro-results")).toBeVisible();
 
-      const results = await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa"])
-        .analyze();
-      expect(results.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
-    });
-  }
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa"])
+      .analyze();
+    expect(results.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+  });
 });

@@ -191,8 +191,9 @@ do not: their whole job is a colour-coded distinction — verified / inferred /
 unverified / unresolved on `/companies`, a rule that ends an application versus
 one that shrinks it on `/settings/answers`, a row the app wrote versus one the
 person wrote, a readiness banner in one of three tones on `/apply` — so a token
-that quietly drifts in one theme changes what the page CLAIMS about its own
-evidence, and no assertion would notice.
+that quietly drifts changes what the page CLAIMS about its own evidence, and no
+assertion would notice. The suite is light-only (DEC-014); the snapshot names
+keep their `-light` suffix so the pre-ruling baselines stay the same files.
 
 Pixel baselines only mean something where the fonts
 match, so both the recording and the CI check happen inside one image — the

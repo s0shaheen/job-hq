@@ -9,25 +9,27 @@ import { describe, expect, it } from "vitest";
  * `globals.css` look interchangeable and are not:
  *
  *   `@theme inline { --color-x: var(--x) }`  substitutes the VALUE into every
- *   utility at build time, which is what makes `.dark` reach `bg-surface`;
+ *   utility at build time, which keeps `:root` the one place a colour is
+ *   defined (light mode only, DEC-014 — nothing overrides these at runtime
+ *   any more);
  *
  *   `@theme        { --text-sm: … }`         emits `font-size: var(--text-sm)`,
  *   which is the ONLY reason a runtime override of the type scale reaches
  *   anything at all.
  *
- * Swap them and nothing errors. Colours quietly stop flipping in dark mode, or
- * — the failure that actually happened — the large-type override has nothing to
- * override, because no utility references the token: the body font grew and
- * every `text-*` utility stayed put, so a status pill grew its text and not its
- * box. Design doc 07 §2 names this as the one repo mechanic that must carry
- * into every handoff, "or the large-type mechanism regresses".
+ * Swap them and nothing errors — and the failure that actually happened: the
+ * large-type override has nothing to override, because no utility references
+ * the token: the body font grew and every `text-*` utility stayed put, so a
+ * status pill grew its text and not its box. Design doc 07 §2 names this as
+ * the one repo mechanic that must carry into every handoff, "or the
+ * large-type mechanism regresses".
  *
- * Nothing else can see it. Tailwind compiles without complaint either way, the
- * token tests set `.dark` by hand, and the runtime proofs are on two specific
- * surfaces (`pipeline.spec.ts` measures the pill's computed font-size growing;
- * `grid-polish.spec.ts` proves the grid's subtree opts out) — both of which
- * would be deleted along with the surface they belong to. This is the check
- * that survives a rewrite of every component.
+ * Nothing else can see it. Tailwind compiles without complaint either way, and
+ * the runtime proofs are on two specific surfaces (`pipeline.spec.ts` measures
+ * the pill's computed font-size growing; `grid-polish.spec.ts` proves the
+ * grid's subtree opts out) — both of which would be deleted along with the
+ * surface they belong to. This is the check that survives a rewrite of every
+ * component.
  */
 
 const CSS = readFileSync(join(process.cwd(), "app", "globals.css"), "utf8");
@@ -81,17 +83,17 @@ describe("the @theme split", () => {
   });
 
   it("colour tokens live in @theme inline, never in the plain @theme", () => {
-    // The other direction, and its failure is just as quiet: a `--color-*`
-    // moved out of `inline` compiles to a literal, and `.dark` overriding the
-    // underlying `--surface` reaches nothing.
+    // The other direction: a `--color-*` in the plain block would emit
+    // `var()` utilities for values nothing ever overrides, and would be the
+    // first token whose definition drifted out of `:root`.
     expect(declared(INLINE).filter((t) => t.startsWith("--color-")).length).toBeGreaterThan(10);
     expect(declared(PLAIN).filter((t) => t.startsWith("--color-"))).toEqual([]);
   });
 
   it("the colour tokens are var() references, which is what `inline` collapses", () => {
     // `--color-surface: #fff` inside `@theme inline` would satisfy the case
-    // above and still break dark mode: there would be no indirection left for
-    // `.dark` to redefine.
+    // above while forking the palette: the same colour defined in two places,
+    // and the `:root` token no longer the one that renders.
     const literals = INLINE.split("\n").filter((l) => /^\s*--color-[\w-]+\s*:\s*#/.test(l));
     expect(literals, `colour tokens hard-coded instead of var(): ${literals}`).toEqual([]);
   });
@@ -174,9 +176,14 @@ describe("the scale is driven by an attribute on the root", () => {
     expect(layout).not.toContain("hq_display=");
   });
 
-  it("dark mode is class-driven, so a stored choice can beat the OS", () => {
-    // `data-type-scale` is an ATTRIBUTE and `.dark` is a CLASS on purpose: they
-    // compose on the same element without either having to know about the other.
-    expect(CSS).toContain("@custom-variant dark (&:where(.dark, .dark *))");
+  it("light mode only: no dark selector, variant, or media query survives (DEC-014)", () => {
+    // The stylesheet half of issue #240's acceptance: a `.dark` block or a
+    // `dark:` variant that crept back in would style a state the app can no
+    // longer enter, and the one declaration that MUST exist is the light
+    // `color-scheme`, which is what stops a browser force-darkening on its own.
+    expect(CSS).not.toMatch(/@custom-variant dark/);
+    expect(CSS).not.toMatch(/^\s*\.dark\b/m);
+    expect(CSS).not.toContain("prefers-color-scheme");
+    expect(CSS).toContain("color-scheme: light");
   });
 });

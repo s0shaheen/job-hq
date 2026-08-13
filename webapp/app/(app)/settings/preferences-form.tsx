@@ -6,26 +6,25 @@ import type { DisplayPrefsView } from "@/lib/data/source";
 import {
   DENSITIES,
   LANDING_VIEW_OPTIONS,
-  THEMES,
   TYPE_SCALES,
   type Density,
-  type ThemeChoice,
   type TypeScale,
 } from "@/lib/display/prefs";
 import { setDisplayPrefsAction } from "./actions";
 
 /**
- * Settings → Preferences: the five display knobs, autosaved.
+ * Settings → Preferences: the four display knobs, autosaved.
  *
- * WHAT THIS REPLACES. `display-prefs.tsx` shipped two of the five as checkboxes
+ * WHAT THIS REPLACES. `display-prefs.tsx` shipped two of these as checkboxes
  * ("Larger text", "Roomier rows") on the old single-column `/settings`, because
  * only two were reachable at the time and the section rail did not exist.
- * `Settings.dc.html` draws all five: Density, Type size and Theme as 200px
- * selects, Landing view as a 200px select with its own help line, and Keyboard
- * hints as a switch with a title and a description. That file is gone and this
- * is what took its place; the write path underneath is byte for byte the same
- * `setDisplayPrefsAction`, so nothing about authorization, idempotency or the
- * version token changed.
+ * `Settings.dc.html` draws five: Density, Type size and Theme as 200px selects,
+ * Landing view as a 200px select with its own help line, and Keyboard hints as
+ * a switch with a title and a description. The Theme select is deliberately NOT
+ * built: the product is light mode only (DEC-014, issue #240 — owner design
+ * ruling), which supersedes the mock's third select. The write path underneath
+ * is byte for byte the same `setDisplayPrefsAction`, so nothing about
+ * authorization, idempotency or the version token changed.
  *
  * AUTOSAVE, per 06 §A, and the heading says so. Profile & search is the one
  * section with an explicit Save, and each section states which it is. The quiet
@@ -36,10 +35,9 @@ import { setDisplayPrefsAction } from "./actions";
  * THE RELOAD STAYS for density and type scale, and its original justification is
  * unchanged: both are `<html>` attributes read by every rendered element, and
  * server-rendered markup measured against the old scale would need the whole
- * tree re-measured to catch up. Theme is class-driven on the same element, so it
- * takes the same path. Keyboard hints and landing view do NOT reload — nothing
- * on this page is measured against them, and reloading for a value the page does
- * not render would be a flash with no purpose.
+ * tree re-measured to catch up. Keyboard hints and landing view do NOT reload —
+ * nothing on this page is measured against them, and reloading for a value the
+ * page does not render would be a flash with no purpose.
  */
 
 /**
@@ -69,39 +67,10 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | { timedOut
 }
 
 /** One knob, named by the field it writes. Used for the in-flight state. */
-type Knob = "density" | "typeScale" | "theme" | "landingView" | "keyboardHints";
+type Knob = "density" | "typeScale" | "landingView" | "keyboardHints";
 
 /** The knobs whose value the document itself is rendered against. */
-const REPAINTS: readonly Knob[] = ["density", "typeScale", "theme"];
-
-/**
- * The key `app/layout.tsx`'s pre-paint bootstrap reads. One spelling, here.
- */
-const THEME_KEY = "hq-theme";
-
-/**
- * The theme's device half.
- *
- * `system` REMOVES the key rather than storing the string, and that is the
- * layout's own rule rather than a shortcut: `system` means "ask the operating
- * system", which is the ABSENCE of a choice. A stored `"system"` would be a
- * value nothing reads differently from its own absence, and — worse — it would
- * sit in the slot that outranks the profile, so choosing `system` on one device
- * would silently pin that device away from an explicit `dark` the account later
- * set from another one.
- *
- * Wrapped, because private mode throws on `localStorage`. A theme is never worth
- * a broken save: the profile half already landed, and the next load resolves it
- * from the server.
- */
-function writeThemeLocal(theme: ThemeChoice): void {
-  try {
-    if (theme === "system") localStorage.removeItem(THEME_KEY);
-    else localStorage.setItem(THEME_KEY, theme);
-  } catch {
-    // no-op, deliberately: see above
-  }
-}
+const REPAINTS: readonly Knob[] = ["density", "typeScale"];
 
 const selectClass =
   "h-8 w-50 max-w-full rounded-md border border-border-strong bg-surface px-2 text-sm text-text " +
@@ -150,7 +119,7 @@ export function PreferencesForm({ prefs }: { prefs: DisplayPrefsView }) {
   /**
    * Visible is not interactive, and on THIS control the gap is wider than usual.
    *
-   * The server renders all five knobs long before React attaches a handler, and
+   * The server renders all four knobs long before React attaches a handler, and
    * a `select` is the worst case: changing it before hydration moves the DOM
    * value and fires a change event nothing is listening for, so the option
    * really does look chosen and no write is ever sent. `profile-form.tsx` earned
@@ -180,7 +149,7 @@ export function PreferencesForm({ prefs }: { prefs: DisplayPrefsView }) {
     return pending?.knob === knob ? (pending.value as T) : stored;
   }
 
-  async function write(knob: Knob, value: Density | TypeScale | ThemeChoice | string | boolean) {
+  async function write(knob: Knob, value: Density | TypeScale | string | boolean) {
     if (pending) return;
     setPending({ knob, value });
     setSaved(false);
@@ -190,7 +159,7 @@ export function PreferencesForm({ prefs }: { prefs: DisplayPrefsView }) {
     try {
       result = await withTimeout(
         setDisplayPrefsAction({
-          // ONE knob per call, so the other four are never restated — two tabs,
+          // ONE knob per call, so the other three are never restated — two tabs,
           // or this tab and a phone, turning different knobs cannot revert each
           // other. Every field in `SetDisplayPrefsInput` is optional for exactly
           // this reason.
@@ -222,22 +191,6 @@ export function PreferencesForm({ prefs }: { prefs: DisplayPrefsView }) {
       // A conflict is not an error to a person here: another device already
       // moved this, and the honest response is to show what it set. A reload
       // does exactly that, because the server is where the value lives now.
-      //
-      // THE THEME'S DEVICE HALF, and ONLY on `ok`.
-      //
-      // `result.kind === "conflict"` means the server did NOT store this value:
-      // another device's write won. Writing it to `localStorage` anyway would
-      // put the LOSING value on this device, and then reload straight into it.
-      // A reload is the right answer to a conflict precisely because the server
-      // is the authority; caching the value the server just rejected would
-      // contradict that in the same breath.
-      //
-      // Written AFTER the round trip, never before: `localStorage` is not a
-      // cache of the profile, it is this device's answer for the first paint,
-      // and setting it for a write that then failed would leave the device
-      // disagreeing with the account with nothing on screen to explain it.
-      if (result.ok && knob === "theme") writeThemeLocal(value as ThemeChoice);
-
       if (REPAINTS.includes(knob)) {
         window.location.reload();
         return;
@@ -255,7 +208,6 @@ export function PreferencesForm({ prefs }: { prefs: DisplayPrefsView }) {
   const busy = pending !== null;
   const density = current<Density>("density", prefs.density);
   const typeScale = current<TypeScale>("typeScale", prefs.typeScale);
-  const theme = current<ThemeChoice>("theme", prefs.theme);
   const landingView = current<string>("landingView", prefs.landingView || "queue");
   const hints = current<boolean>("keyboardHints", prefs.keyboardHints);
 
@@ -318,28 +270,6 @@ export function PreferencesForm({ prefs }: { prefs: DisplayPrefsView }) {
           >
             <option value={TYPE_SCALES[0]}>Default</option>
             <option value={TYPE_SCALES[1]}>Large</option>
-          </select>
-        </Field>
-
-        <Field id="prefs-theme" label="Theme">
-          <select
-            id="prefs-theme"
-            data-testid="prefs-theme"
-            className={selectClass}
-            value={theme}
-            disabled={busy}
-            onChange={(e) => write("theme", e.target.value as ThemeChoice)}
-          >
-            <option value={THEMES[0]}>Light</option>
-            <option value={THEMES[1]}>Dark</option>
-            {/* All three are the design's: `Settings.dc.html` draws exactly
-                Light, Dark and System. An earlier version of this comment said
-                System was an addition of ours and defended it at length, which
-                was a false provenance claim sitting in a file full of true ones.
-                It is also the shipped default — 0025's header explains why a
-                stored `light` would silently overrule the operating system for
-                every existing account. */}
-            <option value={THEMES[2]}>System</option>
           </select>
         </Field>
 

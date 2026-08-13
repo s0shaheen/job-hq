@@ -7,11 +7,11 @@ import { expect, test, type Page } from "@playwright/test";
  * The per-page axe pass runs against a freshly loaded page — and a Radix
  * dialog does not exist until it is opened, so everything inside one shipped
  * unscanned. Four real defects hid in exactly that gap: an invisible focus
- * indicator on the Format radios, sub-AA contrast on the selected card in both
- * themes, selection that vanishes under forced colors, and a live region
- * populated on mount. This file closes the gap: the dialog is scanned OPEN,
- * in both themes, and the keyboard/forced-colors behaviour is driven the way
- * the affected users actually drive it.
+ * indicator on the Format radios, sub-AA contrast on the selected card,
+ * selection that vanishes under forced colors, and a live region populated on
+ * mount. This file closes the gap: the dialog is scanned OPEN, and the
+ * keyboard/forced-colors behaviour is driven the way the affected users
+ * actually drive it.
  */
 
 const FIXTURE_NOW = new Date("2026-07-21T15:00:00.000Z");
@@ -39,41 +39,36 @@ async function openExportDialog(page: Page) {
   await expect(page.getByTestId("export-download")).toHaveText(/Download \d+ rows?/);
 }
 
-test.describe("an open export dialog passes axe in both themes", () => {
-  for (const scheme of ["light", "dark"] as const) {
-    test(scheme, async ({ page }) => {
-      await page.emulateMedia({ colorScheme: scheme });
-      await openExportDialog(page);
+test("an open export dialog passes axe", async ({ page }) => {
+  await openExportDialog(page);
 
-      // Scoped to the dialog: the page behind it is already covered by the
-      // per-page pass, and sits under a 40% overlay that would make its
-      // contrast results meaningless here.
-      const results = await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-        .include('[role="dialog"]')
-        .analyze();
-      const serious = results.violations.filter((v) =>
-        ["serious", "critical"].includes(v.impact ?? ""),
-      );
-      const detail = serious
-        .map((v) => {
-          const nodes = v.nodes
-            .map((n) => {
-              const c = n.any.find((a) => a.id === "color-contrast")?.data as
-                | { fgColor?: string; bgColor?: string; contrastRatio?: number }
-                | undefined;
-              const measured = c
-                ? ` — ${c.fgColor} on ${c.bgColor} = ${c.contrastRatio}:1`
-                : "";
-              return `    ${n.target.join(" ")}${measured}\n      ${n.html.slice(0, 160)}`;
-            })
-            .join("\n");
-          return `${v.id}: ${v.help}\n${nodes}`;
+  // Scoped to the dialog: the page behind it is already covered by the
+  // per-page pass, and sits under a 40% overlay that would make its
+  // contrast results meaningless here.
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+    .include('[role="dialog"]')
+    .analyze();
+  const serious = results.violations.filter((v) =>
+    ["serious", "critical"].includes(v.impact ?? ""),
+  );
+  const detail = serious
+    .map((v) => {
+      const nodes = v.nodes
+        .map((n) => {
+          const c = n.any.find((a) => a.id === "color-contrast")?.data as
+            | { fgColor?: string; bgColor?: string; contrastRatio?: number }
+            | undefined;
+          const measured = c
+            ? ` — ${c.fgColor} on ${c.bgColor} = ${c.contrastRatio}:1`
+            : "";
+          return `    ${n.target.join(" ")}${measured}\n      ${n.html.slice(0, 160)}`;
         })
-        .join("\n\n");
-      expect(serious, detail).toEqual([]);
-    });
-  }
+        .join("\n");
+      return `${v.id}: ${v.help}\n${nodes}`;
+    })
+    .join("\n\n");
+  expect(serious, detail).toEqual([]);
 });
 
 /** True when keyboard focus sits on a radio inside the Format group. */

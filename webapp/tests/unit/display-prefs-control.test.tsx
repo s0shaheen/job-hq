@@ -27,11 +27,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
  *
  * RETARGETED, NOT WEAKENED, by RM-34. The control these three cases were written
  * against was `display-prefs.tsx`, two checkboxes on the old single-column
- * `/settings`. `Settings.dc.html` draws all five knobs as selects and a switch
- * behind a section rail, so the component is `preferences-form.tsx` and the
- * gesture is a `change` on a select. The write path underneath is the same
- * action, the bound is the same 15 seconds, and every assertion below is the
- * one it always made.
+ * `/settings`. The knobs are selects and a switch behind a section rail now
+ * (four of them — the mock's Theme select is removed, light mode only,
+ * DEC-014), so the component is `preferences-form.tsx` and the gesture is a
+ * `change` on a select. The write path underneath is the same action, the
+ * bound is the same 15 seconds, and every assertion below is the one it
+ * always made.
  */
 
 vi.mock("server-only", () => ({}));
@@ -51,7 +52,6 @@ const PREFS = {
   typeScale: "default",
   keyboardHints: true,
   landingView: "",
-  theme: "system",
   updatedAt: "2026-07-28T00:00:00.000Z",
 } as const;
 
@@ -81,12 +81,11 @@ describe("the display preferences control when the write does not come back", ()
     expect(screen.getByTestId("preferences-error").textContent).toMatch(/connection/i);
     // The part that was broken: the person can try again. Asserted across the
     // WHOLE control rather than on the one knob that was touched, because
-    // `busy` disables all five and a half-fix that re-enabled only the last one
+    // `busy` disables all four and a half-fix that re-enabled only the last one
     // used would pass a narrower check.
     for (const id of [
       "prefs-density",
       "prefs-type-scale",
-      "prefs-theme",
       "prefs-landing-view",
       "prefs-keyboard-hints",
     ]) {
@@ -129,11 +128,11 @@ describe("the display preferences control when the write does not come back", ()
     expect(first.idempotencyKey.length).toBeGreaterThan(0);
   });
 
-  it("one knob per call: turning density never restates the other four", async () => {
+  it("one knob per call: turning density never restates the other three", async () => {
     // The reason every value in `SetDisplayPrefsInput` is optional. A control
-    // that sent all five would replay whatever it last READ into the other four,
-    // so a second device's change would be quietly undone by the next gesture
-    // here. Asserted over the whole payload, not by checking one absent key.
+    // that sent all four would replay whatever it last READ into the other
+    // three, so a second device's change would be quietly undone by the next
+    // gesture here. Asserted over the whole payload, not by checking one absent key.
     setDisplayPrefsAction.mockResolvedValue({ ok: true, changed: true });
     renderControl();
 

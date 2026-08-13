@@ -21,7 +21,7 @@ const PAGES = [
   // The four sibling sections of the rail. Named individually rather than
   // assumed covered by `/settings`, because they are four routes and matrix row
   // 170 is what happens when a sweep is credited with a screen it never loaded:
-  // Preferences is five controls with their own help lines, Account carries an
+  // Preferences is four controls with their own help lines, Account carries an
   // address of arbitrary length, Data holds the leave block, and Plan is the one
   // section whose value comes from `entitlements`.
   "/settings/preferences",
@@ -87,63 +87,60 @@ test.describe("no console errors (catches hydration mismatches)", () => {
 
 test.describe("accessibility", () => {
   for (const path of [...PAGES, ...ONBOARDING_PAGES]) {
-    for (const scheme of ["light", "dark"] as const) {
-      test(`${path} — ${scheme}`, async ({ page }) => {
-        await page.emulateMedia({ colorScheme: scheme });
-        if (path.startsWith("/onboarding")) await seedOnboarding(page);
-        await page.goto(path);
-        // Scan the HYDRATED page, not whatever has painted so far.
-        //
-        // `goto` resolves when the server HTML lands, which is before React has
-        // attached — and the interactive tree is not the same DOM: Radix mounts
-        // portalled and visually-hidden nodes for its Select and Dialog
-        // primitives during hydration. Scanning in that window measures a
-        // half-built page, and this suite saw it exactly once out of ~500 tests,
-        // on the mobile project, unreproducible in isolation. A one-in-500
-        // failure reads as a real one and is the worst kind (matrix row 45), so
-        // the window is closed rather than retried.
-        // `load` plus one animation frame after it.
-        //
-        // The first attempt waited for `main, [data-testid]` to exist, which the
-        // SERVER HTML already satisfies — so it waited for nothing and the window
-        // it claimed to close stayed open. There is no app-wide readiness flag to
-        // wait on (the queue and the grid have their own; these six pages do not),
-        // so this waits for the frame after load, which is when React has attached
-        // and its portalled nodes exist. Honest about what it is: a bound on the
-        // race rather than a signal from the app.
-        await page.waitForLoadState("load");
-        await page.evaluate(
-          () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
-        );
-        const results = await new AxeBuilder({ page })
-          .withTags(["wcag2a", "wcag2aa"])
-          .analyze();
-        const serious = results.violations.filter((v) =>
-          ["serious", "critical"].includes(v.impact ?? ""),
-        );
-        // Name the offending element and the measured values, the way the
-        // layout suite does. "color-contrast: Elements must meet minimum
-        // contrast" with no selector sends the next person hunting through
-        // every page; the numbers and the node make it a two-minute fix.
-        const detail = serious
-          .map((v) => {
-            const nodes = v.nodes
-              .map((n) => {
-                const c = n.any.find((a) => a.id === "color-contrast")?.data as
-                  | { fgColor?: string; bgColor?: string; contrastRatio?: number }
-                  | undefined;
-                const measured = c
-                  ? ` — ${c.fgColor} on ${c.bgColor} = ${c.contrastRatio}:1`
-                  : "";
-                return `    ${n.target.join(" ")}${measured}\n      ${n.html.slice(0, 160)}`;
-              })
-              .join("\n");
-            return `${v.id}: ${v.help}\n${nodes}`;
-          })
-          .join("\n\n");
-        expect(serious, detail).toEqual([]);
-      });
-    }
+    test(`${path}`, async ({ page }) => {
+      if (path.startsWith("/onboarding")) await seedOnboarding(page);
+      await page.goto(path);
+      // Scan the HYDRATED page, not whatever has painted so far.
+      //
+      // `goto` resolves when the server HTML lands, which is before React has
+      // attached — and the interactive tree is not the same DOM: Radix mounts
+      // portalled and visually-hidden nodes for its Select and Dialog
+      // primitives during hydration. Scanning in that window measures a
+      // half-built page, and this suite saw it exactly once out of ~500 tests,
+      // on the mobile project, unreproducible in isolation. A one-in-500
+      // failure reads as a real one and is the worst kind (matrix row 45), so
+      // the window is closed rather than retried.
+      // `load` plus one animation frame after it.
+      //
+      // The first attempt waited for `main, [data-testid]` to exist, which the
+      // SERVER HTML already satisfies — so it waited for nothing and the window
+      // it claimed to close stayed open. There is no app-wide readiness flag to
+      // wait on (the queue and the grid have their own; these six pages do not),
+      // so this waits for the frame after load, which is when React has attached
+      // and its portalled nodes exist. Honest about what it is: a bound on the
+      // race rather than a signal from the app.
+      await page.waitForLoadState("load");
+      await page.evaluate(
+        () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+      );
+      const results = await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa"])
+        .analyze();
+      const serious = results.violations.filter((v) =>
+        ["serious", "critical"].includes(v.impact ?? ""),
+      );
+      // Name the offending element and the measured values, the way the
+      // layout suite does. "color-contrast: Elements must meet minimum
+      // contrast" with no selector sends the next person hunting through
+      // every page; the numbers and the node make it a two-minute fix.
+      const detail = serious
+        .map((v) => {
+          const nodes = v.nodes
+            .map((n) => {
+              const c = n.any.find((a) => a.id === "color-contrast")?.data as
+                | { fgColor?: string; bgColor?: string; contrastRatio?: number }
+                | undefined;
+              const measured = c
+                ? ` — ${c.fgColor} on ${c.bgColor} = ${c.contrastRatio}:1`
+                : "";
+              return `    ${n.target.join(" ")}${measured}\n      ${n.html.slice(0, 160)}`;
+            })
+            .join("\n");
+          return `${v.id}: ${v.help}\n${nodes}`;
+        })
+        .join("\n\n");
+      expect(serious, detail).toEqual([]);
+    });
   }
 });
 

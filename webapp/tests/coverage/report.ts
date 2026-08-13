@@ -430,7 +430,7 @@ function render(
     "- `Permission/holding` means the pending and suspended entitlements, driven through the demo seam that the shipped predicate reads. WRONG-OWNER refusal is still uncovered in the browser: it needs two real identities and RLS, and the whole Playwright estate is one single-tenant fixture store. That half stays proven at the database layer only.",
   );
   out.push(
-    "- The visual snapshot suite cannot be cited: every title in `tests/e2e/visual.spec.ts` is computed from a loop variable, and a citation has to name something a person can find.",
+    "- The visual snapshot suite is not cited: a baseline is a picture, not an assertion a cell can name, and the PNGs under `tests/e2e/visual.spec.ts-snapshots` are their own evidence.",
   );
   out.push(
     `- A cell is checked on three things: the citation resolves, the cited test drives one of this surface's routes, and the cited test actually runs (a \`test.skip\`, \`test.fixme\` or \`test.fail\` cannot be cited — CI stays green over it). State ENTRY is checked only where the browser cannot reach the state without a specific call: ${machineCheckedStates().join(", ")}. For every other state, that the test entered it is a reviewer's judgement, recorded as \`null\` in \`tests/coverage/states.ts\` rather than left unsaid.`,

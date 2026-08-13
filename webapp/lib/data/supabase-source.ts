@@ -140,9 +140,10 @@ function toSavedView(r: Record<string, unknown>): SavedView {
 /**
  * The display half of one `profiles` row (0025) — from a select OR from
  * `app_display_prefs_row`'s jsonb, which is built with the same keys so that
- * one mapper serves the read and the write.
+ * one mapper serves the read and the write. `display_theme` is neither selected
+ * nor read — light mode only (DEC-014); the column waits for its own migration.
  *
- * The five values are handed to `parseDisplayPrefs` one by one rather than as
+ * The four values are handed to `parseDisplayPrefs` one by one rather than as
  * the whole row, and that is not ceremony: `tests/unit/supabase-select-lists.test.ts`
  * pins every column a MAPPER reads against the columns its query ASKED FOR, and
  * it reads this function's source to do it. Passing `r` straight through would
@@ -159,7 +160,6 @@ export function toDisplayPrefsView(raw: unknown): DisplayPrefsView {
       display_type_scale: r.display_type_scale,
       display_keyboard_hints: r.display_keyboard_hints,
       display_landing_view: r.display_landing_view,
-      display_theme: r.display_theme,
     }),
     updatedAt: str(r.display_updated_at),
   };
@@ -224,7 +224,7 @@ const NO_SUCH_WARM_SEARCH = "P0002";
  * profile save would be reported as somebody else's edit.
  */
 const DISPLAY_PREFS_COLS =
-  "display_density, display_type_scale, display_keyboard_hints, display_landing_view, display_theme, display_updated_at";
+  "display_density, display_type_scale, display_keyboard_hints, display_landing_view, display_updated_at";
 
 // ---- import row shapes (P9) -------------------------------------------------
 
@@ -1589,7 +1589,10 @@ export class SupabaseDataSource implements DataSource {
       p_type_scale: input.typeScale ?? null,
       p_keyboard_hints: input.keyboardHints ?? null,
       p_landing_view: input.landingView ?? null,
-      p_theme: input.theme ?? null,
+      // Always null — light mode only (DEC-014). The parameter still exists on
+      // the function (dropping it is a migration), and null is its "leave the
+      // column alone" signal, so a stored value is never touched or read.
+      p_theme: null,
       p_idem: input.idempotencyKey,
       p_expected_updated_at: input.expectedUpdatedAt,
     });

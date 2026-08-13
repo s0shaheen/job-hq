@@ -476,18 +476,15 @@ test.describe("the new surface does not look broken", () => {
     });
   }
 
-  for (const scheme of ["light", "dark"] as const) {
-    test(`/connections passes axe — ${scheme}`, async ({ page }) => {
-      await isolate(page, `axe-${scheme}`);
-      await page.emulateMedia({ colorScheme: scheme });
-      await page.goto("/connections");
-      await expect(page.getByTestId("connections")).toBeAttached();
-      const results = await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa"])
-        .analyze();
-      expect(results.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
-    });
-  }
+  test("/connections passes axe", async ({ page }) => {
+    await isolate(page, "axe");
+    await page.goto("/connections");
+    await expect(page.getByTestId("connections")).toBeAttached();
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa"])
+      .analyze();
+    expect(results.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+  });
 
   test("the warm popover passes axe with it open", async ({ page }) => {
     // At-rest sweeps never open a popover, so its contrast has never been

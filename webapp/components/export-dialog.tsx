@@ -265,8 +265,8 @@ export function ExportDialog({ dataset }: { dataset: ExportDataset }) {
                   <span className="flex items-baseline gap-1.5 text-sm font-medium text-text">
                     {opt.label}
                     {/* text-2, not muted: a card is always selected, and on
-                        accent-subtle the muted token measures 4.28:1 (light) /
-                        4.45:1 (dark) — under the AA 4.5 floor for this size. */}
+                        accent-subtle the muted token measures 4.28:1 — under
+                        the AA 4.5 floor for this size. */}
                     <span className="tabular text-xs font-normal text-text-2">
                       {counts ? `${opt.count(counts)} ${copy.noun}` : "Counting"}
                     </span>

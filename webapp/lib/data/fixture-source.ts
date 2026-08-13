@@ -121,7 +121,6 @@ import { isOnboarded, parseCriteria } from "@/lib/profile/criteria";
 import {
   DENSITIES,
   LANDING_VIEW_MAX,
-  THEMES,
   TYPE_SCALES,
 } from "@/lib/display/prefs";
 // The Supabase source's mapper, imported rather than re-implemented — matrix
@@ -135,7 +134,6 @@ const DISPLAY_COLUMNS = [
   "display_type_scale",
   "display_keyboard_hints",
   "display_landing_view",
-  "display_theme",
 ] as const;
 import type { Disposition } from "./view-models";
 import { FIXTURE_COMPANIES } from "./company-fixtures";
@@ -2040,12 +2038,15 @@ export class FixtureDataSource implements DataSource {
   // RESULT and never the MAPPING, and an `isOnboarded` mutant survived 383
   // tests exactly that way.
 
+  // No `display_theme` — light mode only (DEC-014). The real column still
+  // exists on `profiles`, but the Supabase source neither selects nor writes
+  // it, so a fake that carried it would be modelling a value the app can
+  // never observe.
   private displayRow: Record<string, unknown> = {
     display_density: "dense",
     display_type_scale: "default",
     display_keyboard_hints: true,
     display_landing_view: "",
-    display_theme: "system",
     // Null, not a timestamp: no `profiles` row exists until the first write, and
     // "there is nothing here yet" is a state the Supabase source can genuinely
     // return. A fake that started with a token would make every first write send
@@ -2086,9 +2087,6 @@ export class FixtureDataSource implements DataSource {
       (input.typeScale !== undefined && !TYPE_SCALES.includes(input.typeScale)
         ? `unknown type scale: ${input.typeScale}`
         : "") ||
-      (input.theme !== undefined && !THEMES.includes(input.theme)
-        ? `unknown theme: ${input.theme}`
-        : "") ||
       (input.landingView !== undefined && charLength(input.landingView) > LANDING_VIEW_MAX
         ? `landing view too long: ${charLength(input.landingView)} chars`
         : "");
@@ -2119,7 +2117,6 @@ export class FixtureDataSource implements DataSource {
       display_type_scale: input.typeScale ?? this.displayRow.display_type_scale,
       display_keyboard_hints: input.keyboardHints ?? this.displayRow.display_keyboard_hints,
       display_landing_view: input.landingView ?? this.displayRow.display_landing_view,
-      display_theme: input.theme ?? this.displayRow.display_theme,
     };
 
     // The UPDATE's `is distinct from` guard. A no-op autosave writes nothing:

@@ -1325,24 +1325,18 @@ test("axe is clean with a band collapsed and with the record pane open", async (
   await isolate(page, "axe-states");
   await gotoPipeline(page, "?open=Active");
 
-  for (const scheme of ["light", "dark"] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
+  let results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+  let serious = results.violations.filter((v) =>
+    ["serious", "critical"].includes(v.impact ?? ""),
+  );
+  expect(serious.map((v) => `${v.id}: ${v.nodes.length}`), "collapsed").toEqual([]);
 
-    let results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
-    let serious = results.violations.filter((v) =>
-      ["serious", "critical"].includes(v.impact ?? ""),
-    );
-    expect(serious.map((v) => `${v.id}: ${v.nodes.length}`), `collapsed, ${scheme}`).toEqual([]);
-
-    await openPane(page, PLAID);
-    results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
-    serious = results.violations.filter((v) => ["serious", "critical"].includes(v.impact ?? ""));
-    expect(serious.map((v) => `${v.id}: ${v.nodes.length}`), `pane, ${scheme}`).toEqual([]);
-    await page.keyboard.press("Escape");
-    await expect(page.getByTestId("application-pane")).toHaveCount(0);
-    // Closing is a navigation too, and the next iteration scans immediately.
-    await expect(page).toHaveTitle(/Applications/);
-  }
+  await openPane(page, PLAID);
+  results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+  serious = results.violations.filter((v) => ["serious", "critical"].includes(v.impact ?? ""));
+  expect(serious.map((v) => `${v.id}: ${v.nodes.length}`), "pane").toEqual([]);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("application-pane")).toHaveCount(0);
 });
 
 test("nothing paints past the edge with the record pane open", async ({ page }) => {

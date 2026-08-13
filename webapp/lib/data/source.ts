@@ -40,7 +40,6 @@ import type { WarmCandidate, WarmParams, WarmPersona, WarmStatus } from "@/lib/w
 import type {
   Density,
   DisplayPrefs,
-  ThemeChoice,
   TypeScale,
 } from "@/lib/display/prefs";
 import type {
@@ -772,11 +771,15 @@ export type DisplayPrefsView = DisplayPrefs & {
  * Turning one knob.
  *
  * EVERY VALUE IS OPTIONAL AND OMITTING ONE LEAVES IT ALONE — `undefined` maps
- * to the SQL null that means "leave it". A call that had to restate all five
- * would replay whatever this tab last READ into the other four, so flipping
+ * to the SQL null that means "leave it". A call that had to restate all four
+ * would replay whatever this tab last READ into the other three, so flipping
  * density on the phone would quietly revert the type scale the laptop set
  * thirty seconds earlier. The popover flips one switch at a time; this shape is
  * what makes that safe.
+ *
+ * No `theme` — light mode only (DEC-014). `app_set_display_prefs` still takes
+ * `p_theme` (a function parameter is not append-only-safe to drop without its
+ * own migration), and the sources pass the null that means "leave it".
  *
  * `expectedUpdatedAt: null` skips the version check the way 0012's does, for
  * the caller that legitimately has no token yet (a first write against a row
@@ -787,7 +790,6 @@ export type SetDisplayPrefsInput = {
   typeScale?: TypeScale;
   keyboardHints?: boolean;
   landingView?: string;
-  theme?: ThemeChoice;
   idempotencyKey: string;
   expectedUpdatedAt: string | null;
 };

@@ -68,23 +68,20 @@ const PAGES = [
  */
 const SKIP: string[] = [];
 
-async function sweep(page: Page, path: string, theme: "light" | "dark") {
-  await page.emulateMedia({ colorScheme: theme });
+async function sweep(page: Page, path: string) {
   await page.goto(path);
   await page.waitForLoadState("load");
   const offenders = (await page.evaluate(collectSlop, { skip: SKIP })) as SlopOffender[];
-  expect(offenders, `${path} (${theme})\n${describeSlop(offenders)}`).toEqual([]);
+  expect(offenders, `${path}\n${describeSlop(offenders)}`).toEqual([]);
 }
 
-for (const theme of ["light", "dark"] as const) {
-  test.describe(`no generated-UI tells in the computed styles — ${theme}`, () => {
-    for (const path of PAGES) {
-      test(`${path}`, async ({ page }) => {
-        await sweep(page, path, theme);
-      });
-    }
-  });
-}
+test.describe("no generated-UI tells in the computed styles", () => {
+  for (const path of PAGES) {
+    test(`${path}`, async ({ page }) => {
+      await sweep(page, path);
+    });
+  }
+});
 
 /**
  * The overlay layer, opened.

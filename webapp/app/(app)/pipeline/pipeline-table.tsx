@@ -1007,16 +1007,16 @@ export default function PipelineTable({ initial, reviewItems = [], warm, warmInt
 /**
  * De-emphasised text on a row, at a contrast that survives being selected.
  *
- * `--selected` is a TINT, not a neutral, and `--muted` on it measures 3.97:1 in
- * light and 3.37:1 in dark — both below AA, both reported by axe on this branch
- * before this existed. De-emphasis is never a licence to drop below AA, and the
- * row you are looking at is the one you most need to read.
+ * `--selected` is a TINT, not a neutral, and `--muted` on it measures 3.97:1 —
+ * below AA, reported by axe on this branch before this existed. De-emphasis is
+ * never a licence to drop below AA, and the row you are looking at is the one
+ * you most need to read.
  *
  * One function rather than the ternary written out at each site: the row has
  * three muted slots today and the fourth one somebody adds is the one that would
  * have been written the old way. `pipeline.spec.ts`'s axe scan opens the pane —
- * which is what selects a row — in both colour schemes, so a slot that forgets
- * this goes red rather than shipping.
+ * which is what selects a row — so a slot that forgets this goes red rather
+ * than shipping.
  */
 const MUTED_ON_ROW = (selected: boolean, slot: "text" | "placeholder" = "text") => {
   // LITERAL class strings, never assembled from a prefix. Tailwind scans source

@@ -10,11 +10,12 @@ export const dynamic = "force-dynamic";
 /**
  * /settings/preferences — the second section of the rail.
  *
- * Five knobs, all of them already durable on `profiles` since migration 0025,
+ * Four knobs, all of them already durable on `profiles` since migration 0025,
  * all of them written through the same `setDisplayPrefsAction` the retired
  * `display-prefs.tsx` used. This route is presentation over a frozen command.
+ * (The mock's fifth knob, Theme, is removed — light mode only, DEC-014.)
  *
- * The Email block `Settings.dc.html` draws below these five is NOT here, and
+ * The Email block `Settings.dc.html` draws below these is NOT here, and
  * that is ADD-022: two of its three toggles (Status updates, Submission record)
  * govern capabilities the pilot does not have, so shipping the block as drawn
  * would put two controls on screen that nothing performs.

@@ -20,7 +20,6 @@ import {
   DEFAULT_DISPLAY_PREFS,
   DENSITIES,
   LANDING_VIEW_MAX,
-  THEMES,
   TYPE_SCALES,
   displayAttributes,
   displayPrefsEqual,
@@ -40,20 +39,21 @@ describe("parseDisplayPrefs", () => {
         display_type_scale: "large",
         display_keyboard_hints: false,
         display_landing_view: "jobs",
-        display_theme: "dark",
       }),
     ).toEqual({
       density: "comfortable",
       typeScale: "large",
       keyboardHints: false,
       landingView: "jobs",
-      theme: "dark",
     });
   });
 
   it("resolves anything it does not recognise to the defaults, and never throws", () => {
     // A preference saved by a future version must still OPEN in this one — the
     // rule `parseViewState` already follows for the same knobs on the grid.
+    // `display_theme` rows are the past-version case that actually exists:
+    // light mode only (DEC-014) removed the knob, and every account that ever
+    // chose a theme still carries the column value.
     for (const raw of [
       null,
       undefined,
@@ -62,6 +62,7 @@ describe("parseDisplayPrefs", () => {
       [],
       {},
       { display_density: "cozy", display_type_scale: 9, display_theme: "sepia" },
+      { display_theme: "dark" },
       { display_landing_view: "autopilot" },
       { display_landing_view: "x".repeat(LANDING_VIEW_MAX + 1) },
     ]) {
@@ -83,7 +84,6 @@ describe("parseDisplayPrefs", () => {
     expect(DEFAULT_DISPLAY_PREFS.density).toBe(DEFAULT_DISPLAY.density);
     expect(DEFAULT_DISPLAY_PREFS.typeScale).toBe(DEFAULT_DISPLAY.typeScale);
     expect(DEFAULT_DISPLAY_PREFS.keyboardHints).toBe(DEFAULT_DISPLAY.hints);
-    expect(DEFAULT_DISPLAY_PREFS.theme).toBe("system");
   });
 
   it("the profile vocabulary and the grid's are the same words", () => {
@@ -93,7 +93,6 @@ describe("parseDisplayPrefs", () => {
     // nothing at all, so the sets are pinned equal rather than assumed.
     expect([...DENSITIES].sort()).toEqual(["comfortable", "dense"]);
     expect([...TYPE_SCALES].sort()).toEqual(["default", "large"]);
-    expect([...THEMES].sort()).toEqual(["dark", "light", "system"]);
   });
 });
 
@@ -156,7 +155,6 @@ describe("the fixture store implements app_set_display_prefs", () => {
       typeScale: "large",
       keyboardHints: false,
       landingView: "jobs",
-      theme: "system",
     })).toBe(true);
   });
 
@@ -200,32 +198,32 @@ describe("the fixture store implements app_set_display_prefs", () => {
   it("a stale token is a conflict carrying what the server has", async () => {
     const src = new FixtureDataSource();
     await src.setDisplayPrefs({
-      theme: "dark",
+      landingView: "jobs",
       idempotencyKey: key(),
       expectedUpdatedAt: null,
     });
     const out = await src.setDisplayPrefs({
-      theme: "light",
+      landingView: "pipeline",
       idempotencyKey: key(),
       expectedUpdatedAt: "2020-01-01T00:00:00.000Z",
     });
     expect(out).toMatchObject({ ok: false, kind: "conflict" });
     // The conflict carries the CURRENT row, so a caller can adopt the other
     // device's answer rather than guessing.
-    expect(out.ok === false && out.kind === "conflict" && out.current.theme).toBe("dark");
-    expect((await src.displayPrefs()).theme).toBe("dark");
+    expect(out.ok === false && out.kind === "conflict" && out.current.landingView).toBe("jobs");
+    expect((await src.displayPrefs()).landingView).toBe("jobs");
   });
 
   it("a matching token is accepted", async () => {
     const src = new FixtureDataSource();
     await src.setDisplayPrefs({
-      theme: "dark",
+      landingView: "jobs",
       idempotencyKey: key(),
       expectedUpdatedAt: null,
     });
     const token = (await src.displayPrefs()).updatedAt;
     const out = await src.setDisplayPrefs({
-      theme: "light",
+      landingView: "pipeline",
       idempotencyKey: key(),
       expectedUpdatedAt: token,
     });
@@ -271,7 +269,6 @@ describe("the fixture store implements app_set_display_prefs", () => {
     const cases = [
       { density: "cozy" as never },
       { typeScale: "enormous" as never },
-      { theme: "sepia" as never },
       { landingView: "x".repeat(LANDING_VIEW_MAX + 1) },
     ];
     for (const c of cases) {
@@ -290,12 +287,12 @@ describe("the fixture store implements app_set_display_prefs", () => {
     src.failNextWrite("nope");
     expect(
       await src.setDisplayPrefs({
-        theme: "dark",
+        density: "comfortable",
         idempotencyKey: key(),
         expectedUpdatedAt: null,
       }),
     ).toMatchObject({ ok: false, kind: "error", message: "nope" });
-    expect((await src.displayPrefs()).theme).toBe("system");
+    expect((await src.displayPrefs()).density).toBe("dense");
   });
 
   it("a display write leaves the Search Profile's version token alone", async () => {
@@ -325,7 +322,6 @@ describe("toDisplayPrefsView", () => {
       display_type_scale: "large",
       display_keyboard_hints: false,
       display_landing_view: "pipeline",
-      display_theme: "light",
       display_updated_at: "2026-07-21T15:00:00.000Z",
     };
     expect(toDisplayPrefsView(row)).toEqual({
@@ -333,7 +329,6 @@ describe("toDisplayPrefsView", () => {
       typeScale: "large",
       keyboardHints: false,
       landingView: "pipeline",
-      theme: "light",
       updatedAt: "2026-07-21T15:00:00.000Z",
     });
   });

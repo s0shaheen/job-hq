@@ -13,7 +13,6 @@ import {
 import {
   DENSITIES,
   LANDING_VIEW_MAX,
-  THEMES,
   TYPE_SCALES,
 } from "@/lib/display/prefs";
 import { getSupabaseEnv } from "@/lib/env";
@@ -152,7 +151,6 @@ export async function setDisplayPrefsAction(
     typeScale,
     keyboardHints,
     landingView,
-    theme,
     idempotencyKey,
     expectedUpdatedAt,
   } = input;
@@ -165,7 +163,6 @@ export async function setDisplayPrefsAction(
   const bad =
     (density !== undefined && !DENSITIES.includes(density)) ||
     (typeScale !== undefined && !TYPE_SCALES.includes(typeScale)) ||
-    (theme !== undefined && !THEMES.includes(theme)) ||
     (keyboardHints !== undefined && typeof keyboardHints !== "boolean") ||
     (landingView !== undefined &&
       (typeof landingView !== "string" || landingView.length > LANDING_VIEW_MAX));
@@ -181,7 +178,6 @@ export async function setDisplayPrefsAction(
     ...(typeScale !== undefined ? { typeScale } : {}),
     ...(keyboardHints !== undefined ? { keyboardHints } : {}),
     ...(landingView !== undefined ? { landingView } : {}),
-    ...(theme !== undefined ? { theme } : {}),
     idempotencyKey,
     expectedUpdatedAt,
   });

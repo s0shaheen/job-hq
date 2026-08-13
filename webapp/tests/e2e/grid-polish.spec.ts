@@ -73,27 +73,24 @@ test("the header and body columns stay aligned at large type", async ({ page, co
   expect(drift).toBeLessThanOrEqual(1);
 });
 
-for (const scheme of ["light", "dark"] as const) {
-  test(`the selected-rows state is axe-clean — ${scheme}`, async ({ page, context }) => {
-    // resilience.spec.ts scans /jobs at rest; a selection changes backgrounds
-    // (the --selected token) and adds a role=toolbar bar with aria-selected
-    // rows — none of it swept until now.
-    await page.emulateMedia({ colorScheme: scheme });
-    await gotoJobs(page, context);
-    await selectThree(page);
+test("the selected-rows state is axe-clean", async ({ page, context }) => {
+  // resilience.spec.ts scans /jobs at rest; a selection changes backgrounds
+  // (the --selected token) and adds a role=toolbar bar with aria-selected
+  // rows — none of it swept until now.
+  await gotoJobs(page, context);
+  await selectThree(page);
 
-    const results = await new AxeBuilder({ page })
-      .withTags(["wcag2a", "wcag2aa"])
-      .analyze();
-    const serious = results.violations.filter((v) =>
-      ["serious", "critical"].includes(v.impact ?? ""),
-    );
-    const detail = serious
-      .map((v) => `${v.id}: ${v.help}\n  ${v.nodes.map((n) => n.target.join(" ")).join("\n  ")}`)
-      .join("\n\n");
-    expect(serious, detail).toEqual([]);
-  });
-}
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa"])
+    .analyze();
+  const serious = results.violations.filter((v) =>
+    ["serious", "critical"].includes(v.impact ?? ""),
+  );
+  const detail = serious
+    .map((v) => `${v.id}: ${v.help}\n  ${v.nodes.map((n) => n.target.join(" ")).join("\n  ")}`)
+    .join("\n\n");
+  expect(serious, detail).toEqual([]);
+});
 
 test("the per-user type preference applies to the grid exactly once", async ({
   page,

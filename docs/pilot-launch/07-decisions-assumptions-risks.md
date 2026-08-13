@@ -19,6 +19,7 @@ Contract: `full-product-pilot-v2`
 | DEC-011 | True offline disables writes; no browser mutation queue |
 | DEC-012 | Strict parity uses the owner’s read-only design bundle; agents do not invent UI |
 | DEC-013 | RLS is deliberately NOT forced; `hq_entitlement_guard` is what binds the owner lane |
+| DEC-014 | Light mode only: dark mode is removed from the product entirely |
 
 ### DEC-013 — row-level security is deliberately not forced
 
@@ -103,6 +104,31 @@ here in an earlier draft off a substring match; they name `users` only in commen
 `user_postings`/`user_companies`.) That is still the "37 correct decisions, none of them
 enforced" shape 0027 removed everywhere else, and the fix is extending guard-style
 enforcement to those three tables, not forcing RLS, which would break signup.
+
+### DEC-014 — light mode only (owner design ruling)
+
+OWNER DESIGN RULING, 2026-08-13; the authorization is issue #240. The product renders one
+palette. Dark mode is removed, not hidden: no `.dark` token block or `@custom-variant` in
+`globals.css`, no `prefers-color-scheme` handling, no pre-paint theme bootstrap in the
+root layout, no Theme control on Settings → Preferences (superseding the third select
+`Settings.dc.html` draws), and the visual suite runs light-only — its 28 `*-dark-*`
+baselines are deleted and the light baselines keep their files. `globals.css` declares
+`color-scheme: light`, which is what stops a dark OS or a force-darkening browser from
+restyling the page on its own.
+
+Stored values from the dark era degrade by being unread, never by erroring: the
+`hq-theme` localStorage key has no reader left, and the `profiles.display_theme` column
+(0025) is neither selected nor written — `app_set_display_prefs` keeps its `p_theme`
+parameter (dropping it is its own serial migration) and every caller passes the null that
+means "leave it". Retiring the column and the parameter is follow-up migration work, not
+part of the removal.
+
+Enforced by machine, per this repo's rule: `tests/unit/theme-split.test.ts` fails on any
+`.dark` selector, `@custom-variant dark`, or `prefers-color-scheme` returning to the
+stylesheet and on a missing `color-scheme: light`; `tests/e2e/theme.spec.ts` drives a
+dark-OS browser and asserts the rendered light pixel on every route, that a legacy
+`hq-theme` value changes nothing and throws nothing, and that the server HTML carries no
+theme machinery.
 
 ## 2. Launch-blocking ADRs
 

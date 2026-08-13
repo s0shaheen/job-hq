@@ -127,9 +127,10 @@ const FAIL_READ_COOKIE = "hq_demo_fail_read";
  * is no cookie at all.
  *
  * Grammar is the old one's, a comma list of flags, so the specs that drove it
- * change by one word each: `large`, `comfortable`, `no-hints`, `theme-dark`,
- * `theme-light`. Unrecognised flags are ignored rather than applied — a stale
- * or hand-edited value cannot put the app in a state no CSS defines.
+ * change by one word each: `large`, `comfortable`, `no-hints`. Unrecognised
+ * flags are ignored rather than applied — a stale or hand-edited value cannot
+ * put the app in a state no CSS defines, and the retired `theme-*` flags
+ * (light mode only, DEC-014) fall through that same rule.
  */
 const DISPLAY_COOKIE = "hq_demo_display";
 
@@ -176,8 +177,6 @@ function parseDisplaySeam(value: string | undefined): SetDisplayPrefsInput | nul
   if (flags.has("large")) input.typeScale = "large";
   if (flags.has("comfortable")) input.density = "comfortable";
   if (flags.has("no-hints")) input.keyboardHints = false;
-  if (flags.has("theme-dark")) input.theme = "dark";
-  if (flags.has("theme-light")) input.theme = "light";
   return input;
 }
 

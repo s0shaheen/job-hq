@@ -1,13 +1,18 @@
 /**
- * Display preferences: the five knobs that make this app readable, and the one
+ * Display preferences: the four knobs that make this app readable, and the one
  * place their vocabulary is written down.
  *
  * Migration 0025 moved them onto `profiles` (design doc 07 §4, prerequisite
  * E5), which ended the C6 fork — they used to live in the `hq_display` cookie
- * (per BROWSER), in `saved_views.state` on /jobs (per VIEW) and in
- * `localStorage` (theme, which the server cannot read at all), so the same
- * person carried up to three answers to one question and none of them
- * travelled to their phone.
+ * (per BROWSER) and in `saved_views.state` on /jobs (per VIEW), so the same
+ * person carried several answers to one question and none of them travelled to
+ * their phone.
+ *
+ * THEME IS NOT ONE OF THEM ANY MORE. The product is light mode only (DEC-014,
+ * issue #240 — owner design ruling). The `profiles.display_theme` column still
+ * exists — migrations are append-only, so retiring it is its own serial
+ * migration — and this module simply never reads it, which is how a stored
+ * `dark` from the old control degrades without erroring.
  *
  * Pure, no React, no server imports: the root layout renders the attributes
  * from it, the settings control writes through it, and the Display popover
@@ -22,7 +27,6 @@
 
 export type Density = "dense" | "comfortable";
 export type TypeScale = "default" | "large";
-export type ThemeChoice = "light" | "dark" | "system";
 
 /**
  * The vocabulary is the WIRE FORMAT, not the label.
@@ -37,7 +41,6 @@ export type ThemeChoice = "light" | "dark" | "system";
  */
 export const DENSITIES: readonly Density[] = ["dense", "comfortable"];
 export const TYPE_SCALES: readonly TypeScale[] = ["default", "large"];
-export const THEMES: readonly ThemeChoice[] = ["light", "dark", "system"];
 
 /**
  * Where "take me home" goes. `""` is "wherever the app would send you anyway".
@@ -64,7 +67,6 @@ export type DisplayPrefs = {
   keyboardHints: boolean;
   /** A surface key, or `""` for the app's own landing choice. */
   landingView: string;
-  theme: ThemeChoice;
 };
 
 /**
@@ -73,17 +75,13 @@ export type DisplayPrefs = {
  *
  * Every value is what an account with no cookie and no localStorage renders
  * today, which is the property that let 0025 land without re-recording a single
- * visual baseline. `theme: "system"` and not the design's "light default" — see
- * 0025's header: a stored `light` would silently overrule the operating system
- * for every existing account, and `tests/e2e/theme.spec.ts` pins the opposite
- * on five routes.
+ * visual baseline.
  */
 export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
   density: "dense",
   typeScale: "default",
   keyboardHints: true,
   landingView: "",
-  theme: "system",
 };
 
 function one<T extends string>(raw: unknown, allowed: readonly T[], fallback: T): T {
@@ -93,7 +91,7 @@ function one<T extends string>(raw: unknown, allowed: readonly T[], fallback: T)
 }
 
 /**
- * A stored row (or anything at all) → the five values.
+ * A stored row (or anything at all) → the four values.
  *
  * The keys are the DATABASE's COLUMN NAMES, `display_` prefix included, because
  * both callers hand it database shapes: `supabase-source.ts` passes a selected
@@ -101,6 +99,10 @@ function one<T extends string>(raw: unknown, allowed: readonly T[], fallback: T)
  * which is built with those same names on purpose. One parser for the read and
  * the write, so a replay cannot answer a differently-shaped object than the
  * original write did.
+ *
+ * `display_theme` may still arrive in either shape and is IGNORED — light mode
+ * only (DEC-014). An unknown key was never an error here, which is exactly what
+ * lets the stored value degrade silently.
  */
 export function parseDisplayPrefs(raw: unknown): DisplayPrefs {
   const o = (raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<
@@ -121,7 +123,6 @@ export function parseDisplayPrefs(raw: unknown): DisplayPrefs {
     // both a CHECK and a validation in the function.
     landingView:
       landing.length <= LANDING_VIEW_MAX && KNOWN_LANDING_VIEWS.includes(landing) ? landing : "",
-    theme: one(o.display_theme, THEMES, DEFAULT_DISPLAY_PREFS.theme),
   };
 }
 
@@ -165,8 +166,7 @@ export function displayPrefsEqual(a: DisplayPrefs, b: DisplayPrefs): boolean {
     a.density === b.density &&
     a.typeScale === b.typeScale &&
     a.keyboardHints === b.keyboardHints &&
-    a.landingView === b.landingView &&
-    a.theme === b.theme
+    a.landingView === b.landingView
   );
 }
 

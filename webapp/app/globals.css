@@ -1,13 +1,5 @@
 @import "tailwindcss";
 
-/* Dark mode is class-driven so a user toggle can beat the OS preference.
-   The class is applied by the blocking bootstrap script in app/layout.tsx,
-   which reads the stored choice and falls back to the OS. Class-driven only
-   works while something sets the class: when that script did not exist, every
-   dark-OS visitor got the light theme and no test noticed, because the tests
-   set the class themselves. tests/e2e/theme.spec.ts now checks the wiring. */
-@custom-variant dark (&:where(.dark, .dark *));
-
 /* ---------------------------------------------------------------------------
    Tokens.
 
@@ -32,11 +24,9 @@
   --accent-hover: #35503f;
   --accent-fg: #ffffff;
   --accent-subtle: #e9efea;
-  /* Row selection in the grid. A dedicated token, not accent-subtle:
-     the same value reads as a clear tint on white and vanishes on the
-     dark background (accent-subtle #1e2a22 sits a hair off #111311).
-     Each theme picks a value that stands off BOTH the base and the
-     hover (raised) so a selected row is unambiguous either way. */
+  /* Row selection in the grid. A dedicated token, not accent-subtle: it has
+     to stand off BOTH the base and the hover (raised) so a selected row is
+     unambiguous either way. */
   --selected: #dde8e0;
 
   --ok: #2f6b45;
@@ -51,38 +41,9 @@
   --ring: #3f5f4b;
 }
 
-.dark {
-  --bg: #111311;
-  --surface: #181a18;
-  --raised: #1f221f;
-  --border: #2b2e2b;
-  --border-strong: #3c403c;
-
-  --text: #e9e9e4;
-  --text-2: #c2c2ba;
-  --text-muted: #8d8d85;
-
-  --accent: #8fb79c;
-  --accent-hover: #a2c6ad;
-  --accent-fg: #10231a;
-  --accent-subtle: #1e2a22;
-  --selected: #2b3f33;
-
-  --ok: #7dc095;
-  --ok-subtle: #1c2b21;
-  --warn: #d5a95e;
-  --warn-subtle: #312917;
-  --danger: #dd8676;
-  --danger-subtle: #33211d;
-  --info: #7fb0d8;
-  --info-subtle: #1b2733;
-
-  --ring: #8fb79c;
-}
-
 /* Map tokens onto Tailwind utilities (`bg-surface`, `text-muted`, …).
-   `inline` keeps them as var() references, so dark mode flips without
-   regenerating utilities. */
+   `inline` keeps them as var() references, so `:root` stays the one place a
+   colour is defined and a component cannot capture a literal. */
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -131,9 +92,9 @@
  * whole feature.
  *
  * `inline` substitutes a token's value into every utility at build time:
- * `text-xs` compiles to `font-size: .75rem`, a literal. That is exactly what the
- * colour tokens above need (it collapses the `--color-x: var(--x)` indirection so
- * that overriding `--x` under `.dark` reaches the utility), and it is exactly what
+ * `text-xs` compiles to `font-size: .75rem`, a literal. That is what the colour
+ * tokens above want (they are never overridden at runtime, so collapsing the
+ * `--color-x: var(--x)` indirection costs nothing), and it is exactly what
  * makes a RUNTIME type scale impossible — overriding `--text-xs` on a selector has
  * nothing to override, because no utility references it.
  *
@@ -164,6 +125,12 @@
 @layer base {
   html {
     background: var(--bg);
+    /* Light mode only (DEC-014, issue #240 — owner design ruling). The product
+       renders one palette, and this declaration is what makes a dark OS agree:
+       without it, a browser's auto-darkening can restyle form controls and
+       scrollbars on its own. tests/e2e/theme.spec.ts asserts a dark OS renders
+       exactly what a light one does. */
+    color-scheme: light;
     /* Nothing may scroll the PAGE sideways. Anything wider than the viewport
        (a grid, a code block) scrolls inside its own container. CI asserts this
        at every breakpoint, because "the table is hanging off the edge of the
@@ -219,10 +186,10 @@
  * Line heights move with the sizes. Scaling font-size alone is how large type
  * turns a comfortable list into overlapping rows.
  *
- * It is an attribute on <html>, not a class, so it composes with `.dark`
- * (a class) without either having to know about the other — and per-user is the
- * right scope: a shared link must not impose the sharer's eyesight, which is
- * why this is NOT in the URL (matrix row 67, learned on /jobs).
+ * It is an attribute on <html>, rendered by the root layout on the server —
+ * and per-user is the right scope: a shared link must not impose the sharer's
+ * eyesight, which is why this is NOT in the URL (matrix row 67, learned on
+ * /jobs).
  */
 :root[data-type-scale="large"] {
   --text-2xs: 0.8125rem;

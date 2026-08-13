@@ -18,14 +18,15 @@ import { CLOSED_STATUS, type DigestPostingView } from "./store";
  * kept anyway because it costs nothing here and the failure it prevents is one
  * this system cannot see: a page that renders as unstyled text in one person's
  * mail client produces no error, no alert and no bug report — it produces a
- * decision that never got made. Dark mode is handled the same way, without a
- * media query: `<meta name="color-scheme">` plus CSS system colours (`Canvas`,
- * `CanvasText`, `LinkText`), each with a hex fallback declared FIRST so a browser
- * that does not know the keyword still gets a readable page rather than a
- * transparent one.
+ * decision that never got made. The colour scheme is pinned the same way,
+ * without a media query: `<meta name="color-scheme" content="light">` (light
+ * mode only, DEC-014 — it also stops a reader's browser force-darkening the
+ * page) plus CSS system colours (`Canvas`, `CanvasText`, `LinkText`), each with
+ * a hex fallback declared FIRST so a browser that does not know the keyword
+ * still gets a readable page rather than a transparent one.
  *
- * The buttons keep fixed colours in both schemes on purpose: they are the one
- * element whose contrast must not depend on a keyword being understood.
+ * The buttons keep fixed colours on purpose: they are the one element whose
+ * contrast must not depend on a keyword being understood.
  *
  * ════════════════════════════════════════════════════════════════════════════
  * EVERY INTERPOLATION IS ESCAPED, INCLUDING THE ONES THAT "CANNOT" BE HOSTILE
@@ -100,9 +101,9 @@ function shell(title: string, inner: string): string {
     '<html lang="en"><head>',
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    // The dark-mode mechanism, in one tag: it tells the browser to render form
-    // controls and system colours in the reader's scheme.
-    '<meta name="color-scheme" content="light dark">',
+    // Light mode only (DEC-014): the page supports one scheme, and saying so
+    // is what stops a reader's browser from force-darkening it on its own.
+    '<meta name="color-scheme" content="light">',
     '<meta name="robots" content="noindex, nofollow">',
     `<title>${esc(title)}</title>`,
     "</head>",

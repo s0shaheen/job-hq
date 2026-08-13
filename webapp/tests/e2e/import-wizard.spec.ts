@@ -14,7 +14,7 @@ import { collectPaintedOverflow, describeOffenders } from "./painted-overflow";
  * that matters lives at `/import/<batchId>`, which is minted at upload time and
  * cannot be written into a list: the mapping step with its per-column controls,
  * the virtualized preview, the report. So the four sweeps that answer the owner's
- * "don't let it look broken" — painted overflow, axe per theme, a tab walk, the
+ * "don't let it look broken" — painted overflow, axe, a tab walk, the
  * large type scale — had never touched any of them, and `wide-60.xlsx` had never
  * been rendered in a browser at all despite existing for the 60-column case.
  * layout.spec.ts's comment claiming the retrofit is corrected in that file.
@@ -79,7 +79,7 @@ const shell = (page: Page) => page.getByTestId("import-step");
 
 /**
  * Upload, then drive to `step`. Returns the batch URL so a test can re-enter it
- * (after a viewport change, a cookie, or a theme) without uploading twice.
+ * (after a viewport change or a cookie) without uploading twice.
  *
  * Gated on `data-step` throughout — the server's own answer, never the write
  * counter, which resets when a step unmounts (matrix row 164).
@@ -128,44 +128,41 @@ test.describe("nothing in the wizard paints past the page edge", () => {
   }
 });
 
-test.describe("the wizard passes axe in both themes", () => {
+test.describe("the wizard passes axe", () => {
   for (const step of STEPS) {
-    for (const scheme of ["light", "dark"] as const) {
-      test(`${step} — ${scheme}`, async ({ page }, testInfo) => {
-        await ownStore(page, testInfo);
-        await page.emulateMedia({ colorScheme: scheme });
-        const url = await atStep(page, step);
-        await page.goto(url);
-        await page.waitForLoadState("load");
-        await expect(shell(page)).toHaveAttribute("data-step", step);
-        // The hydrated tree, not whatever has painted — Radix mounts portalled
-        // and visually-hidden nodes during hydration, and the preview's conflict
-        // dialog trigger is one of them (resilience.spec.ts records the reason).
-        await expect(shell(page)).toHaveAttribute("data-ready", "true");
-        await page.evaluate(
-          () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
-        );
-        const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
-        const serious = results.violations.filter((v) =>
-          ["serious", "critical"].includes(v.impact ?? ""),
-        );
-        const detail = serious
-          .map((v) => {
-            const nodes = v.nodes
-              .map((n) => {
-                const c = n.any.find((a) => a.id === "color-contrast")?.data as
-                  | { fgColor?: string; bgColor?: string; contrastRatio?: number }
-                  | undefined;
-                const measured = c ? ` — ${c.fgColor} on ${c.bgColor} = ${c.contrastRatio}:1` : "";
-                return `    ${n.target.join(" ")}${measured}\n      ${n.html.slice(0, 160)}`;
-              })
-              .join("\n");
-            return `${v.id}: ${v.help}\n${nodes}`;
-          })
-          .join("\n\n");
-        expect(serious, detail).toEqual([]);
-      });
-    }
+    test(`${step}`, async ({ page }, testInfo) => {
+      await ownStore(page, testInfo);
+      const url = await atStep(page, step);
+      await page.goto(url);
+      await page.waitForLoadState("load");
+      await expect(shell(page)).toHaveAttribute("data-step", step);
+      // The hydrated tree, not whatever has painted — Radix mounts portalled
+      // and visually-hidden nodes during hydration, and the preview's conflict
+      // dialog trigger is one of them (resilience.spec.ts records the reason).
+      await expect(shell(page)).toHaveAttribute("data-ready", "true");
+      await page.evaluate(
+        () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+      );
+      const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+      const serious = results.violations.filter((v) =>
+        ["serious", "critical"].includes(v.impact ?? ""),
+      );
+      const detail = serious
+        .map((v) => {
+          const nodes = v.nodes
+            .map((n) => {
+              const c = n.any.find((a) => a.id === "color-contrast")?.data as
+                | { fgColor?: string; bgColor?: string; contrastRatio?: number }
+                | undefined;
+              const measured = c ? ` — ${c.fgColor} on ${c.bgColor} = ${c.contrastRatio}:1` : "";
+              return `    ${n.target.join(" ")}${measured}\n      ${n.html.slice(0, 160)}`;
+            })
+            .join("\n");
+          return `${v.id}: ${v.help}\n${nodes}`;
+        })
+        .join("\n\n");
+      expect(serious, detail).toEqual([]);
+    });
   }
 });
 
@@ -230,17 +227,14 @@ test("the wizard survives the large type scale", async ({ page, context }, testI
   expect(offenders, describeOffenders(offenders)).toEqual([]);
 });
 
-test("the wizard honours a dark OS preference", async ({ page }, testInfo) => {
+test("the wizard stays light under a dark OS preference", async ({ page }, testInfo) => {
   // theme.spec.ts's rule (matrix row 22): assert the RENDERED background, never
-  // the class. A `.dark` that reaches the html element and no token is a page
-  // that is still white.
+  // a class. Light mode only (DEC-014): the wizard lives outside the (app)
+  // shell theme.spec.ts sweeps, so it gets its own proof that a dark OS
+  // changes nothing here either.
   await ownStore(page, testInfo);
   await page.emulateMedia({ colorScheme: "dark" });
   await atStep(page, "preview", CLEAN);
   const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  const [r, g, b] = bg.match(/\d+/g)!.map(Number);
-  expect(
-    (r + g + b) / 3,
-    `the wizard rendered ${bg} under a dark colour scheme`,
-  ).toBeLessThan(110);
+  expect(bg, `the wizard rendered ${bg} under a dark colour scheme`).toBe("rgb(251, 251, 250)");
 });

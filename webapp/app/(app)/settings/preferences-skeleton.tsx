@@ -3,10 +3,11 @@
  * section's shape.
  *
  * Band for band it is the real section: a title bar beside nothing (the tick
- * only renders after a save), the autosave sentence, then the five control rows
- * `Settings.dc.html` draws — four label-over-select rows at the selects' own
- * 200px, the fourth with its help line, and the switch row with its title and
- * description. Those are the shapes the loaded controls land in, which is
+ * only renders after a save), the autosave sentence, then the four control rows
+ * the section renders — three label-over-select rows at the selects' own 200px,
+ * the third with its help line, and the switch row with its title and
+ * description. (`Settings.dc.html` draws a fifth row, Theme; light mode only —
+ * DEC-014 — removed it.) Those are the shapes the loaded controls land in, which is
  * 04 §5's requirement for this state — a "content-shaped skeleton, no layout
  * jump or indefinite spinner".
  *
@@ -35,8 +36,8 @@ export function PreferencesSkeleton() {
         </div>
 
         <div className="mt-6 flex flex-col gap-4">
-          {/* Density, Type size, Theme: label over a 200px select. */}
-          {[0, 1, 2].map((row) => (
+          {/* Density, Type size: label over a 200px select. */}
+          {[0, 1].map((row) => (
             <div key={row} className="flex flex-col gap-1">
               <Bar className="h-3 w-16" />
               <Bar className="h-8 w-50 max-w-full rounded-md" />

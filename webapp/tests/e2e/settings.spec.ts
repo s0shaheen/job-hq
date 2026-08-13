@@ -314,12 +314,11 @@ test("a write that is refused leaves the controls usable and queues nothing", as
   await expect(error).toBeVisible({ timeout: 20_000 });
   await expect(error).toContainText(/connection/i);
   // Usable again, which is what "the control came back" means. Asserted across
-  // all five, because `busy` disables all five and a half-fix that re-enabled
+  // all four, because `busy` disables all four and a half-fix that re-enabled
   // only the one that was touched would pass a narrower check.
   for (const id of [
     "prefs-density",
     "prefs-type-scale",
-    "prefs-theme",
     "prefs-landing-view",
     "prefs-keyboard-hints",
   ]) {
@@ -467,7 +466,7 @@ test("a slow preferences read shows the section's own skeleton beside a working 
   await expect(current).toHaveText("Preferences");
   await page.getByTestId("settings-rail-data").focus();
   await expect(page.getByTestId("settings-rail-data")).toBeFocused();
-  // …and it is content-shaped: bars standing where the five control rows land.
+  // …and it is content-shaped: bars standing where the four control rows land.
   const bars = page.getByTestId("preferences-skeleton").locator("span.bg-raised");
   expect(await bars.count()).toBeGreaterThan(8);
 
