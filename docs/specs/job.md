@@ -52,7 +52,22 @@ stays private (`docs/pilot-launch/10-data-authority-and-transition.md` §2).
   shared `postings` row iff its natural key is new (never an update: the shared
   row's facts are not one user's to rewrite) and gates the caller via
   `user_postings` (`qualified`, reason `added:you`; the PK is the dedup, a
-  repeat is `outcome: duplicate`). The surface that calls it lands with #182.
+  repeat is `outcome: duplicate`). Its surface is `/add`
+  (`webapp/app/(app)/add/`): two server actions, and only the second one
+  writes. The resolve step is a READ over somebody else's website — split,
+  key, parse with provenance, flag what this user already tracks (through
+  RLS) — fetched under the SSRF guard in `webapp/lib/quickadd/fetch.ts`
+  (scheme allowlist, and the address checked at the socket via the guarded
+  dispatcher, so a rebinding DNS answer cannot swap targets between check and
+  connect) and the per-user rate bound in `webapp/lib/quickadd/rate.ts`
+  (60 resolves per 10-minute window; the file states the reasoning). Nothing
+  the resolver returns is trusted: the write takes the fields the user
+  confirmed on screen, keys them server-side with the same `jobKey` the
+  importer shares (`webapp/lib/import/job-key.ts` — the key is never accepted
+  from the browser), and holds one idempotency key per row across retries.
+  An edit to a row whose attempt failed mints a fresh key
+  (`webapp/lib/quickadd/draft.ts`): the RPC fingerprints the arguments under
+  the key and refuses the old key with new ones (22023).
   Triage has side effects on the pipeline: `interested`
   inserts a `Queued` application; leaving `interested` deletes it only while it is still
   `Queued`.

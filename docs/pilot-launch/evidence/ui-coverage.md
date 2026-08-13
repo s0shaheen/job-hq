@@ -16,15 +16,15 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 
 | | Cells |
 |---|---:|
-| covered | 117 |
-| n/a | 48 |
+| covered | 122 |
+| n/a | 38 |
 | blocked on an ADD item | 134 |
-| missing, baselined 2026-08-02 | 205 |
+| missing, baselined 2026-08-02 | 210 |
 | missing, new (fails) | 0 |
 | on an unbuilt surface (not enforced) | 126 |
 | total | 504 |
 
-**Baselined is not covered.** 205 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
+**Baselined is not covered.** 210 cells below are unverified. The baseline exists so the gate could be switched on without a twelve-surface backfill first, and so that any new hole fails on the commit that opens it instead of joining an invisible pile. Removing an entry from `BASELINE_MISSING` is how a surface packet closes a gap.
 
 ## Matrix, fixture mode
 
@@ -40,7 +40,7 @@ The unit of verification is a cell: surface by state by mode (`17-ui-verificatio
 | resume | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add | add |
 | settings-auth-onboarding | yes | yes | yes | n/a | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | gap | gap | gap | yes | gap | n/a |
 | shared-shell-and-components | n/a | yes | yes | n/a | n/a | gap | n/a | yes | yes | n/a | yes | yes | yes | n/a | gap | n/a | yes | yes | yes | gap | n/a |
-| system-and-mobile | n/a | yes | n/a | n/a | n/a | yes | n/a | yes | yes | n/a | yes | yes | yes | n/a | gap | n/a | yes | yes | add | gap | n/a |
+| system-and-mobile | yes | yes | yes | n/a | yes | yes | yes | yes | yes | yes | yes | yes | yes | n/a | gap | n/a | yes | yes | add | gap | n/a |
 | today | yes | yes | yes | yes | yes | gap | n/a | yes | yes | yes | yes | yes | yes | add | yes | gap | yes | yes | yes | gap | yes |
 
 Live mode is not shown as a matrix because it has one value everywhere. Every live cell is missing: the whole Playwright suite runs `HQ_DEMO=1` against `FixtureDataSource`, so no browser test has ever touched the real data path, real session handling, or RLS.
@@ -355,33 +355,33 @@ The shell has no route of its own; it is the chrome every routed surface renders
 
 ### system-and-mobile
 
-Routes: `*`
+Routes: `*`, `/add`
 
-The mobile project is a Pixel 7 viewport and nothing else: the repo issues zero tap, touchscreen or gesture calls, so every phone assertion here is about composition, never about touch input.
+The mobile project is a Pixel 7 viewport and nothing else: the repo issues zero tap, touchscreen or gesture calls, so every phone assertion here is about composition, never about touch input. QUICK ADD JOINED THIS SURFACE, and it is why eight cells below moved off `n/a`. `16-source-manifest.md` maps `templates/system-surfaces/**` here, and the add-a-job dialog is authored in exactly that template — `SystemSurfaces.dc.html` frames `add a job`, `parsing`, `add several` and `parse failure`, alongside the palette, the shortcuts overlay and the failure pages. So the eight `n/a` verdicts that read 'the system surface has no form / renders no posting facts / issues no write' were true of the 404 handler and are false of /add: it takes typed input, renders posting facts, and issues a write. Each of those now cites `quickadd.spec.ts`, which drives /add and enters the state through the real controls.
 
 | State | Fixture | Evidence or reason |
 |---|---|---|
-| Loading | n/a | the system surface renders no data of its own |
+| Loading | yes | `tests/e2e/quickadd.spec.ts` "while the posting is being read, the surface says so" |
 | Populated | yes | `tests/e2e/routing.spec.ts` "every href in the rendered nav returns 200" |
-| Natural empty | n/a | the system surface has no collection |
-| Filter empty | n/a | the system surface has no collection |
-| Missing optional fact | n/a | the system surface renders no posting facts |
+| Natural empty | yes | `tests/e2e/quickadd.spec.ts` "the paste box is the whole surface until something is pasted" |
+| Filter empty | n/a | the system surface has no collection to filter; /add renders what was pasted |
+| Missing optional fact | yes | `tests/e2e/quickadd.spec.ts` "a field the posting never stated reads Not listed, never an invention" |
 | Partial/degraded | yes | `tests/e2e/resilience.spec.ts` "a slow data source shows a skeleton rather than a blank screen" |
-| Validation error | n/a | the system surface has no form |
+| Validation error | yes | `tests/e2e/quickadd.spec.ts` "a row with nothing to key on is refused, in words, before anything is written" |
 | Write pending | yes | `tests/e2e/offline.spec.ts` "a full localStorage still holds the decision for this tab, and says so" |
-| Offline write disabled | yes | `tests/e2e/offline.spec.ts` "undo works offline, because nothing was ever sent" |
-| Conflict | n/a | a conflict belongs to the surface that issued the write |
-| Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "an address that does not exist still lands on the holding page, not on a 404 with a nav" |
-| Session expired | yes | `tests/e2e/offline.spec.ts` "the decision is held and the banner offers a way back in" |
+| Offline write disabled | yes | `tests/e2e/offline.spec.ts` "undo works offline, because nothing was ever sent"; `tests/e2e/quickadd.spec.ts` "offline, the control is disabled and says why — nothing is queued" |
+| Conflict | yes | `tests/e2e/quickadd.spec.ts` "a job already tracked says so and offers the one that exists" |
+| Permission/holding | yes | `tests/e2e/entry-path.spec.ts` "an address that does not exist still lands on the holding page, not on a 404 with a nav"; `tests/e2e/quickadd.spec.ts` "a pending account is refused the surface, and no paste box is rendered" |
+| Session expired | yes | `tests/e2e/offline.spec.ts` "the decision is held and the banner offers a way back in"; `tests/e2e/quickadd.spec.ts` "an expired session refuses the write and does not lose the paste" |
 | Fatal route error | yes | `tests/e2e/routing.spec.ts` "an unknown address keeps the app shell and offers a way back" |
-| Selected/detail | n/a | the system surface selects nothing |
+| Selected/detail | n/a | the system surface selects nothing; /add edits the row it is about, in place |
 | Long strings | gap | No spec anywhere renders non-Latin script, emoji, CJK or RTL text; every long-string assertion in the estate is Latin-only. |
 | High volume | n/a | the system surface has no collection |
-| Large type | yes | `tests/e2e/layout.spec.ts` "nothing paints past the edge at the large type scale" |
+| Large type | yes | `tests/e2e/layout.spec.ts` "nothing paints past the edge at the large type scale"; `tests/e2e/quickadd.spec.ts` "at the large type scale nothing paints past the edge" |
 | 200% zoom | yes | `tests/e2e/resilience.spec.ts` "the page survives a 200% text zoom" |
 | Narrow viewport | add | ADD-005: phone behaviour for every template, including file upload, download and preview, is unapproved design input; the mobile project asserts overflow only |
 | Reduced motion | gap | No spec runs with prefers-reduced-motion: reduce; the only reducedMotion context option in the estate is incidental to a forced-colors run. |
-| Provider image failure | n/a | the system surface renders no provider imagery |
+| Provider image failure | n/a | the system surface renders no provider imagery; /add's avatar is passed no domain, so no image is ever requested |
 
 ### today
 

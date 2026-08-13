@@ -50,7 +50,10 @@ const PRIMARY: readonly NavItem[] = [
   // is the same gesture — a file you already have, brought in once — and above
   // /add so the two live import surfaces sit together.
   { href: "/connections", label: "Connections", icon: Users },
-  { href: "/add", label: "Add", icon: Plus, soon: true },
+  // Live since the quick-add surface replaced its placeholder (RM-12). The
+  // `soon` flag it carried was the nav's half of the sheet instruction: the
+  // page said "paste it into the sheet instead" and the nav said "not yet".
+  { href: "/add", label: "Add", icon: Plus },
 ];
 
 const SECONDARY: readonly NavItem[] = [

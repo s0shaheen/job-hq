@@ -560,39 +560,119 @@ export const LEDGER: Readonly<Record<string, SurfaceLedger>> = {
   },
 
   "system-and-mobile": {
-    routes: ["*"],
+    routes: ["*", "/add"],
     routeProofNote:
-      "The 404 handler, the offline and expired-session banners and the mobile viewport are not addresses: they are behaviours that appear over whatever route the user was on, including addresses that do not exist. So the proof asks that a citation reach some app route, and the surface's claim is what happens there.",
+      "The 404 handler, the offline and expired-session banners and the mobile viewport are not addresses: they are behaviours that appear over whatever route the user was on, including addresses that do not exist. So the proof asks that a citation reach some app route, and the surface's claim is what happens there. /add is named beside the wildcard because it IS an address, and because a reader of this list should be able to see that the quick-add cells below belong to a route rather than to a behaviour.",
     note:
-      "The mobile project is a Pixel 7 viewport and nothing else: the repo issues zero tap, touchscreen or gesture calls, so every phone assertion here is about composition, never about touch input.",
+      "The mobile project is a Pixel 7 viewport and nothing else: the repo issues zero tap, touchscreen or gesture calls, so every phone assertion here is about composition, never about touch input. " +
+      "QUICK ADD JOINED THIS SURFACE, and it is why eight cells below moved off `n/a`. " +
+      "`16-source-manifest.md` maps `templates/system-surfaces/**` here, and the add-a-job dialog " +
+      "is authored in exactly that template — `SystemSurfaces.dc.html` frames `add a job`, " +
+      "`parsing`, `add several` and `parse failure`, alongside the palette, the shortcuts overlay " +
+      "and the failure pages. So the eight `n/a` verdicts that read 'the system surface has no " +
+      "form / renders no posting facts / issues no write' were true of the 404 handler and are " +
+      "false of /add: it takes typed input, renders posting facts, and issues a write. Each of " +
+      "those now cites `quickadd.spec.ts`, which drives /add and enters the state through the " +
+      "real controls.",
     fixture: {
-      [ST.loading]: na("the system surface renders no data of its own"),
+      [ST.loading]: e2e("quickadd", "while the posting is being read, the surface says so"),
       [ST.populated]: e2e("routing", "every href in the rendered nav returns 200"),
-      [ST.naturalEmpty]: na("the system surface has no collection"),
-      [ST.filterEmpty]: na("the system surface has no collection"),
-      [ST.missingFact]: na("the system surface renders no posting facts"),
-      [ST.degraded]: e2e("resilience", "a slow data source shows a skeleton rather than a blank screen"),
-      [ST.validation]: na("the system surface has no form"),
-      [ST.writePending]: e2e("offline", "a full localStorage still holds the decision for this tab, and says so"),
-      [ST.offline]: e2e("offline", "undo works offline, because nothing was ever sent"),
-      [ST.conflict]: na("a conflict belongs to the surface that issued the write"),
-      [ST.permission]: e2e(
-        "entry-path",
-        "an address that does not exist still lands on the holding page, not on a 404 with a nav",
+      [ST.naturalEmpty]: e2e(
+        "quickadd",
+        "the paste box is the whole surface until something is pasted",
       ),
-      [ST.sessionExpired]: e2e("offline", "the decision is held and the banner offers a way back in"),
+      [ST.filterEmpty]: na("the system surface has no collection to filter; /add renders what was pasted"),
+      [ST.missingFact]: e2e(
+        "quickadd",
+        "a field the posting never stated reads Not listed, never an invention",
+      ),
+      [ST.degraded]: e2e("resilience", "a slow data source shows a skeleton rather than a blank screen"),
+      [ST.validation]: e2e(
+        "quickadd",
+        "a row with nothing to key on is refused, in words, before anything is written",
+      ),
+      [ST.writePending]: e2e("offline", "a full localStorage still holds the decision for this tab, and says so"),
+      [ST.offline]: {
+        verdict: "covered",
+        cites: [
+          { spec: "tests/e2e/offline.spec.ts", title: "undo works offline, because nothing was ever sent" },
+          {
+            spec: "tests/e2e/quickadd.spec.ts",
+            title: "offline, the control is disabled and says why — nothing is queued",
+          },
+        ],
+      },
+      // The create path's conflict, and the difference from the other surfaces'
+      // is worth stating rather than hiding behind a shared word. A status or a
+      // triage conflicts on `updated_at`: somebody else changed the row since
+      // you read it. A CREATE has no prior version to compare, so its whole
+      // conflict class is "this already exists" — and the surface reports it
+      // with the row that exists rather than minting a second one, which is the
+      // same obligation the CAS branches carry.
+      [ST.conflict]: e2e("quickadd", "a job already tracked says so and offers the one that exists"),
+      [ST.permission]: {
+        verdict: "covered",
+        cites: [
+          {
+            spec: "tests/e2e/entry-path.spec.ts",
+            title:
+              "an address that does not exist still lands on the holding page, not on a 404 with a nav",
+          },
+          {
+            spec: "tests/e2e/quickadd.spec.ts",
+            title: "a pending account is refused the surface, and no paste box is rendered",
+          },
+        ],
+      },
+      [ST.sessionExpired]: {
+        verdict: "covered",
+        cites: [
+          {
+            spec: "tests/e2e/offline.spec.ts",
+            title: "the decision is held and the banner offers a way back in",
+          },
+          {
+            spec: "tests/e2e/quickadd.spec.ts",
+            title: "an expired session refuses the write and does not lose the paste",
+          },
+        ],
+      },
       [ST.fatal]: e2e("routing", "an unknown address keeps the app shell and offers a way back"),
-      [ST.detail]: na("the system surface selects nothing"),
+      [ST.detail]: na("the system surface selects nothing; /add edits the row it is about, in place"),
       [ST.longStrings]: MISSING,
       [ST.highVolume]: na("the system surface has no collection"),
-      [ST.largeType]: e2e("layout", "nothing paints past the edge at the large type scale"),
+      // Both sweeps now LOAD /add — it is in the static path list in each file,
+      // which is the difference between a cell that covers this surface and a
+      // cell credited with a screen no test ever opened. The large-type cell
+      // additionally cites the quick-add spec, because the sweep reaches the
+      // empty paste box and only that spec reaches a parse on screen, which is
+      // where the type scale has anything to break.
+      [ST.largeType]: {
+        verdict: "covered",
+        cites: [
+          {
+            spec: "tests/e2e/layout.spec.ts",
+            title: "nothing paints past the edge at the large type scale",
+          },
+          {
+            spec: "tests/e2e/quickadd.spec.ts",
+            title: "at the large type scale nothing paints past the edge",
+          },
+        ],
+      },
       [ST.zoom]: e2e("resilience", "the page survives a 200% text zoom"),
       [ST.narrow]: blocked(
         "ADD-005",
         "phone behaviour for every template, including file upload, download and preview, is unapproved design input; the mobile project asserts overflow only",
       ),
       [ST.reducedMotion]: MISSING,
-      [ST.providerImage]: na("the system surface renders no provider imagery"),
+      // Still no provider imagery, and /add does not change that: the preview
+      // row's LogoAvatar is passed no domain, so `logoSources()` returns [] and
+      // no third-party image is ever requested. It renders the monogram from
+      // the first paint. There is no provider request here to fail.
+      [ST.providerImage]: na(
+        "the system surface renders no provider imagery; /add's avatar is passed no domain, so no image is ever requested",
+      ),
     },
   },
 

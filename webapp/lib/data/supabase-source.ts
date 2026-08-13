@@ -1,5 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveJobLinks as resolveJobLinksWith } from "@/lib/quickadd/resolve";
+import { readPosting } from "@/lib/quickadd/fetch";
+import { ResolveRateGate, RESOLVE_RATE_MESSAGE } from "@/lib/quickadd/rate";
 import type {
+  AddJobInput,
+  AddJobResult,
+  ResolveJobLinksInput,
+  ResolveJobLinksResult,
   AppWriteResult,
   CommitImportInput,
   CreateImportInput,
@@ -679,10 +686,21 @@ export function toApplicationView(r: Record<string, unknown>): ApplicationView {
   };
 }
 
+/**
+ * MODULE-level, not instance-level: a SupabaseDataSource is constructed per
+ * request, and a gate that died with the request would bound nothing. One map
+ * per server process is exactly the "per user, per instance" bound `rate.ts`
+ * documents.
+ */
+const sharedResolveGate = new ResolveRateGate();
+
 export class SupabaseDataSource implements DataSource {
   constructor(
     private readonly supabase: SupabaseClient,
     private readonly userId: string,
+    /** Injectable so the refusal is provable in a unit test; production
+     *  callers pass nothing and share the process-wide gate. */
+    private readonly resolveGate: ResolveRateGate = sharedResolveGate,
   ) {}
 
   private async userPostings(filter: (q: any) => any): Promise<JobView[]> {
@@ -1168,6 +1186,78 @@ export class SupabaseDataSource implements DataSource {
       .map((r) => toCompanyView(r as Record<string, unknown>))
       .filter((c): c is CompanyView => c !== null);
     return { ok: true, companies, added: Number(payload.added ?? 0) };
+  }
+
+  // ---- quick add (RM-12) --------------------------------------------------
+
+  /**
+   * Read the pasted links. A READ, and it writes nothing.
+   *
+   * The duplicate lookup goes through `userPostings`, i.e. through RLS, so the
+   * answer to "do you already track this?" is scoped to the asking user by the
+   * database rather than by this method remembering to filter. A global lookup
+   * would answer a question about somebody else's queue, which is a
+   * cross-account disclosure dressed as a convenience.
+   */
+  async resolveJobLinks(input: ResolveJobLinksInput): Promise<ResolveJobLinksResult> {
+    // The abuse damper, BEFORE anything resolves: a refused call performs no
+    // outbound read and no duplicate lookup. The bound and its reasoning live
+    // in `lib/quickadd/rate.ts`; the fixture twin carries no gate because its
+    // page reads are an in-memory table — the capability this bounds is the
+    // network, and only this source has one.
+    if (!this.resolveGate.allow(this.userId)) {
+      return { ok: false, kind: "error", message: RESOLVE_RATE_MESSAGE };
+    }
+    const links = await resolveJobLinksWith(input.pasted, {
+      readPage: (url) => readPosting(url),
+      existing: async (key) => {
+        const [row] = await this.userPostings((q) => q.eq("posting_key", key).limit(1));
+        return row ? { key: row.key, company: row.company, title: row.title } : null;
+      },
+    });
+    return { ok: true, links };
+  }
+
+  /**
+   * Track one confirmed posting.
+   *
+   * REQUIRES `public.app_add_job`, which is specified in this branch's PR and
+   * belongs to the serial migration integrator — it is not in any migration
+   * yet. Until it lands, this call fails loudly with PostgREST's own "function
+   * does not exist", which is the correct behaviour and the reason the surface
+   * ships behind the fixture source first: `0003_write_path.sql`'s opening note
+   * records what the alternative costs, when `app_set_triage` was called by a
+   * shipped surface for months while existing in no migration at all.
+   *
+   * The arguments are exactly what the user confirmed on screen. The resolver's
+   * output never reaches this method except by way of the confirm step.
+   */
+  async addJob(input: AddJobInput): Promise<AddJobResult> {
+    const { data, error } = await this.supabase.rpc("app_add_job", {
+      p_key: input.key,
+      p_url: input.url,
+      p_company: input.company,
+      p_title: input.title,
+      p_idem: input.idempotencyKey,
+    });
+    if (error) return { ok: false, kind: "error", message: error.message };
+    const payload = (data ?? {}) as { outcome?: string; posting?: Record<string, unknown> };
+    const job = toJobView((payload.posting ?? {}) as Record<string, unknown>);
+    if (!job) {
+      // The durable-result re-read every write on this source performs: the
+      // command landed, so the row exists, and a shape we could not map is not
+      // a reason to tell the user their job was not added.
+      const [fresh] = await this.userPostings((q) => q.eq("posting_key", input.key).limit(1));
+      if (fresh) {
+        return { ok: true, outcome: payload.outcome === "duplicate" ? "duplicate" : "added", job: fresh };
+      }
+      return {
+        ok: false,
+        kind: "error",
+        message: "Write succeeded but the row could not be re-read",
+      };
+    }
+    return { ok: true, outcome: payload.outcome === "duplicate" ? "duplicate" : "added", job };
   }
 
   // ---- the referral finder (0013) ---------------------------------------

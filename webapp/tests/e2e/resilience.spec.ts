@@ -12,6 +12,11 @@ const PAGES = [
   "/companies",
   "/companies/add",
   "/import",
+  // /add, the quick-add surface. Its own spec sweeps it with a parse on
+  // screen; this list reaches its EMPTY state, which is the one a sweep of
+  // static paths can load and the one nothing else here renders.
+  "/add",
+
   "/settings",
   // The four sibling sections of the rail. Named individually rather than
   // assumed covered by `/settings`, because they are four routes and matrix row

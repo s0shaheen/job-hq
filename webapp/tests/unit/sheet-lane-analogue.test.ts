@@ -35,6 +35,10 @@ const IMPORT_SQL = read("db", "migrations", "0011_import.sql");
 const ADD_PAGE = read("webapp", "app", "(app)", "add", "page.tsx");
 const NAV = read("webapp", "app", "(app)", "nav-links.tsx");
 const DATA_SOURCE = read("webapp", "lib", "data", "source.ts");
+const FIXTURE_SOURCE = read("webapp", "lib", "data", "fixture-source.ts");
+const SUPABASE_SOURCE = read("webapp", "lib", "data", "supabase-source.ts");
+const QUICK_ADD = read("webapp", "app", "(app)", "add", "quick-add.tsx");
+const ADD_ACTIONS = read("webapp", "app", "(app)", "add", "actions.ts");
 
 describe("tracker/promote.py has an analogue: app_set_triage", () => {
   /**
@@ -60,33 +64,68 @@ describe("tracker/promote.py has an analogue: app_set_triage", () => {
   });
 });
 
-describe("tracker/quickadd.py has NO analogue", () => {
+describe("tracker/quickadd.py HAS an analogue now", () => {
   /**
-   * The load-bearing one. If this file ever goes green while `/add` is a real
-   * surface, the Quick Add lane becomes deletable and the disposition's PORT
-   * verdict is stale — which is exactly the state this test exists to catch.
+   * The load-bearing one, inverted — and the inversion is the deliverable.
+   *
+   * This block asserted the placeholder for as long as the placeholder was the
+   * reason `TRACKER-LANE-DISPOSITION.md` marked `quickadd` PORT rather than
+   * PARK: "the web app's Add page is an explicit placeholder that tells the
+   * user to use the Quick Add tab. There is no analogue." A surface that
+   * shipped while these assertions still described a placeholder would have
+   * left the disposition stale in the safe-looking direction — the lane kept
+   * alive by a document nobody re-derived.
+   *
+   * It is still a source-level test, for the reason the file header gives: the
+   * question a delete-or-port decision needs answered is whether the capability
+   * EXISTS, and no behavioural test can be written for a surface that is not
+   * there. The behaviour is covered by `tests/e2e/quickadd.spec.ts`.
+   *
+   * What this does NOT license: deleting `tracker/quickadd.py`. The lane still
+   * reads the sheet's Quick Add tab, and `tests/core/test_sheet_containment.py`
+   * still lists it. What has gone is the reason it could not be retired.
    */
-  it("the Add page is a placeholder that directs the user to the Quick Add tab", () => {
-    expect(ADD_PAGE).toContain("Quick Add tab of the HQ sheet");
-    expect(ADD_PAGE).toContain("isn't built here yet");
+  it("the Add page carries no instruction to use the sheet", () => {
+    expect(ADD_PAGE).not.toContain("Quick Add tab of the HQ sheet");
+    expect(ADD_PAGE).not.toContain("isn't built here yet");
+    // Belt and braces on the whole class, not just the one sentence: no live
+    // surface may tell a user to open a spreadsheet.
+    expect(ADD_PAGE).not.toMatch(/paste .{0,40}(sheet|spreadsheet)/i);
   });
 
-  it("the nav marks the route as not yet built", () => {
-    expect(NAV).toMatch(/href: "\/add"[^}]*soon: true/);
+  it("the nav no longer marks the route as not yet built", () => {
+    expect(NAV).toMatch(/href: "\/add"/);
+    expect(NAV).not.toMatch(/href: "\/add"[^}]*soon: true/);
   });
 
-  it("no DataSource method ingests a pasted URL", () => {
+  it("the DataSource ingests a pasted URL, in both implementations", () => {
     // Method names on the interface, e.g. `  setTriage(input: ...)`.
     const methods = [...DATA_SOURCE.matchAll(/^ {2}([a-zA-Z]+)\(/gm)].map((m) => m[1]);
     expect(methods).toContain("setTriage"); // the extraction works at all
-    expect(methods.filter((m) => /^(add|quick|paste|fetch|ingest)/i.test(m))).toEqual([
-      "addNote",
-    ]);
+    expect(methods).toContain("addJob");
+    expect(methods).toContain("resolveJobLinks");
+    for (const impl of [FIXTURE_SOURCE, SUPABASE_SOURCE]) {
+      expect(impl).toMatch(/async addJob\(/);
+      expect(impl).toMatch(/async resolveJobLinks\(/);
+    }
   });
 
-  it("the CSV importer is not the analogue: it requires a company AND a title", () => {
+  it("keeps the lane's three load-bearing behaviours", () => {
+    // 1. The row is created even when extraction fails — the URL is the
+    //    valuable part. The surface says so in the owner's words.
+    expect(QUICK_ADD).toContain("The link is saved; details fill in on");
+    // 2. A duplicate is REPORTED, never resolved by guessing.
+    expect(QUICK_ADD).toContain("Already tracked.");
+    // 3. Extraction is never accepted silently: the fields are editable and
+    //    their provenance is on screen.
+    expect(QUICK_ADD).toContain("provenance(draft)");
+  });
+
+  it("the CSV importer is still not the analogue: it requires a company AND a title", () => {
     // quickadd's premise is the opposite — the row is created from the URL
-    // alone, even when extraction returns nothing.
+    // alone, even when extraction returns nothing — and the new surface keeps
+    // it: `addJobAction` refuses only when there is neither a link nor a name.
     expect(IMPORT_SQL).toContain("a row needs both a company and a title");
+    expect(ADD_ACTIONS).toContain("Add a link, or a company and a title.");
   });
 });

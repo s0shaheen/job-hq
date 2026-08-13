@@ -150,6 +150,24 @@ describe("a URL that becomes an href", () => {
     }
   });
 
+  it("refuses userinfo, the same shape safeHref refuses", () => {
+    // The phish: a reader sees good.com, the browser goes to evil.example.
+    // The apply page renders this guard's output as a live href
+    // (`app/(app)/apply/[applicationId]/page.tsx`), so it must not disagree
+    // with `safeHref` about who the host is.
+    for (const hostile of [
+      "https://good.com@evil.example/job",
+      "http://user:secret@evil.example/",
+      "https://boards.greenhouse.io@evil.example/stripe/jobs/1",
+    ]) {
+      expect(httpUrlOrEmpty(hostile), hostile).toBe("");
+    }
+    // The encoded spelling is refused too — `new URL()` throws on it, which
+    // lands in the same "" as the plain one. Pinned so a parser change that
+    // starts accepting it fails here rather than on the apply page.
+    expect(httpUrlOrEmpty("https://good.com%40evil.example/")).toBe("");
+  });
+
   it("keeps the ordinary ones exactly as they are", () => {
     expect(httpUrlOrEmpty("https://boards.greenhouse.io/stripe/jobs/1")).toBe(
       "https://boards.greenhouse.io/stripe/jobs/1",

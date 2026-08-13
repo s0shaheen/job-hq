@@ -192,6 +192,81 @@ export type ProposeCompaniesResult =
   | { ok: false; kind: "auth" }
   | { ok: false; kind: "error"; message: string };
 
+// ---- quick add (RM-12: the Quick Add tab's replacement) --------------------
+//
+// Two capabilities, deliberately separate, because they fail differently and
+// only one of them writes:
+//
+//   `resolveJobLink` READS. It may fail, be slow, or come back with nothing,
+//   and none of that is allowed to cost the user the link they pasted.
+//   `addJob` WRITES, through the sanctioned command path, and takes exactly
+//   what the user confirmed on screen — never the resolver's output directly.
+//
+// That split is the whole safety property of this surface. The legacy lane
+// (`tracker/quickadd.py`) fetched, asked a model for five fields, and appended
+// the answer, so a confidently wrong extraction became a row nobody reviewed.
+// Here the extraction is a proposal the user can see, correct, and overrule
+// before anything is written.
+
+/** One thing a resolver claimed, and where it read it. Null means Not listed. */
+export type ResolvedFact = { value: string; from: string } | null;
+
+export type ResolveJobLinksInput = {
+  /** Exactly what the user pasted. Split and classified by the resolver. */
+  pasted: string;
+};
+
+export type ResolvedLink = {
+  /** The absolute URL, or the raw text when the entry was never a link. */
+  url: string;
+  /** What the user actually typed, echoed so the surface never rewrites it. */
+  entered: string;
+  /**
+   * `jobKey` over the URL — the identity every funnel in this system shares.
+   * "" when the entry is free text, which is why such an entry can be added
+   * only by hand.
+   */
+  key: string;
+  company: ResolvedFact;
+  title: ResolvedFact;
+  /**
+   * Null when the page was read. Otherwise the one plain sentence the fetcher
+   * produces for every refusal alike (`lib/quickadd/fetch.ts` states why).
+   */
+  unreadable: string | null;
+  /**
+   * Set when this user already tracks the posting. The surface offers to open
+   * it; nothing about it is written again.
+   */
+  duplicate: { key: string; company: string; title: string } | null;
+};
+
+export type ResolveJobLinksResult =
+  | { ok: true; links: ResolvedLink[] }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+/**
+ * One confirmed job, as the user left it on screen.
+ *
+ * `company` and `title` may both be empty, and that is the point the legacy
+ * lane and this surface agree on: the URL is the valuable part, so a posting
+ * nobody could read is still a row. What is NOT allowed is inventing them —
+ * an empty field renders `Not listed` and the next engine scan fills it in.
+ */
+export type AddJobInput = {
+  url: string;
+  key: string;
+  company: string;
+  title: string;
+  idempotencyKey: string;
+};
+
+export type AddJobResult =
+  | { ok: true; outcome: "added" | "duplicate"; job: JobView }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
 // ---- the referral finder (0013) --------------------------------------------
 
 /**
@@ -905,6 +980,13 @@ export interface DataSource {
   setCompanyFlags(input: CompanyFlagsInput): Promise<CompanyFlagsResult>;
   /** A pasted list of names → tier-3 proposals awaiting review. */
   proposeCompanies(input: ProposeCompaniesInput): Promise<ProposeCompaniesResult>;
+
+  // ---- quick add (RM-12) --------------------------------------------------
+
+  /** Read pasted links: split, key, parse with provenance, flag duplicates. */
+  resolveJobLinks(input: ResolveJobLinksInput): Promise<ResolveJobLinksResult>;
+  /** Track one confirmed posting. Idempotent; a duplicate says so. */
+  addJob(input: AddJobInput): Promise<AddJobResult>;
 
   // ---- the referral finder (0013) -----------------------------------------
 

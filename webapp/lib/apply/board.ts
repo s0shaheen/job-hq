@@ -114,7 +114,16 @@ export function httpUrlOrEmpty(raw: string | null | undefined): string {
     // it is unusable, and `""` is what the callers already render as no link.
     return "";
   }
-  return parsed.protocol === "https:" || parsed.protocol === "http:" ? trimmed : "";
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+  // Userinfo is the phish `safeHref` already refuses: in
+  // `https://good.com@evil.example` a reader sees good.com and the browser
+  // goes to evil.example. The apply page renders THIS guard's output as a
+  // live href, so the two guards must refuse the same shape — the encoded
+  // spelling (`good.com%40evil.example`) never reaches this line because
+  // `new URL()` throws on it. Refused rather than stripped: repairing a URL
+  // is how a guard becomes a rewriter, and `""` is the honest answer.
+  if (parsed.username !== "" || parsed.password !== "") return "";
+  return trimmed;
 }
 
 /**

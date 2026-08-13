@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Job Search HQ web app \u2014 the human surface (queue / pipeline / health). Read-only v1; writes arrive in Phase 2 stage 3.",
+  "description": "Job Search HQ web app — the human surface (queue / pipeline / health). Read-only v1; writes arrive in Phase 2 stage 3.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -41,6 +41,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.3",
+    "undici": "^7.29.0",
     "write-excel-file": "^4.1.1"
   },
   "devDependencies": {

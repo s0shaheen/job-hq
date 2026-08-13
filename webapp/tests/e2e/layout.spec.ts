@@ -26,6 +26,10 @@ const PAGES = [
   "/jobs",
   "/companies",
   "/companies/add",
+  // /add, the quick-add surface. Its own spec sweeps it with a parse on
+  // screen; this list reaches its EMPTY state, which is the one a sweep of
+  // static paths can load and the one nothing else here renders.
+  "/add",
   // The profile is the widest FORM in the app: chip lists whose contents are
   // free text, seeded from the longest real title anybody has tuned. A chip that
   // cannot wrap pushes the page sideways, which is the owner's stated fear

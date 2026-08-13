@@ -1,35 +1,43 @@
-import { Plus } from "lucide-react";
-import Link from "next/link";
-import { buttonClass } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty";
+import { PageHeader } from "@/components/ds";
+import QuickAdd from "./quick-add";
 
-export const metadata = { title: "Add" };
+export const metadata = { title: "Add a job" };
+export const dynamic = "force-dynamic";
 
 /**
- * Placeholder. Add-by-URL is spec §B6 ("I found it myself on LinkedIn"):
- * paste a URL → dedup → the row is created even when the lookup fails,
- * because the URL is the valuable part. No phase in docs/plans/ owns it yet,
- * and this page says so rather than pretending — the same engine already
- * runs behind the sheet's Quick Add tab (tracker.quickadd, every 2 hours),
- * so the honest thing is to point there until this surface is real.
+ * /add — the real surface, and the end of the last instruction in this product
+ * that told a user to open a spreadsheet.
+ *
+ * What was here until this commit was an `EmptyState` saying the feature was
+ * not built, and sending the reader to a tab of the owner's spreadsheet
+ * instead. (The exact wording is in this file's history and is deliberately
+ * not repeated here — `tests/unit/sheet-lane-analogue.test.ts` greps this file
+ * for it, and a quotation would keep the instruction alive in the source of
+ * the surface that replaced it.) That sentence was the whole reason
+ * `tracker/quickadd.py` could not be retired:
+ * `docs/plans/TRACKER-LANE-DISPOSITION.md` marks it PORT, alone among the
+ * tracker lanes, because the web app's Add page was an explicit placeholder
+ * pointing at the legacy lane, so there was no analogue.
+ *
+ * There is one now, and `tests/unit/sheet-lane-analogue.test.ts` is where that
+ * claim is checked rather than asserted.
+ *
+ * The composition is the authored add-a-job DIALOG
+ * (`templates/system-surfaces/SystemSurfaces.dc.html`), rendered as this
+ * route's content rather than over another surface. `03-ia-and-surfaces.md` §1
+ * puts the gesture in the command palette and on a Jobs button, and neither of
+ * those exists yet; the route does, it is in the nav, and it is what the sheet
+ * copy pointed away from. Mounting the same component from the palette and
+ * from Jobs' action slot is additive and belongs to those packets.
  */
 export default function AddPage() {
   return (
-    <div className="min-w-0">
-      <header className="border-b border-border px-4 py-3 sm:px-6">
-        <h1 className="text-lg font-semibold">Add a job</h1>
-        <p className="text-xs text-muted">For roles you find yourself, outside the scans.</p>
-      </header>
-      <EmptyState
-        icon={<Plus aria-hidden="true" className="size-8" />}
-        title="Adding by URL isn't built here yet"
-        body="This will take a pasted job URL and create the row, even when the posting can't be read, because the URL is the valuable part. Until then, paste the URL into the Quick Add tab of the HQ sheet; the tracker files it within two hours."
-        action={
-          <Link href="/queue" className={buttonClass({ variant: "primary" })}>
-            Go to Today
-          </Link>
-        }
+    <div className="min-w-0 px-4 py-6 sm:px-6">
+      <PageHeader
+        subtitle="For roles you find yourself, outside the scans."
+        title="Add a job"
       />
+      <QuickAdd />
     </div>
   );
 }

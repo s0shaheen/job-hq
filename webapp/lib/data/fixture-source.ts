@@ -82,6 +82,10 @@ import type {
   PinWarmIntroResult,
   UnpinWarmIntroInput,
   UnpinWarmIntroResult,
+  ResolveJobLinksInput,
+  ResolveJobLinksResult,
+  AddJobInput,
+  AddJobResult,
 } from "./source";
 import {
   APPLY_LIBRARY_LIMIT,
@@ -164,6 +168,9 @@ import type {
   SavedView,
 } from "./view-models";
 import { FIXTURE_CONNECTIONS } from "./connection-fixtures";
+import { resolveJobLinks as resolveJobLinksWith } from "@/lib/quickadd/resolve";
+import { UNREADABLE as UNREADABLE_POSTING } from "@/lib/quickadd/links";
+import { toLocalIsoDate } from "@/lib/dates";
 import { CONNECTION_SOURCE_TAGS } from "@/lib/referral/connections";
 
 /** 0008's ceiling on one user's review pile. */
@@ -308,6 +315,54 @@ function charLength(s: string): number {
  * handful of short strings.
  */
 const MAX_FACT_TEXT_BYTES = 6144;
+
+/**
+ * The row a manually added posting is born as: a key, a URL, and honest
+ * absence everywhere else.
+ *
+ * Every optional fact is null rather than "", and that distinction is what the
+ * grid renders as `Not listed`. A quick-added job that carried an empty string
+ * in `workModel` would print an empty cell — an absent fact presented as a
+ * blank one, which is the display defect `04 §5 Missing optional fact` exists
+ * to catch. It is also exactly what the row looks like coming back out of
+ * Postgres: `postings` defaults these to null, and `tags`/`geo` to `{}`.
+ */
+function blankJobView(key: string): JobView {
+  return {
+    key,
+    company: "",
+    title: "",
+    url: "",
+    location: null,
+    metro: null,
+    market: null,
+    country: null,
+    remote: false,
+    workModel: null,
+    compRange: null,
+    compMinK: null,
+    compMaxK: null,
+    minYoe: null,
+    seniority: null,
+    industry: null,
+    roleFocus: null,
+    skills: [],
+    posted: null,
+    firstSeen: null,
+    taggedAt: null,
+    status: "New",
+    // `qualified`, and not because anything gated it: the user asked for this
+    // posting by name, which is a stronger signal than the profile gate is
+    // trying to approximate. `disposition_reason` says so rather than leaving
+    // a blank that reads as "the gate passed it".
+    disposition: "qualified",
+    dispositionReason: "added:you",
+    triage: "",
+    snoozeUntil: null,
+    companyDomain: null,
+    updatedAt: null,
+  };
+}
 
 export class FixtureDataSource implements DataSource {
   private jobsByKey = new Map<string, JobView>();
@@ -1263,6 +1318,148 @@ export class FixtureDataSource implements DataSource {
 
     const result: ProposeCompaniesResult = { ok: true, companies, added };
     this.seenCompanyKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  // ---- quick add (RM-12) --------------------------------------------------
+
+  /**
+   * The durable results, WITH the fingerprint each key is scoped to.
+   *
+   * `app_add_job` is a post-0026 command: `hq_command_replay` compares a
+   * `request_hash` over the normalised arguments and raises 22023 when the
+   * same key arrives with different ones. A fake that replayed on the key
+   * alone would be more forgiving than production in exactly the way this
+   * project keeps getting bitten by — a retry-after-edit would quietly answer
+   * the UN-edited write's result here while production refuses it, and the
+   * surface's fresh-key-on-edit rule (`lib/quickadd/draft.ts`) would be
+   * untestable through the only source the tests can drive.
+   */
+  private seenAddJobKeys = new Map<string, { fp: string; result: AddJobResult }>();
+
+  /** `hq_command_fingerprint`'s array, over the same blank-trimmed values. */
+  private static addJobFingerprint(input: AddJobInput): string {
+    return JSON.stringify([
+      blankTrim(input.key),
+      blankTrim(input.url),
+      blankTrim(input.company),
+      blankTrim(input.title),
+    ]);
+  }
+
+  /**
+   * The pages this fake can "read", by URL substring.
+   *
+   * Deliberately small and deliberately incomplete. Three postings are
+   * readable; everything else comes back unreadable, because the unreadable
+   * path is the one that has to work — it is what a LinkedIn link, a login
+   * wall, a rate limit and a dead posting all produce, and it is the branch the
+   * legacy lane got right and no web surface has ever exercised.
+   */
+  private static readonly PAGES: ReadonlyArray<readonly [string, string]> = [
+    [
+      "boards.greenhouse.io/ramp/jobs/4021775",
+      "<html><head><title>Product Manager, Risk - Ramp</title></head><body></body></html>",
+    ],
+    [
+      "jobs.lever.co/plaid/",
+      '<html><head><meta property="og:title" content="Product Manager, Identity" />' +
+        "<title>Plaid</title></head><body></body></html>",
+    ],
+    [
+      "boards.greenhouse.io/ramp/jobs/8814021",
+      "<html><head><title>Product Manager, Core Platform - Ramp</title></head></html>",
+    ],
+  ];
+
+  /**
+   * Deliberately does NOT consume `failNext`.
+   *
+   * `failNextWrite` arms the next WRITE, and a resolve is a read. Letting it
+   * fire here would mean an E2E arming a failed add got a failed parse
+   * instead — the armed failure swallowed by the step before the one under
+   * test, which is how a write-failure test passes while never reaching the
+   * write. An unreadable posting is a normal outcome of this method and has
+   * its own branch; it is not an error.
+   *
+   * Also deliberately does NOT carry the Supabase source's resolve rate gate
+   * (`lib/quickadd/rate.ts`): that gate bounds user-driven OUTBOUND fetch,
+   * and this method's page reads are the in-memory table above. There is no
+   * network capability here to bound, and a gated fake would rate-limit the
+   * e2e suite's one shared demo user into flake.
+   */
+  async resolveJobLinks(input: ResolveJobLinksInput): Promise<ResolveJobLinksResult> {
+    const links = await resolveJobLinksWith(input.pasted, {
+      readPage: async (url) => {
+        const hit = FixtureDataSource.PAGES.find(([fragment]) => url.includes(fragment));
+        return hit
+          ? { html: hit[1], unreadable: null, finalUrl: url }
+          : { html: null, unreadable: UNREADABLE_POSTING, finalUrl: url };
+      },
+      existing: async (key) => {
+        const job = this.jobsByKey.get(key);
+        return job ? { key: job.key, company: job.company, title: job.title } : null;
+      },
+    });
+    return { ok: true, links };
+  }
+
+  /**
+   * The write, as `app_add_job` performs it: replay first, then a duplicate
+   * verdict that REPORTS rather than inserts, then the row.
+   *
+   * The duplicate branch returns `ok: true` with `outcome: "duplicate"`. It is
+   * not an error — the user asked for a posting to be tracked and it is
+   * tracked. Making it an error would put a red toast on the one gesture that
+   * did exactly what was asked.
+   */
+  async addJob(input: AddJobInput): Promise<AddJobResult> {
+    const fp = FixtureDataSource.addJobFingerprint(input);
+    const seen = this.seenAddJobKeys.get(input.idempotencyKey);
+    if (seen) {
+      if (seen.fp !== fp) {
+        // 0026's message, verbatim, as `app_add_job` would raise it.
+        return {
+          ok: false,
+          kind: "error",
+          message: "idempotency key already used by app_add_job with different arguments",
+        };
+      }
+      return seen.result;
+    }
+
+    if (this.failNext) {
+      const message = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message };
+    }
+
+    const url = blankTrim(input.url);
+    const key = blankTrim(input.key);
+    if (url === "" && key === "") {
+      return { ok: false, kind: "error", message: "a job needs a link or a name" };
+    }
+    if (key === "") return { ok: false, kind: "error", message: "unkeyable posting" };
+
+    let result: AddJobResult;
+    const existing = this.jobsByKey.get(key);
+    if (existing) {
+      result = { ok: true, outcome: "duplicate", job: { ...existing } };
+    } else {
+      const now = new Date(FIXTURE_NOW).toISOString();
+      const job: JobView = {
+        ...blankJobView(key),
+        key,
+        company: blankTrim(input.company),
+        title: blankTrim(input.title),
+        url,
+        firstSeen: toLocalIsoDate(new Date(FIXTURE_NOW)),
+        updatedAt: now,
+      };
+      this.jobsByKey.set(key, job);
+      result = { ok: true, outcome: "added", job };
+    }
+    this.seenAddJobKeys.set(input.idempotencyKey, { fp, result });
     return result;
   }
 
