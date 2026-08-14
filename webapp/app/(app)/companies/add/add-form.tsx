@@ -154,6 +154,29 @@ export default function AddForm() {
     setError(null);
   };
 
+  /**
+   * Adopt a file chosen BEFORE hydration (#258).
+   *
+   * The file input is a native control: it is fully working the moment it is
+   * painted, before React's bundle has executed. A change event fired into
+   * that gap reaches no listener and is never replayed — React only replays
+   * events it captured, and its root listener does not exist yet — so the
+   * chosen file would sit on the input forever while the box stays empty and
+   * submit stays disabled. Real on any slow connection (pick a file while the
+   * bundle is still loading; the form is then permanently dead), and
+   * deterministic under the mobile e2e project, whose `setInputFiles` lands
+   * inside the gap. The mount effect reconciles state from the input's ACTUAL
+   * files instead of trusting the lossy event, so the gesture counts on either
+   * side of hydration; after mount, the change handler owns the path.
+   */
+  React.useEffect(() => {
+    const file = fileRef.current?.files?.[0];
+    if (file) void readFile(file);
+    // Mount-only by design: `readFile` is recreated per render but its
+    // behavior is stable, and re-running on renders would re-read the file
+    // after the person had already edited the box.
+  }, []);
+
   return (
     // `pb-40` on a phone is a SAFE AREA for the toaster, not spacing.
     //
