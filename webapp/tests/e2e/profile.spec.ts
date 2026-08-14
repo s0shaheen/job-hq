@@ -129,7 +129,7 @@ test("the profile renders what is saved, not empty fields", async ({ page }) => 
   // `reasonSetting()` deep links keep landing on a page that carries them.
   await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile & search" })).toBeVisible();
-  // The demo profile is Salman's, from users/salman/profile.yaml. A page that
+  // The demo profile is an invented saved search (RM-40 audit §4). A page that
   // opened on blank chips could not show somebody what they already chose.
   await expect(page.getByTestId("titles_include-chips")).toContainText("product manager");
   await expect(page.getByTestId("countries-chips")).toContainText("United States");

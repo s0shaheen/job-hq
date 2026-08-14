@@ -199,7 +199,7 @@ export const FIXTURE_JOBS: JobView[] = [
   job({
     key: "greenhouse-3312876", company: "Figma", title: "Product Manager, Platform",
     location: "San Francisco, CA", metro: "San Francisco Bay Area", workModel: "Hybrid",
-    compRange: "$180,000 - $225,000", compMinK: 180, compMaxK: 225,
+    compRange: "$178,000 - $222,000", compMinK: 178, compMaxK: 222,
     minYoe: 4, triage: "snoozed", snoozeUntil: daysAgo(-3), seniority: "PM",
     industry: "Design tools", roleFocus: "Plugin and extensibility platform",
     skills: ["Platform", "Developer tools"], posted: daysAgo(11), firstSeen: daysAgo(10),
@@ -320,7 +320,7 @@ export const FIXTURE_APPLICATIONS: ApplicationView[] = [
     title: "Product Manager, Developer Platform", url: "https://example.com/jobs/manual-1",
     status: "Applied", suggestedStatus: null, evidence: null,
     appliedDate: daysAgo(9), nextAction: "Follow up with referrer",
-    nextActionDate: daysAgo(-1), notes: "Referred by a UIUC alum.",
+    nextActionDate: daysAgo(-1), notes: "Referred by a Norvale alum.",
     updatedAt: stampAgo(72),
   }),
   app({

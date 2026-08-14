@@ -12,10 +12,10 @@
  *
  *   1. **The title-coverage banner fires for one of the two presets.** Three of
  *      these 140 postings carry an FP&A title (2.1%, under the 5% floor), which
- *      is Dad's real situation: the engine has only ever swept PM titles into
- *      this universe, so his preview reads near-zero and it is not his
- *      profile's fault. A corpus that matched both presets equally would let
- *      the banner ship unexercised.
+ *      is the finance preset's situation: the engine has only ever swept PM
+ *      titles into this universe, so an FP&A preview reads near-zero and it is
+ *      not the profile's fault. A corpus that matched both presets equally
+ *      would let the banner ship unexercised.
  *   2. **Geo masks comp.** Twelve foreign rows pay well and eleven US rows pay
  *      badly, so a reason histogram credits geo and the relaxation pass finds
  *      the floor behind it.
@@ -135,9 +135,10 @@ export const PREVIEW_CORPUS: PreviewPosting[] = build()
 export const PREVIEW_MAX_ROWS = 5000;
 
 /**
- * The demo user's saved profile — Salman's, from `users/salman/profile.yaml`.
+ * The demo user's saved profile — an invented PM search (RM-40 audit §4: no
+ * fixture profile may be any real person's saved criteria).
  *
- * A REAL profile rather than the bare defaults, because the settings page's
+ * A SAVED profile rather than the bare defaults, because the settings page's
  * whole job is showing somebody what they already chose, and a page that opens
  * on empty chips cannot show that. `updatedAt` is the fixture clock: the commit
  * path compares version tokens for EQUALITY, never distance, so a pinned value
@@ -147,7 +148,10 @@ export const FIXTURE_PROFILE: ProfileView = {
   criteria: {
     ...BASE_CRITERIA,
     ...((presetById("product-manager") as { criteria: Partial<ProfileCriteria> }).criteria),
-    seniority_exclude: ["Senior", "Staff", "GPM", "Director", "VP"],
+    // Distribution-preserving, not anybody's real list: the corpus above only
+    // carries "Senior" and "PM" rows, so keeping "Senior" keeps every preview
+    // number and reachable state exactly where it was.
+    seniority_exclude: ["Senior", "Director", "VP"],
   },
   notify: { notify_channel: "ntfy" },
   updatedAt: FIXTURE_NOW,

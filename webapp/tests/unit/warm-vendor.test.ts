@@ -85,15 +85,15 @@ describe("buildProfileSearchInput", () => {
         persona: "role",
         text: "PM",
         companyUrl: "https://www.linkedin.com/company/1035",
-        schools: ["UIUC"],
-        pastCompanies: ["Capital One"],
+        schools: ["Norvale"],
+        pastCompanies: ["Northwind"],
         location: "United States",
       }),
     );
     expect(input.currentCompanies).toEqual(["https://www.linkedin.com/company/1035"]);
     // MUTATION: overlays dropped -> the school/ex-employer signals never reach the vendor.
-    expect(input.schools).toEqual(["UIUC"]);
-    expect(input.pastCompanies).toEqual(["Capital One"]);
+    expect(input.schools).toEqual(["Norvale"]);
+    expect(input.pastCompanies).toEqual(["Northwind"]);
     expect(input.locations).toEqual(["United States"]);
   });
 });
@@ -106,8 +106,8 @@ describe("mapDatasetItem", () => {
       persona: "role",
       text: "PM",
       company: "Ramp",
-      schools: ["UIUC"],
-      pastCompanies: ["Capital One"],
+      schools: ["Norvale"],
+      pastCompanies: ["Northwind"],
     });
     const mapped = mapDatasetItem(
       {
@@ -132,8 +132,8 @@ describe("mapDatasetItem", () => {
     // Short mode carries no education, so the matched signals come from the query's
     // own overlay facets — the row matched them by construction.
     // MUTATION: stamp matchedSchool from the (absent) record field -> undefined.
-    expect(mapped.matchedSchool).toBe("UIUC");
-    expect(mapped.matchedPastCompany).toBe("Capital One");
+    expect(mapped.matchedSchool).toBe("Norvale");
+    expect(mapped.matchedPastCompany).toBe("Northwind");
   });
 
   it("reads location deepest-first: linkedinText, then parsed.text, then text", () => {
@@ -201,14 +201,14 @@ describe("buildWarmQueries", () => {
     const params = deriveWarmParams("Product Manager");
     const queries = buildWarmQueries(params, {
       company: "Ramp",
-      schools: ["UIUC"],
-      pastCompanies: ["Capital One"],
+      schools: ["Norvale"],
+      pastCompanies: ["Northwind"],
     });
     // MUTATION: buildWarmQueries stops routing through queryForPersona -> overlays
     // reach only some (or none) of the three runs.
     for (const q of queries) {
-      expect(q.schools).toEqual(["UIUC"]);
-      expect(q.pastCompanies).toEqual(["Capital One"]);
+      expect(q.schools).toEqual(["Norvale"]);
+      expect(q.pastCompanies).toEqual(["Northwind"]);
     }
   });
 });

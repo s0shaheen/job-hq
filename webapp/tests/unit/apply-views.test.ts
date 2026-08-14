@@ -117,14 +117,14 @@ describe("reading a stored fact", () => {
     // `countries` and `date` already run in.
     expect(parseSituationFact({ kind: "money", value: 0 })).toBeNull();
     expect(parseSituationFact({ kind: "money", value: -1 })).toBeNull();
-    expect(parseSituationFact({ kind: "money", value: 180000.5 })).toBeNull();
+    expect(parseSituationFact({ kind: "money", value: 150000.5 })).toBeNull();
     // `String(1e21)` is "1e+21" — a machine token on a knockout field. Refused
     // six orders of magnitude before JavaScript would switch notation.
     expect(parseSituationFact({ kind: "money", value: 1e21 })).toBeNull();
     expect(parseSituationFact({ kind: "money", value: 1_000_000_000 })).not.toBeNull();
-    expect(parseSituationFact({ kind: "money", value: 180000, currency: "USD" })).toEqual({
+    expect(parseSituationFact({ kind: "money", value: 150000, currency: "USD" })).toEqual({
       kind: "money",
-      value: 180000,
+      value: 150000,
       currency: "USD",
     });
     expect(parseSituationFact({ kind: "directive", value: "monday-weeks-out:3" })).not.toBeNull();
@@ -142,7 +142,7 @@ describe("reading a stored fact", () => {
     expect(parseSituationFact({ kind: "boolean" })).toBeNull();
     expect(parseSituationFact({ kind: "boolean", value: "true" })).toBeNull();
     expect(parseSituationFact({ kind: "money", value: -1 })).toBeNull();
-    expect(parseSituationFact({ kind: "money", value: "180000" })).toBeNull();
+    expect(parseSituationFact({ kind: "money", value: "150000" })).toBeNull();
     expect(parseSituationFact({ kind: "countries", value: [] })).toBeNull();
     expect(parseSituationFact({ kind: "countries", value: ["  "] })).toBeNull();
     expect(parseSituationFact({ kind: "text", value: "\n\t" })).toBeNull();

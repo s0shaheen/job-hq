@@ -129,7 +129,7 @@ describe("start body overlays", () => {
     const source = new FixtureDataSource();
     const vendor = new FakeWarmVendor("results");
     const res = await handleWarmStart(
-      startRequest(validStart({ overlays: { schools: ["UIUC"], pastCompanies: ["Capital One"] } })),
+      startRequest(validStart({ overlays: { schools: ["Norvale"], pastCompanies: ["Northwind"] } })),
       { source, vendor },
     );
     expect(res.status).toBe(200);
@@ -137,8 +137,8 @@ describe("start body overlays", () => {
     const persisted = await source.getWarmSearch(started.id);
     // MUTATION: parseStart drops overlays -> the school/ex-employer facets never
     // reach the vendor and the fit pass has no background to reason from.
-    expect(persisted?.overlays.schools).toEqual(["UIUC"]);
-    expect(persisted?.overlays.pastCompanies).toEqual(["Capital One"]);
+    expect(persisted?.overlays.schools).toEqual(["Norvale"]);
+    expect(persisted?.overlays.pastCompanies).toEqual(["Northwind"]);
   });
 
   it("still works with NO overlays field — the handler defaults them to empty", async () => {

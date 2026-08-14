@@ -70,9 +70,9 @@ const yes: SituationFact = { kind: "boolean", value: true };
 const no: SituationFact = { kind: "boolean", value: false };
 
 const IDENTITY: AnswerEntry[] = [
-  answer("First name", "Salman", { kind: "identity" }),
-  answer("Last name", "Shaheen", { kind: "identity" }),
-  answer("Email", "shaheensalmant@gmail.com", { kind: "identity" }),
+  answer("First name", "Morgan", { kind: "identity" }),
+  answer("Last name", "Hale", { kind: "identity" }),
+  answer("Email", "morgan.hale@example.com", { kind: "identity" }),
   answer("Phone", "+1 555 0100", { kind: "identity" }),
 ];
 
@@ -202,14 +202,14 @@ describe("a situation is derived against the question's polarity, never replayed
   });
 
   it("a CURRENT salary is refused, and an expected one is answered", () => {
-    const money: SituationFact = { kind: "money", value: 180000, currency: "USD" };
+    const money: SituationFact = { kind: "money", value: 150000, currency: "USD" };
     const current = synthetic("What is your current salary?", { type: "input_text" });
     expect(field(stage(current, { rules: [rule("compensation", money)] }), "q1").gap)
       .toBe("polarity-unknown");
 
     const desired = synthetic("What are your salary expectations?", { type: "input_text" });
     expect(field(stage(desired, { rules: [rule("compensation", money)] }), "q1").answer)
-      .toBe("180000");
+      .toBe("150000");
   });
 
   it("`do you require work authorization` is not answered at all", () => {
@@ -801,7 +801,7 @@ describe("kind gates run BEFORE the library", () => {
         { label: "Sign here", required: false, fields: [{ name: "sig", type: "input_signature" }] },
       ],
     });
-    const staged = stage(mutant, { answers: [answer("Sign here", "Salman")] });
+    const staged = stage(mutant, { answers: [answer("Sign here", "Morgan")] });
     expect(field(staged, "sig").gap).toBe("unsupported");
   });
 
@@ -820,7 +820,7 @@ describe("kind gates run BEFORE the library", () => {
 describe("layer 1 — the answer library", () => {
   it("fills identity fields by the ATS's stable field name, not by label", () => {
     const staged = stage(COINBASE);
-    expect(field(staged, "first_name").answer).toBe("Salman");
+    expect(field(staged, "first_name").answer).toBe("Morgan");
     expect(field(staged, "email").source).toBe("answer:email");
   });
 
@@ -892,7 +892,7 @@ describe("layer 1 — the answer library", () => {
       ],
     });
     const staged = stage(aliased, {
-      answers: [answer("Email", "shaheensalmant@gmail.com", { kind: "identity" })],
+      answers: [answer("Email", "morgan.hale@example.com", { kind: "identity" })],
     });
     expect(field(staged, "email").answer).toBeNull();
     expect(field(staged, "email").gap).toBe("policy-unset");
@@ -900,9 +900,9 @@ describe("layer 1 — the answer library", () => {
     // The exact-key match on the same field DOES fill, so the gate is not
     // simply refusing everything.
     const exact = stage(aliased, {
-      answers: [answer("What is your full legal name?", "Salman Shaheen")],
+      answers: [answer("What is your full legal name?", "Morgan Hale")],
     });
-    expect(field(exact, "email").answer).toBe("Salman Shaheen");
+    expect(field(exact, "email").answer).toBe("Morgan Hale");
   });
 
   it("still fills an ORDINARY field from a machine-written row", () => {

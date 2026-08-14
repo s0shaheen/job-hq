@@ -117,7 +117,7 @@ describe("rankCandidates", () => {
     // score comparator and the name tiebreak are exercised.
     const out = rankCandidates([
       raw({ persona: "role", fullName: "Cara", linkedinUrl: "u:cara" }), // score 1
-      raw({ persona: "role", fullName: "Bob", linkedinUrl: "u:bob", matchedSchool: "UIUC" }), // score 4
+      raw({ persona: "role", fullName: "Bob", linkedinUrl: "u:bob", matchedSchool: "Norvale" }), // score 4
       raw({ persona: "role", fullName: "Aaron", linkedinUrl: "u:aaron" }), // score 1
     ]);
 
@@ -184,7 +184,7 @@ describe("rankCandidates", () => {
 describe("sortByFit", () => {
   it("puts a strong fit above a higher-SCORE but weak fit — the LLM read overrides the deterministic score", () => {
     const weakHigh = cand({ fullName: "Zed", score: 10, fit: { tier: "weak", reason: "same function" } });
-    const strongLow = cand({ fullName: "Amy", score: 1, fit: { tier: "strong", reason: "shared UIUC" } });
+    const strongLow = cand({ fullName: "Amy", score: 1, fit: { tier: "strong", reason: "shared Norvale" } });
     const out = sortByFit([weakHigh, strongLow]);
     // MUTATION: sort by score first (or ignore fit) -> Zed (score 10) leads.
     expect(out.map((c) => c.fullName)).toEqual(["Amy", "Zed"]);
@@ -208,7 +208,7 @@ describe("sortByFit", () => {
     });
     const input: WarmCandidate[] = [
       cand({ fullName: "Bob", score: 4, fit: { tier: "weak", reason: "same function" } }),
-      cand({ fullName: "Ada", score: 1, fit: { tier: "strong", reason: "shared UIUC" } }),
+      cand({ fullName: "Ada", score: 1, fit: { tier: "strong", reason: "shared Norvale" } }),
       recruiter,
       cand({ fullName: "Cara", score: 2 }),
     ];

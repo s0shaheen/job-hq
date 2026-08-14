@@ -1655,7 +1655,7 @@ const WELLFORMED_FACT: Record<string, unknown> = {
   enum: { kind: "enum", value: "none" },
   text: { kind: "text", value: "Chicago, IL" },
   countries: { kind: "countries", value: ["united states"] },
-  money: { kind: "money", value: 180000 },
+  money: { kind: "money", value: 150000 },
   date: { kind: "date", value: "2026-08-17" },
   directive: { kind: "directive", value: "monday-weeks-out:3" },
 };

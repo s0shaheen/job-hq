@@ -6,8 +6,9 @@
  * fixture that carried a field the real record does not, or omitted one it does,
  * makes the demo green on a shape production never produces.
  *
- * Built to make the branches REACHABLE (matrix row 15): the set carries a UIUC
- * alum and an ex-Capital One (so the school and past-company signals render), a
+ * Built to make the branches REACHABLE (matrix row 15): the set carries a
+ * Norvale alum and an ex-Northwind — invented institutions (RM-40 audit §4),
+ * like every identity here — so the school and past-company signals render, a
  * recruiter (so the "always shown" guarantee is exercised), and one person
  * returned by TWO personas under one profile URL (so the dedup path runs). Any
  * company the demo does not name gets a stable generic set, so no row is a dead
@@ -51,10 +52,10 @@ export function fakeCandidatesFor(company: string, companyKey: string): RawCandi
   return [
     // role persona — someone in your role
     person("role", "Ada Okonkwo", `Product Manager, Payments · ${co}`, co, "6 yrs", `ada-${k}`, {
-      matchedSchool: "UIUC",
+      matchedSchool: "Norvale",
     }),
     person("role", "Marcus Bell", `Senior Product Manager · ${co}`, co, "8 yrs", `marcus-${k}`, {
-      matchedPastCompany: "Capital One",
+      matchedPastCompany: "Northwind",
     }),
     person("role", "Priya Natarajan", `Group Product Manager · ${co}`, co, "11 yrs", `priya-${k}`),
     person("role", "Tomás Rivera", `Product Manager, Growth · ${co}`, co, "4 yrs", `tomas-${k}`),
@@ -62,7 +63,7 @@ export function fakeCandidatesFor(company: string, companyKey: string): RawCandi
     // senior persona — Priya again (dedup), plus a VP
     person("senior", "Priya Natarajan", `Group Product Manager · ${co}`, co, "11 yrs", `priya-${k}`),
     person("senior", "Dana Whitfield", `VP Product · ${co}`, co, "15 yrs", `dana-${k}`, {
-      matchedSchool: "UIUC",
+      matchedSchool: "Norvale",
     }),
 
     // recruiter persona — always shown

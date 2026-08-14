@@ -464,7 +464,7 @@ describe("warmLinks", () => {
       // empty failure from the top of this file arriving by another route.
       const empty = warmLinks({
         companyId: "1035",
-        signals: { schoolIds: [], pastCompanyIds: [], schoolLabel: "UIUC" },
+        signals: { schoolIds: [], pastCompanyIds: [], schoolLabel: "Norvale" },
       }).map((l) => l.id);
       expect(empty).not.toContain("alumni");
       expect(empty).not.toContain("ex-colleagues");
@@ -476,18 +476,18 @@ describe("warmLinks", () => {
         title: "Product Manager",
         signals: {
           schoolIds: ["18043"],
-          schoolLabel: "UIUC",
+          schoolLabel: "Norvale",
           pastCompanyIds: ["1234", "5678"],
-          pastCompanyLabel: "Capital One",
+          pastCompanyLabel: "Northwind",
         },
       });
       const byId = new Map(links.map((l) => [l.id, l]));
       expect(links.map((l) => l.id).slice(-2)).toEqual(["alumni", "ex-colleagues"]);
-      expect(byId.get("alumni")!.label).toBe("UIUC here");
+      expect(byId.get("alumni")!.label).toBe("Norvale here");
       expect(decoded(byId.get("alumni")!.href)).toBe(
         `${BASE}?currentCompany=["1035"]&schoolFilter=["18043"]`,
       );
-      expect(byId.get("ex-colleagues")!.label).toBe("Ex-Capital One here");
+      expect(byId.get("ex-colleagues")!.label).toBe("Ex-Northwind here");
       expect(decoded(byId.get("ex-colleagues")!.href)).toBe(
         `${BASE}?currentCompany=["1035"]&pastCompany=["1234","5678"]`,
       );

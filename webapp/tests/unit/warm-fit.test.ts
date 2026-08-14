@@ -39,7 +39,7 @@ afterEach(() => {
 const ctx: WarmFitContext = {
   role: "Product Manager",
   company: "Ramp",
-  schools: ["UIUC"],
+  schools: ["Norvale"],
   pastCompanies: [],
 };
 
@@ -75,7 +75,7 @@ describe("analyzeFit — not demo, no key", () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "");
 
     const input = [
-      cand({ fullName: "Ada", signals: [{ kind: "school", label: "UIUC" }] }),
+      cand({ fullName: "Ada", signals: [{ kind: "school", label: "Norvale" }] }),
       cand({ fullName: "Chen", isRecruiter: true, signals: [{ kind: "persona", label: "Recruiter" }] }),
     ];
     const out = await analyzeFit(input, ctx);
@@ -94,7 +94,7 @@ describe("analyzeFit — demo mode (deterministic, offline)", () => {
     vi.stubEnv("HQ_DEMO", "1");
     vi.stubEnv("ANTHROPIC_API_KEY", ""); // NO key: fit still comes back => the branch is offline
 
-    const school = cand({ fullName: "Bea", signals: [{ kind: "school", label: "UIUC" }] });
+    const school = cand({ fullName: "Bea", signals: [{ kind: "school", label: "Norvale" }] });
     const recruiter = cand({
       fullName: "Rex",
       isRecruiter: true,

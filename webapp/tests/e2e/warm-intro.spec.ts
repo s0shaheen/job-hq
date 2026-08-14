@@ -151,17 +151,17 @@ test.describe("running a search", () => {
     await expect(page.getByTestId("warm-intro-searched-for")).toContainText("Searched for:");
 
     // At least one candidate, and its signal COMPONENTS are shown — never a bare
-    // score. Ada carries the UIUC school signal in the fixture.
+    // score. Ada carries the Norvale school signal in the fixture.
     const candidates = page.getByTestId("warm-intro-candidate");
     expect(await candidates.count()).toBeGreaterThanOrEqual(1);
-    await expect(results).toContainText("UIUC");
+    await expect(results).toContainText("Norvale");
 
     // FIT reasons render — transparent reasoning, never a bare tier. Under the demo
-    // fake, Ada's UIUC school makes her fit read "Shared UIUC"; Chen Lo is the
+    // fake, Ada's Norvale school makes her fit read "Shared Norvale"; Chen Lo is the
     // recruiter, so his reads "Recruiter for this role". At least one is visible.
     const fits = page.getByTestId("warm-intro-fit");
     expect(await fits.count()).toBeGreaterThanOrEqual(1);
-    await expect(fits.filter({ hasText: "Shared UIUC" }).first()).toBeVisible();
+    await expect(fits.filter({ hasText: "Shared Norvale" }).first()).toBeVisible();
     await expect(fits.filter({ hasText: "Recruiter for this role" }).first()).toBeVisible();
     // Never a bare tier word standing alone as the fit.
     await expect(page.getByTestId("warm-intro-fit").filter({ hasText: /^(strong|medium|weak)$/ })).toHaveCount(0);
@@ -241,7 +241,7 @@ test.describe("pinning", () => {
     await expect(pinSelected).toContainText("Pin selected (0)");
 
     // Check the top two candidates — Ada Okonkwo and Dana Whitfield (both strong
-    // fit "Shared UIUC"; the deterministic order is stable render-to-render).
+    // fit "Shared Norvale"; the deterministic order is stable render-to-render).
     const candidates = page.getByTestId("warm-intro-candidate");
     await candidates.nth(0).getByTestId("warm-intro-select").check();
     await candidates.nth(1).getByTestId("warm-intro-select").check();

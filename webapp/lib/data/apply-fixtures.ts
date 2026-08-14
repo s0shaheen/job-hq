@@ -1,5 +1,8 @@
 /**
  * The demo answer library: what one person has told this app about themselves.
+ * That person is INVENTED (RM-40 audit §4): no name, contact detail, or figure
+ * here is any real user's, and none may ever be replaced with one — demo mode
+ * renders this file to prospective users.
  *
  * Stored the way the DATABASE stores it, not the way a screen reads it —
  * `question` without its generated key, and `fact` as raw jsonb. That is matrix
@@ -71,7 +74,7 @@ const stamp = (minutes: number) => new Date(T0 - minutes * 60_000).toISOString()
 export const FIXTURE_ANSWERS: AnswerSeed[] = [
   {
     question: "First Name",
-    answer: "Salman",
+    answer: "Morgan",
     kind: "identity",
     provenance: "user-entered",
     authoredBy: "user",
@@ -79,7 +82,7 @@ export const FIXTURE_ANSWERS: AnswerSeed[] = [
   },
   {
     question: "Last Name",
-    answer: "Shaheen",
+    answer: "Hale",
     kind: "identity",
     provenance: "user-entered",
     authoredBy: "user",
@@ -87,7 +90,7 @@ export const FIXTURE_ANSWERS: AnswerSeed[] = [
   },
   {
     question: "Email",
-    answer: "salman@example.com",
+    answer: "morgan@example.com",
     kind: "identity",
     provenance: "user-entered",
     authoredBy: "user",
@@ -142,7 +145,7 @@ export const FIXTURE_ANSWERS: AnswerSeed[] = [
     // A machine's proposal nobody has confirmed. It fills the field AND drops the
     // whole application out of `ready`, which is the behaviour worth seeing.
     question: "Preferred First Name",
-    answer: "Salman",
+    answer: "Morgan",
     kind: "identity",
     provenance: "suggested",
     authoredBy: "service",
@@ -228,7 +231,7 @@ export const FIXTURE_POLICY_RULES: PolicySeed[] = [
   {
     topic: "compensation",
     companyKey: "",
-    fact: { kind: "money", value: 180000, currency: "USD" },
+    fact: { kind: "money", value: 150000, currency: "USD" },
     provenance: "user-entered",
     authoredBy: "user",
     note: "Top of the band, not a floor I would refuse.",
