@@ -196,6 +196,49 @@ def test_no_token_skips_cleanly_but_heartbeats(monkeypatch):
     assert any(r["action"] == "skip" for r in hq.tab("log").records())
 
 
+def test_empty_titles_is_a_halt_not_a_green_skip(monkeypatch):
+    """#252: unlike the missing-token skip above (pre-activation, rightly
+    green), an EMPTY title filter is a halted sweep — it must not beat the
+    heartbeat, and it must surface as an error main() pages and exits 1 on.
+    Emptiness comes from persona-free committed defaults (RM-40 Step 4) with
+    no titles configured anywhere else — the issue's exact scenario."""
+    monkeypatch.setenv("APIFY_TOKEN", "tok")
+    monkeypatch.delenv("THEIRSTACK_API_KEY", raising=False)
+    from core import config as core_config
+    bare = {**core_config.defaults(), "titles_include": []}
+    monkeypatch.setattr("core.config.defaults", lambda: bare)
+    hq = fake_hq()
+    factory_calls = []
+    s = run(hq, session=FakeSession(),
+            client_factory=lambda token: factory_calls.append(token), today=TODAY)
+    assert not s.ok and not s.skipped        # neither healthy nor pre-activation
+    assert any("titles_include" in e for e in s.errors)
+    assert factory_calls == []               # nothing was bought for a dead search
+    assert not any(r["key"].startswith("heartbeat_")
+                   for r in hq.tab("config").records()), \
+        "an idle-by-misconfiguration sweep must not beat green"
+    assert any(r["action"] == "config_problem" for r in hq.tab("log").records())
+
+
+def test_empty_titles_main_pages_ops_and_exits_nonzero(monkeypatch):
+    """The half a human actually sees: main() turns the halt into an ops page
+    that names the cell, and a nonzero exit the Lambda envelope records as a
+    failed bot_runs row."""
+    monkeypatch.setenv("APIFY_TOKEN", "tok")
+    monkeypatch.delenv("THEIRSTACK_API_KEY", raising=False)
+    from core import config as core_config, notify
+    from core.sheets import HQ
+    bare = {**core_config.defaults(), "titles_include": []}
+    monkeypatch.setattr("core.config.defaults", lambda: bare)
+    hq = fake_hq()
+    monkeypatch.setattr(HQ, "open", classmethod(lambda cls: hq))
+    alerts = []
+    monkeypatch.setattr(notify, "ops_alert",
+                        lambda title, body, **kw: alerts.append((title, body)))
+    assert wide.main(["--source", "cafe"]) == 1
+    assert alerts and any("titles_include" in body for _, body in alerts)
+
+
 def test_actor_input_shape_one_run_per_term(monkeypatch):
     monkeypatch.setenv("APIFY_TOKEN", "tok")
     monkeypatch.delenv("THEIRSTACK_API_KEY", raising=False)

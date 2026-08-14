@@ -30,8 +30,22 @@ def get_runtime_config(hq) -> RuntimeConfig:
     from core.profile import Profile
     cfg = hq.user_config()
     prof = Profile.load(getattr(hq, "user", ""), cfg=cfg)
+    include = list(prof.titles_include or cfg["titles_include"])
+    problems = list(cfg.problems)
+    if not include:
+        # Idle is not healthy (#252). An empty title filter means discovery
+        # has nothing to search — one deleted Config cell away for any
+        # instance — and a sweep that proceeds (or silently skips) reads
+        # exactly like a healthy quiet day. Counted here, the EXISTING
+        # problems channel carries it: monitor.run.main() pages cfg.problems
+        # before the sweep, linkedin_backfill logs them, and no watchdog or
+        # digest reader has to learn a new state.
+        problems.append(
+            "titles_include is empty — discovery has nothing to search, so the "
+            "sweep is idle. Set titles_include in the Config tab or "
+            "users/<name>/profile.yaml.")
     return RuntimeConfig(
-        include=list(prof.titles_include or cfg["titles_include"]),
+        include=include,
         exclude=list(prof.titles_exclude or cfg["titles_exclude"]),
         workday_search=str(prof.board_search_term or cfg["workday_search"]),
         yoe_push_max=int(cfg["yoe_push_max"]),
@@ -42,7 +56,7 @@ def get_runtime_config(hq) -> RuntimeConfig:
         fetch_workers=int(cfg["fetch_workers"]),
         run_budget_min=int(cfg["run_budget_min"]),
         gates=prof.gate_config(),
-        problems=list(cfg.problems),
+        problems=problems,
     )
 
 

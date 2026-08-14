@@ -398,6 +398,21 @@ def main() -> int:
         if cfg.problems:
             notify.ops_alert("HQ config problems",
                              "\n".join(cfg.problems)[:1500], session=session)
+        if not cfg.include:
+            # Idle is not healthy (#252): with no title filter there is nothing
+            # to discover, and finishing this run anyway — snapshot, mirror,
+            # heartbeat("monitor") — is exactly how one deleted titles_include
+            # cell became a permanently green discovery halt. So the skip is
+            # the same shape as the unconfigured_reason() skip above: the
+            # actionable page already went out via cfg.problems (which names
+            # the cell), the heartbeat is WITHHELD so the watchdog ages this
+            # lane out on its own cadence, and the nonzero exit makes the
+            # Lambda envelope page and close the bot_runs row ok=False —
+            # a halted sweep is recorded as one, not as a quiet success.
+            print("[monitor] SKIPPED — titles_include is empty; nothing to "
+                  "sweep and no heartbeat written. Set titles_include in the "
+                  "Config tab or users/<name>/profile.yaml.", file=sys.stderr)
+            return 1
         disposer = gates.make_disposer(cfg.gates) if cfg.gates else None
         # RM-12: which store the sweep reconciles through. `hq` is already open
         # because the Config tab has no Postgres home yet, so the factory hands the

@@ -496,9 +496,21 @@ def run(hq: HQ, *, session: requests.Session | None = None, client_factory=None,
     gate_cfg = prof.gate_config()
     terms = search_terms(include)
     if not terms:
-        hq.log("wide", "skip", detail="titles_include empty — nothing to sweep")
-        hq.heartbeat(_beat(sources))
-        s.skipped = True
+        # Idle is not healthy (#252). Unlike the missing-token skip above —
+        # a healthy pre-activation state that rightly keeps its beat — an
+        # empty title filter is a halted sweep, one deleted Config cell away,
+        # and beating green here is what made it silent. So it takes the
+        # same posture as every-source-failed below: no heartbeat, an error
+        # main() pages to ops, and a nonzero exit the Lambda envelope records
+        # as a failed bot_runs row.
+        print("::warning title=Wide sweep idle::titles_include is empty — "
+              "nothing to sweep. Set titles_include in the Config tab or "
+              "users/<name>/profile.yaml.", file=sys.stderr)
+        hq.log("wide", "config_problem",
+               detail="titles_include empty — nothing to sweep; heartbeat withheld")
+        s.errors.append("titles_include is empty — the sweep is idle. Set "
+                        "titles_include in the Config tab or "
+                        "users/<name>/profile.yaml.")
         return s
 
     known = known_keys(hq)

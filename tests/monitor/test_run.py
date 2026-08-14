@@ -331,7 +331,13 @@ def test_main_pushes_config_problems_to_ops_and_heartbeats(monkeypatch, tmp_path
     import monitor.run as run_mod
 
     hq = fake_hq()
-    hq.tab("config").append_records([{"key": "yoe_push_max", "value": "banana"}])
+    hq.tab("config").append_records([
+        {"key": "yoe_push_max", "value": "banana"},
+        # titles stated by the fixture, not inherited from the committed
+        # defaults: this test is about a CONFIGURED instance completing, and
+        # RM-40 Step 4 empties the committed titles (#251).
+        {"key": "titles_include", "value": "product manager"},
+    ])
     monkeypatch.setattr(HQ, "open", classmethod(lambda cls: hq))
     monkeypatch.setenv("HQ_SHEET_ID", "test-sheet")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -347,6 +353,43 @@ def test_main_pushes_config_problems_to_ops_and_heartbeats(monkeypatch, tmp_path
     beat = [r for r in hq.tab("config").records() if r["key"] == "heartbeat_monitor"]
     assert beat and beat[0]["value"] != ""
     assert (tmp_path / "hq.json").exists()
+
+
+def test_main_empty_titles_pages_and_withholds_the_heartbeat(monkeypatch, tmp_path, capsys):
+    """#252, end to end: delete one titles_include cell (selfheal re-seeds it
+    BLANK under the persona-free defaults) and the old main() still
+    snapshotted, mirrored and beat heartbeat_monitor — a permanently green
+    discovery halt whose only trace was a log line. Now the run must be
+    DISTINGUISHABLE from a healthy one: an ops page naming the cell, no
+    heartbeat, no snapshot claiming a completed sweep, and a nonzero exit the
+    Lambda envelope pages on and records as a failed bot_runs row."""
+    from core import config as core_config
+    from core.fakes import fake_hq
+    from core.sheets import HQ
+    import core.notify
+    import monitor.run as run_mod
+
+    # The halt state: persona-free committed defaults (what RM-40 Step 4
+    # ships) and no titles anywhere else — cfg.include resolves empty.
+    bare = {**core_config.defaults(), "titles_include": []}
+    monkeypatch.setattr("core.config.defaults", lambda: bare)
+    hq = fake_hq()
+    monkeypatch.setattr(HQ, "open", classmethod(lambda cls: hq))
+    monkeypatch.setenv("HQ_SHEET_ID", "test-sheet")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(run_mod, "snapshot_path", lambda user="": str(tmp_path / "hq.json"))
+    ops = []
+    monkeypatch.setattr(core.notify, "ops_alert",
+                        lambda title, body, session=None: ops.append((title, body)))
+    monkeypatch.setattr(core.notify, "push", lambda *a, **k: True)
+
+    assert run_mod.main() == 1
+    assert ops and any("titles_include" in body for _, body in ops)
+    assert not any(r["key"] == "heartbeat_monitor"
+                   for r in hq.tab("config").records()), \
+        "an idle-by-misconfiguration run must not beat green"
+    assert not (tmp_path / "hq.json").exists()   # no completed-sweep evidence
+    assert "titles_include" in capsys.readouterr().err
 
 
 def test_main_unconfigured_gives_actionable_message(monkeypatch, capsys):
@@ -375,6 +418,11 @@ def _main_env(monkeypatch, tmp_path):
     import monitor.run as run_mod
 
     hq = fake_hq()
+    # A configured search, stated by the fixture rather than inherited from
+    # the committed defaults (which RM-40 Step 4 empties, #251) — an
+    # unconfigured instance skips before the sweep since #252.
+    hq.tab("config").append_records([
+        {"key": "titles_include", "value": "product manager"}])
     monkeypatch.setattr(HQ, "open", classmethod(lambda cls: hq))
     monkeypatch.setenv("HQ_SHEET_ID", "test-sheet")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
