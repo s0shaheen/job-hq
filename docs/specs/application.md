@@ -33,6 +33,17 @@ manual row. Gmail-derived automatic status is the launch exclusion: capture lane
 - Autopilot staging hangs off applications via the composite owner FK added by
   `db/migrations/20260802_094615_autopilot_staging.sql`; an ambiguous post-submit result
   is the `outcome_unknown` state there, never a status guess here.
+  `20260814_030545_autopilot_handoff.sql` adds the manual-handoff terminus
+  (#206): a user who approves a staged package, submits it themselves on the
+  provider's form, and reports "submitted" settles the stage
+  `approved → handed_off` via `app_settle_autopilot_handoff`, which writes the
+  application's status `Applied` BY CALLING `app_set_status` in the same
+  transaction — the human-status lock, the reopen-needs-a-note rule, and the
+  status audit event are the shipped ones, so the user's report lands as
+  manual status, not as a bypass of it. "Abandoned" routes to
+  `app_review_autopilot_stage`'s cancel. Neither writes `autopilot_receipts`;
+  the evidence for `handed_off` is the user's word, and product copy says
+  "you marked this applied", never "submitted".
 
 ## Who reads and writes it
 
@@ -71,7 +82,10 @@ manual row. Gmail-derived automatic status is the launch exclusion: capture lane
 ## Invariants
 
 - Manual status is authoritative, enforced by `applications_human_status_lock`
-  (`0010_pipeline.sql`) — a machine check, not a review rule.
+  (`0010_pipeline.sql`) — a machine check, not a review rule. The autopilot
+  handoff settle preserves this: `app_settle_autopilot_handoff` reaches status
+  only through `app_set_status` (`tests/db/test_autopilot_handoff.py` proves
+  the lock is stamped and the reopen rule fires inside the settle).
 - Gmail cannot mutate status at launch; the suggestion seam
   (`suggested_status` + `app_resolve_suggestion`) is the only path from email to status,
   and the user is the actor.

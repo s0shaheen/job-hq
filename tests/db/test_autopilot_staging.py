@@ -10,7 +10,7 @@ WHAT IS BEING PROVEN, in the order the sections appear:
 
     the package hash   is generated, unforgeable, and covers exactly the seven
                        package columns and nothing else
-    transitions        every one of the 121 (state, state) pairs is driven, and
+    transitions        every one of the 144 (state, state) pairs is driven, and
                        the legal set is exactly the declared one
     approval integrity a package cannot change between approval and submission,
                        and an approval taken against an older package is refused
@@ -63,10 +63,21 @@ from tests.db.test_write_path import (  # noqa: E402  (fixtures are shared on pu
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = next((ROOT / "db" / "migrations").glob("*_autopilot_staging.sql"))
 
+#: The handoff migration (#206) `create or replace`s several of this file's
+#: functions — the states, the transition map, the state machine, two RPCs — so
+#: a `_restore` that re-applied THIS migration alone would revert them to their
+#: eleven-state versions and every later test would run against a schema
+#: production will never have. Both files, in filename order, are the unit of
+#: restoration.
+AUTOPILOT_MIGRATIONS = sorted(
+    p for p in (ROOT / "db" / "migrations").glob("*.sql")
+    if p.name.endswith("_autopilot_staging.sql") or p.name.endswith("_autopilot_handoff.sql")
+)
+
 STATES = [
     "preparing", "needs_input", "ready_for_review", "changes_requested",
     "approved", "submitting", "submitted", "outcome_unknown",
-    "failed_retryable", "failed_terminal", "cancelled",
+    "failed_retryable", "failed_terminal", "cancelled", "handed_off",
 ]
 
 #: The transition table, restated INDEPENDENTLY of the SQL.
@@ -75,7 +86,8 @@ STATES = [
 #: make this file a mirror rather than a check: a mutation to the SQL would be
 #: matched by the same mutation here and nothing would fail. So this is written
 #: from the two packet documents (06's preparation table, 07's execution table)
-#: plus the work packet, and the test below drives all 121 pairs against the
+#: plus the work packet and the handoff spec (#206), and the test below drives all
+#: 144 pairs against the
 #: database and asserts the two sets are equal.
 LEGAL: set[tuple[str, str]] = {
     ("preparing", "needs_input"), ("preparing", "ready_for_review"),
@@ -89,6 +101,9 @@ LEGAL: set[tuple[str, str]] = {
     ("changes_requested", "ready_for_review"), ("changes_requested", "cancelled"),
     ("approved", "submitting"), ("approved", "changes_requested"),
     ("approved", "ready_for_review"), ("approved", "cancelled"),
+    # The manual-handoff terminus (#206): the user submitted the approved
+    # package themselves and said so. handed_off appears on the LEFT zero times.
+    ("approved", "handed_off"),
     ("submitting", "submitted"), ("submitting", "outcome_unknown"),
     ("submitting", "failed_retryable"), ("submitting", "failed_terminal"),
     ("submitting", "cancelled"),
@@ -156,7 +171,8 @@ def _restore(conn) -> None:
     this is the same operation production performs on every provisioning run.
     """
     _system(conn)
-    conn.execute(MIGRATION.read_text())
+    for m in AUTOPILOT_MIGRATIONS:
+        conn.execute(m.read_text())
 
 
 def new_user(conn, tag: str) -> str:
@@ -409,7 +425,7 @@ def test_the_hash_encoding_is_injective(conn, actor):
 # ═════════════════════════════════════════════════════════ the state machine
 
 def test_every_state_pair_agrees_with_the_declared_machine(conn):
-    """All 121 pairs, against a table written from the packets rather than copied
+    """All 144 pairs, against a table written from the packets rather than copied
     from the SQL.
 
     A test that re-listed the migration's own array would go green on any mutation

@@ -59,6 +59,32 @@ is server-only and used by the capture and digest handlers alone.
   last-write-wins knowingly.
 - **Audit** — the RPC appends the `events` row inside the write transaction; there is no
   client-side audit or telemetry (verified absent).
+- **Composition** — a command that must land two recorded acts atomically calls the
+  other command's RPC inside its own transaction (`app_settle_autopilot_handoff` →
+  `app_set_status`, `20260814_030545_autopilot_handoff.sql`). The composed command's
+  rules (the human-status lock, reopen-needs-a-note) hold inside the composition —
+  that is the point of composing instead of copying. Two rules, both learned from a
+  security review that demonstrated the defect:
+  - **The inner idempotency key must be unguessable, never derived from row
+    identity.** Any browser may send any string as `p_idem` to any RPC, and the
+    pre-0026 callees (`app_set_status`, `0010_pipeline.sql`) match a replay on the
+    KEY ALONE — no command name, no `request_hash`. A deterministic inner key is
+    therefore a key the caller can pre-seed, after which the callee returns a stored
+    result and writes nothing. The outer command's own key is what provides replay
+    safety, so the inner one only has to be unique: derive it with
+    `gen_random_uuid()`. Post-0026 callees (via `hq_command_replay`) raise on a
+    command/fingerprint mismatch instead of answering silently — safer, but not a
+    reason to skip this.
+  - **The composition must verify its postcondition.** After the inner call, re-read
+    the row and require it to actually say what the composition claims, raising and
+    rolling back if it does not; build the returned object from that re-read rather
+    than from the callee's return value. Key scoping is a probability argument; this
+    is the one that holds. A composed command that cannot see whether its callee
+    wrote is a command that reports success for a write that never happened —
+    exactly what shipped in the first draft of the autopilot handoff, where
+    `handed_off` landed on an application still reading `Rejected` with no
+    `action.status` event (`tests/db/test_autopilot_handoff.py`, the pre-seeded-key
+    and postcondition tests).
 - **Result shapes** — `app_*_row()` helpers (`0003`, `0008`, `0010`, `0021`, `0025`,
   `0026`, `20260814_021627`) keep RPC results and reads byte-compatible; they are
   deliberately not security definer.

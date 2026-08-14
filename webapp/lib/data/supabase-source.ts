@@ -57,12 +57,21 @@ import type {
   ImportConnectionsResult,
   LinkedinCompanyIdInput,
   AnswerWriteResult,
+  AutopilotAttachment,
+  AutopilotReviewResult,
+  AutopilotSettleResult,
+  AutopilotStageState,
+  AutopilotStageView,
+  AutopilotStageWriteResult,
   DeleteAnswerInput,
   DeleteAnswerResult,
   DeletePolicyResult,
   DeletePolicyRuleInput,
   PolicyWriteResult,
+  ReviewAutopilotStageInput,
   SetPolicyRuleInput,
+  SettleAutopilotHandoffInput,
+  StageAutopilotInput,
   UpsertAnswerInput,
   StartWarmSearchInput,
   StartWarmSearchResult,
@@ -90,6 +99,7 @@ import type {
   WarmStatus,
 } from "@/lib/warm/types";
 import { questionKey } from "@/lib/apply/normalize";
+import type { StoredAnswer, StoredGap } from "@/lib/apply/persist";
 import {
   toAnswerView,
   toPolicyRuleView,
@@ -124,6 +134,67 @@ import {
   type ImportMapping,
   type ImportRowView,
 } from "@/lib/import/views";
+
+/**
+ * The columns the autopilot stage reads select — every column
+ * `toAutopilotStageView` reads in its snake_case (table) spelling, pinned by
+ * `tests/unit/supabase-select-lists.test.ts`. The mapper also accepts the
+ * camelCase spellings of `app_autopilot_stage_row`'s jsonb, so one mapper
+ * serves the read and the three commands and the two shapes cannot drift.
+ */
+const AUTOPILOT_STAGE_COLS =
+  "id, application_id, provider, provider_version, form_identity, form_schema_hash, " +
+  "payload, attachments, answers, gaps, state, payload_hash, approved_hash, " +
+  "approved_at, retry_of_stage_id, created_at, updated_at";
+
+/**
+ * One autopilot stage — from the table select (snake_case) OR from
+ * `app_autopilot_stage_row`'s jsonb (camelCase), whichever key is present.
+ * `packageHash` is the stored GENERATED `payload_hash`, passed through
+ * verbatim: it is the value an approval must echo, so no normalisation may
+ * touch it.
+ */
+function toAutopilotStageView(r: Record<string, unknown>): AutopilotStageView {
+  const record = (v: unknown): Record<string, unknown> =>
+    v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  return {
+    id: num(r.id) ?? 0,
+    applicationId: num(r.application_id ?? r.applicationId) ?? 0,
+    provider: String(r.provider ?? ""),
+    providerVersion: String(r.provider_version ?? r.providerVersion ?? ""),
+    formIdentity: String(r.form_identity ?? r.formIdentity ?? ""),
+    formSchemaHash: String(r.form_schema_hash ?? r.formSchemaHash ?? ""),
+    payload: record(r.payload) as Record<string, string>,
+    attachments: list(r.attachments) as AutopilotAttachment[],
+    answers: record(r.answers) as Record<string, StoredAnswer>,
+    gaps: list(r.gaps) as StoredGap[],
+    state: String(r.state ?? "preparing") as AutopilotStageState,
+    packageHash: String(r.payload_hash ?? r.packageHash ?? ""),
+    approvedHash: str(r.approved_hash ?? r.approvedHash),
+    approvedAt: str(r.approved_at ?? r.approvedAt),
+    retryOfStageId: num(r.retry_of_stage_id ?? r.retryOfStageId),
+    createdAt: str(r.created_at ?? r.createdAt) ?? "",
+    updatedAt: str(r.updated_at ?? r.updatedAt) ?? "",
+  };
+}
+
+/**
+ * Is this refusal a concurrency conflict?
+ *
+ * THE SQLSTATE FIRST. Every conflict in this schema raises `40001`, and a code
+ * comparison cannot be broken by rewording a message — which the message regex
+ * can, silently, turning a refused write into a generic error toast with no
+ * re-read. The regex stays as the FALLBACK for the transport that loses the
+ * code (PostgREST reports it on the RPC error object, but a network-shaped
+ * failure arrives with `code` undefined), and it is the reason
+ * `tests/core/test_migrations.py::test_conflict_path_keeps_the_word_the_client_matches_on`
+ * still pins the word in the SQL.
+ */
+function isConflict(error: { code?: string; message: string }): boolean {
+  if (error.code) return error.code === "40001";
+  return /conflict|stale/i.test(error.message);
+}
 
 /** One saved_views row, mapped for the grid. `state` is passed through as-is. */
 function toSavedView(r: Record<string, unknown>): SavedView {
@@ -1776,6 +1847,134 @@ export class SupabaseDataSource implements DataSource {
     if (error) return { ok: false, kind: "error", message: error.message };
     const row = (data ?? {}) as Record<string, unknown>;
     return { ok: true, deleted: row.deleted === true };
+  }
+
+  // ---- autopilot staging (#206) -------------------------------------------
+
+  async autopilotStage(applicationId: number): Promise<AutopilotStageView | null> {
+    // The RLS-scoped read the review surface renders: the stored row, exactly
+    // the columns `payload_hash` covers plus the review metadata — never a
+    // live re-prepare. "Live" is not-settled, the one_live_attempt predicate's
+    // complement, derived the same way the sibling guard derives it.
+    const { data, error } = await this.supabase
+      .from("autopilot_stages")
+      .select(AUTOPILOT_STAGE_COLS)
+      .eq("user_id", this.userId)
+      .eq("application_id", applicationId)
+      .not("state", "in", "(failed_retryable,failed_terminal,cancelled)")
+      // The partial unique index guarantees at most one, so the order is a
+      // belt for a schema this code has never seen, not a tiebreak in use.
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data ? toAutopilotStageView(data as unknown as Record<string, unknown>) : null;
+  }
+
+  /** One stage by id, for the conflict path's re-read. */
+  private async oneAutopilotStage(stageId: number): Promise<AutopilotStageView | null> {
+    const { data, error } = await this.supabase
+      .from("autopilot_stages")
+      .select(AUTOPILOT_STAGE_COLS)
+      .eq("user_id", this.userId)
+      .eq("id", stageId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return toAutopilotStageView(data as unknown as Record<string, unknown>);
+  }
+
+  async stageAutopilot(input: StageAutopilotInput): Promise<AutopilotStageWriteResult> {
+    const { data, error } = await this.supabase.rpc("app_stage_autopilot_application", {
+      p_application_id: input.applicationId,
+      p_provider: input.provider,
+      p_provider_version: input.providerVersion,
+      p_form_identity: input.formIdentity,
+      p_form_schema_hash: input.formSchemaHash,
+      p_payload: input.payload,
+      p_attachments: input.attachments,
+      p_answers: input.answers,
+      p_gaps: input.gaps,
+      p_state: input.state,
+      p_reason: input.reason,
+      p_idem: input.idempotencyKey,
+      p_expected_updated_at: input.expectedUpdatedAt,
+    });
+    if (error) {
+      if (error.code === "28000") return { ok: false, kind: "auth" };
+      if (isConflict(error)) {
+        // Re-read rather than echo: the conflict path's job is to put the
+        // SERVER's stage on screen — including the sibling-guard refusal,
+        // where `current` is null for THIS application and the message names
+        // the row that holds the attempt.
+        return {
+          ok: false,
+          kind: "conflict",
+          current: await this.autopilotStage(input.applicationId),
+        };
+      }
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const row = (data ?? {}) as Record<string, unknown>;
+    return {
+      ok: true,
+      stage: toAutopilotStageView((row.stage ?? {}) as Record<string, unknown>),
+      created: row.created === true,
+    };
+  }
+
+  async reviewAutopilotStage(input: ReviewAutopilotStageInput): Promise<AutopilotReviewResult> {
+    const { data, error } = await this.supabase.rpc("app_review_autopilot_stage", {
+      p_stage_id: input.stageId,
+      p_decision: input.decision,
+      p_package_hash: input.packageHash,
+      p_reason: input.reason,
+      p_idem: input.idempotencyKey,
+      p_expected_updated_at: input.expectedUpdatedAt,
+    });
+    if (error) {
+      if (error.code === "28000") return { ok: false, kind: "auth" };
+      if (isConflict(error)) {
+        return {
+          ok: false,
+          kind: "conflict",
+          current: await this.oneAutopilotStage(input.stageId),
+        };
+      }
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const row = (data ?? {}) as Record<string, unknown>;
+    return {
+      ok: true,
+      stage: toAutopilotStageView((row.stage ?? {}) as Record<string, unknown>),
+      changed: row.changed === true,
+    };
+  }
+
+  async settleAutopilotHandoff(input: SettleAutopilotHandoffInput): Promise<AutopilotSettleResult> {
+    const { data, error } = await this.supabase.rpc("app_settle_autopilot_handoff", {
+      p_stage_id: input.stageId,
+      p_outcome: input.outcome,
+      p_reason: input.reason,
+      p_idem: input.idempotencyKey,
+      p_expected_updated_at: input.expectedUpdatedAt,
+    });
+    if (error) {
+      if (error.code === "28000") return { ok: false, kind: "auth" };
+      if (isConflict(error)) {
+        return {
+          ok: false,
+          kind: "conflict",
+          current: await this.oneAutopilotStage(input.stageId),
+        };
+      }
+      return { ok: false, kind: "error", message: error.message };
+    }
+    const row = (data ?? {}) as Record<string, unknown>;
+    return {
+      ok: true,
+      stage: toAutopilotStageView((row.stage ?? {}) as Record<string, unknown>),
+      outcome: row.outcome === "abandoned" ? "abandoned" : "submitted",
+    };
   }
 
   async savedViews(surface: string): Promise<SavedView[]> {

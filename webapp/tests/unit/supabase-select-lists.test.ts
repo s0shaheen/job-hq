@@ -263,6 +263,16 @@ const CASES: Case[] = [
     select: () => plainSelectAfterFrom("saved_views"),
   },
   {
+    // The mapper also reads camelCase keys — `app_autopilot_stage_row`'s jsonb
+    // spellings — which this parser's snake_case regex deliberately does not
+    // see; what is pinned is the TABLE read, which is the half that broke for
+    // COMPANY_COLS.
+    table: "autopilot_stages",
+    mapper: "toAutopilotStageView",
+    variable: "r",
+    select: () => constLiteral("AUTOPILOT_STAGE_COLS"),
+  },
+  {
     // 0025's five knobs plus their own version token. The one that would bite
     // silently here is `display_updated_at`: `profiles` carries TWO tokens and
     // selecting the Search Profile's `updated_at` by mistake would send it back

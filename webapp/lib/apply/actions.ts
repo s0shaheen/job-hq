@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { getDataSource } from "@/lib/data/get-source";
+import { blankTrim } from "@/lib/data/view-models";
 import {
   isDemoMode,
   type AnswerWriteResult,
@@ -10,8 +11,15 @@ import {
   type DeletePolicyResult,
   type PolicyWriteResult,
 } from "@/lib/data/source";
+import {
+  type AutopilotAttachment,
+  type AutopilotReviewResult,
+  type AutopilotSettleResult,
+  type AutopilotStageWriteResult,
+} from "@/lib/data/source";
 import { getSupabaseEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
+import { deriveStagePackage } from "./derive";
 import { POLICY_TOPICS } from "./policy";
 import { isAnswerKind, parseSituationFact } from "./views";
 import type { Provenance } from "./types";
@@ -282,5 +290,233 @@ export async function deleteRuleAction(input: DeleteRuleInput): Promise<DeletePo
     idempotencyKey: input.idempotencyKey,
   });
   if (result.ok) revalidatePath("/settings/answers");
+  return result;
+}
+
+// ---- autopilot staging (#206) ----------------------------------------------
+//
+// The first call sites of the three autopilot commands. Same discipline as the
+// library actions above: a server action is a public endpoint and the input
+// type is erased at runtime, so every closed set is checked HERE as well as in
+// Postgres — SQL's check is what makes the rule true for every writer, this one
+// is what makes the refusal a sentence.
+//
+// THE PACKAGE IS NOT AN ARGUMENT. `stageAutopilotAction` takes an APPLICATION,
+// not the answers to write: `deriveStagePackage` re-runs prepare and the
+// mapping seam server-side against the user's own RLS-scoped rows. The first
+// version of this action DID take the mapped package and checked
+// `answers[*].source` against the four-word vocabulary — which let a browser
+// simply assert `user_fact`, the laundering shape #206's attack list names,
+// while `persist.ts` (written to prevent exactly that) had no production
+// callers at all. See `derive.ts` for the full reasoning.
+
+const AUTOPILOT_STATES_STAGEABLE = new Set(["preparing", "needs_input", "ready_for_review"]);
+const AUTOPILOT_DECISIONS = new Set(["approve", "request_changes", "cancel"]);
+const AUTOPILOT_OUTCOMES = new Set(["submitted", "abandoned"]);
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function attachmentsProblem(attachments: AutopilotAttachment[]): string | null {
+  if (!Array.isArray(attachments)) return "Malformed request.";
+  for (const a of attachments) {
+    if (!isRecord(a)) return "Malformed request.";
+    if (typeof a.artifactId !== "number" || !Number.isFinite(a.artifactId)) {
+      return "An attachment names an artifact by id.";
+    }
+    if (typeof a.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(a.sha256.toLowerCase())) {
+      return "An attachment needs its artifact's 64-hex sha256.";
+    }
+    if (typeof a.filename !== "string" || typeof a.kind !== "string") {
+      return "Malformed request.";
+    }
+  }
+  return null;
+}
+
+export type StageAutopilotActionInput = {
+  /**
+   * WHICH application to prepare and persist. Not what to write — the values,
+   * their sources and the gaps are all derived server-side from this user's own
+   * rows (`derive.ts`).
+   */
+  applicationId: number;
+  /**
+   * The attachment choice. Client-supplied on purpose and safe to be: the
+   * database's package guard verifies every entry is THIS user's
+   * `resume_artifacts` row at THAT checksum, so a forged entry can only ever
+   * name a file the user already owns, unchanged.
+   */
+  attachments: AutopilotAttachment[];
+  state: "preparing" | "needs_input" | "ready_for_review";
+  reason: string;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+/**
+ * Prepare one application server-side and persist the result.
+ *
+ * It can leave the stage only in a preparation state: approving is
+ * `reviewAutopilotStageAction`, with the hash the reviewer actually saw.
+ */
+export async function stageAutopilotAction(
+  input: StageAutopilotActionInput,
+): Promise<AutopilotStageWriteResult> {
+  if (await demoSessionExpired()) return { ok: false, kind: "auth" };
+  if (!(await hasSession())) return { ok: false, kind: "auth" };
+
+  if (!isRecord(input)) return { ok: false, kind: "error", message: "Malformed request." };
+  const problem = commonProblem(input.idempotencyKey, input.expectedUpdatedAt);
+  if (problem) return { ok: false, kind: "error", message: problem };
+  if (typeof input.applicationId !== "number" || !Number.isSafeInteger(input.applicationId)) {
+    return { ok: false, kind: "error", message: "Malformed request." };
+  }
+  if (typeof input.state !== "string" || !AUTOPILOT_STATES_STAGEABLE.has(input.state)) {
+    return {
+      ok: false,
+      kind: "error",
+      message: "A stage write may only leave the package in a preparation state.",
+    };
+  }
+  if (typeof input.reason !== "string" || input.reason.length > 500) {
+    return { ok: false, kind: "error", message: "Malformed request." };
+  }
+  const attProblem = attachmentsProblem(input.attachments);
+  if (attProblem) return { ok: false, kind: "error", message: attProblem };
+
+  const src = await getDataSource();
+  // THE PACKAGE IS DERIVED, NOT RECEIVED. Nothing a caller can put on the wire
+  // reaches `answers`, `payload`, `gaps` or any answer's `source`.
+  const derived = await deriveStagePackage(input.applicationId, { src });
+  if (!derived.ok) {
+    return { ok: false, kind: "error", message: derived.message };
+  }
+
+  const result = await src.stageAutopilot({
+    applicationId: input.applicationId,
+    provider: derived.package.provider,
+    providerVersion: derived.package.providerVersion,
+    formIdentity: derived.package.formIdentity,
+    formSchemaHash: derived.package.formSchemaHash,
+    payload: derived.package.payload,
+    attachments: input.attachments,
+    answers: derived.package.answers,
+    gaps: derived.package.gaps,
+    state: input.state,
+    reason: input.reason,
+    idempotencyKey: input.idempotencyKey,
+    expectedUpdatedAt: input.expectedUpdatedAt ?? null,
+  });
+  if (result.ok) revalidatePath("/autopilot");
+  return result;
+}
+
+export type ReviewAutopilotStageActionInput = {
+  stageId: number;
+  decision: "approve" | "request_changes" | "cancel";
+  /** REQUIRED for approve: the hash the surface displayed, echoed verbatim. */
+  packageHash: string | null;
+  reason: string;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+/**
+ * The human's decision on a stored package. Approving sends the displayed
+ * `packageHash`; a package that changed since render, or a stale token, comes
+ * back as `conflict` with the server's row — the surface re-reads before any
+ * retry, never re-sends blind.
+ */
+export async function reviewAutopilotStageAction(
+  input: ReviewAutopilotStageActionInput,
+): Promise<AutopilotReviewResult> {
+  if (await demoSessionExpired()) return { ok: false, kind: "auth" };
+  if (!(await hasSession())) return { ok: false, kind: "auth" };
+
+  if (!isRecord(input)) return { ok: false, kind: "error", message: "Malformed request." };
+  const problem = commonProblem(input.idempotencyKey, input.expectedUpdatedAt);
+  if (problem) return { ok: false, kind: "error", message: problem };
+  if (typeof input.stageId !== "number" || !Number.isFinite(input.stageId)) {
+    return { ok: false, kind: "error", message: "Malformed request." };
+  }
+  if (typeof input.decision !== "string" || !AUTOPILOT_DECISIONS.has(input.decision)) {
+    return { ok: false, kind: "error", message: "That is not a review decision this app knows." };
+  }
+  if (input.decision === "approve") {
+    if (typeof input.packageHash !== "string" || !/^[0-9a-f]{64}$/.test(input.packageHash)) {
+      return {
+        ok: false,
+        kind: "error",
+        message: "Approving needs the hash of the package you reviewed.",
+      };
+    }
+  } else if (input.packageHash !== null && typeof input.packageHash !== "string") {
+    return { ok: false, kind: "error", message: "Malformed request." };
+  }
+  if (typeof input.reason !== "string" || input.reason.length > 500) {
+    return { ok: false, kind: "error", message: "Malformed request." };
+  }
+
+  const src = await getDataSource();
+  const result = await src.reviewAutopilotStage({
+    stageId: input.stageId,
+    decision: input.decision,
+    packageHash: input.decision === "approve" ? input.packageHash : null,
+    reason: input.reason,
+    idempotencyKey: input.idempotencyKey,
+    expectedUpdatedAt: input.expectedUpdatedAt ?? null,
+  });
+  if (result.ok) revalidatePath("/autopilot");
+  return result;
+}
+
+export type SettleAutopilotHandoffActionInput = {
+  stageId: number;
+  outcome: "submitted" | "abandoned";
+  reason: string;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+/**
+ * Record what the user reports after the manual handoff. 'submitted' writes
+ * the MANUAL application status through the database's own `app_set_status`
+ * lane — the copy above this button says "you marked this applied", never
+ * "submitted", because the user's word is the only evidence this half has.
+ * Neither outcome writes provider evidence of any kind.
+ */
+export async function settleAutopilotHandoffAction(
+  input: SettleAutopilotHandoffActionInput,
+): Promise<AutopilotSettleResult> {
+  if (await demoSessionExpired()) return { ok: false, kind: "auth" };
+  if (!(await hasSession())) return { ok: false, kind: "auth" };
+
+  if (!isRecord(input)) return { ok: false, kind: "error", message: "Malformed request." };
+  const problem = commonProblem(input.idempotencyKey, input.expectedUpdatedAt);
+  if (problem) return { ok: false, kind: "error", message: problem };
+  if (typeof input.stageId !== "number" || !Number.isFinite(input.stageId)) {
+    return { ok: false, kind: "error", message: "Malformed request." };
+  }
+  if (typeof input.outcome !== "string" || !AUTOPILOT_OUTCOMES.has(input.outcome)) {
+    return { ok: false, kind: "error", message: "That is not a handoff outcome this app records." };
+  }
+  if (typeof input.reason !== "string" || input.reason.length > 500) {
+    return { ok: false, kind: "error", message: "Malformed request." };
+  }
+
+  const src = await getDataSource();
+  const result = await src.settleAutopilotHandoff({
+    stageId: input.stageId,
+    outcome: input.outcome,
+    reason: input.reason,
+    idempotencyKey: input.idempotencyKey,
+    expectedUpdatedAt: input.expectedUpdatedAt ?? null,
+  });
+  if (result.ok) {
+    revalidatePath("/autopilot");
+    revalidatePath("/pipeline");
+  }
   return result;
 }

@@ -30,6 +30,9 @@ import type {
   Triage,
 } from "./view-models";
 import type { AnswerView, PolicyRuleView } from "@/lib/apply/views";
+// Type-only: the persistence seam's stored shapes, so a command and the module
+// that maps into it cannot drift apart.
+import type { StoredAnswer, StoredGap } from "@/lib/apply/persist";
 import type { Provenance, SituationFact } from "@/lib/apply/types";
 import type { ProfileCriteria } from "@/lib/profile/criteria";
 import type { PreviewResult } from "@/lib/profile/preview";
@@ -941,6 +944,131 @@ export type DeletePolicyResult =
   | { ok: false; kind: "auth" }
   | { ok: false; kind: "error"; message: string };
 
+// ---- autopilot staging (#206: Prepare/Review with a manual handoff) --------
+
+/**
+ * The twelve states of `hq_autopilot_states()`. The UI half renders a stage
+ * BY these words; the commands below are the only writers.
+ */
+export type AutopilotStageState =
+  | "preparing"
+  | "needs_input"
+  | "ready_for_review"
+  | "changes_requested"
+  | "approved"
+  | "submitting"
+  | "submitted"
+  | "outcome_unknown"
+  | "failed_retryable"
+  | "failed_terminal"
+  | "cancelled"
+  | "handed_off";
+
+/** One staged attachment: the user's own artifact at an exact checksum. */
+export type AutopilotAttachment = {
+  artifactId: number;
+  sha256: string;
+  filename: string;
+  kind: string;
+};
+
+/**
+ * One stage row, as `app_autopilot_stage_row` returns it and as the review
+ * surface reads it. `packageHash` is the GENERATED `payload_hash` — the value
+ * an approval must echo back, which is what makes "you approve exactly what
+ * you read" enforceable rather than customary.
+ */
+export type AutopilotStageView = {
+  id: number;
+  applicationId: number;
+  provider: string;
+  providerVersion: string;
+  formIdentity: string;
+  formSchemaHash: string;
+  payload: Record<string, string>;
+  attachments: AutopilotAttachment[];
+  answers: Record<string, StoredAnswer>;
+  gaps: StoredGap[];
+  state: AutopilotStageState;
+  packageHash: string;
+  approvedHash: string | null;
+  approvedAt: string | null;
+  retryOfStageId: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/**
+ * Persist one prepared package. Maps 1:1 onto
+ * `app_stage_autopilot_application`; `state` accepts only the three
+ * preparation states — approving is a different gesture with a different
+ * command, and execution is not a browser gesture at all.
+ */
+export type StageAutopilotInput = {
+  applicationId: number;
+  provider: string;
+  providerVersion: string;
+  formIdentity: string;
+  formSchemaHash: string;
+  payload: Record<string, string>;
+  attachments: AutopilotAttachment[];
+  answers: Record<string, StoredAnswer>;
+  gaps: StoredGap[];
+  state: "preparing" | "needs_input" | "ready_for_review";
+  reason: string;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+export type AutopilotStageWriteResult =
+  | { ok: true; stage: AutopilotStageView; created: boolean }
+  /** `current` is the stage as the SERVER has it — null when none is live. */
+  | { ok: false; kind: "conflict"; current: AutopilotStageView | null }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+/**
+ * The human's decision. `packageHash` is REQUIRED for `approve` and must be
+ * the hash the surface DISPLAYED — a package that changed since render is
+ * refused with the conflict answer. `request_changes` and `cancel` take no
+ * hash by design: refusing a package you have not re-read is never wrong.
+ */
+export type ReviewAutopilotStageInput = {
+  stageId: number;
+  decision: "approve" | "request_changes" | "cancel";
+  packageHash: string | null;
+  reason: string;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+export type AutopilotReviewResult =
+  | { ok: true; stage: AutopilotStageView; changed: boolean }
+  | { ok: false; kind: "conflict"; current: AutopilotStageView | null }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
+/**
+ * The user's report on a handed-off package. `submitted` settles the stage to
+ * `handed_off` AND records manual application status 'Applied' through
+ * `app_set_status`, in one transaction; `abandoned` cancels. Neither writes a
+ * receipt — the user's word is the only evidence this half has, and the copy
+ * must say "you marked this applied", never "submitted".
+ */
+export type SettleAutopilotHandoffInput = {
+  stageId: number;
+  outcome: "submitted" | "abandoned";
+  reason: string;
+  idempotencyKey: string;
+  expectedUpdatedAt: string | null;
+};
+
+export type AutopilotSettleResult =
+  | { ok: true; stage: AutopilotStageView; outcome: "submitted" | "abandoned" }
+  | { ok: false; kind: "conflict"; current: AutopilotStageView | null }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "error"; message: string };
+
 export interface DataSource {
   /** Qualified, untriaged, freshest first. */
   queue(opts?: QueueOptions): Promise<JobView[]>;
@@ -1100,6 +1228,22 @@ export interface DataSource {
   setPolicyRule(input: SetPolicyRuleInput): Promise<PolicyWriteResult>;
   /** Remove one rule. Idempotent by RESULT, not by effect. */
   deletePolicyRule(input: DeletePolicyRuleInput): Promise<DeletePolicyResult>;
+
+  // ---- autopilot staging (#206) -------------------------------------------
+
+  /**
+   * The application's LIVE attempt — any state the one_live_attempt slot
+   * counts, which is everything but the three settled states — or null. The
+   * review surface renders THIS stored row, never a live re-prepare: payload
+   * fidelity means showing exactly the columns `packageHash` covers.
+   */
+  autopilotStage(applicationId: number): Promise<AutopilotStageView | null>;
+  /** Persist a prepared package. Idempotent, optimistic, cannot approve. */
+  stageAutopilot(input: StageAutopilotInput): Promise<AutopilotStageWriteResult>;
+  /** Approve / request changes / cancel — approval echoes the displayed hash. */
+  reviewAutopilotStage(input: ReviewAutopilotStageInput): Promise<AutopilotReviewResult>;
+  /** Record the user's report after the manual handoff. Writes no receipt. */
+  settleAutopilotHandoff(input: SettleAutopilotHandoffInput): Promise<AutopilotSettleResult>;
 
   /** A user's saved grid states for a surface. Built-in presets live in code. */
   savedViews(surface: string): Promise<SavedView[]>;

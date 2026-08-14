@@ -86,7 +86,17 @@ import type {
   ResolveJobLinksResult,
   AddJobInput,
   AddJobResult,
+  AutopilotAttachment,
+  AutopilotReviewResult,
+  AutopilotSettleResult,
+  AutopilotStageState,
+  AutopilotStageView,
+  AutopilotStageWriteResult,
+  ReviewAutopilotStageInput,
+  SettleAutopilotHandoffInput,
+  StageAutopilotInput,
 } from "./source";
+import type { StoredAnswer, StoredGap } from "@/lib/apply/persist";
 import {
   APPLY_LIBRARY_LIMIT,
   CONNECTION_LIST_LIMIT,
@@ -204,6 +214,118 @@ function sameInstant(a: string | null | undefined, b: string | null | undefined)
   const x = new Date(a).getTime();
   const y = new Date(b).getTime();
   return !Number.isNaN(x) && !Number.isNaN(y) && x === y;
+}
+
+// ---- autopilot staging helpers (#206) --------------------------------------
+
+/** One stage row, held the way the table holds it (snake_case, hash included). */
+type AutopilotStageRowShape = {
+  id: number;
+  application_id: number;
+  provider: string;
+  provider_version: string;
+  form_identity: string;
+  form_schema_hash: string;
+  payload: Record<string, string>;
+  attachments: AutopilotAttachment[];
+  answers: Record<string, StoredAnswer>;
+  gaps: StoredGap[];
+  state: AutopilotStageState;
+  payload_hash: string;
+  approved_hash: string | null;
+  approved_at: string | null;
+  retry_of_stage_id: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** The three settled states — everything else occupies the live-attempt slot. */
+const AUTOPILOT_SETTLED = new Set<AutopilotStageState>([
+  "failed_retryable", "failed_terminal", "cancelled",
+]);
+
+/** The states the staging RPC's open-stage lookup accepts. */
+const AUTOPILOT_OPEN = new Set<AutopilotStageState>([
+  "preparing", "needs_input", "ready_for_review", "changes_requested", "approved",
+]);
+
+/** `hq_autopilot_editable_states()`: where the package may still change. */
+const AUTOPILOT_EDITABLE = new Set<AutopilotStageState>([
+  "preparing", "needs_input", "ready_for_review", "changes_requested",
+]);
+
+/** `hq_autopilot_answer_sources()`, verbatim. */
+const AUTOPILOT_ANSWER_SOURCE_SET = new Set<string>([
+  "constant", "user_fact", "resume_evidence", "drafted",
+]);
+
+/** `hq_autopilot_sensitive_answer_kinds()`, verbatim. */
+const AUTOPILOT_SENSITIVE_KINDS = new Set<string>([
+  "work_authorization", "visa", "sponsorship", "eeo", "compensation",
+  "legal_identity", "criminal_background", "security_clearance", "disability",
+  "veteran_status",
+]);
+
+/**
+ * The unanchored core of `hq_autopilot_sensitive_answer_patterns()`. The
+ * DATABASE owns the full registry (anchored patterns, camelCase
+ * normalisation); the fake carries the substring core so the refusal path is
+ * reachable through fixtures at all — the same stand-in bargain the file's
+ * header describes.
+ */
+const AUTOPILOT_SENSITIVE_KEY_CORE = [
+  "authoriz", "authoris", "sponsor", "visa", "immigration", "salary",
+  "compensation", "crimin", "disabilit", "ethnic", "clearance",
+];
+
+/**
+ * The review command's reachable targets per from-state — the
+ * `hq_autopilot_transition_allowed` arrows whose target one of the three
+ * decisions names. The full map lives in the migration; states absent here
+ * (submitted, outcome_unknown, failed_terminal, handed_off) accept none.
+ */
+const AUTOPILOT_REVIEW_ARROWS: Partial<Record<AutopilotStageState, string[]>> = {
+  preparing: ["cancelled"],
+  needs_input: ["cancelled"],
+  ready_for_review: ["approved", "changes_requested", "cancelled"],
+  changes_requested: ["cancelled"],
+  approved: ["changes_requested", "cancelled"],
+  submitting: ["cancelled"],
+  failed_retryable: ["approved", "changes_requested", "cancelled"],
+};
+
+/**
+ * The GENERATED `payload_hash`'s stand-in: a deterministic 64-hex digest of
+ * the seven package fields, length-prefixed like the real
+ * `hq_autopilot_package_hash` so the encoding stays injective. Not sha256 —
+ * what the fixtures need is the PROPERTY the approval mechanism rests on
+ * (same package ⇒ same hash, any package change ⇒ different hash, `[0-9a-f]{64}`
+ * shape), not the algorithm.
+ */
+function fixturePackageHash(
+  provider: string,
+  version: string,
+  form: string,
+  schema: string,
+  payload: Record<string, string>,
+  attachments: AutopilotAttachment[],
+  answers: Record<string, StoredAnswer>,
+): string {
+  const enc = (s: string) => `${s.length}:${s}`;
+  const material =
+    "hqap1" + enc(provider) + enc(version) + enc(form) + enc(schema) +
+    enc(JSON.stringify(payload)) + enc(JSON.stringify(attachments)) +
+    enc(JSON.stringify(answers));
+  let out = "";
+  for (let seed = 0; seed < 8; seed++) {
+    let h = (0x811c9dc5 ^ seed) >>> 0;
+    for (let i = 0; i < material.length; i++) {
+      h ^= material.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    out += h.toString(16).padStart(8, "0");
+  }
+  return out;
 }
 
 /**
@@ -2502,6 +2624,469 @@ export class FixtureDataSource implements DataSource {
     const deleted = this.ruleRows.delete(this.ruleKey(topic, companyKey));
     const result: DeletePolicyResult = { ok: true, deleted };
     this.seenApplyKeys.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  // ---- autopilot staging (#206) -------------------------------------------
+  //
+  // The fake's contract, same as everywhere in this file: reproduce the REAL
+  // failure modes, not just the happy path. Every refusal below carries the
+  // migration's own sentence where the UI would show it, so the fake and the
+  // database cannot drift apart silently. What the database alone owns — the
+  // full sensitive-key registry, the GENERATED sha256, RLS — is modelled by a
+  // faithful stand-in (the same three sensitivity signals, a deterministic
+  // 64-hex content hash) rather than claimed.
+
+  private stageRows = new Map<number, AutopilotStageRowShape>();
+  private stageSeq = 0;
+  /** key → { command, fp, result }: `hq_command_replay`'s three answers. */
+  private seenStageKeys = new Map<
+    string,
+    {
+      command: string;
+      fp: string;
+      result: AutopilotStageWriteResult | AutopilotReviewResult | AutopilotSettleResult;
+    }
+  >();
+
+  private stageView(r: AutopilotStageRowShape): AutopilotStageView {
+    return {
+      id: r.id,
+      applicationId: r.application_id,
+      provider: r.provider,
+      providerVersion: r.provider_version,
+      formIdentity: r.form_identity,
+      formSchemaHash: r.form_schema_hash,
+      payload: { ...r.payload },
+      attachments: r.attachments.map((a) => ({ ...a })),
+      answers: Object.fromEntries(Object.entries(r.answers).map(([k, v]) => [k, { ...v }])),
+      gaps: r.gaps.map((g) => ({ ...g })),
+      state: r.state,
+      packageHash: r.payload_hash,
+      approvedHash: r.approved_hash,
+      approvedAt: r.approved_at,
+      retryOfStageId: r.retry_of_stage_id,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  }
+
+  private liveStageFor(applicationId: number): AutopilotStageRowShape | null {
+    for (const r of this.stageRows.values()) {
+      if (r.application_id === applicationId && !AUTOPILOT_SETTLED.has(r.state)) return r;
+    }
+    return null;
+  }
+
+  /**
+   * `hq_command_replay`, reproduced: null for a new key, the stored result for
+   * a true replay, and a REFUSAL when one key arrives with a different command
+   * or different arguments — the failure mode the outbox era existed for.
+   */
+  private stageReplay(
+    key: string,
+    command: string,
+    fp: string,
+  ): { error: string } | { result: unknown } | null {
+    const prev = this.seenStageKeys.get(key);
+    if (!prev) return null;
+    if (prev.command !== command) {
+      return { error: `idempotency key already used by ${prev.command} — ${command} cannot replay it` };
+    }
+    if (prev.fp !== fp) {
+      return { error: `idempotency key already used by ${command} with different arguments` };
+    }
+    return { result: prev.result };
+  }
+
+  private stageStamp(): string {
+    return new Date(new Date(FIXTURE_NOW).getTime() + ++this.stageSeq * 1000).toISOString();
+  }
+
+  async autopilotStage(applicationId: number): Promise<AutopilotStageView | null> {
+    const live = this.liveStageFor(applicationId);
+    return live ? this.stageView(live) : null;
+  }
+
+  async stageAutopilot(input: StageAutopilotInput): Promise<AutopilotStageWriteResult> {
+    if (!input.idempotencyKey || blankTrim(input.idempotencyKey) === "" || input.idempotencyKey.length > 200) {
+      return { ok: false, kind: "error", message: "idempotency key required" };
+    }
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    const provider = blankTrim(input.provider ?? "").toLowerCase();
+    const state = input.state;
+    const fp = JSON.stringify([
+      input.applicationId, provider, input.providerVersion, input.formIdentity,
+      input.formSchemaHash, input.payload, input.attachments, input.answers,
+      input.gaps, state,
+    ]);
+    const replay = this.stageReplay(input.idempotencyKey, "app_stage_autopilot_application", fp);
+    if (replay && "error" in replay) return { ok: false, kind: "error", message: replay.error };
+    if (replay) return replay.result as AutopilotStageWriteResult;
+
+    if (state !== "preparing" && state !== "needs_input" && state !== "ready_for_review") {
+      return {
+        ok: false,
+        kind: "error",
+        message: `a stage write may only leave the package in a preparation state, not ${String(state)}`,
+      };
+    }
+    const app = this.apps.find((a) => a.id === input.applicationId);
+    if (!app) {
+      return {
+        ok: false,
+        kind: "error",
+        message: `no such application for this user: ${input.applicationId}`,
+      };
+    }
+    if (provider === "") {
+      return { ok: false, kind: "error", message: "a stage needs a provider" };
+    }
+
+    // `hq_autopilot_package_guard`'s sensitive-answer refusal, with the same
+    // three signals: the answer's kind, its sensitive flag, and the field key.
+    // The DATABASE owns the full key registry; the fake carries its unanchored
+    // core so fixture-driven surfaces exercise the refusal path at all.
+    for (const [field, answer] of Object.entries(input.answers)) {
+      if (!AUTOPILOT_ANSWER_SOURCE_SET.has(answer.source)) {
+        return {
+          ok: false,
+          kind: "error",
+          message: `autopilot answer for field ${field} has an unknown source`,
+        };
+      }
+      const sensitive =
+        answer.sensitive === true ||
+        (answer.kind !== undefined && AUTOPILOT_SENSITIVE_KINDS.has(answer.kind)) ||
+        AUTOPILOT_SENSITIVE_KEY_CORE.some((p) => field.toLowerCase().includes(p));
+      if (sensitive && answer.source !== "user_fact") {
+        return {
+          ok: false,
+          kind: "error",
+          message:
+            `autopilot may not store a ${answer.kind ?? "sensitive"} answer for field ` +
+            `${field} taken from ${answer.source}`,
+        };
+      }
+    }
+
+    const open = this.liveStageFor(input.applicationId);
+
+    if (!open) {
+      // THE PER-POSTING SIBLING PRECONDITION (#206; #207 blocker #1): creating
+      // an attempt is refused while a SIBLING application row — same posting
+      // identity, at least one side keyless — holds a live one. `current` is
+      // null for THIS application, exactly what the real conflict path re-reads.
+      const sibling = this.apps.find(
+        (a) =>
+          a.id !== input.applicationId &&
+          (a.postingKey === null || app.postingKey === null) &&
+          a.company.toLowerCase() === app.company.toLowerCase() &&
+          a.title.toLowerCase() === app.title.toLowerCase() &&
+          this.liveStageFor(a.id) !== null,
+      );
+      if (sibling) {
+        return { ok: false, kind: "conflict", current: null };
+      }
+
+      const now = this.stageStamp();
+      const row: AutopilotStageRowShape = {
+        id: ++this.stageSeq + 9000,
+        application_id: input.applicationId,
+        provider,
+        provider_version: input.providerVersion,
+        form_identity: input.formIdentity,
+        form_schema_hash: input.formSchemaHash,
+        payload: { ...input.payload },
+        attachments: input.attachments.map((a) => ({ ...a })),
+        answers: Object.fromEntries(
+          Object.entries(input.answers).map(([k, v]) => [k, { ...v }]),
+        ),
+        gaps: input.gaps.map((g) => ({ ...g })),
+        state,
+        payload_hash: fixturePackageHash(
+          provider, input.providerVersion, input.formIdentity, input.formSchemaHash,
+          input.payload, input.attachments, input.answers,
+        ),
+        approved_hash: null,
+        approved_at: null,
+        retry_of_stage_id: null,
+        created_at: now,
+        updated_at: now,
+      };
+      this.stageRows.set(row.id, row);
+      const result: AutopilotStageWriteResult = {
+        ok: true,
+        stage: this.stageView(row),
+        created: true,
+      };
+      this.seenStageKeys.set(input.idempotencyKey, {
+        command: "app_stage_autopilot_application", fp, result,
+      });
+      return result;
+    }
+
+    // The EDIT path. A live-but-not-open stage answers the conflict sentence;
+    // a frozen (approved) one answers its own.
+    if (!AUTOPILOT_OPEN.has(open.state)) {
+      return { ok: false, kind: "conflict", current: this.stageView(open) };
+    }
+    if (
+      input.expectedUpdatedAt !== null &&
+      !sameInstant(open.updated_at, input.expectedUpdatedAt)
+    ) {
+      return { ok: false, kind: "conflict", current: this.stageView(open) };
+    }
+    if (!AUTOPILOT_EDITABLE.has(open.state)) {
+      return { ok: false, kind: "conflict", current: this.stageView(open) };
+    }
+
+    // A write that changes nothing writes nothing (0003's rule): the version
+    // token every other tab holds must not be invalidated by a no-op.
+    const nextHash = fixturePackageHash(
+      provider, input.providerVersion, input.formIdentity, input.formSchemaHash,
+      input.payload, input.attachments, input.answers,
+    );
+    if (
+      nextHash === open.payload_hash &&
+      JSON.stringify(open.gaps) === JSON.stringify(input.gaps) &&
+      open.state === state
+    ) {
+      const unchanged: AutopilotStageWriteResult = {
+        ok: true,
+        stage: this.stageView(open),
+        created: false,
+      };
+      this.seenStageKeys.set(input.idempotencyKey, {
+        command: "app_stage_autopilot_application", fp, result: unchanged,
+      });
+      return unchanged;
+    }
+
+    open.provider = provider;
+    open.provider_version = input.providerVersion;
+    open.form_identity = input.formIdentity;
+    open.form_schema_hash = input.formSchemaHash;
+    open.payload = { ...input.payload };
+    open.attachments = input.attachments.map((a) => ({ ...a }));
+    open.answers = Object.fromEntries(
+      Object.entries(input.answers).map(([k, v]) => [k, { ...v }]),
+    );
+    open.gaps = input.gaps.map((g) => ({ ...g }));
+    open.payload_hash = fixturePackageHash(
+      provider, input.providerVersion, input.formIdentity, input.formSchemaHash,
+      input.payload, input.attachments, input.answers,
+    );
+    open.state = state;
+    open.updated_at = this.stageStamp();
+
+    const result: AutopilotStageWriteResult = {
+      ok: true,
+      stage: this.stageView(open),
+      created: false,
+    };
+    this.seenStageKeys.set(input.idempotencyKey, {
+      command: "app_stage_autopilot_application", fp, result,
+    });
+    return result;
+  }
+
+  async reviewAutopilotStage(input: ReviewAutopilotStageInput): Promise<AutopilotReviewResult> {
+    if (!input.idempotencyKey || blankTrim(input.idempotencyKey) === "" || input.idempotencyKey.length > 200) {
+      return { ok: false, kind: "error", message: "idempotency key required" };
+    }
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    const decision = input.decision;
+    const hash = blankTrim(input.packageHash ?? "").toLowerCase();
+    const fp = JSON.stringify([input.stageId, decision, hash, input.reason]);
+    const replay = this.stageReplay(input.idempotencyKey, "app_review_autopilot_stage", fp);
+    if (replay && "error" in replay) return { ok: false, kind: "error", message: replay.error };
+    if (replay) return replay.result as AutopilotReviewResult;
+
+    const target =
+      decision === "approve" ? "approved"
+      : decision === "request_changes" ? "changes_requested"
+      : decision === "cancel" ? "cancelled"
+      : null;
+    if (target === null) {
+      return { ok: false, kind: "error", message: `unknown review decision: ${String(decision)}` };
+    }
+    if (decision === "approve" && !/^[0-9a-f]{64}$/.test(hash)) {
+      return {
+        ok: false,
+        kind: "error",
+        message: "approving needs the hash of the package you reviewed",
+      };
+    }
+
+    const row = this.stageRows.get(input.stageId);
+    if (!row) {
+      return {
+        ok: false,
+        kind: "error",
+        message: `no such autopilot stage for this user: ${input.stageId}`,
+      };
+    }
+    if (
+      input.expectedUpdatedAt !== null &&
+      !sameInstant(row.updated_at, input.expectedUpdatedAt)
+    ) {
+      return { ok: false, kind: "conflict", current: this.stageView(row) };
+    }
+    // THE APPROVAL-INTEGRITY CHECK: a package that changed since the surface
+    // rendered is refused with the conflict answer, exactly like the RPC.
+    if (decision === "approve" && hash !== row.payload_hash) {
+      return { ok: false, kind: "conflict", current: this.stageView(row) };
+    }
+    if (row.state === target) {
+      const result: AutopilotReviewResult = { ok: true, stage: this.stageView(row), changed: false };
+      this.seenStageKeys.set(input.idempotencyKey, {
+        command: "app_review_autopilot_stage", fp, result,
+      });
+      return result;
+    }
+    if (!AUTOPILOT_REVIEW_ARROWS[row.state]?.includes(target)) {
+      return {
+        ok: false,
+        kind: "error",
+        message: `an autopilot stage in ${row.state} cannot be ${target}`,
+      };
+    }
+
+    row.state = target as AutopilotStageState;
+    if (decision === "approve") {
+      row.approved_hash = row.payload_hash;
+      row.approved_at = this.stageStamp();
+    } else if (decision === "request_changes") {
+      // Entering an editable state throws the approval away (the state machine).
+      row.approved_hash = null;
+      row.approved_at = null;
+    }
+    // Cancelling PRESERVES an existing approval — "who authorised this, and
+    // against what" stays true of a stage somebody then stopped.
+    row.updated_at = this.stageStamp();
+
+    const result: AutopilotReviewResult = { ok: true, stage: this.stageView(row), changed: true };
+    this.seenStageKeys.set(input.idempotencyKey, {
+      command: "app_review_autopilot_stage", fp, result,
+    });
+    return result;
+  }
+
+  async settleAutopilotHandoff(input: SettleAutopilotHandoffInput): Promise<AutopilotSettleResult> {
+    if (!input.idempotencyKey || blankTrim(input.idempotencyKey) === "" || input.idempotencyKey.length > 200) {
+      return { ok: false, kind: "error", message: "idempotency key required" };
+    }
+    if (this.failNext) {
+      const msg = this.failNext;
+      this.failNext = null;
+      return { ok: false, kind: "error", message: msg };
+    }
+
+    const outcome = input.outcome;
+    const fp = JSON.stringify([input.stageId, outcome, input.reason]);
+    const replay = this.stageReplay(input.idempotencyKey, "app_settle_autopilot_handoff", fp);
+    if (replay && "error" in replay) return { ok: false, kind: "error", message: replay.error };
+    if (replay) return replay.result as AutopilotSettleResult;
+
+    if (outcome !== "submitted" && outcome !== "abandoned") {
+      return { ok: false, kind: "error", message: `unknown handoff outcome: ${String(outcome)}` };
+    }
+    const row = this.stageRows.get(input.stageId);
+    if (!row) {
+      return {
+        ok: false,
+        kind: "error",
+        message: `no such autopilot stage for this user: ${input.stageId}`,
+      };
+    }
+    if (
+      input.expectedUpdatedAt !== null &&
+      !sameInstant(row.updated_at, input.expectedUpdatedAt)
+    ) {
+      return { ok: false, kind: "conflict", current: this.stageView(row) };
+    }
+    if (row.state !== "approved") {
+      return {
+        ok: false,
+        kind: "error",
+        message: `autopilot stage ${row.id} is ${row.state} and has no manual handoff to settle`,
+      };
+    }
+
+    if (outcome === "submitted") {
+      // Statement one: the terminus, approval preserved. Statement two: the
+      // MANUAL status through the fake's own setStatus — the same reopen rule,
+      // the same status_actor stamp, the same suggestion clearing the real RPC
+      // gets by calling app_set_status. No transaction here, so a status
+      // refusal reverts the stage by hand — the all-or-nothing the database
+      // provides for free.
+      const beforeState = row.state;
+      const beforeUpdatedAt = row.updated_at;
+      row.state = "handed_off";
+      row.updated_at = this.stageStamp();
+      const status = await this.setStatus({
+        applicationId: row.application_id,
+        status: "Applied",
+        note: input.reason,
+        idempotencyKey: `autopilot-handoff-status:${row.id}`,
+        expectedUpdatedAt: null,
+      });
+      if (!status.ok) {
+        row.state = beforeState;
+        row.updated_at = beforeUpdatedAt;
+        return status.kind === "conflict"
+          ? { ok: false, kind: "conflict", current: this.stageView(row) }
+          : status.kind === "auth"
+            ? { ok: false, kind: "auth" }
+            : { ok: false, kind: "error", message: status.message };
+      }
+      const result: AutopilotSettleResult = {
+        ok: true,
+        stage: this.stageView(row),
+        outcome: "submitted",
+      };
+      this.seenStageKeys.set(input.idempotencyKey, {
+        command: "app_settle_autopilot_handoff", fp, result,
+      });
+      return result;
+    }
+
+    // 'abandoned': cancel semantics through the review command — its
+    // transition, its approval preservation — exactly as the RPC routes it.
+    const cancelled = await this.reviewAutopilotStage({
+      stageId: input.stageId,
+      decision: "cancel",
+      packageHash: null,
+      reason: input.reason,
+      idempotencyKey: `autopilot-handoff-cancel:${row.id}`,
+      expectedUpdatedAt: null,
+    });
+    if (!cancelled.ok) {
+      return cancelled.kind === "conflict"
+        ? { ok: false, kind: "conflict", current: cancelled.current }
+        : cancelled.kind === "auth"
+          ? { ok: false, kind: "auth" }
+          : { ok: false, kind: "error", message: cancelled.message };
+    }
+    const result: AutopilotSettleResult = {
+      ok: true,
+      stage: cancelled.stage,
+      outcome: "abandoned",
+    };
+    this.seenStageKeys.set(input.idempotencyKey, {
+      command: "app_settle_autopilot_handoff", fp, result,
+    });
     return result;
   }
 
