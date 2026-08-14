@@ -37,12 +37,19 @@ describe("parseCriteria — an empty answer is an answer", () => {
     expect(stored.board_search_term).toBe("");
   });
 
-  it("still falls back when the value is not a string at all", () => {
-    // A number or a null is a malformed request, not an answer, and the closed
-    // set has to hold: the gate and the tagger both read these as text.
+  it("lands malformed and MISSING free-text on the explicit unset state", () => {
+    // RM-40 vault audit §9 Step 4: "a generic default is still a default; the
+    // bug is that a blank field silently acquires a value." A number, a null,
+    // or an absent key is not an answer — and it must not become one. Before
+    // this change a criteria row missing `role_family` came back as
+    // "product manager": one person's search under another person's name.
     const stored = parseCriteria({ role_family: 42, tag_domain: null });
-    expect(stored.role_family).toBe(BASE_CRITERIA.role_family);
-    expect(stored.tag_domain).toBe(BASE_CRITERIA.tag_domain);
+    expect(stored.role_family).toBe("");
+    expect(stored.tag_domain).toBe("");
+    expect(stored.board_search_term).toBe("");   // the key was never sent
+    expect(BASE_CRITERIA.role_family).toBe("");  // the baseline carries no persona
+    expect(BASE_CRITERIA.tag_domain).toBe("");
+    expect(BASE_CRITERIA.board_search_term).toBe("");
   });
 
   it("round-trips a preset without changing a character", () => {
@@ -98,11 +105,25 @@ describe("parseCriteria — the bounds", () => {
     expect(stored.countries[0].length).toBe(MAX_CHIP_LENGTH);
   });
 
-  it("clamps the two numbers and falls back on junk", () => {
+  it("clamps the two numbers", () => {
     expect(parseCriteria({ yoe_max: 9999 }).yoe_max).toBe(60);
     expect(parseCriteria({ yoe_max: -5 }).yoe_max).toBe(0);
-    expect(parseCriteria({ yoe_max: "abc" }).yoe_max).toBe(BASE_CRITERIA.yoe_max);
     expect(parseCriteria({ comp_min: 99999 }).comp_min).toBe(2000);
+  });
+
+  it("reads an absent, blank or junk YoE ceiling as null — the gate off", () => {
+    // An unparseable request must not acquire a limit, and null is the state
+    // `dispose` reads as OFF (gate-corpus: yoe-null-ceiling-means-the-gate-is-off).
+    // The old behaviour handed these a ceiling of 4 — the deployment owner's.
+    expect(parseCriteria({}).yoe_max).toBeNull();
+    expect(parseCriteria({ yoe_max: null }).yoe_max).toBeNull();
+    expect(parseCriteria({ yoe_max: "" }).yoe_max).toBeNull();
+    // Whitespace-only is blank, not zero: Number("") is 0, and the #251
+    // review caught "  " minting an entry-level-only ceiling nobody set.
+    expect(parseCriteria({ yoe_max: "   " }).yoe_max).toBeNull();
+    expect(parseCriteria({ yoe_max: "abc" }).yoe_max).toBeNull();
+    expect(parseCriteria({ yoe_max: 4 }).yoe_max).toBe(4);  // a stated one survives
+    expect(parseCriteria({ yoe_max: 0 }).yoe_max).toBe(0);  // a REAL zero survives too
   });
 
   it("falls back rather than storing an unrecognised policy", () => {

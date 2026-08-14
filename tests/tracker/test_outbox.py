@@ -21,7 +21,7 @@ def _local(y, mo, d, h, mi=0, zone="America/Chicago"):
     return dt.datetime(y, mo, d, h, mi, tzinfo=ZoneInfo(zone)).astimezone(UTC)
 
 
-NIGHT = _local(2026, 7, 20, 22, 0)          # inside the default 21:00-06:30
+NIGHT = _local(2026, 7, 20, 22, 0)          # inside the user's 21:00-06:30
 WAKE = _local(2026, 7, 21, 6, 30)
 BEFORE_WAKE = _local(2026, 7, 21, 6, 0)
 AFTER_WAKE = _local(2026, 7, 21, 7, 31)     # the real tracker-chain slot
@@ -31,7 +31,19 @@ AFTER_WAKE = _local(2026, 7, 21, 7, 31)     # the real tracker-chain slot
 def hq(monkeypatch):
     h = fake_hq()
     h.user = "salman"
+    # The committed defaults carry no quiet window since RM-40 Step 4; this
+    # user states one in their own sheet, which is where a window lives now.
+    h.tab("config").append_records([
+        {"key": "notify_quiet_hours", "value": "21:00-06:30"},
+        {"key": "notify_timezone", "value": "America/Chicago"},
+    ])
     return h
+
+
+def _overlaid(hq):
+    """The Config-overlaid profile — what every real bot passes to push()."""
+    from core.profile import Profile
+    return Profile.load("salman", cfg=hq.user_config())
 
 
 @pytest.fixture
@@ -43,6 +55,7 @@ def night(monkeypatch):
 def _queue(hq, blocked_ntfy, *, event="new_roles", title="2 new roles",
            body="• PM — Acme"):
     return notify.push(title, body, event=event, user="salman",
+                       profile=_overlaid(hq),
                        session=blocked_ntfy, outbox=outbox.sink(hq))
 
 
@@ -81,7 +94,8 @@ def test_a_deferred_push_with_nowhere_to_queue_pages_instead_of_vanishing(
         hq, night, blocked_ntfy):
     """The one path that could reintroduce a silent drop: a caller that forgot
     the sink. It must fail loudly, not quietly."""
-    assert notify.push("t", "b", event="new_roles", user="salman") is False
+    assert notify.push("t", "b", event="new_roles", user="salman",
+                       profile=_overlaid(hq)) is False
     assert [p for p in blocked_ntfy.posts
             if "outbox" in str(p[1]["headers"]["Title"]).casefold()
             or b"outbox" in p[1]["data"].lower()], "no ops alert for a lost notification"
@@ -191,10 +205,11 @@ def test_the_flush_judges_a_row_against_the_users_own_config(hq, night, blocked_
     itself it gets the un-overlaid version and the two disagree.
 
     Here the user turned quiet hours OFF in their sheet after the row was
-    queued. The overlaid answer is "send now"; the profile.yaml answer is "still
-    21:00-06:30, defer". Divergence cost the notification: push deferred with no
-    outbox to hold it, paged ops, returned False, and the flush recorded a
-    failed send that was never attempted."""
+    queued (the later Config row wins). The overlaid answer is "send now"; a
+    stale un-overlaid reload still holding the queued-time window would say
+    "defer". Divergence cost the notification: push deferred with no outbox to
+    hold it, paged ops, returned False, and the flush recorded a failed send
+    that was never attempted."""
     _queue(hq, blocked_ntfy)
     hq.tab("config").append_records([{"key": "notify_quiet_hours", "value": "off"}])
 
@@ -397,7 +412,12 @@ def test_queueing_into_a_missing_tab_pages_rather_than_swallowing(hq, night, blo
     deploy gap becomes a window where notifications vanish."""
     bare = fake_hq(with_tabs=["config", "log"])
     bare.user = "salman"
+    bare.tab("config").append_records([
+        {"key": "notify_quiet_hours", "value": "21:00-06:30"},
+        {"key": "notify_timezone", "value": "America/Chicago"},
+    ])
     assert notify.push("2 new roles", "b", event="new_roles", user="salman",
+                       profile=_overlaid(bare),
                        session=blocked_ntfy, outbox=outbox.sink(bare)) is False
     assert any(p[1]["headers"]["Title"] == "HQ outbox write failed"
                for p in blocked_ntfy.posts)

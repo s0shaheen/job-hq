@@ -3,7 +3,6 @@ from urllib.parse import unquote
 
 import pytest
 
-from core.config import defaults
 from core.fakes import fake_hq
 from monitor import wide
 from monitor.wide import map_cafe_item, map_theirstack_job, run, search_terms, search_url
@@ -13,8 +12,18 @@ CURSOR = "2026-07-12T00:00:00Z"
 GH_URL = "https://boards.greenhouse.io/plaid/jobs/123456"
 
 
+# What this fixture user's sheet says they search for. The committed defaults
+# carry NO titles since RM-40 Step 4, so the fixture states its own — which is
+# how a real instance works. "senior product manager" is subsumed by "product
+# manager" in search_terms, leaving ONE distinct query term.
+TITLES = ["product manager", "senior product manager"]
+
+
 def _hq(companies=None, feed=None, pipeline=None, config=None):
     hq = fake_hq()
+    hq.tab("config").append_records([
+        {"key": "titles_include", "value": ", ".join(TITLES)},
+    ])
     if companies:
         hq.tab("companies").append_records(companies)
     if feed:
@@ -246,7 +255,7 @@ def test_actor_input_shape_one_run_per_term(monkeypatch):
     client = FakeApify(items=[cafe_item()])
     _run(hq, client)
     assert set(client.actor_ids) == {wide.ACTOR_ID}
-    n_terms = len(search_terms(defaults()["titles_include"]))
+    n_terms = len(search_terms(TITLES))
     assert len(client.inputs) == n_terms     # one small newest-first run per distinct term
     first = client.inputs[0]
     assert first["maxItems"] == wide.MAX_PER_TERM
@@ -417,7 +426,7 @@ def test_total_actor_failure_skips_heartbeat(monkeypatch):
     monkeypatch.delenv("THEIRSTACK_API_KEY", raising=False)
     hq = _hq(config=[{"key": "wide_cursor", "value": CURSOR}])
     s = _run(hq, FakeApify(fail=True))
-    n_terms = len(search_terms(defaults()["titles_include"]))
+    n_terms = len(search_terms(TITLES))
     assert not s.ok and len(s.errors) == n_terms   # every term quarantined
     assert not any(r["key"] == "heartbeat_wide" for r in hq.tab("config").records())
     assert hq.tab("feed").records() == []
@@ -426,7 +435,7 @@ def test_total_actor_failure_skips_heartbeat(monkeypatch):
 def test_first_activation_defaults_cursor_and_upserts(monkeypatch):
     monkeypatch.setenv("APIFY_TOKEN", "tok")
     monkeypatch.delenv("THEIRSTACK_API_KEY", raising=False)
-    hq = fake_hq()                            # no wide_cursor row yet
+    hq = _hq()                                # no wide_cursor row yet
     s = _run(hq, FakeApify(items=[cafe_item()]))
     assert s.appended == 1
     cur = [r for r in hq.tab("config").records() if r["key"] == "wide_cursor"]

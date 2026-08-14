@@ -22,7 +22,10 @@ jobs:
     strategy:
       fail-fast: false   # one user's failure must never cancel another's run
       matrix:
-        user: ${{ fromJSON(vars.HQ_USERS || '["salman"]') }}
+        # "" = the flat single-user registry (core.config treats an empty
+        # HQ_USER as the flat doc). Set vars.HQ_USERS to name real lanes; no
+        # user slug is hardcoded here (RM-40 vault audit §3c).
+        user: ${{ fromJSON(vars.HQ_USERS || '[""]') }}
 
     concurrency:
       group: hq-selfheal-${{ matrix.user }}   # per-user lane: users never queue behind each other

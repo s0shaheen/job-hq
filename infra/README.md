@@ -60,7 +60,7 @@ put SIMPLIFY_CSRF            "..."
 put SUPABASE_URL            "https://xxxx.supabase.co"     # if the pg mirror runs
 put SUPABASE_SERVICE_KEY    "..."
 # ntfy topics your bots publish to (see core/notify.py / .env.example) — e.g.:
-put MONITOR_OPS_NTFY_TOPIC   "salman-hq-ops-..."
+put MONITOR_OPS_NTFY_TOPIC   "example-hq-ops-..."
 ```
 
 (SSM SecureString handles the ~2 KB service-account JSON fine. `--overwrite` makes re-runs idempotent.)

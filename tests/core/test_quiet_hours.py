@@ -26,7 +26,12 @@ CT = "America/Chicago"
 
 def _prof(**kw):
     p = Profile.load("salman")
-    for k, v in kw.items():
+    # The committed defaults carry NO quiet window and read UTC since RM-40
+    # Step 4. These tests exercise the WINDOW MECHANISM, so the fixture states
+    # a window the way a real user would — their own hours on their own clock.
+    base = {"timezone": CT, "quiet_hours": "21:00-06:30"}
+    base.update(kw)
+    for k, v in base.items():
         setattr(p, k, v)
     return p
 
@@ -65,12 +70,22 @@ def test_outside_the_window_sends_immediately():
     assert d.verdict == channels.SEND and d.until is None
 
 
-def test_the_digest_ping_clears_the_default_window():
-    """The digest job composes at 06:40 CT. A window ending at 07:00 would hold
-    the daily briefing until the next 2-hourly flush (07:31 CT) — so the
-    committed default ends 06:30. Change one and check the other."""
+def test_the_committed_default_is_no_quiet_window():
+    """RM-40 vault audit §9 Step 4: a committed sleep window is one person's
+    clock imposed on everyone else's, so the default is OFF — a user who never
+    stated a window is never deferred."""
     from core.config import defaults
-    assert defaults()["notify_quiet_hours"] == "21:00-06:30"
+    assert defaults()["notify_quiet_hours"] == "off"
+    d = channels.allow("salman", event="new_roles",
+                       profile=_prof(quiet_hours="off"),
+                       now=_local(2026, 7, 20, 22, 0))
+    assert d.verdict == channels.SEND
+
+
+def test_the_digest_ping_clears_a_0630_window():
+    """The digest job composes at 06:40 CT. A user window ending at 07:00 would
+    hold the daily briefing until the next 2-hourly flush (07:31 CT) — which is
+    why the runbook's suggested window ends 06:30. Change one, check the other."""
     d = channels.allow("salman", event="digest", profile=_prof(),
                        now=_local(2026, 7, 20, 6, 40))
     assert d.verdict == channels.SEND
@@ -192,9 +207,9 @@ def test_an_unreadable_window_is_ignored_rather_than_silencing_everything(spec, 
 
 def test_an_unknown_timezone_falls_back_loudly(capsys):
     d = channels.allow("x", event="new_roles", profile=_prof(timezone="Mars/Olympus"),
-                       now=_local(2026, 7, 20, 22, 0))
+                       now=_at(2026, 7, 20, 22, 0))
     assert d.verdict == channels.DEFER                       # still quiet-hours aware
-    assert d.until == _local(2026, 7, 21, 6, 30)             # via America/Chicago
+    assert d.until == _at(2026, 7, 21, 6, 30)                # read on UTC, the neutral floor
     assert "Mars/Olympus" in capsys.readouterr().err
 
 
@@ -227,7 +242,7 @@ def test_the_two_new_knobs_are_config_editable_and_validated():
     assert VALIDATORS["notify_timezone"]("America/New_York") == "America/New_York"
     with pytest.raises(ValueError):
         VALIDATORS["notify_timezone"]("Mars/Olympus")
-    assert defaults()["notify_timezone"] == "America/Chicago"
+    assert defaults()["notify_timezone"] == "UTC"    # nobody's clock by default
     for key, attr in (("notify_timezone", "timezone"),
                       ("notify_quiet_hours", "quiet_hours")):
         assert (key, attr) in Profile.OVERLAY
@@ -241,8 +256,8 @@ def test_the_two_new_knobs_are_config_editable_and_validated():
 # while every plumbing test stays green. These drive `tracker.digest`, a real
 # scheduled push path, and assert on what reached the wire.
 
-def _digest_with_config(cell: dict | None, recorder):
-    """Run the digest for a push user whose Config tab holds `cell`. Returns
+def _digest_with_config(cells: list[dict] | None, recorder):
+    """Run the digest for a push user whose Config tab holds `cells`. Returns
     (posts to the JOBS topic, outbox rows)."""
     from core import notify
     from core.fakes import fake_hq
@@ -250,8 +265,8 @@ def _digest_with_config(cell: dict | None, recorder):
 
     hq = fake_hq()
     hq.user = "salman"
-    if cell:
-        hq.tab("config").append_records([cell])
+    if cells:
+        hq.tab("config").append_records(cells)
     digest.run(hq, now=dt.datetime(2026, 7, 20, 15, 0, tzinfo=UTC))
     ops = notify._topic("ops")     # the digest legitimately ops-alerts on a bare fixture
     posts = [p for p in recorder.posts if not p[0].endswith(ops)]
@@ -271,8 +286,10 @@ def test_a_config_quiet_hours_cell_defers_a_real_push(blocked_ntfy):
     `hq.user_config()` -> `Profile.load(cfg=…)` -> `push(profile=…)` -> the
     policy — or the cell is decoration."""
     from core.outbox import parse_ts
-    posts, rows = _digest_with_config({"key": "notify_quiet_hours",
-                                       "value": "11:00-13:00"}, blocked_ntfy)
+    posts, rows = _digest_with_config([{"key": "notify_quiet_hours",
+                                        "value": "11:00-13:00"},
+                                       {"key": "notify_timezone",
+                                        "value": "America/Chicago"}], blocked_ntfy)
     assert posts == [], "the Config-tab quiet window did not reach the push path"
     assert len(rows) == 1 and rows[0]["event"] == "digest"
     assert parse_ts(rows[0]["deliver_after"]) == _local(2026, 7, 20, 13, 0)
@@ -281,6 +298,6 @@ def test_a_config_quiet_hours_cell_defers_a_real_push(blocked_ntfy):
 def test_a_config_matrix_cell_drops_a_real_push(blocked_ntfy):
     """Same route, the other knob family: `notify_digest = none` in the sheet
     must silence the daily ping without touching a line of code."""
-    posts, rows = _digest_with_config({"key": "notify_digest", "value": "none"},
+    posts, rows = _digest_with_config([{"key": "notify_digest", "value": "none"}],
                                       blocked_ntfy)
     assert posts == [] and rows == [], "notify_digest=none did not reach the push path"

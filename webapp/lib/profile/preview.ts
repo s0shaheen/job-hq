@@ -238,8 +238,9 @@ const FIELD_LABELS: Record<string, string> = {
  * `countries` has no off value in `dispose` — an empty list refuses everything
  * — so relaxing it means "accept every country this corpus contains", which is
  * exactly equivalent and needs no sentinel inside the gate. `yoe_max` relaxes
- * to Infinity for the same reason: `Math.trunc(n) > Infinity` is false for
- * every real n, and no reason string is produced from a gate that never fires.
+ * to `null`, its real off value: a null ceiling never fires and produces no
+ * reason string, and a profile whose ceiling is already unset relaxes to
+ * itself — an off gate can never be the binding constraint.
  */
 function relaxations(
   base: GateCriteria,
@@ -261,7 +262,7 @@ function relaxations(
     { field: "comp_unknown", config: { ...base, compUnknown: "keep" } },
     { field: "comp_min", config: { ...base, compMin: 0 } },
     { field: "seniority_exclude", config: { ...base, seniorityExclude: [] } },
-    { field: "yoe_max", config: { ...base, yoeMax: Number.POSITIVE_INFINITY } },
+    { field: "yoe_max", config: { ...base, yoeMax: null } },
     { field: "yoe_unknown", config: { ...base, yoeUnknown: "keep" } },
   ];
 }

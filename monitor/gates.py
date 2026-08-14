@@ -1,7 +1,7 @@
 """Intake gates — per-profile disposition for every feed row (WS1).
 
 The feed used to admit anything that passed the title filter; geo and YoE were
-annotations, so ~97% of rows failed Salman's own criteria and sat visible
+annotations, so ~97% of rows failed the owner's own criteria and sat visible
 forever. Gates turn the Search Profile (Config-tab knobs today, per-user
 profiles later) into a disposition stamped on every row at write time:
 
@@ -60,11 +60,25 @@ class GateConfig:
     # substrings matched against work_model, e.g. ["onsite"] to never see
     # on-site roles. Case-insensitive.
     work_model_exclude: list[str] = field(default_factory=list)
-    yoe_max: int = 4
+    # None = no ceiling: the YoE gate does not run. The default is OFF, not a
+    # number — a profile that never stated a ceiling must not inherit one
+    # (RM-40 vault audit §3b / §9 Step 4: the old default of 4 was one
+    # person's search encoded as everybody's deal-breaker).
+    yoe_max: int | None = None
     yoe_unknown: str = "seniority-proxy"  # seniority-proxy | keep — tagged rows w/o a stated YoE
     seniority_exclude: list[str] = field(default_factory=list)
 
     def __post_init__(self):
+        # Unified unset semantics for the ceiling (#251 review): a blank
+        # string — INCLUDING whitespace — is the OFF state, exactly like None,
+        # never a number. A numeric string still gates (int(float(...)), the
+        # same truncation the stated-YoE side uses); junk raises, which is
+        # this side's fail-loud posture. The TypeScript port makes the same
+        # call in toIntOrNull, and the corpus pins both
+        # (yoe-whitespace-ceiling-is-unset-not-zero).
+        if isinstance(self.yoe_max, str):
+            s = self.yoe_max.strip()
+            self.yoe_max = None if s == "" else int(float(s))
         self.countries = [_canon_country(c) for c in self.countries if str(c).strip()]
         self.metros = [str(m).strip() for m in self.metros if str(m).strip()]
         self.seniority_exclude = [str(s).strip().casefold()
@@ -85,7 +99,9 @@ class GateConfig:
             comp_unknown=str(cfg.get("filter_comp_unknown", "keep")),
             work_model_exclude=list(cfg.get("filter_work_model_exclude", []) or []),
             geo_unknown=str(cfg["filter_geo_unknown"]),
-            yoe_max=int(cfg["filter_yoe_max"]),
+            # blank/absent = no ceiling; normalized in __post_init__ so a
+            # whitespace-only value lands OFF here too, not in int()'s lap
+            yoe_max=cfg["filter_yoe_max"],
             yoe_unknown=str(cfg["filter_yoe_unknown"]),
             seniority_exclude=list(cfg["filter_seniority_exclude"]),
         )
@@ -143,11 +159,14 @@ def dispose(row: dict, g: GateConfig) -> tuple[str, str]:
     raw_yoe = str(row.get("min_yoe", "")).strip()
     if raw_yoe:
         try:
-            if int(float(raw_yoe)) > g.yoe_max:
+            stated = int(float(raw_yoe))
+        except ValueError:
+            stated = None                 # junk cell -> treat as unknown
+        if stated is not None:
+            # yoe_max None = no ceiling set: a stated YoE qualifies unfiltered
+            if g.yoe_max is not None and stated > g.yoe_max:
                 return FILTERED, f"yoe:{raw_yoe}>{g.yoe_max}"
             return QUALIFIED, ""
-        except ValueError:
-            pass                          # junk cell -> treat as unknown
     if not str(row.get("tagged_at", "")).strip():
         return NEEDS_INFO, "awaiting-tags"
 

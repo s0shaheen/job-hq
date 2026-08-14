@@ -106,10 +106,16 @@ function parseStart(body: unknown): { ok: true; value: StartBody } | { ok: false
   }
   // `normalizeWarmParams` fills any missing/blank persona from the derived default
   // — the client sends the defaults or the user's per-search edits, and a blank
-  // persona must never reach the vendor as an empty query.
+  // persona must never reach the vendor as an empty query. With no role at all
+  // there IS no derived default (deriving one used to mean inventing the
+  // deployment owner's role — RM-40 §9 Step 4), so a role-less start is
+  // REFUSED here rather than searched as somebody else's profession.
   const rawParams = (o.params ?? {}) as Record<string, unknown>;
   const roleForFallback = typeof rawParams.role === "string" ? rawParams.role : "";
   const params = normalizeWarmParams(rawParams, roleForFallback);
+  if (params.role.trim() === "") {
+    return { ok: false, why: "Add your role first — set it in your search profile, or type one for this search." };
+  }
   const rawOverlays = (o.overlays ?? {}) as Record<string, unknown>;
   const overlays: WarmOverlays = {
     schools: boundedStrings(rawOverlays.schools),

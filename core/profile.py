@@ -36,6 +36,16 @@ PROFILE_DIRNAME = "users"
 @dataclass
 class Profile:
     name: str = ""
+    # role_family / tag_domain / board_search_term keep concrete values as the
+    # LEGACY FLAT LANE's operating point: the flat single-user registry has no
+    # profile.yaml layer, role_family/tag_domain have no Config-tab key at
+    # all, and board_search_term's key (`workday_search`) is itself seeded
+    # from these committed values — so an unset default here would silently
+    # re-route that live nightly lane through the generic tagger. Every NAMED
+    # user's profile.yaml overrides them, and the webapp product never reads
+    # this dataclass (its unset story is webapp/lib/profile/criteria.ts).
+    # They retire with the Sheet sunset (RM-40 vault audit §9 Step 4 /
+    # SHEET-SUNSET).
     role_family: str = "product manager"
     # what the tagger is told it is reading; keeps the LLM prompt honest for
     # non-PM searches without a code change
@@ -45,7 +55,9 @@ class Profile:
     seniority_exclude: list[str] = field(default_factory=list)
     countries: list[str] = field(default_factory=lambda: ["United States"])
     metros: list[str] = field(default_factory=list)   # empty = anywhere in countries
-    yoe_max: int = 4
+    # None = no YoE ceiling (the gate is off). Nobody inherits a deal-breaker
+    # they never stated — RM-40 vault audit §9 Step 4.
+    yoe_max: int | None = None
     comp_min: float = 0
     comp_unknown: str = "keep"
     work_model_exclude: list = field(default_factory=list)
@@ -65,18 +77,22 @@ class Profile:
     notify_oa_interview: str = ""
     notify_stale_nudge: str = ""
     # quiet hours: a LOCAL wall-clock window in which a non-urgent push is
-    # deferred to its end, never dropped (core/channels.py)
-    timezone: str = "America/Chicago"
-    quiet_hours: str = "21:00-06:30"
+    # deferred to its end, never dropped (core/channels.py). Defaults are
+    # neutral-operational, not anybody's clock: UTC, no window, until the
+    # user states their own (RM-40 vault audit §9 Step 4).
+    timezone: str = "UTC"
+    quiet_hours: str = "off"
 
     @classmethod
     def load(cls, user: str = "", cfg=None) -> "Profile":
         """Three layers, lowest first:
 
-          1. core/config_defaults.yaml — the committed baseline. Without this
-             a deployment that has no profile file at all (the original
-             single-user setup) would come back with EMPTY titles and match
-             nothing.
+          1. core/config_defaults.yaml — the committed baseline, which since
+             RM-40 Step 4 carries NO search: titles, seniority band, YoE
+             ceiling and denylist are unset there, so a deployment with no
+             profile file and an empty Config tab comes back with empty
+             titles — and the sweeps SKIP LOUDLY on that (monitor/run.py,
+             monitor/wide.py) instead of running one person's committed list.
           2. users/<name>/profile.yaml — what this person is looking for.
           3. their Config tab, but only the cells they actually changed
              (see overlay_config).
@@ -173,7 +189,7 @@ class Profile:
 
         `notify_email` has existed on this dataclass since the profile landed
         and until Phase C3 **nothing in the repo read it** — the digest was
-        mailed by an Apps Script with `shaheensalmant@gmail.com` as a literal.
+        mailed by an Apps Script with the owner's address as a literal.
         This is the reader, and the fallback chain is deliberately two links
         long and no longer:
 
@@ -203,7 +219,9 @@ class Profile:
         return GateConfig(countries=list(self.countries),
                           metros=list(self.metros),
                           geo_unknown=self.geo_unknown,
-                          yoe_max=int(self.yoe_max),
+                          # None/blank = no ceiling; the gate is off
+                          yoe_max=(None if self.yoe_max in (None, "")
+                                   else int(self.yoe_max)),
                           comp_min=float(self.comp_min or 0),
                           comp_unknown=self.comp_unknown,
                           work_model_exclude=list(self.work_model_exclude),

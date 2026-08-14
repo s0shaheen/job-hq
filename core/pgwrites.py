@@ -63,7 +63,7 @@ def uid(raw: str) -> str:
 
     ONE validator, because there were two behaviours for one bad value: the flag
     gate accepted any non-empty string while `core.beats` parsed it, so
-    `HQ_PG_USER_ID=salman` gave the sweep an opaque PostgREST 4xx at 07:00 and the
+    `HQ_PG_USER_ID=<slug>` gave the sweep an opaque PostgREST 4xx at 07:00 and the
     snapshot a clear message at 03:53. It is also the injection guard — every
     engine read interpolates this id into a raw PostgREST filter under the SERVICE
     ROLE, which RLS does not constrain, and a value that survives `uuid.UUID()`
@@ -96,7 +96,7 @@ def first_class() -> bool:
 
     The refusal is per-LANE, not per-process. In a multi-user registry a lane
     whose block carries no `pg_user_id` must abort, never inherit: the fallback
-    that "works" is the one that writes dad's feed into salman's store, and it
+    that "works" is the one that writes one user's feed into another's store, and it
     would look exactly like success.
     """
     if mode() != FIRST_CLASS:

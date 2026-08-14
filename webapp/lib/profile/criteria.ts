@@ -35,7 +35,8 @@ export type ProfileCriteria = {
   metros: string[];
   geo_unknown: GeoUnknownPolicy;
 
-  yoe_max: number;
+  /** `null` = no ceiling — the YoE gate does not run (Python `yoe_max=None`). */
+  yoe_max: number | null;
   yoe_unknown: YoeUnknownPolicy;
   seniority_exclude: string[];
 
@@ -46,23 +47,31 @@ export type ProfileCriteria = {
 };
 
 /**
- * The committed baseline (`core/config_defaults.yaml` → `Profile`'s dataclass
- * defaults), which is what a brand-new draft starts from.
+ * The blank profile: every answer-shaped field explicitly UNSET, every policy
+ * at its neutral operational setting.
+ *
+ * It used to carry the deployment owner's role family, tag domain, board term
+ * and YoE ceiling, and `parseCriteria` handed those to any field a request
+ * left blank or malformed — the S2 finding in the RM-40 vault audit (§3a):
+ * a blank field silently acquired one person's search. Now the free-text
+ * fields are `""`, the ceiling is `null` (gate off), and the only concrete
+ * values left are product scope (US-only, DEC-007) and gate policies that do
+ * nothing until a value exists for them to act on.
  *
  * NOT what an empty `criteria` means. A `{}` row has never been onboarded and
- * the app redirects it to the wizard; these values are the wizard's step-1
+ * the app redirects it to the wizard; this object is the wizard's step-1
  * starting point, not a silent stand-in for a profile that does not exist.
  */
 export const BASE_CRITERIA: ProfileCriteria = {
-  role_family: "product manager",
-  tag_domain: "product-manager",
-  board_search_term: "product",
+  role_family: "",
+  tag_domain: "",
+  board_search_term: "",
   titles_include: [],
   titles_exclude: [],
   countries: ["United States"],
   metros: [],
   geo_unknown: "filter",
-  yoe_max: 4,
+  yoe_max: null,
   yoe_unknown: "seniority-proxy",
   seniority_exclude: [],
   comp_min: 0,
@@ -72,9 +81,9 @@ export const BASE_CRITERIA: ProfileCriteria = {
 
 /** Longest a single chip may be. A pasted paragraph is not a job title. */
 export const MAX_CHIP_LENGTH = 120;
-/** How many chips one list may hold. Salman's real list is 15; Dad's is 16. */
+/** How many chips one list may hold. The longest hand-tuned real list observed is 16. */
 export const MAX_CHIPS = 60;
-/** The highest years-of-experience ceiling worth expressing. Dad's is 30. */
+/** The highest years-of-experience ceiling worth expressing; 30 is the highest observed. */
 export const MAX_YOE = 60;
 /** $thousands. Above this a floor is a typo, not a preference. */
 export const MAX_COMP_MIN_K = 2000;
@@ -108,21 +117,43 @@ function boundedNumber(value: unknown, fallback: number, min: number, max: numbe
 }
 
 /**
- * A short free-text field, where **empty is a legitimate answer**.
+ * A short free-text field, where **empty is a legitimate answer** — and the
+ * only fallback there is.
  *
- * It used to fall back to `BASE_CRITERIA`'s value on an empty string, and that
- * made "Something else" a lie: the preset sets `role_family`, `tag_domain` and
- * `board_search_term` to `""` on purpose, and every one of them came back out
- * of here as "product manager" / "product-manager" / "product". Somebody who
- * told the wizard they were looking for something else had a product-management
- * search stored under their name, and nothing on any screen said so.
- *
- * A non-string still falls back, because that is a malformed request rather than
- * an answer. Only a deliberate empty string survives.
+ * It used to fall back to `BASE_CRITERIA`'s value, and that made "Something
+ * else" a lie: choosing it stored a product-management search under the name
+ * of somebody who had explicitly said it was not that. The empty-string case
+ * was fixed first; the RM-40 vault audit (§9 Step 4) closed the rest — a
+ * MISSING key or a malformed value must land on the explicit not-set state
+ * too, because "a generic default is still a default; the bug is that a blank
+ * field silently acquires a value." Nothing here can produce a role nobody
+ * typed.
  */
-function text(value: unknown, fallback: string): string {
-  if (typeof value !== "string") return fallback;
+function text(value: unknown): string {
+  if (typeof value !== "string") return "";
   return value.trim().slice(0, MAX_CHIP_LENGTH);
+}
+
+/**
+ * The YoE ceiling: a number clamped to `[0, MAX_YOE]`, or `null` — the
+ * explicit "no ceiling" state the gate reads as OFF. Absent, null, blank and
+ * junk all land on null: an unparseable request must not acquire a limit.
+ */
+function yoeCeiling(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  let n: number;
+  if (typeof value === "number") {
+    n = value;
+  } else {
+    const s = String(value).trim();
+    // Blank INCLUDING whitespace is unset. Checked on the TRIMMED string,
+    // because `Number("")` is 0 — the #251 review caught "  " minting a
+    // ceiling of ZERO, an entry-level-only filter nobody set.
+    if (s === "") return null;
+    n = Number(s);
+  }
+  if (!Number.isFinite(n)) return null;
+  return Math.min(Math.max(Math.trunc(n), 0), MAX_YOE);
 }
 
 /**
@@ -138,15 +169,19 @@ function text(value: unknown, fallback: string): string {
 export function parseCriteria(raw: unknown): ProfileCriteria {
   const r = (raw ?? {}) as Record<string, unknown>;
   return {
-    role_family: text(r.role_family, BASE_CRITERIA.role_family),
-    tag_domain: text(r.tag_domain, BASE_CRITERIA.tag_domain),
-    board_search_term: text(r.board_search_term, BASE_CRITERIA.board_search_term),
+    // Free-text and the ceiling resolve to the EXPLICIT unset state ("" /
+    // null) when absent or malformed — never to a value nobody typed. The
+    // policy fields fall back to their neutral settings because the closed
+    // set must hold; a policy is how a gate behaves, not what it looks for.
+    role_family: text(r.role_family),
+    tag_domain: text(r.tag_domain),
+    board_search_term: text(r.board_search_term),
     titles_include: chipList(r.titles_include, BASE_CRITERIA.titles_include),
     titles_exclude: chipList(r.titles_exclude, BASE_CRITERIA.titles_exclude),
     countries: chipList(r.countries, BASE_CRITERIA.countries),
     metros: chipList(r.metros, BASE_CRITERIA.metros),
     geo_unknown: oneOf(r.geo_unknown, ["filter", "keep"] as const, BASE_CRITERIA.geo_unknown),
-    yoe_max: Math.trunc(boundedNumber(r.yoe_max, BASE_CRITERIA.yoe_max, 0, MAX_YOE)),
+    yoe_max: yoeCeiling(r.yoe_max),
     yoe_unknown: oneOf(
       r.yoe_unknown,
       ["seniority-proxy", "keep"] as const,

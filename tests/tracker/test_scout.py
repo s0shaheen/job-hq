@@ -59,16 +59,30 @@ def test_dup_flag_clears_when_row_leaves_pipeline():
 
 
 def test_do_not_apply_flag_from_config_list():
-    hq = fake_hq()                               # defaults include Capital One
-    _row(hq, Company="Capital One Financial")
+    # The committed defaults carry NO denylist (RM-40 Step 4) — the user's own
+    # Config tab names theirs, and only that list flags anything.
+    hq = fake_hq()
+    hq.tab("config").append_records(
+        [{"key": "dna_companies", "value": "Vandelay Industries"}])
+    _row(hq, Company="Vandelay Industries Inc")
     scout.run(hq)
     assert _scout_row(hq)[B + "do_not_apply"] == \
-        "⚠ Capital One Financial matches the do-not-apply list"
+        "⚠ Vandelay Industries Inc matches the do-not-apply list"
     # clean companies stay unflagged
     hq2 = fake_hq()
     _row(hq2)
     scout.run(hq2)
     assert _scout_row(hq2)[B + "do_not_apply"] == ""
+
+
+def test_no_denylist_configured_flags_nothing():
+    """An unset denylist is the filter OFF — nothing is flagged, and nothing is
+    inherited from anybody's committed list."""
+    hq = fake_hq()
+    _row(hq, Company="Vandelay Industries Inc")
+    out = scout.run(hq)
+    assert out["synced"] == 1                    # the row WAS processed…
+    assert _scout_row(hq)[B + "do_not_apply"] == ""   # …and nothing flagged it
 
 
 def test_validation_lists_missing_required_fields():

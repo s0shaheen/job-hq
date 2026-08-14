@@ -298,8 +298,8 @@ export type WarmLinkOptions = {
    * LinkedIn entity ids.
    *
    * **Nothing supplies these today, and that is a stated gap rather than an
-   * oversight.** The design brief's table wants "UIUC there" and "ex-Capital One
-   * there" links, and they need two numeric ids per USER. There is no per-user
+   * oversight.** The design brief's table wants "your school there" and
+   * "your past employer there" links, and they need two numeric ids per USER. There is no per-user
    * place to keep them: `profiles.criteria` is the gate contract (its shape is
    * pinned to `monitor/gates.py`'s dataclass field by field, in both
    * directions), `profiles.notify` belongs to the digest phase, and inventing a

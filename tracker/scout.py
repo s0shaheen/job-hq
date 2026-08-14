@@ -1,6 +1,6 @@
 """Sync the scout's tab: advisory flags in, applied rows out, daily counts.
 
-The scout (Salman's dad) works entirely in his own columns — his historical
+The scout (a trusted human assistant) works entirely in their own columns — the historical
 headers, his muscle memory. The bot NEVER writes a column without the "· "
 prefix; it only annotates (dup / do-not-apply / validation / min_yoe) and
 harvests rows he marked Applied into the Pipeline. Bot columns are recomputed

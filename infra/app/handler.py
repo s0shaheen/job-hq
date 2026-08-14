@@ -108,7 +108,7 @@ def _select_user(user: str) -> None:
     `channel_runs` get written. Popped rather than remapped because there is nothing here to
     remap it FROM: `core.config.pg_user_id` reads the per-user registry block, and
     `core.pgwrites.first_class` refuses when that block has no id. Leaving it in place is what
-    would let dad's sweep mirror into salman's store — silently, looking exactly like success.
+    would let one user's sweep mirror into another's store — silently, looking exactly like success.
     """
     if user:
         os.environ["HQ_USER"] = user

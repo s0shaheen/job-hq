@@ -56,6 +56,32 @@ def test_over_bar_yoe_filtered_with_reason():
     assert d == FILTERED and r == "yoe:6>4"
 
 
+def test_unset_yoe_ceiling_means_the_gate_is_off():
+    """RM-40 vault audit §9 Step 4: the DEFAULT ceiling is unset, so a stated
+    YoE — however high — qualifies. The old default of 4 was one person's
+    deal-breaker governing every profile that never stated one."""
+    off = GateConfig(countries=["United States"])
+    assert dispose(_row(min_yoe="25", tagged_at="x"), off) == (QUALIFIED, "")
+
+
+def test_from_user_config_blank_yoe_max_is_no_ceiling():
+    """A blank/absent committed default must land as OFF, not crash int()."""
+    cfg = {"filter_countries": ["United States"], "filter_geo_unknown": "filter",
+           "filter_yoe_max": None, "filter_yoe_unknown": "seniority-proxy",
+           "filter_seniority_exclude": []}
+    g = GateConfig.from_user_config(cfg)
+    assert g.yoe_max is None
+    assert dispose(_row(min_yoe="12", tagged_at="x"), g) == (QUALIFIED, "")
+    cfg["filter_yoe_max"] = ""
+    assert GateConfig.from_user_config(cfg).yoe_max is None
+    cfg["filter_yoe_max"] = "   "     # whitespace is blank, never a 0 ceiling (#251 review)
+    assert GateConfig.from_user_config(cfg).yoe_max is None
+    cfg["filter_yoe_max"] = 4                      # a stated ceiling still gates
+    d, r = dispose(_row(min_yoe="12", tagged_at="x"),
+                   GateConfig.from_user_config(cfg))
+    assert d == FILTERED and r == "yoe:12>4"
+
+
 def test_untagged_row_parks_as_needs_info():
     assert dispose(_row(), G) == (NEEDS_INFO, "awaiting-tags")
 

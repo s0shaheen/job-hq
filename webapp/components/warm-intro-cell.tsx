@@ -460,6 +460,10 @@ function ConfirmPanel({
     { key: "senior", label: "Senior in your area:", testid: "warm-intro-input-senior" },
     { key: "recruiter", label: "Recruiter:", testid: "warm-intro-input-recruiter" },
   ];
+  // A profile with no role derives NO personas (nothing invents a profession —
+  // RM-40 §9 Step 4), so searching is refused until one is typed; the server
+  // refuses the same start. "Not listed" is the app's absent-fact rendering.
+  const roleMissing = params.role.trim() === "";
   return (
     <div data-testid="warm-intro-confirm">
       <p className="text-xs font-medium text-text">Find an intro at {company}</p>
@@ -478,8 +482,10 @@ function ConfirmPanel({
                            text-xs text-text placeholder:text-muted focus-visible:outline-2
                            focus-visible:-outline-offset-1 focus-visible:outline-ring"
               />
-            ) : (
+            ) : params[r.key].trim() !== "" ? (
               <dd className="text-text">{params[r.key]}</dd>
+            ) : (
+              <dd className="text-muted">Not listed</dd>
             )}
           </div>
         ))}
@@ -499,6 +505,11 @@ function ConfirmPanel({
       )}
       <p className="mt-1 text-2xs text-muted">Defaults live in Settings.</p>
       <p className="text-2xs text-muted">Changes apply to this search only.</p>
+      {roleMissing ? (
+        <p className="mt-1 text-2xs text-warn" data-testid="warm-intro-role-missing" role="status">
+          Add your role to search. Edit it here, or set it in your search profile.
+        </p>
+      ) : null}
 
       <div className="mt-3 flex items-center gap-2">
         <Button
@@ -507,6 +518,7 @@ function ConfirmPanel({
           size="sm"
           data-testid="warm-intro-search"
           onClick={onSearch}
+          disabled={roleMissing}
         >
           Search
         </Button>

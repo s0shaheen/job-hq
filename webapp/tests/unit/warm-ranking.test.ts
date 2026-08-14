@@ -245,15 +245,22 @@ describe("deriveWarmParams", () => {
     expect(p.recruiter).toBe("Engineering recruiter");
   });
 
-  it("falls back to the Product Manager shape for a blank role", () => {
-    // MUTATION: `clean || "Product Manager"` removed -> empty role/senior/recruiter.
+  it("derives an EMPTY set for a blank role — nothing invents a profession", () => {
+    // RM-40 vault audit §9 Step 4: the old fallback was the deployment owner's
+    // own role, so every unset profile ran the owner's warm search. MUTATION:
+    // restore `clean || "<any role>"` and all three come back filled.
     for (const blank of ["", "   "]) {
-      expect(deriveWarmParams(blank)).toEqual({
-        role: "Product Manager",
-        senior: "Director of Product or above",
-        recruiter: "Product recruiter",
-      });
+      expect(deriveWarmParams(blank)).toEqual({ role: "", senior: "", recruiter: "" });
     }
+  });
+
+  it("composes from the role's own words when the function area is unrecognised", () => {
+    // MUTATION: functionArea falling back to any named area stamps that area's
+    // Director/recruiter strings on every profession it never heard of.
+    const p = deriveWarmParams("Clinical Research Nurse");
+    expect(p.role).toBe("Clinical Research Nurse");
+    expect(p.senior).toBe("Senior Clinical Research Nurse or above");
+    expect(p.recruiter).toBe("Recruiter");
   });
 });
 

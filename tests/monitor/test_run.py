@@ -51,6 +51,25 @@ def _run(store, *, fetch, tagger=None, pusher=None, cfg=CFG, cap=None):
 
 # ---- reconcile semantics preserved from the old monitor
 
+def test_empty_titles_include_skips_loudly_and_fetches_nothing(capsys):
+    """RM-40 vault audit §9 Step 4: the committed defaults carry no titles, so
+    an unconfigured instance must SKIP — visibly — rather than inherit a
+    search or burn a run matching nothing."""
+    store = FakeSheetStore([Company("Stripe", "greenhouse", "stripe", seeded=True)], {})
+    fetched = []
+
+    def spy_fetch(ats, slug, company, session, workday_search="product"):
+        fetched.append(company)
+        return [_job("1")]
+
+    cfg = RuntimeConfig(include=[], exclude=[], push_new_jobs=True)
+    summary = _run(store, fetch=spy_fetch, cfg=cfg)
+    assert summary.new_count == 0 and summary.boards_done == 0
+    assert fetched == [], "an unconfigured sweep still fetched boards"
+    err = capsys.readouterr().err
+    assert "titles_include" in err and "warning" in err.casefold()
+
+
 def test_first_run_seeds_without_pushing():
     store = FakeSheetStore([Company("Stripe", "greenhouse", "stripe", seeded=False)], {})
     pusher = _Pusher()

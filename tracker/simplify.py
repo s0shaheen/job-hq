@@ -3,7 +3,7 @@
     python -m tracker.simplify
 
 Simplify has no export/API; this uses the same private endpoint its own web
-app calls, with Salman's session cookies (research/simplify-export.md). Posture:
+app calls, with the owner's session cookies (research/simplify-export.md). Posture:
 - Skips cleanly (WITH heartbeat, so the watchdog stays quiet pre-activation)
   unless Config simplify_enabled AND both env secrets are set.
 - Auth failure (the one expected fragility: JWT expiry) -> one ops alert per

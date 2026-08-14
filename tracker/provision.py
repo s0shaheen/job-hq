@@ -1,6 +1,6 @@
 """Provision a new HQ user (entry: python -m tracker.provision).
 
-    python -m tracker.provision --user dad --sheet-id ID --owner EMAIL \
+    python -m tracker.provision --user alex --sheet-id ID --owner EMAIL \
         [--ntfy-jobs TOPIC] [--ntfy-ops TOPIC] [--seed-companies] [--dry-run]
 
 One command, because "add a person" must not be an 8-step ritual only the
@@ -11,8 +11,8 @@ author can perform. It:
      flat single-user file into the multi-user shape on first use
   4. seeds their Config tab from the committed defaults + their profile
 
-What it deliberately does NOT do: create the spreadsheet (Salman creates it
-and shares it with the service account — one manual click that keeps Drive
+What it deliberately does NOT do: create the spreadsheet (the operator creates
+it and shares it with the service account — one manual click that keeps Drive
 ownership with the human), or deploy the Gmail capture Apps Script (a
 per-account OAuth consent that cannot be automated; appsscript/README.md).
 
@@ -82,8 +82,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ntfy-jobs", default="", help="their job-alert ntfy topic")
     ap.add_argument("--ntfy-ops", default="",
                     help="ops topic — point at the OPERATOR, not the user")
-    ap.add_argument("--existing-user", default="salman",
-                    help="name to give the current flat instance when migrating")
+    ap.add_argument("--existing-user", default="",
+                    help="name to give the current flat instance when migrating "
+                         "a single-user registry (required for that first "
+                         "migration; no default identity is assumed)")
     ap.add_argument("--seed-companies", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(sys.argv[1:] if argv is None else argv)
@@ -91,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     prof_path = config.REPO_ROOT / "users" / a.user / "profile.yaml"
     if not prof_path.exists():
         print(f"[provision] no profile at {prof_path} — write the Search Profile "
-              f"first (see users/dad/profile.yaml for the shape)", file=sys.stderr)
+              f"first (core/profile.py documents the shape)", file=sys.stderr)
         return 1
     prof = Profile.load(a.user)
     print(f"[provision] {a.user}: {prof.role_family} · tag_domain={prof.tag_domain} "
@@ -99,13 +101,26 @@ def main(argv: list[str] | None = None) -> int:
           f"· {len(prof.titles_include)} title patterns", file=sys.stderr)
 
     reg_path = bootstrap.registry_path()
-    doc = to_multi_user(load_doc(reg_path), a.existing_user)
+    existing_doc = load_doc(reg_path)
+    flat_migration = bool(existing_doc) and not existing_doc.get("users")
+    if flat_migration and not a.existing_user:
+        # Fail loud: naming the current flat instance is an identity decision
+        # the operator must make — there is no default person to assume
+        # (RM-40 vault audit §3c removed the hardcoded slug that was here).
+        print("[provision] this registry is a flat single-user file; pass "
+              "--existing-user <name> to say who the current instance becomes",
+              file=sys.stderr)
+        return 1
+    doc = to_multi_user(existing_doc, a.existing_user)
     users = dict(doc.get("users") or {})
     users[a.user] = instance_block(sheet_id=a.sheet_id, owner=a.owner,
                                    ntfy_jobs=a.ntfy_jobs, ntfy_ops=a.ntfy_ops,
                                    existing=users.get(a.user))
     doc["users"] = users
-    doc.setdefault("default_user", a.existing_user)
+    if not doc.get("default_user"):
+        # a migrated flat instance stays the default; on a fresh registry the
+        # first provisioned user is the only candidate
+        doc["default_user"] = a.existing_user or a.user
 
     if a.dry_run:
         print("[provision] --dry-run; registry WOULD become:\n"

@@ -20,7 +20,7 @@ The policy, coarse to fine:
   notify_<event>    push | email | both | none, per event type — a Config-tab
                     cell (phone-editable) or a profile.yaml key, defaulting to
                     core/config_defaults.yaml. Refines WITHIN the ceiling.
-  quiet_hours       a local wall-clock window (default `21:00-06:30`) in which a
+  quiet_hours       a local wall-clock window (no window by default) in which a
                     non-urgent push is DEFERRED — never dropped. `urgency` and
                     the urgent events (an OA or interview invite) ignore it.
   timezone          which local day and clock the window is read on. Computed
@@ -28,7 +28,7 @@ The policy, coarse to fine:
                     because "now + 8h30m" is wrong twice a year.
 
 Ops alerts bypass all of it: they page the OPERATOR about a broken system, not
-the user about a job — every user's ops topic points at Salman
+the user about a job — every user's ops topic points at the operator
 (docs/MULTIUSER.md). AC24 is about `kind="jobs"`.
 
 **The bypass keys on `kind`, never on the event name.** It has to: `kind` also
@@ -67,7 +67,10 @@ URGENT_EVENTS = frozenset({"oa_interview"})
 
 SEND, DROP, DEFER = "send", "drop", "defer"
 
-DEFAULT_TIMEZONE = "America/Chicago"
+# The floor when a profile names no zone: UTC needs no tz database and belongs
+# to nobody — a person's real clock comes from their profile/Config tab, never
+# from a committed default (RM-40 vault audit §9 Step 4).
+DEFAULT_TIMEZONE = "UTC"
 
 # notify_channel (the coarse ceiling) -> the channel it seeds for an event the
 # user never itemized.

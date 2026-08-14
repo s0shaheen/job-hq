@@ -145,6 +145,18 @@ def run_monitor(store: SheetStore, cfg: RuntimeConfig, *, fetch=get_jobs_for,
     channel check: this function no longer has one (core/channels.py owns it)."""
     import time as _time
 
+    if not cfg.include:
+        # An unset title filter must SKIP LOUDLY, never inherit anybody's
+        # titles (RM-40 vault audit §9 Step 4; committed defaults carry no
+        # search any more). Running anyway would fetch every board to match
+        # zero rows — a sweep that looks healthy in every count while finding
+        # nothing, which is the silent version of this failure.
+        print("::warning title=Monitor sweep skipped::titles_include is empty — "
+              "this instance has no title filter configured, so there is "
+              "nothing to sweep. Set titles_include in the Config tab or in "
+              "users/<name>/profile.yaml.", file=sys.stderr)
+        return RunSummary()
+
     today = today or date.today().isoformat()
     session = session or requests.Session()
     pusher = pusher or notify.push

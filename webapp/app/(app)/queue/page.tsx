@@ -55,7 +55,14 @@ function todayFor(): string {
 export default async function QueuePage() {
   const today = todayFor();
   const src = await getDataSource();
-  const rows = await src.queue({ limit: 20 });
+  // The profile read exists for ONE number: the user's own YoE ceiling, which
+  // the mismatch hint compares against. It used to be a hardcoded 4 — the
+  // deployment owner's ceiling annotating every user's queue (RM-40 vault
+  // audit §9 Step 4). An unset ceiling (null) shows no mismatch hints.
+  const [rows, profile] = await Promise.all([
+    src.queue({ limit: 20 }),
+    src.profile(),
+  ]);
 
   // Read only when there is nothing to show. An empty queue has two causes
   // that look the same and mean opposite things — nothing found versus the
@@ -73,7 +80,7 @@ export default async function QueuePage() {
         <PageHeader title="Today" action={<ExportDialog dataset="jobs" />} />
         <TodayList
           initial={rows}
-          yoeMax={4}
+          yoeMax={profile.criteria?.yoe_max ?? null}
           constraint={constraint}
           today={today}
         />

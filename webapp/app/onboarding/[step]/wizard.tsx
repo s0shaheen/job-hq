@@ -449,6 +449,7 @@ export default function Wizard({
                 min={0}
                 max={MAX_YOE}
                 suffix="years"
+                placeholder="No limit"
                 onChange={(n) => patch({ yoe_max: n })}
               />
               <PolicyChoice

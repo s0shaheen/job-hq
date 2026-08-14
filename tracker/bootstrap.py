@@ -18,9 +18,9 @@ Protection choices (verified recipe in research/sheets-durability.md):
 - Shared-tab "· "-prefixed bot columns get warning-only protection: fully
   protecting columns of a shared tab would block humans from sorting it
   (verified Sheets behavior). Pipeline gets NO column protections at all —
-  Salman overrides suggested_status/evidence/stale in place from his phone.
-- Config gets warning-only full-sheet protection, NOT full: Salman edits knob
-  values from his phone; the warning is a speed bump, not a lock.
+  the user overrides suggested_status/evidence/stale in place from their phone.
+- Config gets warning-only full-sheet protection, NOT full: the user edits knob
+  values from their phone; the warning is a speed bump, not a lock.
 
 selfheal.py imports the assert_* helpers so the nightly job re-asserts the
 exact same structure this file created.
@@ -100,7 +100,7 @@ CONFIG_DESCRIPTIONS = {
     "filter_comp_min": "Salary floor in $thousands, judged on the top of a stated range; 0 = off",
     "filter_comp_unknown": "keep | filter — postings that state no compensation (~half of them)",
     "filter_work_model_exclude": "Reject these work models, comma-separated (e.g. onsite)",
-    "filter_yoe_max": "Min required YoE above this -> row filtered (invisible, recoverable)",
+    "filter_yoe_max": "Min required YoE above this -> row filtered (invisible, recoverable); blank = no ceiling",
     "filter_yoe_unknown": "seniority-proxy | keep — tagged rows without a stated YoE",
     "filter_seniority_exclude": "Seniority tags treated as over-bar when YoE unknown, comma-separated",
     "fetch_workers": "Concurrent board fetches in the daily sweep (1-32)",
@@ -249,6 +249,8 @@ def assert_structure(sh, *, owner: str, sa_email: str,
 # ------------------------------------------------------------ seeding
 
 def _fmt_default(v) -> str:
+    if v is None:
+        return ""            # an unset knob seeds an EMPTY cell, never "None"
     if isinstance(v, bool):
         return "true" if v else "false"
     if isinstance(v, list):
@@ -328,10 +330,28 @@ def seed_companies(sh, csv_dir: Path) -> int:
     return len(recs)
 
 
-def _prefs_rows() -> list[list[str]]:
+def _config_titles(sh) -> list[str]:
+    """The instance's own titles, read back from its Config tab.
+
+    The committed defaults carry NO titles since RM-40 Step 4, so the prefs
+    page lists what THIS sheet is actually configured to search — seeded just
+    above by seed_config, or whatever the human has edited since. Reading the
+    committed file here would print one person's list on another's page."""
+    try:
+        t = Tab(sh.worksheet(schema.TABS["config"]), "config")
+        for r in t.records():
+            if (r.get("key") or "").strip() == "titles_include":
+                return [x.strip() for x in str(r.get("value", "")).split(",")
+                        if x.strip()][:6]
+    except Exception:
+        pass
+    return []
+
+
+def _prefs_rows(titles: list[str]) -> list[list[str]]:
     """The scout's preferences PAGE (cell blocks, not a table). Plain simple
     English on purpose — the scout is a non-native speaker."""
-    titles = [str(t) for t in config.defaults().get("titles_include", [])][:6]
+    titles = [str(t) for t in titles][:6]
     rows: list[list[str]] = [
         ["Search Preferences — Salman Shaheen", ""],
         ["", ""],
@@ -366,7 +386,7 @@ def write_scout_prefs(sh) -> None:
     overwrite is idempotent; if it ever shrinks, stale tail rows would linger
     (acceptable — bootstrap is rare and the page is decorative for bots)."""
     ws = sh.worksheet(schema.TABS["scout_prefs"])
-    ws.update(_prefs_rows(), "A1", value_input_option="RAW")
+    ws.update(_prefs_rows(_config_titles(sh)), "A1", value_input_option="RAW")
 
 
 # ------------------------------------------------------------ orchestration
@@ -439,7 +459,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m tracker.bootstrap",
                                  description="Create/repair the HQ spreadsheet structure.")
     ap.add_argument("--sheet-id", required=True)
-    ap.add_argument("--owner", required=True, help="Salman's Google account email")
+    ap.add_argument("--owner", required=True, help="the sheet owner's Google account email")
     ap.add_argument("--sa-email", required=True, help="service account email")
     ap.add_argument("--seed-companies", action="store_true")
     ap.add_argument("--dry-run", action="store_true")

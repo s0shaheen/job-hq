@@ -34,7 +34,7 @@
     "comp_min": 0,
     "comp_unknown": "keep",
     "work_model_exclude": [],
-    "yoe_max": 4,
+    "yoe_max": null,
     "yoe_unknown": "seniority-proxy",
     "seniority_exclude": []
   },
@@ -237,14 +237,14 @@
     {
       "id": "yoe-over-the-bar",
       "why": "acceptance criterion 4 — the reason carries both numbers so the copy can name the limit",
-      "config": {},
+      "config": { "yoe_max": 4 },
       "row": { "country": "United States", "min_yoe": "6", "tagged_at": "x" },
       "expect": ["filtered", "yoe:6>4"]
     },
     {
       "id": "yoe-at-the-bar-qualifies",
       "why": "the comparison is strictly greater. An off-by-one here filters every posting that asks for exactly the user's ceiling",
-      "config": {},
+      "config": { "yoe_max": 4 },
       "row": { "country": "United States", "min_yoe": "4", "tagged_at": "x" },
       "expect": ["qualified", ""]
     },
@@ -271,7 +271,7 @@
     },
     {
       "id": "yoe-unknown-keep-ignores-seniority-entirely",
-      "why": "dad's profile sets keep precisely because the PM seniority proxy is wrong for a finance ladder — a Director of FP&A is a target, not a filter",
+      "why": "a finance-ladder profile sets keep precisely because the PM seniority proxy is wrong there — a Director of FP&A is a target, not a filter",
       "config": { "yoe_unknown": "keep" },
       "row": { "country": "United States", "tagged_at": "x", "seniority": "Director" },
       "expect": ["qualified", "yoe-unknown"]
@@ -292,22 +292,22 @@
     },
     {
       "id": "yoe-junk-value-falls-to-the-unknown-path",
-      "why": "an unparseable cell is unknown, never zero and never a crash",
-      "config": {},
+      "why": "an unparseable cell is unknown, never zero and never a crash — even against a set ceiling",
+      "config": { "yoe_max": 4 },
       "row": { "country": "United States", "min_yoe": "3-5", "tagged_at": "x" },
       "expect": ["qualified", "yoe-unknown"]
     },
     {
       "id": "yoe-decimal-truncates-toward-zero",
       "why": "int(float('4.9')) is 4, not 5. Rounding instead of truncating filters a posting that asks for four-and-a-bit years from a four-year ceiling",
-      "config": {},
+      "config": { "yoe_max": 4 },
       "row": { "country": "United States", "min_yoe": "4.9", "tagged_at": "x" },
       "expect": ["qualified", ""]
     },
     {
       "id": "yoe-reason-carries-the-raw-cell-not-the-parsed-number",
       "why": "05 parses as 5 and the reason still says 05. Formatting the parsed value would change a string the digest and the UI both read",
-      "config": {},
+      "config": { "yoe_max": 4 },
       "row": { "country": "United States", "min_yoe": "05", "tagged_at": "x" },
       "expect": ["filtered", "yoe:05>4"]
     },
@@ -326,15 +326,29 @@
       "expect": ["filtered", "seniority:Straße"]
     },
     {
-      "id": "defaults-yoe-max-is-four",
-      "why": "pins the DEFAULT rather than a value the case names — a port defaulting to 5 passes every case that sets yoe_max",
+      "id": "defaults-yoe-gate-is-off",
+      "why": "pins the DEFAULT rather than a value the case names — the default ceiling is UNSET (RM-40 vault audit Step 4: a profile that never stated one must not inherit anybody's), so a stated YoE qualifies. A port defaulting to any number filters this row",
       "config": {},
-      "row": { "country": "United States", "min_yoe": "5", "tagged_at": "x" },
-      "expect": ["filtered", "yoe:5>4"]
+      "row": { "country": "United States", "min_yoe": "25", "tagged_at": "x" },
+      "expect": ["qualified", ""]
+    },
+    {
+      "id": "yoe-null-ceiling-means-the-gate-is-off",
+      "why": "an explicit null ceiling is the same OFF state as an absent one — a port reading null as 0 filters everything, reading it as NaN crashes",
+      "config": { "yoe_max": null },
+      "row": { "country": "United States", "min_yoe": "9", "tagged_at": "x" },
+      "expect": ["qualified", ""]
+    },
+    {
+      "id": "yoe-whitespace-ceiling-is-unset-not-zero",
+      "why": "#251 review: JS Number('') is 0, so a whitespace-only ceiling minted an entry-level-only filter nobody set. Unified semantics — blank INCLUDING whitespace is the OFF state in both languages (Python normalizes in GateConfig.__post_init__, where a raw whitespace string previously raised in from_user_config's int(); the sheet validator already landed None; TS strips before Number in toIntOrNull)",
+      "config": { "yoe_max": "   " },
+      "row": { "country": "United States", "min_yoe": "9", "tagged_at": "x" },
+      "expect": ["qualified", ""]
     },
     {
       "id": "defaults-seniority-exclude-is-empty",
-      "why": "the default profile excludes NO seniority. A port seeding Salman's list would filter Dad's Director roles on day one",
+      "why": "the default profile excludes NO seniority. A port seeding one person's exclusion list would filter another profile's Director roles on day one",
       "config": {},
       "row": { "country": "United States", "tagged_at": "x", "seniority": "Director" },
       "expect": ["qualified", "yoe-unknown"]

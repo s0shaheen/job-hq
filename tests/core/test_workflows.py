@@ -247,12 +247,12 @@ def test_the_topic_detector_catches_the_shapes_it_exists_for(shape):
                 runs-on: ubuntu-latest
                 steps:
                   - name: Ops alert
-                    run: curl -d hi "https://ntfy.sh/REDACTED-NTFY-TOPIC"
+                    run: curl -d hi "https://ntfy.sh/example-hq-ops-abc123def456"
         """,
         "variable set to a literal": """
             name: x
             on: {workflow_dispatch: {}}
-            env: {HQ_OPS_NTFY_TOPIC: REDACTED-NTFY-TOPIC}
+            env: {HQ_OPS_NTFY_TOPIC: example-hq-ops-abc123def456}
             jobs:
               page:
                 runs-on: ubuntu-latest
@@ -264,7 +264,7 @@ def test_the_topic_detector_catches_the_shapes_it_exists_for(shape):
             name: x
             on: {workflow_dispatch: {}}
             env:
-              HQ_OPS_NTFY_TOPIC: "${{ secrets.HQ_OPS_NTFY_TOPIC || 'REDACTED-NTFY-TOPIC' }}"
+              HQ_OPS_NTFY_TOPIC: "${{ secrets.HQ_OPS_NTFY_TOPIC || 'example-hq-ops-abc123' }}"
             jobs:
               page:
                 runs-on: ubuntu-latest
@@ -279,7 +279,7 @@ def test_the_topic_detector_catches_the_shapes_it_exists_for(shape):
             name: x
             on: {workflow_dispatch: {}}
             env:
-              HQ_NTFY_TOPIC: "${{ secrets.HQ_NTFY_TOPIC || 'REDACTED-NTFY-TOPIC' }}"
+              HQ_NTFY_TOPIC: "${{ secrets.HQ_NTFY_TOPIC || 'example-hq-jobs-abc123' }}"
             jobs:
               page:
                 runs-on: ubuntu-latest

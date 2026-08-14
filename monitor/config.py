@@ -1,6 +1,6 @@
 """Monitor runtime config — sourced from the HQ Config tab, not local files.
 
-profiles/*.yaml is retired: Salman turns every knob from the spreadsheet
+profiles/*.yaml is retired: the user turns every knob from the spreadsheet
 (validated per key by core.config.UserConfig; an invalid value falls back to
 the committed default and lands in .problems for the caller's ops push, so a
 phone typo can never take the monitor down).

@@ -3,8 +3,8 @@ import "server-only";
 /**
  * The fit-analysis pass: one LLM call per search that scores EACH candidate's fit
  * as a warm intro for THIS role given the user's background, and returns TRANSPARENT
- * reasoning per candidate ("Same function, ex-Capital One") — the same "show the
- * signal, not a bare number" principle as the deterministic ranking.
+ * reasoning per candidate ("Same function, shared past employer") — the same "show
+ * the signal, not a bare number" principle as the deterministic ranking.
  *
  * WHY RAW `fetch` AND NOT THE SDK. `@anthropic-ai/sdk` is not a dependency of this
  * app, and adding one for a single fail-safe classification call is heavier than a
@@ -30,7 +30,7 @@ const API_URL = "https://api.anthropic.com/v1/messages";
 const FIT_TIMEOUT_MS = 9000;
 
 export type WarmFitContext = {
-  /** The user's own role ("Product Manager"). */
+  /** The user's own role, e.g. "Data Analyst" — "" when the profile states none. */
   role: string;
   /** The target company the search is against. */
   company: string;
@@ -115,11 +115,14 @@ function toFit(tier: unknown, reason: unknown): WarmFit | null {
   return { tier: t, reason: r };
 }
 
+// The reason examples name SHAPES of signal, never a company or school: a real
+// employer in a shared prompt is both a disclosure and a bias the model copies
+// into every user's reasons (RM-40 vault audit §3a / §9 Step 4).
 const SYSTEM =
   "You rate how good a warm-intro contact is for a specific job seeker reaching out about a role at a company. " +
   "Score each person's fit as 'strong', 'medium', or 'weak', and give a SHORT reason (a few words, no full sentence, no period) " +
   "grounded in a concrete signal: a shared school or past employer, same function, right seniority to make an intro, or a recruiter for this role. " +
-  "Examples of good reasons: 'Same team, ex-Capital One', 'Senior in your function', 'Recruiter for this role', 'Shared alma mater'. " +
+  "Examples of good reasons: 'Shared past employer', 'Senior in your function', 'Recruiter for this role', 'Shared alma mater'. " +
   "Never invent a shared signal that is not in the data. A recruiter is at least a medium.";
 
 function buildPrompt(candidates: readonly WarmCandidate[], context: WarmFitContext): string {
@@ -132,8 +135,14 @@ function buildPrompt(candidates: readonly WarmCandidate[], context: WarmFitConte
       return `${i}. ${c.fullName} — ${c.headline || "(no title)"}${sig ? ` [${sig}]` : ""}`;
     })
     .join("\n");
+  // An unset role states its absence — the model must not be handed a
+  // profession the person never gave (the old fallback was the deployment
+  // owner's own role, biasing every unset-profile user's reasons).
+  const seeker = context.role
+    ? `The job seeker is a ${context.role}`
+    : "The job seeker (role not stated) is";
   return (
-    `The job seeker is a ${context.role || "Product Manager"} reaching out about a role at ${context.company}.\n` +
+    `${seeker} reaching out about a role at ${context.company}.\n` +
     `Their background — ${bg.length ? bg.join("; ") : "not provided"}.\n\n` +
     `Rate each contact's fit as a warm intro (by index):\n${people}`
   );

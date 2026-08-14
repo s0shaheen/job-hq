@@ -1,7 +1,7 @@
 """ntfy pushes for the whole system.
 
 Two topics, resolved from env first (Actions secrets) then hq.config.yaml:
-  HQ_NTFY_TOPIC     — Salman's phone: new matching jobs, status events, digest ping
+  HQ_NTFY_TOPIC     — the user's phone: new matching jobs, status events, digest ping
   HQ_OPS_NTFY_TOPIC — ops/failures only
 
 Header values must be latin-1 (http.client); anything else is replaced so a

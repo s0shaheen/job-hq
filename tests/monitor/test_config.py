@@ -3,14 +3,19 @@ from core.fakes import fake_hq
 from monitor.config import get_runtime_config, unconfigured_reason
 
 
-def test_runtime_config_defaults_from_committed_file():
+def test_runtime_config_committed_file_carries_no_search():
+    """RM-40 vault audit §9 Step 4: the committed defaults are persona-free.
+    An instance that has configured nothing has EMPTY title filters — never
+    somebody's list — and per #252/#255 that idle state is a PROBLEM the run
+    pages, not silence: empty resolved titles append a problems line, which
+    is what turns the skip into a paged halt instead of a green heartbeat."""
     cfg = get_runtime_config(fake_hq(["config"]))
-    assert "product manager" in cfg.include
-    assert "product marketing" in cfg.exclude
-    assert cfg.workday_search == "product"
+    assert cfg.include == []
+    assert cfg.exclude == []
+    assert cfg.workday_search == "product"    # legacy flat-lane operating point
     assert cfg.yoe_push_max == 3
     assert cfg.push_new_jobs is True
-    assert cfg.problems == []
+    assert any("titles_include is empty" in p for p in cfg.problems)
 
 
 def test_runtime_config_sheet_overrides_win():

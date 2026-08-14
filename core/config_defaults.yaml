@@ -1,23 +1,26 @@
 # Committed defaults for every Config-tab knob. The Config TAB in the sheet
 # overrides these (validated per key; invalid values fall back here and get
 # reported to ops). bootstrap seeds the Config tab from this file.
+#
+# NO PERSONA LIVES HERE (RM-40 vault audit §9 Step 4). A default in this file
+# governs every instance that never touched the knob, so search-shaping keys —
+# titles, seniority band, YoE ceiling, employer denylist — default to UNSET
+# and the workers skip that filter loudly rather than inherit anybody's
+# search. Operational knobs keep neutral values (UTC, quiet hours off). Each
+# user's real search lives in their Config tab / profile.yaml, where it
+# always did take precedence.
 yoe_push_max: 3            # push any new role whose min required YoE <= this (blank YoE never pushes)
 # --- intake gates (WS1): disposition stamped on every feed row at write time ---
-filter_countries:          # rows anchored elsewhere are filtered (remote w/ no stated country passes)
+filter_countries:          # product scope is US-only (DEC-007), not a preference
   - United States
 filter_metros: []          # empty = anywhere in filter_countries; e.g. [Chicago] for a local search
 filter_geo_unknown: filter # blank-geo non-remote rows: filter (invisible, recoverable) | keep
 filter_comp_min: 0         # $k floor judged on the TOP of a stated range; 0 = off
 filter_comp_unknown: keep  # postings stating no comp (~48%): keep | filter
 filter_work_model_exclude: []  # substrings of work_model to reject, e.g. [onsite]
-filter_yoe_max: 4          # min required YoE above this -> filtered
+filter_yoe_max:            # blank = no ceiling (gate off); a number filters min-YoE above it
 filter_yoe_unknown: seniority-proxy  # tagged rows w/o stated YoE: seniority-proxy | keep
-filter_seniority_exclude:  # seniority tags treated as over-bar when YoE is unknown
-  - Senior
-  - Staff
-  - GPM
-  - Director
-  - VP
+filter_seniority_exclude: []  # unset = no seniority is over-bar; name your own ladder's exclusions
 # --- daily sweep throughput (monitor.run) ---
 fetch_workers: 8           # concurrent board fetches in the daily sweep (network only; sheet writes stay serial)
 # --- geo-first aggregator sweep (WS4): "any employer in this metro" ---
@@ -42,8 +45,9 @@ inline_tag_workers: 8      # concurrent inline taggers at discovery
 # --- notification policy, per event type (core/channels.py is the choke point) ---
 # push | email | both | none. `notify_channel` in users/<name>/profile.yaml is the
 # coarse CEILING (email = never an ntfy push for that person); these refine within
-# it and can never widen it. Values below are the OWNER column of the matrix in
-# docs/plans/PHASE-DIGEST.md §4.1 — other people's deviations live in their profile.
+# it and can never widen it. Values below are the product's channel routing —
+# which surface each event class belongs on — not anybody's preference; a
+# user's deviations live in their profile / Config tab.
 notify_digest: both          # daily briefing: phone ping + the email
 notify_new_roles: push       # discovery sweeps (monitor, priority watch, wide)
 notify_status_change: push   # an email event advanced a Pipeline row
@@ -51,42 +55,19 @@ notify_oa_interview: push    # OA / interview invite — urgent, ignores quiet h
 notify_stale_nudge: none     # follow-up nudges belong in the digest, not the phone
 # Quiet hours: a LOCAL wall-clock window in which a non-urgent push is DEFERRED to
 # the end of the window (tracker.outbox delivers it) — never dropped. `off` disables.
-# Ends 06:30, not 07:00: the digest job composes at 06:40 CT, and a 07:00 window
-# would hold the daily briefing until the next 2-hourly outbox flush at 07:31.
-notify_quiet_hours: "21:00-06:30"
-notify_timezone: America/Chicago   # which local day and clock the window is read on
+# Default OFF: a committed sleep window is one person's clock imposed on
+# everyone else's; each user names their own window in their Config tab.
+notify_quiet_hours: "off"
+notify_timezone: UTC       # which local day and clock the window is read on; UTC until the user says otherwise
 push_new_jobs: true
 push_status_events: true
 simplify_enabled: true
 ghost_suggest: true
 workday_search: product
-titles_include:
-  - product manager
-  - associate product manager
-  - senior product manager
-  - group product manager
-  - principal product manager
-  - head of product
-  - director of product
-  - vp of product
-  - technical product manager
-  - deployment strategist
-  - forward deployed
-  - product strategist
-  - product operations
-  - strategic projects
-titles_exclude:
-  - product marketing
-  - product designer
-  - product design
-  - product analyst
-  - data analyst
-  - program manager
-  - marketing manager
-  - pmm
-  - intern
-dna_companies:            # do-not-apply guard (scout tab flags these)
-  - Capital One
-  - Discover
-  - Bank of America
-  - Citi
+# Unset on purpose: a title filter is a search, and a search belongs to a
+# user. With titles_include empty the sweep SKIPS loudly (monitor/run.py,
+# monitor/wide.py) instead of running somebody else's list; each instance's
+# titles come from its Config tab or users/<name>/profile.yaml.
+titles_include: []
+titles_exclude: []
+dna_companies: []         # do-not-apply guard (scout tab flags these); per-user, unset by default

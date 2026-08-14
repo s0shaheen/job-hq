@@ -308,7 +308,12 @@ export function MoneyField({
   );
 }
 
-/** A bounded number, entered as text so an empty box is not silently a zero. */
+/**
+ * A bounded number that can be honestly UNSET: `value: null` renders an empty
+ * box, and clearing the box stores null — never a fabricated number. The
+ * placeholder says what empty means ("No limit"), because a blank field whose
+ * meaning is guessable only from source is not an unset state, it is a trap.
+ */
 export function NumberField({
   id,
   label,
@@ -316,15 +321,18 @@ export function NumberField({
   min,
   max,
   suffix,
+  placeholder,
   onChange,
 }: {
   id: string;
   label: string;
-  value: number;
+  value: number | null;
   min: number;
   max: number;
   suffix?: string;
-  onChange: (next: number) => void;
+  /** What an empty box means, e.g. "No limit". */
+  placeholder?: string;
+  onChange: (next: number | null) => void;
 }) {
   return (
     <div className="flex items-end gap-2">
@@ -338,14 +346,20 @@ export function NumberField({
           inputMode="numeric"
           min={min}
           max={max}
-          value={Number.isFinite(value) ? value : min}
+          placeholder={placeholder}
+          value={value === null || !Number.isFinite(value) ? "" : value}
           onChange={(e) => {
+            // An emptied box is the unset state, not a zero.
+            if (e.target.value.trim() === "") {
+              onChange(null);
+              return;
+            }
             const n = Number(e.target.value);
             // Clamped here AND in `parseCriteria` AND in the SQL. Not
             // belt-and-braces: this one exists so the PREVIEW is computed over
             // the value that would be saved, rather than over a number the
             // server is about to change under the user.
-            onChange(Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), min), max) : min);
+            onChange(Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), min), max) : null);
           }}
           className="mt-1 w-24 rounded-md border border-border-strong bg-surface px-2 py-1 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
         />

@@ -1,6 +1,6 @@
 """Quick Add: a pasted URL becomes a keyed Pipeline row.
 
-Salman drops a URL (plus optional note/priority) from his phone; the bot keys
+The user drops a URL (plus optional note/priority) from their phone; the bot keys
 it, fetches the page once, and asks Haiku for company/title/location/comp/yoe.
 "· status" is the latch AND the retry lever: blank = pending, "added"/
 "duplicate" = done, "error: ..." = fetch failed and stays failed until a human

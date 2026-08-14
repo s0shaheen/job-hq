@@ -140,14 +140,21 @@ export const PREVIEW_MAX_ROWS = 5000;
  *
  * A SAVED profile rather than the bare defaults, because the settings page's
  * whole job is showing somebody what they already chose, and a page that opens
- * on empty chips cannot show that. `updatedAt` is the fixture clock: the commit
- * path compares version tokens for EQUALITY, never distance, so a pinned value
- * is faithful here in a way it was not for an undo window (matrix row 162).
+ * on empty chips cannot show that. Every answer-shaped value is stated HERE,
+ * explicitly: `BASE_CRITERIA` is the unset baseline since RM-40 Step 4, so
+ * anything this spread leaves blank renders as blank — a demo profile leaning
+ * on inherited values would be the persona-default bug in a costume.
+ * `updatedAt` is the fixture clock: the commit path compares version tokens
+ * for EQUALITY, never distance, so a pinned value is faithful here in a way it
+ * was not for an undo window (matrix row 162).
  */
 export const FIXTURE_PROFILE: ProfileView = {
   criteria: {
     ...BASE_CRITERIA,
     ...((presetById("product-manager") as { criteria: Partial<ProfileCriteria> }).criteria),
+    // Stated, not inherited: BASE_CRITERIA's ceiling is null (gate off) now,
+    // and the demo profile keeps the ceiling the preview corpus was tuned to.
+    yoe_max: 4,
     // Distribution-preserving, not anybody's real list: the corpus above only
     // carries "Senior" and "PM" rows, so keeping "Senior" keeps every preview
     // number and reachable state exactly where it was.

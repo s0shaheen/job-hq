@@ -142,7 +142,7 @@ def resolve(*, hq_factory, user: str = "", disposer=None, session=None):
                 f"{user or '(default)'} — refusing to fall back to the spreadsheet, "
                 f"which would look exactly like a successful cutover")
         # Validated HERE, before the environment checks below, so a caller bug is
-        # reported as a caller bug. `HQ_PG_USER_ID=salman` reaching the flag-coherence
+        # reported as a caller bug. `HQ_PG_USER_ID=<slug>` reaching the flag-coherence
         # error instead would send an operator to fix the wrong variable.
         from monitor.pgstore import user_uuid
         user_uuid(uid)

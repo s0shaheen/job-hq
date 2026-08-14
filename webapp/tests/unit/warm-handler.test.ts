@@ -271,6 +271,23 @@ describe("start validation", () => {
     }
   });
 
+  it("400 when no role is given — a role-less start must not be searched as anybody's profession", async () => {
+    // RM-40 vault audit §9 Step 4. The old behaviour derived the deployment
+    // owner's role for an unset profile and ran a search on it — a persona
+    // default at the vendor boundary. MUTATION: restore any role fallback in
+    // deriveWarmParams/parseStart and this start goes through.
+    for (const params of [
+      {},
+      { role: "" },
+      { role: "   " },
+      { role: "", senior: "Director of Product or above", recruiter: "Product recruiter" },
+    ]) {
+      const res = await handleWarmStart(startRequest(validStart({ params })), deps());
+      expect(res.status, `params=${JSON.stringify(params)}`).toBe(400);
+      expect(((await res.json()) as { error?: string }).error).toMatch(/role/i);
+    }
+  });
+
   it("400 when the body is not JSON", async () => {
     const res = await handleWarmStart(
       new Request("http://x/api/warm/start", {

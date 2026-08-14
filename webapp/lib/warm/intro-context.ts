@@ -41,15 +41,17 @@ function titleCase(s: string): string {
 /**
  * The role a search runs on, from the user's profile. A concrete included title
  * wins (it is what the person actually calls the job); a bare role family is the
- * fallback, title-cased; and a profile that says neither lands on the product-
- * manager shape this deployment's owner searches for.
+ * fallback, title-cased; and a profile that says neither is UNSET — `""`, which
+ * the warm cell surfaces as "Not listed" and refuses to search on until the
+ * person types one. It used to land on the deployment owner's own role, which
+ * mislabelled every other user's warm search (RM-40 vault audit §3a / §9 Step 4).
  */
 export function roleFromCriteria(criteria: ProfileCriteria | null): string {
   const title = criteria?.titles_include?.[0];
   if (typeof title === "string" && title.trim() !== "") return title.trim();
   const family = criteria?.role_family;
   if (typeof family === "string" && family.trim() !== "") return titleCase(family.trim());
-  return "Product Manager";
+  return "";
 }
 
 export function buildWarmIntroContext(

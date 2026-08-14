@@ -50,8 +50,32 @@ def test_scout_prefs_page_content(tmp_path):
     assert "Salman sends it to you directly" in flat          # never the password itself
     assert "LinkedIn" in flat and "dna_companies" in flat
     assert "<RESUME_ALT_FOLDER_LINK>" in flat
-    for t in list(config.defaults()["titles_include"])[:6]:   # top 6 titles listed
-        assert t in flat
+
+
+def test_scout_prefs_titles_come_from_the_sheets_own_config(tmp_path):
+    """RM-40 Step 4: the committed defaults carry no titles, so the prefs page
+    lists what THIS sheet is configured to search — the Config tab's own
+    `titles_include` row — never a committed list. A fresh sheet with nothing
+    configured lists nothing."""
+    sh = _fresh_sheet()
+    _run(sh, tmp_path)
+    flat = " | ".join(c for row in sh.worksheet("Scout — Preferences").get_all_values()
+                      for c in row if c)
+    assert "Job titles to search for:" in flat
+    assert "platform product lead" not in flat                # nothing invented
+
+    # the human fills their Config tab; a re-run of the page lists THEIR titles
+    ws = sh.worksheet("Config")
+    rows = ws.get_all_values()
+    idx = next(i for i, r in enumerate(rows, start=1)
+               if r and r[0] == "titles_include")
+    ws.batch_update([{"range": f"B{idx}",
+                      "values": [["platform product lead, solutions architect"]]}])
+    bootstrap.write_scout_prefs(sh)
+    flat = " | ".join(c for row in sh.worksheet("Scout — Preferences").get_all_values()
+                      for c in row if c)
+    assert "platform product lead" in flat
+    assert "solutions architect" in flat
 
 
 def test_config_seeded_from_defaults_with_descriptions(tmp_path):
@@ -60,8 +84,13 @@ def test_config_seeded_from_defaults_with_descriptions(tmp_path):
     rows = {r[0]: (r[1], r[2]) for r in sh.worksheet("Config").get_all_values()[1:]}
     assert rows["yoe_push_max"][0] == "3"
     assert rows["push_new_jobs"][0] == "true"
-    assert rows["titles_include"][0].startswith("product manager, associate product manager")
-    assert "Capital One" in rows["dna_companies"][0]
+    # RM-40 Step 4: the committed defaults carry NO search — the knobs exist,
+    # blank, for the human to fill. An unset knob seeds "", never "None".
+    assert rows["titles_include"][0] == ""
+    assert rows["titles_exclude"][0] == ""
+    assert rows["dna_companies"][0] == ""
+    assert rows["filter_yoe_max"][0] == ""
+    assert rows["filter_seniority_exclude"][0] == ""
     assert all(desc for _, desc in rows.values())              # every knob explained
 
 

@@ -191,7 +191,7 @@ def test_untouched_config_defaults_never_shadow_the_profile():
     from core.config import UserConfig, defaults
     from core.profile import Profile
     prof = Profile.load("dad", cfg=UserConfig(dict(defaults()), []))
-    assert prof.yoe_max == 30                 # profile, not the default 4
+    assert prof.yoe_max == 30                 # profile, not the committed default
     assert prof.yoe_unknown == "keep"
     assert prof.board_search_term == "financial"
     assert prof.gate_config().metros == ["Chicago"]

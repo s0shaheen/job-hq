@@ -70,7 +70,8 @@ export type GateCriteria = {
   compMin: number;
   compUnknown: string;
   workModelExclude: string[];
-  yoeMax: number;
+  /** `null` = no ceiling set — the YoE gate does not run (Python `yoe_max=None`). */
+  yoeMax: number | null;
   yoeUnknown: string;
   seniorityExclude: string[];
 };
@@ -102,7 +103,10 @@ export const GATE_DEFAULTS: GateCriteria = {
   compMin: 0,
   compUnknown: "keep",
   workModelExclude: [],
-  yoeMax: 4,
+  // OFF by default, not a number: a profile that never stated a ceiling must
+  // not inherit one (RM-40 vault audit §9 Step 4 — the old default of 4 was
+  // one person's deal-breaker governing every profile that left it blank).
+  yoeMax: null,
   yoeUnknown: "seniority-proxy",
   seniorityExclude: [],
 };
@@ -132,10 +136,24 @@ function toFloat(value: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function toInt(value: unknown, fallback: number): number {
-  if (value === null || value === undefined || value === "") return fallback;
-  const n = typeof value === "number" ? value : Number(pyStr(value));
-  return Number.isFinite(n) ? Math.trunc(n) : fallback;
+/**
+ * Python: `None if v in (None, "") else int(v)` — an unset ceiling is the gate
+ * OFF, never a different number. Junk resolves to null too: Python answers
+ * junk by raising, the corpus cannot express a crash, and this port keeps its
+ * never-throws posture (a bad cell must not take the gate down).
+ */
+function toIntOrNull(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return Number.isFinite(value) ? Math.trunc(value) : null;
+  // Blank INCLUDING whitespace is unset, checked on the STRIPPED string: JS
+  // coerces a whitespace-only string to 0, so without this a "  " cell minted
+  // a ceiling of ZERO (#251 review). Python's GateConfig.__post_init__ makes
+  // the same call, and the corpus pins both
+  // (yoe-whitespace-ceiling-is-unset-not-zero).
+  const s = pyStrip(pyStr(value));
+  if (s === "") return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
 }
 
 export function normalizeGateConfig(input: GateCriteriaInput = {}): GateCriteria {
@@ -149,7 +167,7 @@ export function normalizeGateConfig(input: GateCriteriaInput = {}): GateCriteria
     workModelExclude: strippedFolded(
       strList(input.work_model_exclude, GATE_DEFAULTS.workModelExclude),
     ),
-    yoeMax: toInt(input.yoe_max === undefined ? GATE_DEFAULTS.yoeMax : input.yoe_max, GATE_DEFAULTS.yoeMax),
+    yoeMax: input.yoe_max === undefined ? GATE_DEFAULTS.yoeMax : toIntOrNull(input.yoe_max),
     yoeUnknown: input.yoe_unknown === undefined ? GATE_DEFAULTS.yoeUnknown : pyStr(input.yoe_unknown),
     seniorityExclude: strippedFolded(
       strList(input.seniority_exclude, GATE_DEFAULTS.seniorityExclude),
@@ -234,8 +252,11 @@ export function dispose(row: GateRow, g: GateCriteria): GateVerdict {
     if (parsed !== null) {
       // The reason echoes the RAW cell, not the parsed number: `05` parses as 5
       // and the token still says `yoe:05>4`, which is what the digest and the
-      // audit trail already carry.
-      if (Math.trunc(parsed) > g.yoeMax) return [FILTERED, `yoe:${rawYoe}>${g.yoeMax}`];
+      // audit trail already carry. A null ceiling is the gate off: a stated
+      // YoE qualifies unfiltered.
+      if (g.yoeMax !== null && Math.trunc(parsed) > g.yoeMax) {
+        return [FILTERED, `yoe:${rawYoe}>${g.yoeMax}`];
+      }
       return [QUALIFIED, ""];
     }
     // junk cell -> treat as unknown

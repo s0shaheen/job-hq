@@ -69,14 +69,15 @@ export default async function OnboardingStep({
         // A fresh wizard opens EMPTY, not on a preset.
         //
         // It used to open on the product-management preset, because
-        // `BASE_CRITERIA.role_family` is "product manager" with an empty title
-        // list and the old step-1 radios then read as "Product management
-        // selected" over a list matching nothing. With the radios gone the
-        // honest starting state is a blank role box: the owner's second
-        // complaint was that step one framed the whole app around two
-        // professions, and a pre-filled "product manager" is that framing with
-        // the radios taken off. `other` is `BASE_CRITERIA` with the three
-        // free-text fields and both title lists emptied.
+        // `BASE_CRITERIA.role_family` was "product manager" with an empty
+        // title list and the old step-1 radios then read as "Product
+        // management selected" over a list matching nothing. With the radios
+        // gone the honest starting state is a blank role box: the owner's
+        // second complaint was that step one framed the whole app around two
+        // professions, and a pre-filled "product manager" is that framing
+        // with the radios taken off. `BASE_CRITERIA` itself is the unset
+        // baseline since RM-40 Step 4, and `other` states the same emptiness
+        // explicitly — belt and braces that agree.
         draft={draft ?? profile.criteria ?? draftFromPreset("other")}
         version={profile.updatedAt}
       />

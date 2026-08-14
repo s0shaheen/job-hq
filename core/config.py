@@ -105,6 +105,17 @@ def _int(lo: int, hi: int):
     return p
 
 
+def _optional_int(lo: int, hi: int):
+    """`_int`, except a BLANK cell is a deliberate unset (None = knob off) —
+    not a typo to report. A non-blank value must still be a number in range."""
+    inner = _int(lo, hi)
+    def p(s: str):
+        if str(s).strip() == "":
+            return None
+        return inner(s)
+    return p
+
+
 def _bool(s: str) -> bool:
     v = str(s).strip().lower()
     if v in ("true", "yes", "on", "1"):
@@ -161,7 +172,7 @@ VALIDATORS = {
     "filter_comp_min":    _int(0, 1000),
     "filter_comp_unknown": _choice("keep", "filter"),
     "filter_work_model_exclude": _csv,
-    "filter_yoe_max":     _int(0, 30),
+    "filter_yoe_max":     _optional_int(0, 30),   # blank = no ceiling (gate off)
     "filter_yoe_unknown": _choice("seniority-proxy", "keep"),
     "filter_seniority_exclude": _csv,
     "fetch_workers":      _int(1, 32),

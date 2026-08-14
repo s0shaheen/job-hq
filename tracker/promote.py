@@ -1,4 +1,4 @@
-"""Promote Feed rows Salman ticked `interested` into the Pipeline.
+"""Promote Feed rows the user ticked `interested` into the Pipeline.
 
 promoted_at is the idempotency latch: blank means unprocessed, anything else
 means done — so a re-run (or a human re-ticking the checkbox) can never mint

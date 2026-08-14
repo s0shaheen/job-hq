@@ -10,7 +10,7 @@
  *
  * The ranking here is the plan's model: additive, transparent, configurable. It
  * produces a `score` for ORDERING and a list of `signals` for DISPLAY — never a
- * bare number on screen ("UIUC · ex-Capital One" is actionable; "87" is not).
+ * bare number on screen ("State U · ex-Acme Co" is actionable; "87" is not).
  */
 
 import { warmMaxResults } from "./config";
@@ -42,14 +42,14 @@ export type WarmPersona = (typeof WARM_PERSONAS)[number];
 /** One warm signal a candidate carries — a component of the transparent rank. */
 export type WarmSignal = {
   kind: "persona" | "school" | "past_company";
-  /** What the reader sees: "In your role", "UIUC", "ex-Capital One", "Recruiter". */
+  /** What the reader sees: "In your role", "State U", "ex-Acme Co", "Recruiter". */
   label: string;
 };
 
 /**
  * The LLM fit annotation, cached on the candidate. TRANSPARENT reasoning, not a
  * bare number — the same principle as the signal chips: `reason` is what the reader
- * sees ("Same function, ex-Capital One"), `tier` only orders. Absent when the fit
+ * sees ("Same function, shared past employer"), `tier` only orders. Absent when the fit
  * pass failed or was skipped (the deterministic ranking then stands).
  */
 export type WarmFitTier = "strong" | "medium" | "weak";
@@ -71,9 +71,9 @@ export type RawCandidate = {
   years: string;
   /** The live-profile ground-truth link. */
   linkedinUrl: string;
-  /** A school the query filtered on and this row matched, e.g. "UIUC". */
+  /** A school the query filtered on and this row matched, e.g. "State U". */
   matchedSchool?: string;
-  /** A past employer the query filtered on and this row matched, e.g. "Capital One". */
+  /** A past employer the query filtered on and this row matched, e.g. "Acme Co". */
   matchedPastCompany?: string;
 };
 
@@ -132,7 +132,7 @@ export function candidateKey(c: { linkedinUrl: string; fullName: string; company
  * Merge the per-persona raw candidates into one ranked, deduped, top-N list.
  *
  * - A person returned by more than one persona is ONE row whose signals are the
- *   union — being both "in your role" and a UIUC alum is a stronger ask, not two
+ *   union — being both "in your role" and a shared-school alum is a stronger ask, not two
  *   people.
  * - Score is additive over signals. Ties break by name so the list is stable
  *   render-to-render (a test that pins the first row stays pinned).
@@ -237,18 +237,19 @@ function addSignals(cand: WarmCandidate, r: RawCandidate): void {
  *
  * `role` is passed in already resolved from the profile (title, or role family) by
  * the caller — this function owns the derivation of the OTHER two from it, so the
- * three read as a set. Everything falls back to a product-manager shape because
- * that is this deployment's owner; a different user's profile supplies a different
- * `role` and the same derivation runs.
+ * three read as a set. A blank role derives a blank SET: nothing here invents a
+ * profession, because the invented one was always the deployment owner's (RM-40
+ * vault audit §9 Step 4) — the warm cell shows the unset state and asks instead.
+ * A role outside the known function areas composes from the role's own words.
  */
 export function deriveWarmParams(role: string): WarmParams {
   const clean = (role ?? "").replace(/\s+/g, " ").trim();
-  const roleText = clean || "Product Manager";
-  const area = functionArea(roleText);
+  if (!clean) return { role: "", senior: "", recruiter: "" };
+  const area = functionArea(clean);
   return {
-    role: roleText,
-    senior: `Director of ${area} or above`,
-    recruiter: `${area} recruiter`,
+    role: clean,
+    senior: area ? `Director of ${area} or above` : `Senior ${clean} or above`,
+    recruiter: area ? `${area} recruiter` : "Recruiter",
   };
 }
 
@@ -257,8 +258,10 @@ export function deriveWarmParams(role: string): WarmParams {
  * "Engineering" from "Staff Software Engineer". Used for the senior/recruiter
  * strings, where "Director of X" and "X recruiter" want the area, not the title.
  *
- * Best-effort and correctable: an unrecognised title falls back to "Product",
- * which the human fixes in one edit rather than being handed a blank.
+ * Best-effort and correctable: an unrecognised title returns `""` and
+ * `deriveWarmParams` composes from the role's own words instead. It used to
+ * fall back to "Product" — which is not a neutral guess, it was the deployment
+ * owner's area stamped on every unrecognised profession (RM-40 §9 Step 4).
  */
 function functionArea(role: string): string {
   const t = role.toLowerCase();
@@ -269,7 +272,7 @@ function functionArea(role: string): string {
   if (/\bsales\b/.test(t)) return "Sales";
   if (/\bfinance\b/.test(t)) return "Finance";
   if (/\bproduct\b/.test(t)) return "Product";
-  return "Product";
+  return "";
 }
 
 // ---------------------------------------------------------------- manual add

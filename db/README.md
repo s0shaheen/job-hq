@@ -75,12 +75,12 @@ sheet stays the system of record until stage 3 flips triage writes to the app.
    ownership privileges on `storage.objects`, which on Supabase means membership
    of `supabase_storage_admin` **with inherit**.
 
-3. **Allowlist the family** — SQL editor:
+3. **Allowlist the founding users** — SQL editor:
    ```sql
    insert into allowed_emails (email, name, is_operator) values
-     ('<salman gmail>', 'Salman', true),
-     ('<dad gmail>',    'Dad',    false),
-     ('<roommate gmail>', 'Roommate', false);
+     ('<operator gmail>', 'Operator',   true),
+     ('<user gmail>',     'First user', false),
+     ('<user gmail>',     'Second user', false);
    ```
    Anyone else who signs in with Google is refused at the door (auth trigger).
 4. **Google sign-in** — Supabase Dashboard → Authentication → Providers →

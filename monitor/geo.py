@@ -4,7 +4,7 @@ No LLM: board location fields are structured enough ("Chicago, IL",
 "San Francisco, CA, USA", "Remote - US", "Toronto, ON, Canada") that a
 parser covers them; work_model (from tagging) refines remoteness later.
 
-`market` collapses the filter Salman actually uses into ONE column:
+`market` collapses the filter the search actually uses into ONE column:
   Remote (anywhere) -> "Remote" · US-based -> "US" · else the country · else "".
 Filtering Feed on market in {US, Remote} == "United States or remote-anywhere".
 """
