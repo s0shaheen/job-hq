@@ -1,0 +1,199 @@
+-- 20260814_071908_notification_defaults_are_not_a_person.sql
+--
+-- WHAT THIS CHANGES and WHY. Migrations are append-only: this file will run
+-- exactly once against production and can never be edited afterwards.
+--
+-- Closes #266. Three column defaults on `public.profiles` stop being one
+-- person's clock:
+--
+--   notify_timezone     'America/Chicago'  ->  'UTC'
+--   notify_quiet_start  '21:00'            ->  NULL   (no quiet hours)
+--   notify_quiet_end    '06:30'            ->  NULL   (no quiet hours)
+--
+-- THE DEFECT. `20260814_021627_notification_prefs.sql` homed the notification
+-- half of the Config tab and, correctly by its own lights, copied the committed
+-- engine defaults into its column defaults as literals — its header says so at
+-- `:150` ("copied as literals on 2026-08-04 and re-checked against main on
+-- 2026-08-14") and again at `:173`. What it could not know is that the file it
+-- was copying had moved underneath it. #251 (c62dcde) de-personalised the ENGINE
+-- defaults — `core/config_defaults.yaml` now ships `notify_timezone: UTC` and
+-- `notify_quiet_hours: "off"`, and `core/channels.py:73 DEFAULT_TIMEZONE` is
+-- `"UTC"` — and the notifications branch had been parked since 2026-08-04, so
+-- the re-check on 2026-08-14 compared against a copy, not against the file.
+--
+-- The result is the RM-40 vault audit's §3b S2 class landing in the PRODUCT
+-- STORE rather than in a worker's configuration: "one person's sleep window is
+-- the global default; a user in another timezone is paged wrongly"
+-- (`docs/pilot-launch/20-personal-vault-audit.md:101`). Every new user's profile
+-- row was being stamped, at row-materialisation time, with the deployment
+-- owner's timezone and the deployment owner's sleep window. A pilot user in
+-- Berlin would have had non-urgent pushes deferred from 04:00 to 13:30 their
+-- time, and nothing anywhere would have gone red: quiet hours suppressing
+-- correctly-decided notifications is indistinguishable, from outside, from a
+-- quiet day.
+--
+-- The migration's own header names the price of getting this backwards, at
+-- `:180`: it recorded that writing the columns WITHOUT quiet-hours defaults had
+-- turned `test_the_defaults_are_the_committed_defaults_the_engine_runs_today`
+-- red, "a new account would have had quiet hours OFF, which is the exact class
+-- of silent behaviour change this whole migration exists to prevent". Quiet
+-- hours OFF is what the committed defaults say today. The test was red for the
+-- right shape of reason against the wrong version of the file, and the fix went
+-- the wrong way; see "the test" below.
+--
+-- THREE comments in that file are now stale and CANNOT be corrected, because
+-- append-only means they cannot be edited. `:89`, `:270` and `:513` all describe
+-- `core/channels.py:_zone` as falling back to `America/Chicago`, which was true
+-- before #251 and is not true now (it falls back to `DEFAULT_TIMEZONE`, i.e.
+-- UTC). The third is the one that matters most and was missed on the first pass
+-- of this census: `:513` is inside the RPC BODY rather than the header, in the
+-- comment justifying the `pg_timezone_names` probe. That is precisely where the
+-- reader this paragraph is written for ends up — somebody grepping
+-- `America/Chicago` across `db/migrations/` to find out whether the fallback is
+-- still a person's zone — and an occurrence left off the list reads as current.
+--
+-- The one occurrence that IS still accurate is the example in
+-- `comment on column ... notify_timezone` — "IANA zone name (e.g.
+-- America/Chicago), never a UTC offset" — which is an illustration of the
+-- FORMAT, not a default, and is left alone.
+--
+-- ══════════════════════════════════════════════════════════════════════════
+-- FORWARD-ONLY. THERE IS DELIBERATELY NO `UPDATE`.
+--
+-- A default governs rows that do not yet exist. Rewriting the rows that DO
+-- exist is a different act with a different blast radius, and this file refuses
+-- it for two independent reasons, either of which alone would be enough:
+--
+--   * A stored value may be a CHOICE, and the VALUE cannot tell you which it is:
+--     a user who deliberately set `America/Chicago` because they live in Chicago
+--     stores exactly the byte the default stored. An UPDATE keyed on the value
+--     would silently move a preference the person made, which is the failure
+--     this migration is named after, arriving in the fix for it.
+--
+--     Stated precisely, because the first draft of this paragraph overclaimed:
+--     the two are not literally indistinguishable. A never-chosen row can be
+--     identified from its NEIGHBOURS — `notify_updated_at` still holding the
+--     `now()` of its materialisation, and no `profile.notification_changed` row
+--     in `events` — so a careful backfill IS constructible. Not writing one is a
+--     PREFERENCE, not an impossibility: a backfill whose safety rests on a
+--     three-way inference across two tables is a worse bet than a default that
+--     is simply correct going forward, and it buys nothing a correct default
+--     does not already buy. (#208 proposed a `notify_timezone_chosen_at`
+--     discriminator to make the distinction first-class. Its stated purpose was
+--     routing around this default; with the default fixed at the source it has
+--     no remaining caller. Nothing here forecloses it.)
+--   * The OWNER's own row is one of the rows that would be rewritten. The
+--     deployment owner's stored zone and sleep window are correct FOR THE OWNER.
+--     A backfill written to de-personalise the product would begin by rewriting
+--     the one person the values are actually right for, and would page them at
+--     the wrong hour to prove the point.
+--
+--     True of every provisioned database EXCEPT, as of this writing, production:
+--     independent review established from the db-apply ledger that
+--     `20260814_021627` has not yet applied there (it landed on `main` after the
+--     last successful dispatch), so these columns do not exist in production yet
+--     and ZERO production rows were ever stamped with the owner's clock. The two
+--     migrations will apply back to back on the next `db-apply` run, which means
+--     production goes straight from no columns to correct defaults and never
+--     holds the defect at all. That is a happy accident of timing, not the
+--     reason this file is forward-only — the reason has to hold for every
+--     already-provisioned database, and for production the day after this lands.
+--
+-- So: new rows get a default that belongs to nobody; existing rows keep what
+-- they carry. `tests/db/test_notification_prefs.py` proves the first half; the
+-- second half is proven by the absence of any DML in this file, which is a thing
+-- a reviewer can check by reading it.
+--
+-- ══════════════════════════════════════════════════════════════════════════
+-- THIS IS THE FIRST `alter column … set default` IN db/migrations/.
+--
+-- Verified at authoring time: `grep -ri 'set default' db/migrations/` matched
+-- nothing, and neither did `drop default`. Twenty-nine migrations have only ever
+-- declared a default alongside `add column`. That is a cost note rather than a
+-- prohibition, and the costs are worth stating once so the next one does not
+-- have to re-derive them:
+--
+--   * `set default` is CATALOG-ONLY. It rewrites `pg_attrdef` and takes an
+--     ACCESS EXCLUSIVE lock for the duration of a catalog update — microseconds,
+--     no table rewrite, no scan of `profiles`. Safe to apply to a live database
+--     without a maintenance window, which is why this is a migration and not an
+--     operational runbook step.
+--   * It is IDEMPOTENT by construction: setting a default to the value it
+--     already has is a no-op. There is no `if not exists` spelling for a default
+--     and none is needed. This is the same property 0007/0008/0025 buy with
+--     drop-then-add on constraints.
+--
+--     The caller that needs it is NOT "apply.sh replays the whole directory" —
+--     apply.sh has been LEDGER-based since #97 (d460795) and its own header
+--     records that the replay-the-whole-directory model was proved wrong on the
+--     first live run: `0001_init.sql` is unguarded (`create table
+--     allowed_emails`) and aborts against any already-provisioned database, so
+--     "idempotent replay" only ever worked on a fresh one. The real caller is
+--     apply.sh's stated failure mode, three lines further down its header: a
+--     crash BETWEEN executing a file and writing its ledger row re-runs that one
+--     file on the next invocation, where "guarded migrations no-op, unguarded
+--     ones fail loudly and a human looks". This file is on the no-op side of
+--     that bargain — re-running it after such a crash sets three defaults to the
+--     values they already hold and changes nothing.
+--   * It does NOT change any existing row, and cannot: a default is only ever
+--     consulted by an INSERT that omits the column. This is the mechanism the
+--     "forward-only" section above is relying on, stated where it is checkable.
+--   * `notify_timezone` stays NOT NULL and `UTC` satisfies
+--     `profiles_notify_timezone_is_bounded` (length 3, between 1 and 64).
+--     `notify_quiet_start`/`notify_quiet_end` are already NULLABLE — the earlier
+--     migration made them "nullable with a non-null default" specifically so
+--     that off would remain expressible — so dropping to NULL/NULL needs no type
+--     change, and NULL/NULL satisfies both window constraints:
+--     `profiles_quiet_hours_are_whole` (both ends null) and
+--     `profiles_quiet_window_is_not_empty` (its first disjunct is `start is
+--     null`, written that way for exactly this state).
+--
+-- `alter column … set default null` rather than `drop default`: the two are
+-- equivalent for a nullable column, and the explicit spelling says NULL is the
+-- chosen value ("no quiet hours" — the one representation of off) rather than
+-- an absence somebody forgot to fill in.
+--
+-- ══════════════════════════════════════════════════════════════════════════
+-- WHAT THIS FILE DOES NOT CHANGE.
+--
+-- No column is added, dropped or retyped; no constraint, grant, policy, trigger
+-- or function is touched; `app_set_notification_prefs` and
+-- `app_notification_prefs_row` are not redefined. The RPC never names these
+-- columns in its INSERT (it inserts `user_id`, `criteria`, `notify` only), so
+-- the defaults below are the entire mechanism by which a new row is populated
+-- and nothing in the write path needs to learn about this change.
+--
+-- Not TypeScript input: `webapp/tests/unit/types-contract.test.ts` parses
+-- `create table` bodies and `alter table … add column` statements. This file has
+-- neither, `profiles` is not a contracted table, and no `webapp/lib/types.ts`
+-- edit rides this commit.
+--
+-- Before merging, audit: ownership, grants, RLS policies, constraints, and the
+-- search_path on any security-definer function — all unchanged here, and the
+-- `tests/db` suite re-proves them in full against a real Postgres.
+
+-- ============================================================ the defaults
+
+alter table public.profiles
+  -- UTC belongs to nobody and needs no tz database, which is why
+  -- `core/channels.py:73` chose it as the engine's floor. A person's real clock
+  -- comes from their own preferences — `app_set_notification_prefs` validates a
+  -- zone against `pg_timezone_names` and stores it — never from a value shipped
+  -- in a schema.
+  alter column notify_timezone set default 'UTC',
+
+  -- NULL/NULL is `off`, the store's single representation of "no quiet hours"
+  -- (`app_notification_prefs_row` renders it `''`, which is in
+  -- `core/channels.py:79 _QUIET_OFF`). `core/config_defaults.yaml` ships
+  -- `notify_quiet_hours: "off"` and says why in the file: "a committed sleep
+  -- window is one person's clock imposed on everyone else's; each user names
+  -- their own window".
+  --
+  -- Off is also the SAFE side of this particular default. Quiet hours DEFER a
+  -- non-urgent push rather than dropping it, so a window nobody chose does not
+  -- lose a notification — it delivers it at an hour chosen by somebody else's
+  -- sleep, and a user who never opens the settings page has no way to learn
+  -- that is why their morning digest arrives at 06:30 Chicago time. Off means
+  -- the product does nothing to the timing until the user asks it to.
+  alter column notify_quiet_start set default null,
+  alter column notify_quiet_end   set default null;

@@ -55,6 +55,8 @@ if not DATABASE_URL and os.environ.get("HQ_REQUIRE_DB") == "1":
     )
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="no DATABASE_URL")
 
+from core.channels import quiet_window  # noqa: E402
+from core.config import defaults as committed_defaults  # noqa: E402
 from tests.db.test_profile import CRITERIA  # noqa: E402
 from tests.db.test_write_path import (  # noqa: E402  (fixtures are shared on purpose)
     as_user,
@@ -203,33 +205,121 @@ def as_operator(conn):
 
 # ------------------------------------------------------------- the defaults
 
-def test_the_defaults_are_the_committed_defaults_the_engine_runs_today(conn, user):
-    """Every default is `core/config_defaults.yaml` as of this migration, and the
-    reason is that a default which changes behaviour is not a default.
+#: The one wire key with no yaml counterpart, and why it is exempt.
+#:
+#: `notify_updated_at` is a CONCURRENCY TOKEN, not a preference: the RPC sets it
+#: to `now()` on every real write and the client compares it back for CAS. There
+#: is no committed default for it to agree with — `core/config_defaults.yaml`
+#: describes what the engine DOES, and a version stamp is not something the
+#: engine does. Listed here rather than silently dropped so that a future column
+#: cannot join the wire without somebody deciding which side of this line it
+#: falls on: `test_the_defaults_are_the_committed_defaults_the_engine_runs_today`
+#: fails on any wire key that is neither mapped below nor named here.
+WIRE_KEYS_WITH_NO_COMMITTED_DEFAULT = frozenset({"notify_updated_at"})
 
-    The tempting alternative — default the five channels to `''` (inherit the
-    `notify_channel` ceiling) — looks tidier and is a behaviour change: with the
-    shipped `ntfy` ceiling, inherit resolves to `push` for all five, which starts
-    pushing stale nudges (committed `none`) and stops mailing the digest
-    (committed `both`).
 
-    MUTATION REASON: change any default in the migration and this goes red by
-    NAME, rather than as an engine that quietly notifies differently.
+def committed_wire_defaults() -> dict:
+    """`core/config_defaults.yaml`, rendered as `app_notification_prefs_row`
+    renders a freshly defaulted row — READ at test time, never transcribed.
+
+    The whole defect in #266 was a transcription: #254 copied the literals out of
+    the yaml, #251 then de-personalised the yaml (RM-40 §3b: UTC, quiet hours
+    off), and the copy went on passing because it was a copy. Reading through the
+    engine's OWN loader (`core.config.defaults`) and the engine's OWN parser
+    (`core.channels.quiet_window`) is what makes the assertion track the file
+    instead of a moment in the file's history.
+
+    Every yaml key is named explicitly. A `for k in yaml` loop would look tidier
+    and would go green on the day a key is renamed on one side only, which is the
+    exact failure mode being paid down here.
     """
-    out = prefs(conn, digest="both")  # materialises the row
-    assert out["notify"] == {
-        "notify_digest": "both",
-        "notify_new_roles": "push",
-        "notify_status_change": "push",
-        "notify_oa_interview": "push",
-        "notify_stale_nudge": "none",
-        "notify_quiet_hours": "21:00-06:30",
-        "notify_timezone": "America/Chicago",
-        "push_new_jobs": True,
-        "yoe_push_max": 3,
-        "stale_days": 30,
-        "notify_updated_at": out["notify"]["notify_updated_at"],
+    d = committed_defaults()
+
+    # THE ONE KEY WHOSE NAME DIVERGES FROM ITS COLUMNS. The yaml carries the
+    # Config tab's string spelling (`"21:00-06:30"`, or `off`); the store carries
+    # two `time` columns, NULL/NULL for off (migration 20260814_021627). The wire
+    # is the string again, so the round trip is closed by re-rendering the parsed
+    # window rather than by echoing the yaml text — `"OFF"`, `"none"` and `"-"`
+    # are all `off` to `quiet_window`, and all of them must expect `''` here.
+    window = quiet_window(d["notify_quiet_hours"])
+
+    return {
+        # yaml key                    →  wire key (same spelling on both sides;
+        # `core/profile.py:133` keeps one name across the layers on purpose)
+        "notify_digest":        d["notify_digest"],
+        "notify_new_roles":     d["notify_new_roles"],
+        "notify_status_change": d["notify_status_change"],
+        "notify_oa_interview":  d["notify_oa_interview"],
+        "notify_stale_nudge":   d["notify_stale_nudge"],
+        "notify_quiet_hours": (
+            "" if window is None
+            else f"{window[0]:%H:%M}-{window[1]:%H:%M}"
+        ),
+        "notify_timezone":      d["notify_timezone"],
+        "push_new_jobs":        d["push_new_jobs"],
+        "yoe_push_max":         d["yoe_push_max"],
+        "stale_days":           d["stale_days"],
     }
+
+
+def test_the_defaults_are_the_committed_defaults_the_engine_runs_today(conn, user):
+    """The column defaults ARE `core/config_defaults.yaml`, read at test time.
+
+    A default which changes behaviour is not a default. The tempting alternative
+    — default the five channels to `''` (inherit the `notify_channel` ceiling) —
+    looks tidier and is a behaviour change: with the shipped `ntfy` ceiling,
+    inherit resolves to `push` for all five, which starts pushing stale nudges
+    (committed `none`) and stops mailing the digest (committed `both`).
+
+    WHY THIS TEST WAS REWRITTEN (#266). It used to assert the literals
+    `America/Chicago` and `21:00-06:30` while its name and docstring claimed to
+    track the committed defaults. #254 landed before #251 de-personalised those
+    defaults, so from that moment the name was a claim the body did not check:
+    every new user's row was stamped with one person's timezone and sleep window
+    (RM-40 §3b, S2), and the test that existed to catch exactly that was the
+    reason nobody saw it. A test whose name asserts a relationship it no longer
+    checks is worse than no test.
+
+    THE ROW READ HERE IS THE COLUMN DEFAULTS AND NOTHING ELSE. The call passes no
+    value at all: `app_set_notification_prefs` still materialises the row (its
+    INSERT names only `user_id`, `criteria` and `notify`, so every column below
+    comes from its DEFAULT), and `changed` is False, which is the proof that this
+    call wrote none of what it is about to assert.
+
+    MUTATION REASON: change any default in a migration, or change any of these
+    keys in `core/config_defaults.yaml` without a migration, and this goes red by
+    NAME on the key that drifted — rather than as an engine that quietly notifies
+    somebody on the wrong clock.
+    """
+    out = prefs(conn)  # materialises the row; writes nothing
+    assert out["changed"] is False, (
+        "the materialising call wrote something — the values below would be its "
+        "arguments rather than the column defaults"
+    )
+
+    expected = committed_wire_defaults()
+    got = out["notify"]
+
+    assert set(got) == set(expected) | WIRE_KEYS_WITH_NO_COMMITTED_DEFAULT, (
+        "a wire key is neither mapped to a committed default nor declared exempt "
+        "— decide which it is rather than letting it default unwatched"
+    )
+    assert {k: got[k] for k in expected} == expected
+
+    # The exempt key, asserted separately for the reason it is exempt: a token
+    # has no committed value, so all that can be said is that it exists.
+    assert got["notify_updated_at"] is not None
+
+    # `off` has exactly one representation in the store. The wire renders both
+    # ends NULL as `''` (which `core/channels.py:_QUIET_OFF` reads as off), and
+    # `''` is also what an unparseable window would render as if the columns ever
+    # held one — so the columns themselves are checked, not just the rendering.
+    if expected["notify_quiet_hours"] == "":
+        got_row = row(conn, user)
+        assert got_row[5] is None and got_row[6] is None, (
+            "the committed default is no quiet hours, but the store shipped a "
+            "window"
+        )
 
 
 def test_a_preference_can_be_set_before_the_wizard_has_ever_run(conn, user):
@@ -297,8 +387,12 @@ def test_turning_quiet_hours_off_needs_its_own_parameter_because_null_means_leav
     "off" — and off is the one preference a person woken at 03:00 by a bug is
     most likely to reach for."""
     prefs(conn, quiet_start="22:00", quiet_end="06:00")
-    out = prefs(conn, timezone="UTC")  # a write that passes no window at all
-    assert out["notify"]["notify_timezone"] == "UTC", (
+    # A zone that is NOT the committed default, so the guard below is a real
+    # guard: with `UTC` here (as this read before #266 changed the default), the
+    # write would be a no-op the RPC declines to perform, and the assertion that
+    # it landed would pass on a row nobody wrote.
+    out = prefs(conn, timezone="Europe/Berlin")  # a write that passes no window at all
+    assert out["notify"]["notify_timezone"] == "Europe/Berlin", (
         "the unrelated write itself did not land"
     )
     got = row(conn, user)
@@ -310,8 +404,10 @@ def test_turning_quiet_hours_off_needs_its_own_parameter_because_null_means_leav
 def test_a_utc_offset_is_not_a_timezone(conn, user):
     """The single sharpest reason these are columns rather than jsonb.
 
-    `core/channels.py:_zone` accepts anything, falls back to America/Chicago and
-    prints to a stderr nobody reads — correct for a bot that must not die of a
+    `core/channels.py:_zone` accepts anything, falls back to `DEFAULT_TIMEZONE`
+    (UTC since #251 — this docstring said `America/Chicago` until #266, which is
+    the same stale fact the migration it tests was carrying) and prints to a
+    stderr nobody reads. That is correct for a bot that must not die of a
     preference, and it means a bad value is stored forever while the settings
     page shows a zone the engine is not using. `wake_time`'s header says why an
     offset is wrong in the first place: "06:30 wall clock tomorrow" is 8h30m away
