@@ -19,6 +19,34 @@ unenforced since the day it was written. This repo's standard (CLAUDE.md) is tha
 nobody has watched fail is a rule that passes because it looks at nothing. This file is
 the watching.
 
+WHERE THE OPPOSITE IS STILL WRITTEN DOWN, and why it cannot be edited out.
+`db/migrations/0003_write_path.sql:45-48` argues, in shipped SQL, for the exact deletion
+this guard refuses:
+
+    -- Keys are only useful while a client might still retry. Kept generously wide
+    -- so an outbox that sat in a closed phone tab for a week still replays safely.
+    create index if not exists command_idempotency_age_idx
+      on public.command_idempotency (created_at);
+
+"Keys are only useful while a client might still retry" was true the day 0003 shipped
+and `0019_digest_action.sql` falsified it. A key is now the single-use guarantee of a
+link that may sit unopened in somebody's inbox, so its usefulness has stopped having
+anything to do with whether a client is still retrying — and "generously wide" is not a
+budget any more, it is the floor `ACTION_TTL_SECONDS` sets.
+
+The comment is half the invitation. `command_idempotency_age_idx` is the other half: an
+index on `created_at` is the affordance a retention job reaches for, and it is what makes
+`where created_at < now() - interval '30 days'` look like a cheap, obvious, well-supported
+query rather than something to think twice about. Read together they are a shipped
+argument for re-arming every outstanding digest link.
+
+Migrations are APPEND-ONLY — the production ledger keys on filename, so 0003 is not
+edited and nothing here changes it. The correction lives in this file instead, and quotes
+that sentence verbatim so a grep for it lands on the guard that refuses what it asks for.
+The index stays too: it is not a defect, and dropping it in a new migration to discourage
+a query nobody has written would be theatre. The guard is the fix, and
+`docs/specs/write-path.md` carries the same invariant for a reader arriving from the spec.
+
 WHAT IS SWEPT, and why it is these paths: `db/migrations/`, `core/`, `monitor/`,
 `tracker/`, `infra/`, `scripts/` and `.github/workflows/` are everything that can run
 against production Postgres unattended. A retention job is by definition scheduled, so it

@@ -18,7 +18,8 @@ database to run a command as the authenticated owner.
 - `public.command_idempotency` — `db/migrations/0003_write_path.sql`: PK
   `(user_id, idem_key)`, the command name, and `result jsonb` — the durable result, not
   just the key. `request_hash` was added by `0026_resume.sql`. RLS is enabled with no
-  policies at all: only security-definer functions reach it.
+  policies at all: only security-definer functions reach it. **It is never pruned** — see
+  the retention invariant below.
 - `public.events` — the audit ledger (`0001_init.sql`), written in the same transaction
   as the row change; update/delete revoked from browser roles (`0002_invariants.sql`).
 - Version tokens are plain `updated_at` columns on the written rows.
@@ -103,6 +104,19 @@ is server-only and used by the capture and digest handlers alone.
 - One command, one logical effect, one audit event, one durable result. A replayed key
   must return the first result, never apply twice.
 - Conflicts are surfaced, never silently merged; the server's row wins the screen.
+- **`command_idempotency` rows are never deleted on a schedule.** A digest email's
+  one-click link has no revocation table: the row IS its single-use guarantee, keyed on
+  the token's `jti` (`0019_digest_action.sql`, `core/digest_links.py`). Pruning by age
+  therefore re-arms every link still sitting in an inbox, silently and with nothing
+  erroring — for `undo`, a Saturday re-tap reverses Monday's decision.
+  `tests/core/test_idempotency_retention.py` forbids a deletion of this table anywhere
+  that can run unattended against production Postgres (issue #265). Two things in the
+  shipped tree still read as an invitation and are deliberately left alone, because
+  migrations are append-only: 0003's comment at `0003_write_path.sql:45-48`, "Keys are
+  only useful while a client might still retry", which 0019 falsified; and
+  `command_idempotency_age_idx`, the `created_at` index a retention job would reach for.
+  The referential `on delete cascade` from `users` is not a retention path — losing a
+  user's keys with the user is correct.
 - Offline: writes are refused and nothing is queued (DEC-011), on every surface.
   The one pre-DEC-011 exception — `webapp/lib/outbox.ts`, a localStorage outbox
   for single-posting triage flushed by `webapp/components/pending-work.tsx` —

@@ -1,8 +1,11 @@
 """The merge gate's own gate.
 
-`scripts/land.sh` is the only sanctioned way to put a branch on main, which makes
-it the one script in this repo whose failure mode is a *merge that should not
-have happened*. It is 544 lines and, until this file, had no tests — while
+`scripts/land.sh` is no longer the merge enforcement — `main` is protected and the
+required `gate` context refuses a red merge for everyone, admins included — but it
+still calls `gh pr merge`, so its failure mode is still *a merge that should not
+have happened*, for the half protection does not cover: a base that moved out from
+under a green check set (`strict` is off), and two runs landing one branch.
+That is why these tests stay. It is 544 lines and, until this file, had no tests — while
 `scripts/verify.sh`, its neighbour in size, has had twenty-four since the day it
 was written. Five defects were found in land.sh by running it for real in a
 single day; every one of them was a refusal that fired wrongly or failed to fire.
@@ -1027,8 +1030,11 @@ def test_the_lock_key_separates_branches(land: Land) -> None:
 #   4. B merges. B's checks were computed against X and never against Y, so the
 #      merged result was never tested by anything.
 #
-# GitHub does not stop step 4 — private repo, no branch protection, the same
-# property that put #108 and #109 on a broken main. PR #167 was the reading-side
+# GitHub does not stop step 4, and branch protection does not either: the required
+# `gate` context speaks for B's own head commit, and `strict` (require branches to
+# be up to date) is off because turning it on would queue every landing behind the
+# previous one's full CI cycle. Same shape as what put #108 and #109 on a broken
+# main, arrived at from the other side. PR #167 was the reading-side
 # version: seven green checks computed against a base from before #142 landed a
 # stricter default-deny, and red once rebased onto real main. A human caught that
 # one.

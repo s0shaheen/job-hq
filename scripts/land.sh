@@ -1,13 +1,35 @@
 #!/usr/bin/env bash
 #
-# land.sh — the only sanctioned way to put a branch on main.
+# land.sh — an OPTIONAL wrapper around the sanctioned ship path.
 #
-# WHY THIS EXISTS
+# WHAT ENFORCES A GREEN MAIN, which is no longer this file
 #
-# This repository is private on a plan without branch protection, so GitHub
-# will happily merge a pull request whose checks are red. On 2026-08-01 that
-# happened twice in one session: PRs #108 and #109 were merged over failing
-# checks. The mechanism was not carelessness — it was a shell idiom:
+# `main` is protected. One required status context — `gate`, the aggregate job
+# in .github/workflows/ci.yml — with enforce_admins on, and force-pushes and
+# deletion of the branch blocked. GitHub refuses a merge whose `gate` has not
+# passed, for everyone, admins included. So the sanctioned path is the plain
+# one, and CLAUDE.md names it:
+#
+#     branch -> pull request -> gate -> gh pr merge --auto --squash
+#
+# Nothing is obliged to run this script, and running `gh pr merge` by hand is
+# not routing around a gate any more. If this script and the platform ever
+# disagree, the platform is authoritative: it is the gate, this is a wrapper.
+#
+# WHAT THE WRAPPER IS FOR, none of which protection looks at: it runs the local
+# gates before the push, rebases onto a base that moved, opens or reuses the
+# pull request, refuses a second run landing the same branch, refuses a base
+# that moved out from under a green check set, and verifies origin/<base>
+# actually moved before it claims a landing. Every refusal exits non-zero with
+# a distinct code and prints why.
+#
+# WHY IT WAS BUILT — history, kept because the hole it closed was real
+#
+# It was written when this repository was private on a plan without branch
+# protection, so GitHub would happily merge a pull request whose checks were
+# red. On 2026-08-01 that happened twice in one session: PRs #108 and #109 were
+# merged over failing checks. The mechanism was not carelessness — it was a
+# shell idiom:
 #
 #     gh pr checks --watch && gh pr merge --squash
 #
@@ -15,11 +37,13 @@
 # parent shell, so its non-zero exit never reached the `&&`, and the merge
 # ran anyway. Main then sat red until somebody noticed by accident.
 #
-# So this script is the enforcement that the plan does not provide. It runs
-# as ONE foreground process, polls explicitly rather than trusting a long
-# `--watch` to survive, and treats an empty or unreadable check set as a
-# refusal rather than a pass. Every refusal exits non-zero with a distinct
-# code and prints why.
+# Until protection landed, this script was the only thing standing in that gap
+# — which is why it runs as ONE foreground process, polls explicitly rather
+# than trusting a long `--watch` to survive, and treats an empty or unreadable
+# check set as a refusal rather than a pass. The platform now closes THAT hole.
+# It does not close the base-moved-under-the-green-checks one, because
+# `strict` (require branches to be up to date) is deliberately off — see THE
+# LAND LOOP below — so exit 14 is still the only thing watching for it.
 #
 # USAGE
 #
@@ -137,7 +161,11 @@ while [ $# -gt 0 ]; do
     --title)      PR_TITLE="${2:-}"; shift 2 ;;
     --body-file)  PR_BODY_FILE="${2:-}"; shift 2 ;;
     --base)       BASE="${2:-}"; shift 2 ;;
-    -h|--help)    sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # The header, to wherever it actually ends. This was a hardcoded `2,60p`
+    # and the header outgrew it the first time it was rewritten, so --help
+    # stopped mid-sentence: a line number is one more thing that goes stale
+    # silently, which is the defect class this rewrite exists to remove.
+    -h|--help)    sed -n '2,/^[^#]/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)            refuse 20 "Unknown argument: $1" "Run scripts/land.sh --help." ;;
   esac
 done
@@ -350,9 +378,13 @@ ok "holding ${LOCK_DIR}"
 #   4. B merges. B's checks were computed against X and were never recomputed
 #      against Y, so the merged result was never tested.
 #
-# GitHub will not stop step 4: this repository is private on a plan without
-# branch protection, which is the same property that put #108 and #109 on a
-# broken main.
+# GitHub will not stop step 4, and branch protection does not change that. The
+# required `gate` context is a statement about B's OWN head commit, and `strict`
+# — "require branches to be up to date before merging" — is deliberately off,
+# because turning it on would queue every landing behind the previous one's full
+# CI cycle. So the platform sees a required check that passed and merges. This is
+# the same shape as the failure that put #108 and #109 on a broken main, arrived
+# at from the other side, and it is the half protection does not cover.
 #
 # THIS IS MEASURED, NOT HYPOTHETICAL. On 2026-08-04 #161 and #167 landed
 # concurrently: both rebased onto the same base, both went green against it, and
@@ -564,10 +596,20 @@ info "$PR_URL"
 # continues to the merge is an explicit all-pass.
 
 # Below T2 the full check set is twelve idle minutes for a change that cannot
-# break a migration, an RLS policy or a rendered surface. `LAND_TIER=t1` merges
-# on local gates and leaves CI to catch it on main, where red-main.yml pages.
-# Deliberately opt-IN and never the default: the tier is a judgement about blast
-# radius, and a script cannot make it.
+# break a migration, an RLS policy or a rendered surface. `LAND_TIER=t1` skips
+# the WAIT and goes straight at the merge. Deliberately opt-IN and never the
+# default: the tier is a judgement about blast radius, and a script cannot make
+# it.
+#
+# READ THIS BEFORE RELYING ON IT. Skipping the wait no longer skips the checks.
+# `main` requires the `gate` context, so a merge attempted before `gate` has
+# concluded is refused by GitHub and this script exits 11 with a BLOCKED merge
+# state — it does not land on local gates and leave CI to catch it on main. The
+# fast path below T2 is now `gh pr merge --auto --squash`, which arms the merge
+# and lets the platform fire it the moment `gate` goes green, so nobody waits
+# and nothing lands unchecked. This flag is left in place, unchanged, because it
+# is exercised by the suite and because the behaviour above is what a reader
+# needs to know before reaching for it.
 if [ "${LAND_TIER:-}" = "t0" ] || [ "${LAND_TIER:-}" = "t1" ]; then
   warn "LAND_TIER=${LAND_TIER}: merging on local gates without waiting for CI."
   warn "Red main pages via red-main.yml. Do NOT use this for migrations, RLS,"
