@@ -35,6 +35,15 @@ SHEET-SUNSET Phase C1: under `HQ_PG_WRITES=first_class` the beats live in TWO
 stores (Config rows and `channel_runs`, per core/beats.py) and the watchdog holds
 each store to the cadence separately. Neither may vouch for the other — see
 `_sec_health`.
+
+SHEET-INVENTORY §3.1 correction 2: under the same flag, the five Lambda job lanes
+(`JOB_BEATS`) are judged from `bot_runs` (`core.runlog.last_ok`, ok-only) INSTEAD
+of their Config stamps. The stamp writers stay everywhere (§6: no sheet writer
+removed while the sheet is authoritative); only this reader moved. When the store
+is unreachable those five are UNWATCHED and the briefing says so loudly — never
+read the stamp as a fallback, because a lane failing on every invocation
+refreshes its stamp each run, and "the sheet vouched for it" is exactly the
+silent green this cutover exists to end.
 """
 from __future__ import annotations
 
@@ -42,7 +51,7 @@ import datetime as _dt
 import os
 import sys
 
-from core import beats, channels, config, digest_email, mailer, notify, outbox, pgwrites
+from core import beats, channels, config, digest_email, mailer, notify, outbox, pgwrites, runlog
 from core.digest_email import DigestData, Role
 from core.profile import Profile
 from core.sheets import HQ, RowNotFound
@@ -70,6 +79,27 @@ CADENCE_HOURS = {
     "selfheal": 24, "snapshot": 24, "snapshot_s3": 24, "capture": 1.5,
 }
 CAPTURE_ALERT_HOURS = 3
+
+#: The five watched lanes whose freshness comes from `bot_runs` once pg reads are
+#: load-bearing (`HQ_PG_WRITES=first_class`) — SHEET-INVENTORY §3.1 correction 2.
+#: Watched name -> the `bot_runs.job` it maps to (the handler.JOBS key): cafe and
+#: theirstack are watched under their channel names but invoked as `wide_cafe` /
+#: `wide_theirstack`. A reader table, not schema.
+#:
+#: A `bot_runs` row filtered on `ok = true` is STRONGER evidence than the Config
+#: stamp it replaces: the stamp says something wrote a timestamp, the row says the
+#: job SUCCEEDED — a lane failing on every invocation refreshes its stamp each run
+#: and reads healthy on the tab; here it goes stale and warns.
+#:
+#: The four lanes NOT here are each correctly sheet-sourced and stay: `capture` is
+#: the Apps Script tripwire and never reaches the Lambda; `selfheal` is the Actions
+#: cron and writes no `bot_runs` row; `snapshot`/`snapshot_s3` cannot be told apart
+#: by `bot_runs` (it records the invocation, not the mode), so `channel_runs` via
+#: PG_CADENCE_HOURS remains right for that pair.
+JOB_BEATS = {
+    "monitor": "monitor", "review": "review", "tracker": "tracker",
+    "cafe": "wide_cafe", "theirstack": "wide_theirstack",
+}
 
 #: The pg store's own cadence table — deliberately NOT a slice of CADENCE_HOURS.
 #:
@@ -237,7 +267,9 @@ def _sec_scout(hq: HQ, yesterday_s: str) -> list[str]:
 
 
 def _sec_health(hq: HQ, now: _dt.datetime,
-                pg_beats: dict | None = None) -> tuple[list[str], bool, list[str]]:
+                pg_beats: dict | None = None,
+                job_beats: dict | None = None, *,
+                pg_first: bool = False) -> tuple[list[str], bool, list[str]]:
     """⚠ any heartbeat older than 2x cadence (or never written — a job that
     never ran is exactly what this section exists to surface). Returns
     (lines, capture_silent_beyond_3h, backup_stale_lines).
@@ -254,6 +286,24 @@ def _sec_health(hq: HQ, now: _dt.datetime,
     died a week ago must not read as healthy on the strength of the store that
     is about to be decommissioned — nor the reverse, which is how a still-live
     sheet lane would go dark unnoticed after the cutover.
+
+    THE FIVE JOB LANES MOVED STORES (SHEET-INVENTORY §3.1). Under `pg_first`
+    (HQ_PG_WRITES=first_class), a lane in JOB_BEATS is judged from `job_beats`
+    — its newest SUCCESSFUL `bot_runs` finish — and its Config stamp is not
+    consulted at all, in either direction:
+
+      * `job_beats` a dict: the lane's line carries the `(pg)` label so the
+        briefing says which store it judged. A lane whose every run failed has
+        no successful finish and reads "no heartbeat yet" — dead — while its
+        stamp reads fresh on the tab. That is the point of the move.
+      * `job_beats` None (the store was unreachable): NO per-lane verdict.
+        `run()` prepends its loud, paging unwatched line naming these lanes.
+        Falling back to the stamp here would let the sheet vouch for the exact
+        state the cutover exists to catch, and would read green.
+
+    With `pg_first` false (mirror — the default), every lane in CADENCE_HOURS
+    is judged from its Config stamp, unchanged: the sheet is still the sole
+    read store and this function behaves as it always has.
     """
     stamps = {r["key"][len("heartbeat_"):]: r.get("value", "")
               for r in hq.tab("config").records()
@@ -278,6 +328,11 @@ def _sec_health(hq: HQ, now: _dt.datetime,
             backup_stale.append(warn[-1])
 
     for name, cadence in CADENCE_HOURS.items():
+        if pg_first and name in JOB_BEATS:
+            if job_beats is not None:
+                ts = job_beats.get(JOB_BEATS[name])
+                _check(name, cadence, ts, ts.strftime(_HB_FMT) if ts else "", store="pg")
+            continue                    # unreachable store: unwatched, said loudly by run()
         _check(name, cadence, _parse_ts(stamps.get(name, "")), stamps.get(name, ""))
     if pg_beats is not None:
         for name, cadence in PG_CADENCE_HOURS.items():
@@ -499,16 +554,25 @@ def run(hq: HQ, *, now: _dt.datetime | None = None, mailer_impl=None) -> dict:
     # that PAGES, because the lanes behind it are backup lanes. Silence would be
     # the real bug — "all systems ran on schedule" printed at the exact moment the
     # watchdog can no longer see half of what it watches.
-    pg_beats, pg_error = None, ""
-    if pgwrites.first_class():
+    pg_beats, job_beats, pg_error = None, None, ""
+    pg_first = pgwrites.first_class()
+    if pg_first:
         try:
             pg_beats = beats.last_seen(pgwrites.user_id())
+            # SHEET-INVENTORY §3.1: the five job lanes' freshness, ok-only. Read
+            # in the same try — half a store's answer is not judged while the
+            # other half pages; a failure of either read leaves BOTH None and
+            # every pg-sourced lane in the loud unwatched line below.
+            job_beats = runlog.last_ok(pgwrites.user_id(), tuple(JOB_BEATS.values()))
         except Exception as e:
+            pg_beats, job_beats = None, None
             pg_error = f"{type(e).__name__}: {e}"[:200]
-    health_lines, capture_silent, backup_stale = _sec_health(hq, now, pg_beats)
+    health_lines, capture_silent, backup_stale = _sec_health(
+        hq, now, pg_beats, job_beats, pg_first=pg_first)
     if pg_error:
         line = (f"⚠ pg heartbeats unreadable ({pg_error}) — the store's lanes "
-                f"({', '.join(beats.LANES)}) are unwatched this run")
+                f"({', '.join(beats.LANES)}) and the job lanes "
+                f"({', '.join(JOB_BEATS)}) are unwatched this run")
         health_lines = [line] + [ln for ln in health_lines
                                  if ln != "✅ all systems ran on schedule"]
         backup_stale.append(line)

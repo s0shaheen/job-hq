@@ -236,6 +236,14 @@ read while the Sheet is authoritative; and `snapshot`/`snapshot_s3` cannot be to
 by `bot_runs`, which records the invocation and not the mode, so `core.beats` over
 `channel_runs` remains right for that pair.
 
+**LANDED**: `tracker/digest.py`'s watchdog now reads exactly those five from `bot_runs`
+(`core.runlog.last_ok`, `ok = true` only, `JOB_BEATS` is the mapping table) under
+`HQ_PG_WRITES=first_class` — the flag state under which the watchdog already reads the
+store's own beats. Under `mirror` the Config stamps remain the read source, and the
+stamp writers stay everywhere per §6. When the store is unreachable at digest time the
+five are unwatched and the briefing's paging line names them — never stamp-judged,
+because a fresh stamp vouching for a failing job is the silent green the cutover ends.
+
 **Both corrections are the same shape, and it is now the third instance in this codebase:
 the Postgres home exists and nothing reads it.** That is worth treating as the default
 hypothesis rather than the surprise. Before designing schema for a Sheet read, check
@@ -251,9 +259,9 @@ These are what make the remaining rows hard, and none of them is a single module
 - **`HQ.log`** — the line-item audit. `bot_runs` and `channel_runs` record runs, not
   lines.
 - **`HQ.heartbeat`** — roughly ten lanes beat into Config. Four have a home in
-  `core.beats.LANES`, and **five more are answerable from `bot_runs` today** — see
-  §3.1, correction 2. `capture` and `selfheal` are the two with neither, and both
-  for reasons that are correct rather than pending.
+  `core.beats.LANES`, and **five more are read from `bot_runs` by the digest watchdog
+  under `first_class`** — see §3.1, correction 2, LANDED. `capture` and `selfheal` are
+  the two with neither, and both for reasons that are correct rather than pending.
 - **The Health, Digest, Quick Add, Outbox and Scout tabs** — no table, no RPC, no
   fixture.
 

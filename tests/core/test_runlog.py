@@ -293,6 +293,112 @@ def test_a_missing_table_before_the_migration_is_swallowed(monkeypatch, capsys):
     )
 
 
+# ---------------------------------------------------------------- last_ok — the watchdog's read
+#
+# SHEET-INVENTORY §3.1 correction 2: the digest watchdog judges the five Lambda
+# job lanes from these rows instead of their Config stamps. The property under
+# test is the one that justifies the move — `ok = true` ONLY, so success is what
+# keeps a lane green, not the mere fact of having run.
+#
+# MUTATION TARGETS:
+#   * drop `ok=is.true` from the query -> the newest-successful-finish test
+#     receives a FAILED run's timestamp and calls a crashing lane healthy;
+#   * drop the `user_id` filter -> another tenant's (or a shared) success
+#     vouches for this user's lane;
+#   * swallow the read failure like the writes above do -> the raise test sees
+#     a dict where the watchdog needed a loud refusal.
+
+def _bot_runs_table(monkeypatch, rows):
+    """A pg.select that APPLIES the filters last_ok sends, so a dropped filter
+    changes the ANSWER rather than an assertion about the query string."""
+    from urllib.parse import parse_qs
+
+    def select(table, query="", session=None):
+        assert table == "bot_runs"
+        q = {k: v[0] for k, v in parse_qs(query).items()}
+        out = [dict(r) for r in rows]
+        for key, want in q.items():
+            if key in ("select", "order", "limit"):
+                continue
+            if want.startswith("eq."):
+                out = [r for r in out if str(r.get(key)) == want[3:]]
+            elif want == "is.true":
+                out = [r for r in out if r.get(key) is True]
+            else:
+                raise AssertionError(f"a filter this fake cannot honour: {key}={want}")
+        col, _, direction = q.get("order", "finished_at.desc").partition(".")
+        out.sort(key=lambda r: r.get(col) or "", reverse=(direction == "desc"))
+        return out[: int(q["limit"])] if "limit" in q else out
+
+    monkeypatch.setattr("core.pg.select", select)
+
+
+def test_last_ok_returns_the_newest_successful_finish_and_only_successes(monkeypatch):
+    """The ok filter is the whole claim: monitor's NEWEST row is a failure, and
+    the answer must be the older success. A watchdog reading "newest row" would
+    call a lane healthy on the strength of its crashing — the exact defect the
+    Config stamp has, reimported into the store meant to fix it."""
+    import datetime as dt
+    _bot_runs_table(monkeypatch, [
+        {"user_id": UID, "job": "monitor", "ok": True,
+         "finished_at": "2026-07-10T08:00:00+00:00"},
+        {"user_id": UID, "job": "monitor", "ok": False,
+         "finished_at": "2026-07-13T08:00:00+00:00"},    # newer, and a failure
+        {"user_id": UID, "job": "wide_cafe", "ok": False,
+         "finished_at": "2026-07-13T09:00:00+00:00"},    # every run failed
+    ])
+    out = runlog.last_ok(UID, ("monitor", "wide_cafe", "review"))
+    assert out["monitor"] == dt.datetime(2026, 7, 10, 8, 0, tzinfo=dt.timezone.utc)
+    assert out["wide_cafe"] is None         # runs, yes; successes, none — dead
+    assert out["review"] is None            # never ran at all — the same verdict
+
+
+def test_last_ok_ignores_other_tenants_and_shared_rows(monkeypatch):
+    """A shared (null user_id) or another user's success is not evidence that
+    THIS user's lane ran; the miss reads dead, which warns — the safe direction."""
+    other = "00000000-0000-0000-0000-00000000000a"
+    _bot_runs_table(monkeypatch, [
+        {"user_id": other, "job": "tracker", "ok": True,
+         "finished_at": "2026-07-13T08:00:00+00:00"},
+        {"user_id": None, "job": "tracker", "ok": True,
+         "finished_at": "2026-07-13T09:00:00+00:00"},
+    ])
+    assert runlog.last_ok(UID, ("tracker",)) == {"tracker": None}
+
+
+def test_last_ok_reads_an_unparseable_finish_as_never_succeeded(monkeypatch):
+    """Same doctrine as core.beats._parse, whose parser this shares: a beat that
+    cannot be read is a beat that warns, never one that vouches."""
+    _bot_runs_table(monkeypatch, [
+        {"user_id": UID, "job": "review", "ok": True, "finished_at": "not a time"}])
+    assert runlog.last_ok(UID, ("review",)) == {"review": None}
+
+
+def test_last_ok_raises_rather_than_guessing(monkeypatch):
+    """The deliberate reverse of every write above. The swallow doctrine is for
+    telemetry riding inside a bot job; this read IS the watchdog's product, and
+    a swallowed failure here is a watchdog reporting green on nothing. The
+    caller (tracker/digest.py) owns turning the raise into a loud, paging line."""
+    from core import pg
+
+    def down(*a, **k):
+        raise pg.PgError("select bot_runs -> HTTP 503")
+
+    monkeypatch.setattr("core.pg.select", down)
+    with pytest.raises(pg.PgError):
+        runlog.last_ok(UID, ("monitor",))
+
+
+def test_last_ok_refuses_a_non_uuid_user(monkeypatch):
+    """The same injection guard every engine read carries (core.pgwrites.uid):
+    the id is interpolated into a raw PostgREST filter under the SERVICE ROLE,
+    which RLS does not constrain, so it fails at the gate, before any query."""
+    monkeypatch.setattr("core.pg.select",
+                        lambda *a, **k: pytest.fail("queried with an unvalidated user id"))
+    with pytest.raises(ValueError):
+        runlog.last_ok("salman", ("monitor",))
+
+
 # ---------------------------------------------------------------- warm container
 
 def test_start_clears_counts_so_a_warm_container_does_not_leak(monkeypatch):

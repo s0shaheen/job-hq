@@ -17,6 +17,9 @@ Written whenever `pg.enabled()` (not gated on first_class), because the tab must
 fill all through dual-write, not only after the cutover — and it is safe to,
 precisely because it can never fail the job.
 
+The swallow doctrine covers the WRITES only. `last_ok` — the digest watchdog's
+freshness read over these rows (SHEET-INVENTORY §3.1) — raises, and says why.
+
 MUTATION TARGETS:
   * remove the try/except in `start`/`finish` -> the "a broken recorder never
     fails the job" tests go red (a pg outage would start failing every bot);
@@ -105,6 +108,48 @@ def start(job: str) -> Run:
     except Exception as exc:                     # never fail the job for a telemetry write
         print(f"[runlog] could not open a run row for {job!r}: {exc!r}")
     return run
+
+
+def last_ok(user_id: str, jobs, *, session=None) -> "dict[str, _dt.datetime | None]":
+    """Newest SUCCESSFUL finish per `bot_runs.job`, or None for a job that has
+    never succeeded — the digest watchdog's freshness read (SHEET-INVENTORY §3.1).
+
+    `ok = true` ONLY, on purpose: that filter is the whole reason this read is
+    stronger than the Config stamp it replaces. A lane failing on every
+    invocation refreshes its sheet stamp each run and reads healthy on the tab;
+    here its last success ages out and it warns. A lane whose every run failed
+    is therefore indistinguishable from one that never ran — both are "no
+    successful run", which is exactly the verdict a watchdog should hand them.
+
+    RAISES on failure, unlike everything above it in this module. The swallow
+    doctrine is for the WRITES, which are telemetry riding inside a bot job that
+    must not die for them. This read is not telemetry — it IS the watchdog's
+    product, and a swallowed read is a watchdog reporting green on nothing. The
+    caller (tracker/digest.py) catches and turns the failure into its own loud,
+    paging warn line, the same path `core.beats.last_seen` failures take.
+
+    One request per job with `limit=1`, the same shape and reasoning as
+    `core.beats.last_seen`: a single windowed request needs a row cap, and the
+    job a cap would drop is precisely the dead one. Filtered to THIS user's rows
+    — a shared (null user_id) or another tenant's run is not evidence that this
+    user's lane ran, and the miss reads as "never succeeded", which warns: the
+    safe direction.
+    """
+    from core import pg
+    from core.beats import _parse       # the ONE PostgREST-timestamptz parser;
+    #                                     an unparseable finish reads as never-
+    #                                     succeeded, which warns — safe direction
+    from core.pgwrites import uid as _uid
+    uid = _uid(user_id)                 # injection guard; a non-UUID raises HERE
+    out: dict[str, _dt.datetime | None] = {}
+    for job in jobs:
+        rows = pg.select(
+            _TABLE,
+            f"select=finished_at&user_id=eq.{uid}&job=eq.{job}&ok=is.true"
+            f"&order=finished_at.desc&limit=1",
+            session=session)
+        out[job] = _parse(rows[0].get("finished_at", "")) if rows else None
+    return out
 
 
 def finish(run: Run | None, *, ok: bool, error: str = "") -> None:

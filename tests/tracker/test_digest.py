@@ -378,13 +378,18 @@ FRESH = dt.datetime(2026, 7, 13, 11, 45, tzinfo=dt.timezone.utc)
 DEAD = dt.datetime(2026, 7, 10, 8, 53, tzinfo=dt.timezone.utc)
 
 
-def _pg_on(monkeypatch, lanes):
-    """first_class, with `channel_runs` answering exactly `lanes`."""
-    from core import beats, pgwrites
+def _pg_on(monkeypatch, lanes, jobs=None):
+    """first_class, with `channel_runs` answering exactly `lanes` and `bot_runs`
+    answering `jobs` (keyed by `bot_runs.job`; default: every job lane fresh)."""
+    from core import beats, pgwrites, runlog
     monkeypatch.setenv(pgwrites.FLAG_ENV, pgwrites.FIRST_CLASS)
     monkeypatch.setenv(pgwrites.USER_ENV, UID)
     monkeypatch.setattr("core.pg.enabled", lambda: True)
     monkeypatch.setattr(beats, "last_seen", lambda uid, *a, **k: dict(lanes))
+    job_map = ({j: FRESH for j in digest.JOB_BEATS.values()}
+               if jobs is None else dict(jobs))
+    monkeypatch.setattr(runlog, "last_ok",
+                        lambda uid, names, *a, **k: {n: job_map.get(n) for n in names})
     written = []
     monkeypatch.setattr(beats, "write", lambda lane, uid, **k: written.append(lane))
     return written
@@ -483,6 +488,8 @@ def test_phase_a_reads_and_writes_no_pg_beats(spies, monkeypatch):
                         lambda *a, **k: pytest.fail("pg read with the flag unset"))
     monkeypatch.setattr("core.beats.write",
                         lambda *a, **k: pytest.fail("pg beat with the flag unset"))
+    monkeypatch.setattr("core.runlog.last_ok",
+                        lambda *a, **k: pytest.fail("bot_runs read with the flag unset"))
     s = digest.run(_all_fresh_hq(), now=NOW)
     assert s["backups_stale"] is False
 
@@ -497,6 +504,7 @@ def _pg_down(monkeypatch):
         raise pg.PgError("select channel_runs -> HTTP 503")
     monkeypatch.setattr("core.beats.last_seen", boom)
     monkeypatch.setattr("core.beats.write", boom)
+    monkeypatch.setattr("core.runlog.last_ok", boom)
 
 
 def test_an_unreachable_store_is_reported_and_pages(spies, monkeypatch):
@@ -509,6 +517,134 @@ def test_an_unreachable_store_is_reported_and_pages(spies, monkeypatch):
     body = next(b for t, b in alerts if t == "HQ backups stale")
     assert "pg heartbeats unreadable" in body and "HTTP 503" in body
     assert "✅ all systems ran on schedule" not in s["body"]
+
+
+# ---- SHEET-INVENTORY §3.1 correction 2: the five Lambda job lanes read bot_runs
+#
+# MUTATION TARGETS:
+#   * restore the Config-stamp read for a JOB_BEATS lane under first_class ->
+#     the dead-in-bot_runs test goes green off a fresh stamp (the exact silent
+#     green this cutover removes), and the no-stamp-needed test starts warning
+#     about stamps nobody is required to write any more;
+#   * fall back to the stamp when the store is unreachable -> the pg-down test
+#     sees a sheet-judged "⚠ monitor:" line for a lane nobody watched this run;
+#   * drop the job lanes from run()'s unwatched line -> the pg-down test loses
+#     the only record that the five went unjudged;
+#   * read bot_runs without the ok filter -> tests/core/test_runlog.py's
+#     newest-successful-finish test returns a failed run's timestamp.
+
+
+def test_a_lane_dead_in_bot_runs_warns_even_when_its_sheet_stamp_is_fresh(spies, monkeypatch):
+    """The claim §3.1 makes for this cutover, held to: a lane failing on every
+    invocation refreshes its Config stamp each run and reads healthy on the tab;
+    its last SUCCESS in bot_runs ages out, and that is the verdict that renders."""
+    _pushes, alerts = spies
+    from core import beats as beats_mod
+    _pg_on(monkeypatch, {n: FRESH for n in beats_mod.LANES},
+           jobs={j: (DEAD if j == "monitor" else FRESH)
+                 for j in digest.JOB_BEATS.values()})
+    hq = _all_fresh_hq()                       # every sheet stamp fresh, monitor's included
+    s = digest.run(hq, now=NOW)
+    assert "⚠ monitor (pg):" in s["body"]
+    assert "⚠ monitor:" not in s["body"]       # the fresh stamp buys the lane nothing
+    assert "✅" not in s["body"]
+    # a dead sweep still prints rather than pages: escalation stays reserved
+    # for BACKUP_BEATS, and none of the five job lanes is a backup
+    assert s["backups_stale"] is False and alerts == []
+
+
+def test_a_lane_whose_every_run_failed_reads_as_never_having_run(spies, monkeypatch):
+    """`last_ok` is ok-only, so a lane with runs but no successes hands the
+    watchdog None — and the mapping matters: theirstack is watched under its
+    channel name while `bot_runs` records the handler's `wide_theirstack`."""
+    from core import beats as beats_mod
+    _pg_on(monkeypatch, {n: FRESH for n in beats_mod.LANES},
+           jobs={j: (None if j == "wide_theirstack" else FRESH)
+                 for j in digest.JOB_BEATS.values()})
+    s = digest.run(_all_fresh_hq(), now=NOW)
+    assert "⚠ theirstack (pg): no heartbeat yet" in s["body"]
+    assert "⚠ theirstack:" not in s["body"]
+    assert "⚠ cafe" not in s["body"]           # a healthy hiring.cafe stays out of it
+
+
+def test_a_fresh_bot_runs_lane_needs_no_sheet_stamp(spies, monkeypatch):
+    """The green direction of the same cutover: with the five stamps ABSENT from
+    the tab, a healthy bot_runs answer still reads healthy. If this warns, the
+    stamps are still being consulted."""
+    _pushes, alerts = spies
+    from core import beats as beats_mod
+    _pg_on(monkeypatch, {n: FRESH for n in beats_mod.LANES})
+    hq = fake_hq()
+    hq.registry["sheet_id"] = "TESTID"
+    hq.tab("config").append_records(
+        [{"key": f"heartbeat_{n}", "value": "2026-07-13 11:45:00Z"}
+         for n in digest.CADENCE_HOURS if n not in digest.JOB_BEATS])
+    s = digest.run(hq, now=NOW)
+    assert "✅ all systems ran on schedule" in s["body"]
+    assert "⚠" not in s["body"] and alerts == []
+
+
+def test_the_four_sheet_lanes_are_still_judged_from_their_stamps(spies, monkeypatch):
+    """capture is the Apps Script tripwire and selfheal the Actions cron; neither
+    ever writes a `bot_runs` row, so their stamps remain the only evidence and
+    the cutover must not touch them — §3.1 names all four as correctly staying."""
+    _pushes, alerts = spies
+    from core import beats as beats_mod
+    _pg_on(monkeypatch, {n: FRESH for n in beats_mod.LANES})
+    hq = _all_fresh_hq()
+    hq.tab("config").set_by_key(               # 5h silent vs the 3h capture bar
+        "heartbeat_capture", {"value": "2026-07-13 07:00:00Z"}, key_header="key")
+    hq.tab("config").set_by_key("heartbeat_selfheal", {"value": ""}, key_header="key")
+    s = digest.run(hq, now=NOW)
+    assert s["capture_silent"] is True
+    assert "Gmail capture silent" in [t for t, _ in alerts]
+    body = next(b for t, b in alerts if t == "HQ backups stale")
+    assert "⚠ selfheal: no heartbeat yet" in body
+
+
+def test_exactly_the_five_lambda_lanes_moved_and_the_four_sheet_lanes_stayed():
+    """The membership pin, both directions: a lane added to JOB_BEATS without a
+    Lambda writer (capture, selfheal) would warn every single day; a lane
+    dropped from it would quietly return to a stamp that can vouch for a
+    failing job. §3.1's table is the authority for both sets."""
+    assert set(digest.JOB_BEATS) == {"monitor", "review", "tracker", "cafe", "theirstack"}
+    assert set(digest.CADENCE_HOURS) - set(digest.JOB_BEATS) == {
+        "capture", "selfheal", "snapshot", "snapshot_s3"}
+
+
+def test_every_job_beat_names_a_real_handler_job():
+    """`bot_runs.job` carries handler.JOBS keys (core/runlog.py's caller). A
+    watched lane mapped to a name the handler never runs would read dead
+    forever — a daily cry-wolf, which is the briefing you stop reading."""
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[2] / "infra" / "app" / "handler.py"
+    spec = importlib.util.spec_from_file_location("hq_handler_for_digest", path)
+    handler = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(handler)
+    for lane, job in digest.JOB_BEATS.items():
+        assert job in handler.JOBS, f"{lane} watches {job!r}, which no Lambda job writes"
+
+
+def test_an_unreachable_store_leaves_the_job_lanes_unwatched_and_says_which(spies, monkeypatch):
+    """pg down under first_class: the five lanes get NO verdict — not the
+    stamp's. A stamp judged here would be the sheet vouching for a store it no
+    longer speaks for: a dead lane with a fresh stamp would read green through
+    every outage. So the lanes disappear from the per-lane list, the loud line
+    names them, and the line pages."""
+    _pushes, alerts = spies
+    _pg_down(monkeypatch)
+    hq = _all_fresh_hq()
+    hq.tab("config").set_by_key(               # dead by the stamp too — must NOT render
+        "heartbeat_monitor", {"value": "2026-07-10 06:00:00Z"}, key_header="key")
+    s = digest.run(hq, now=NOW)
+    assert "⚠ monitor" not in s["body"]        # judged by NOBODY this run, in either store
+    line = next(l for l in s["body"].splitlines() if "pg heartbeats unreadable" in l)
+    for lane in digest.JOB_BEATS:
+        assert lane in line, f"the unwatched line does not name {lane}"
+    assert "✅ all systems ran on schedule" not in s["body"]
+    body = next(b for t, b in alerts if t == "HQ backups stale")
+    assert "job lanes" in body                 # the page carries the same record
 
 
 def test_a_store_outage_does_not_blind_the_sheets_own_watchdogs(spies, monkeypatch):
