@@ -63,8 +63,13 @@ T3. When unsure, go up.
 
 ## 5. Land
 
-- `scripts/land.sh` is the only merge path — branch protection is unavailable on this
-  plan, so the script IS the enforcement. Workers do not merge; they hand back a PR.
+- `main` is protected: one required check (`gate`), enforce_admins on, force-push and
+  deletion blocked. GitHub refuses a red merge for everyone, so the ship path is
+  branch → PR → `gate` → `gh pr merge --auto --squash`. `scripts/land.sh` is an optional
+  wrapper for the parts protection does not look at: local gates before the push, the
+  rebase, the per-branch landing lock, and proving `origin/main` actually moved. It WAS
+  the enforcement before protection existed, which is why older documents call it the
+  only merge path. Workers do not merge; they hand back a PR.
 - Migrations: `scripts/new-migration.sh`. Never rename an existing one; the production
   ledger keys on filename.
 - Fill your own coverage-ledger cells (`webapp/tests/coverage/ledger.ts`) and delete the

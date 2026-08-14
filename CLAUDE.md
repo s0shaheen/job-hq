@@ -1,5 +1,8 @@
 # Job HQ agent instructions
 
+This file is the constitution, for every harness. `AGENTS.md` is a pointer to it and
+carries no rules of its own, so a rule that changes here has nowhere else to be synced.
+
 ## Product authority
 
 Job HQ is a standalone, multi-user web product. The web app is the only human

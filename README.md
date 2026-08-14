@@ -26,10 +26,11 @@ Vercel. Python workers for discovery, rendering, and monitoring run behind Postg
 ## Working here
 
 Work is tracked as GitHub issues (the feature-spec template is the working unit;
-tier labels `t0`–`t4` set rigor per CLAUDE.md). Branch, PR, CI. `main` is protected:
-required checks must pass and nobody — admin included — merges red. Merging via
-`scripts/land.sh` adds local gates and verifies the landing. Vercel deploys `main`
-automatically; database changes never ride along.
+tier labels `t0`–`t4` set rigor per CLAUDE.md). Branch, PR, CI. `main` is protected: the
+`gate` check must pass and nobody — admin included — merges red, so the ship path is
+`gh pr merge --auto --squash`. `scripts/land.sh` is an optional wrapper that adds local
+gates and verifies the landing. Vercel deploys `main` automatically; database changes
+never ride along.
 
 The daily dev loop needs no Docker:
 
