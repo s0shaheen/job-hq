@@ -59,9 +59,9 @@ is server-only and used by the capture and digest handlers alone.
   last-write-wins knowingly.
 - **Audit** — the RPC appends the `events` row inside the write transaction; there is no
   client-side audit or telemetry (verified absent).
-- **Result shapes** — `app_*_row()` helpers (`0003`, `0008`, `0010`, `0021`, `0026`)
-  keep RPC results and reads byte-compatible; they are deliberately not security
-  definer.
+- **Result shapes** — `app_*_row()` helpers (`0003`, `0008`, `0010`, `0021`, `0025`,
+  `0026`, `20260814_021627`) keep RPC results and reads byte-compatible; they are
+  deliberately not security definer.
 
 ## Hardening around the pattern
 

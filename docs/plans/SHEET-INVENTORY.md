@@ -397,23 +397,45 @@ Ordering rules, not schema questions, and they sit here because this is what the
 doing the retiring is reading. Each is a thing the Sheet holds today that Postgres does
 not, so retiring the tab first is silent data loss rather than a broken build.
 
-**1. The 13 notification preference keys.** `notify_quiet_hours`, `notify_timezone`, the
-five per-event `notify_*` channels, `push_new_jobs`, `push_status_events`,
-`yoe_push_max`, `stale_days`, `digest_hour_ct`, `dna_companies`. Grepping those names
-across `db/migrations/**` and `webapp/**` returns **zero hits** — no column, no jsonb key,
-no reader, no writer. `profiles.criteria` holds the *search-profile* half of the Config
-tab (12 keys) and `parseCriteria` is a closed whitelist that drops everything else;
-`profiles.notify` is an empty jsonb column with a prose comment and no writer, which is
-not a home.
+**1. The 13 notification preference keys — TEN of them are now homed.**
+`20260814_021627_notification_prefs.sql` (authored on #181's `feat/notification-prefs`,
+re-stamped per its disposition when the notifications lane resumed) adds them as typed
+columns on `profiles` with CHECK constraints and one definer RPC, and
+`tests/db/test_notification_prefs.py` accepts it. `profiles.notify` was never the home it
+looked like — an empty jsonb column with a prose comment and no writer — and its comment
+now says so.
+
+Three of the thirteen did not become columns, and the person retiring the tab needs both
+halves of that sentence:
+
+- `push_status_events` and `digest_hour_ct` were **retired for having no reader**.
+  `push_status_events` is parsed onto `RuntimeConfig` and read by nothing, so the switch
+  its help text describes has never worked; `notify_status_change = none` is the one that
+  does. `digest_hour_ct` was superseded by the EventBridge cron. Carrying dead
+  configuration into the new schema is how the Sheet's mess outlives the Sheet.
+- **`dna_companies` IS STILL HOMELESS and it still gates this step.** It has a live reader
+  (`tracker/scout.py:86`) and it is not a notification preference — it is the scout's
+  do-not-apply guard, and its home is `profiles.criteria`, which needs a `parseCriteria`
+  whitelist entry and no migration. Retire the tab before that lands and a user loses the
+  list of companies they asked never to be applied to.
+
+`SHEET-FACILITIES.md` §1.2(a2′) is the key-by-key enumeration all of this came from.
+
+**What the migration deliberately does NOT do: the engine does not read these columns
+yet.** While the Sheet is authoritative, a `profiles`-backed `UserConfig` would be a second
+read path — the dual read §4 lists and §6 orders against. The reader lands in the commit
+that flips the authority, and until it does, the columns exist and nothing consults them.
 
 `notify_quiet_hours` and `notify_timezone` are the inputs to `core.channels.allow()`, the
-function that decides what enters the quiet-hours outbox. Retire the tab without homing
-them and quiet hours has no window and no zone: either it never engages and someone is
-buzzed at 03:00, or it engages against a default zone and holds an interview notification
-until the wrong morning. `push_new_jobs` and `push_status_events` are worse in kind — a
-kill switch the user set that silently turns itself back on.
+function that decides what enters the quiet-hours outbox. Because the engine still reads
+the SHEET, retiring the tab before the reader flips would still leave quiet hours with no
+window and no zone: either it never engages and someone is buzzed at 03:00, or it engages
+against a default zone and holds an interview notification until the wrong morning.
+`push_new_jobs` is worse in kind — a kill switch the user set that silently turns itself
+back on. (`push_status_events` used to be listed beside it; the re-measurement found that
+switch has never worked at all, which is why it was retired rather than homed.)
 
-`docs/plans/SHEET-FACILITIES.md` §1.2(a2) has the full accounting. An earlier revision of
+`docs/plans/SHEET-FACILITIES.md` §1.2(a2′) has the full accounting. An earlier revision of
 that document declared this half already homed; it was wrong, and this rule exists because
 a wrong "already homed" verdict is exactly the failure that reaches production quietly.
 

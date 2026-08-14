@@ -86,6 +86,11 @@ const SQL_KIND: Record<string, Kind> = {
   uuid: "string",
   date: "string", // PostgREST serializes dates and timestamps as strings
   timestamptz: "string",
+  // profiles.notify_quiet_start/_end (20260814_021627). PostgREST serializes a
+  // `time` as "21:00:00", a string — the same reason `date` is one row above.
+  // Added because this parser throws on an unmapped type rather than guessing,
+  // which is how the column reached a reviewer instead of a `| null` that lies.
+  time: "string",
   bigint: "number", // int8 arrives as a JSON number through PostgREST
   integer: "number",
   smallint: "number", // companies.reliability_tier (0007)

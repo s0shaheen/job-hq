@@ -33,8 +33,13 @@ been taught to read it. Those are genuine reader gaps — application work, T1:
   `notify_quiet_hours`, `notify_timezone`, the five per-event `notify_*` channels,
   `push_new_jobs`, `push_status_events`, `yoe_push_max`, `stale_days`, `digest_hour_ct`,
   `dna_companies`. Grepping those names across all of `db/migrations/**` and all of
-  `webapp/**` returns **zero hits**. That is a schema gap, it is not closed by this
-  branch, and it is gated in §5 as blocking work before the Config tab is retired.
+  `webapp/**` returned **zero hits** when this was written. Closed by
+  `20260814_021627_notification_prefs.sql` — authored on `feat/notification-prefs`
+  (#181, closed-deferred for the migration lane, then re-stamped per its disposition
+  when the notifications lane resumed) — ten of the thirteen as columns, two retired
+  for having no reader at all, and `dna_companies` handed to the search-profile half
+  where it belongs. §1.2(a2′) is the enumeration; §5 item 3 is what landed and 3a is
+  what still gates retirement.
 
 So the path is shorter than `SHEET-INVENTORY.md` §3's four-bullet list implies, but not as
 short as this document first claimed, and the difference is a facility that feeds the very
@@ -51,7 +56,13 @@ verdict in this document is the one that produced that one: *does it have a read
 The two migrations are now authored on this branch —
 `db/migrations/20260803_105950_engine_cursors.sql` and
 `20260803_105951_notification_outbox.sql`, created with `scripts/new-migration.sh` after
-the coordinator handed over the integrator role. Earlier revisions of this file described
+the coordinator handed over the integrator role. A third,
+`20260814_021627_notification_prefs.sql`, was authored later on
+`feat/notification-prefs` under the same rule, one integrator at a time — closed
+unmerged as #181 while the migration lane was held by other work, then re-minted with a
+fresh `scripts/new-migration.sh` stamp per that PR's disposition (the original
+`20260804_192208` stamp would by then have sorted before applied migrations); §5 item 3
+records it. Earlier revisions of this file described
 them as proposals; §5.1 records the evidence, which was gathered before the DDL was
 committed and did not change when it was.
 
@@ -80,7 +91,7 @@ each key rather than for a group.
 | Facility | Tenancy | Verdict |
 |---|---|---|
 | Config — search profile (12 keys) | per user | **no new table** — `profiles.criteria` already is it. A reader gap |
-| Config — notification prefs (13 keys) | per user | **SCHEMA GAP, unresolved.** No column, no jsonb key, no reader, no writer. Blocking work, §1.2(a2) |
+| Config — notification prefs (13 keys) | per user | **10 columns on `profiles`** (`20260814_021627_notification_prefs.sql`); 2 retired as unread; `dna_companies` moves to the criteria half. §1.2(a2′) |
 | Config — engine tuning knobs | operator | **no table** — committed defaults + env; the phone-editable path is a deliberate loss |
 | Config — machine cursors | per user | **one table**, `engine_cursors`, for the three the sibling branch left homeless |
 | Config — the two latches | per user | **no table** — one dies with `simplify`, one is a `bot_runs` question |
@@ -88,9 +99,10 @@ each key rather than for a group.
 | Outbox queue | per user | **one table**, `notification_outbox` — the only facility with real durable state |
 | Heartbeats | per user | **no new table** — five of six lanes are already in `bot_runs`; the sixth is a named gap |
 
-Two tables on this branch, and a third facility (the 13 notification keys) that needs
-schema nobody has designed. The ratio is still the finding; the first version of this
-document got it wrong by one facility, in the direction that authorizes retiring the Sheet.
+Two tables on this branch and ten columns on a third; the ratio is still the finding.
+The first version of this document got it wrong by one facility, in the direction that
+authorizes retiring the Sheet — and the re-measurement in §1.2(a2′) then found the
+correction itself was carrying three keys that should never have reached a schema.
 
 ---
 
@@ -202,6 +214,50 @@ and a validator, new columns, or their own table is a decision with its own gran
 question, and this document has already been wrong once by answering it in passing. It is
 listed in §5 as blocking work, gated before Config-tab retirement, and in
 `SHEET-INVENTORY.md` §8 beside the capture tripwire.
+
+**(a2′) The re-measurement, key by key.** The paragraph above is where the count came
+from; this is where it was checked. Thirteen is right as a count of the group, and it is
+the wrong number to carry into a schema, because three of the thirteen do not belong in
+one: two have no reader at all and a third is not a notification preference. Every row
+below was produced by opening the reader, not by grepping the name.
+
+| Key | Written by | Read by | Missing today | What it is |
+|---|---|---|---|---|
+| `notify_digest` | user (Config cell / `profile.yaml`) | `core/profile.py:136` → `core/channels.py:allow` for event `digest`; producer `tracker/digest.py:545` | committed default `both` | preference — **migrate** |
+| `notify_new_roles` | user | `allow` for `new_roles`; producers `monitor/run.py:345`, `monitor/wide.py:691` | default `push` | preference — **migrate** |
+| `notify_status_change` | user | `allow` for `status_change` | default `push` | preference — **migrate** |
+| `notify_oa_interview` | user | `allow` for `oa_interview` (urgent; ignores quiet hours) | default `push` | preference — **migrate** |
+| `notify_stale_nudge` | user | `allow` for `stale_nudge` | default `none` | preference — **migrate** |
+| `notify_quiet_hours` | user | `core/channels.py:quiet_window` ← `Profile.quiet_hours`; `tracker/outbox.py:115` re-asks on flush | default `21:00-06:30` | preference — **migrate**, load-bearing |
+| `notify_timezone` | user | `core/channels.py:_zone`, `wake_time` | default `America/Chicago` | preference — **migrate**, load-bearing |
+| `push_new_jobs` | user | `monitor/config.py:38` → `monitor/run.py:321`, `monitor/wide.py:681` | default `true` | preference (kill switch) — **migrate** |
+| `yoe_push_max` | user | `monitor/config.py:37` → `run.py:338`, `wide.py:680`, `tracker/digest.py:142` | default `3` | preference — **migrate** |
+| `stale_days` | user | `tracker/stale.py:30` | default `30` | preference — **migrate** |
+| `push_status_events` | user | **nobody.** `monitor/config.py:39` parses it onto `RuntimeConfig` and no line in `core`, `monitor` or `tracker` reads the attribute | default `true`, and it would change nothing if it were `false` | **retire**, and see below |
+| `digest_hour_ct` | user | **nobody.** The digest hour is `infra/terraform/variables.tf:92`, `cron(40 11 * * ? *)` on EventBridge | nothing | **retire** |
+| `dna_companies` | user | `tracker/scout.py:86` — a live reader on the 2-hourly tracker chain | default list | a do-not-apply guard, **not a notification preference** — it belongs to (a1) |
+
+So: **ten migrate, two retire, one moves to (a1)**, and (a1) becomes 13 keys rather than
+12. Carrying dead configuration into the new schema is how the Sheet's mess outlives the
+Sheet, and a column whose only reader is the column is the purest form of it.
+
+**`push_status_events` is a live defect, not merely a dead key, and retiring it is the
+honest half of saying so.** Its Config-tab help text is "push status changes (interview,
+rejection, …)" (`tracker/bootstrap.py:90`). A user who sets it to `false` today is told
+they have turned status pushes off. They have not: nothing reads the attribute. The
+setting that does work is `notify_status_change = none`, which `core/channels.allow`
+enforces at the one choke point. Giving the broken switch a Postgres column would make it
+look homed while still doing nothing, which is worse than the Sheet — the Sheet at least
+never claimed to be authoritative. Either the switch gets a reader or it goes; this file
+takes it out, and the fix if it is ever wanted is a `notify_status_change` write, not a
+second boolean.
+
+Nothing pushes `status_change`, `oa_interview` or `stale_nudge` today — `EVENTS` has five
+members and only two have producers. The three producerless channels are migrated anyway,
+because `core/channels.py:56 EVENTS` is a closed set pinned by `tests/core/test_channels.py`
+and a matrix missing three of its five rows is a shape nobody can read the policy off. The
+reader exists (`allow` resolves any of the five on every call); what is missing is a
+caller, which is a different absence from the two rows above.
 
 **(b) Engine tuning knobs.** `fetch_workers`, `review_workers`, `inline_tag_workers`,
 `inline_tag_max`, `tag_retry_max`, `tag_deadletter_days`, `untagged_backlog_alert`,
@@ -744,16 +800,40 @@ it:
    branch's decision.
 2. `20260803_105951_notification_outbox.sql` — the quiet-hours queue. §3.2.
 
-**BLOCKING, and it needs schema nobody has designed:**
+**A third migration — DONE, re-stamped from #181's `feat/notification-prefs`:**
 
-3. **The 13 notification preference keys (§1.2 a2) have no Postgres home.** Whether they
-   become a real schema on `profiles.notify`, new columns, or their own table is an open
-   design decision with its own grant question. **This gates Config-tab retirement.**
-   `notify_quiet_hours` and `notify_timezone` are the inputs to `core.channels.allow()`,
-   which decides what enters `notification_outbox` — so retiring the tab without this
-   leaves the table this branch adds being fed by defaults nobody chose, and turns
-   `push_new_jobs`/`push_status_events` into kill switches that silently flip back on.
-   Not scoped here, and deliberately not designed in passing a second time.
+3. `20260814_021627_notification_prefs.sql` — the notification half of the Config tab,
+   as ten typed columns on `profiles` with CHECK constraints, one definer RPC
+   (`app_set_notification_prefs`) carrying idempotency, CAS on its own
+   `notify_updated_at` token and an audit event, and `tests/db/test_notification_prefs.py`
+   accepting it. §1.2(a2′) is the enumeration it was built from.
+
+   **Not one table of its own, and not `profiles.notify`.** A second preferences
+   mechanism is the fork `0025_display_prefs.sql` already paid for once; the jsonb
+   column has never been written with one of these keys and its comment now says so.
+   The quiet window is two `time` columns because a text column moves
+   `core.channels`' parser to read time, where `"9pm-6am"` stores happily and quiet
+   hours silently never engages; the zone is checked against `pg_timezone_names` at
+   WRITE time, because the engine's read-time fallback is right for a bot and invisible
+   to the person it mis-serves.
+
+   **What it does NOT do**, stated because the omission is a decision: no engine
+   reader. While the Sheet is authoritative, a `profiles`-backed `UserConfig` would be
+   a second read path — the dual read `SHEET-INVENTORY.md` §4 forbids and §6 orders
+   against. It lands in the commit that flips the authority. And no UI: the
+   Preferences surface is the owner's design to draw, as 0025 landed its store before
+   its popover.
+
+**STILL BLOCKING Config-tab retirement:**
+
+3a. **`dna_companies` (§1.2 a2′) is homeless and is not a notification preference.** It
+   is the scout's do-not-apply guard with a live reader (`tracker/scout.py:86`), and its
+   home is `profiles.criteria` — a `parseCriteria` whitelist entry and no migration at
+   all. It joins the (a1) reader packet, which is now **13 keys, not 12**. Until that
+   lands, retiring the Config tab still loses a user's list of companies they have asked
+   never to be applied to.
+
+3b. The spend-budget override path (§1.2 c) and the capture tripwire (§4.4), unchanged.
 
 **Application work that blocks on nobody**, all T1, none of it schema:
 
