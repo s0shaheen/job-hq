@@ -7,41 +7,99 @@ MODEL = "claude-haiku-4-5"
 # Seniority ladders differ by field: a PM ladder (APM..VP) is meaningless for
 # an FP&A or SWE search, and forcing one produces junk that the YoE-unknown
 # gate then acts on. Each profile names its own.
+#
+# This map is NOT the general job-family taxonomy and must not be grown into
+# one here: that decision is the owner's (docs/pilot-launch/
+# 07-decisions-assumptions-risks.md §5, vault-audit Step 4.3) and is blocked,
+# not deferred. `generic` is the normalization alphabet for every search whose
+# field is not one of the three named above — including a search that named no
+# field at all. It is a vocabulary, not a lens: it asserts nothing about who
+# the seeker is or what they do.
 SENIORITY_LADDERS = {
     "product-manager": "APM, PM, Senior, Staff, GPM, Director, VP",
     "finance": "Analyst, Senior Analyst, Manager, Senior Manager, Director, VP, CFO",
     "software-engineering": "Intern, Junior, Mid, Senior, Staff, Principal, Manager, Director",
     "generic": "Entry, Mid, Senior, Lead, Manager, Director, VP",
 }
-DEFAULT_DOMAIN = "product-manager"
+
+# There is deliberately no DEFAULT_DOMAIN. There used to be one
+# (`"product-manager"`, with `domain or DEFAULT_DOMAIN` below), so a profile
+# that never named a field had every posting read through the deployment
+# owner's lens: the model was told in so many words that it was reading
+# "product manager job postings" and made to normalize seniority to APM..VP.
+# An unset domain is a STATE, not an invitation to pick one (RM-40 vault audit
+# §3b, #253) — it stays unset all the way to the prompt, which then claims no
+# field and tags the posting on its own text. Callers that HAVE a domain still
+# pass it and get exactly the prompt they got before.
+
+
+def domain_or_unset(domain) -> str:
+    """The stated domain, or `""`. None and whitespace are unset, not values."""
+    return str(domain or "").strip()
 
 
 def _domain_label(domain: str) -> str:
-    return (domain or DEFAULT_DOMAIN).replace("-", " ")
+    """Human phrasing of a STATED domain; `""` when nothing is stated."""
+    return domain_or_unset(domain).replace("-", " ")
 
 
-def system_prompt(domain: str = DEFAULT_DOMAIN) -> str:
+def _ladder(domain: str) -> str:
+    """The seniority alphabet for this domain — `generic` when the field is
+    unstated or has no ladder of its own (see SENIORITY_LADDERS)."""
+    return SENIORITY_LADDERS.get(domain_or_unset(domain), SENIORITY_LADDERS["generic"])
+
+
+UNSET_DOMAIN_WARNING = (
+    "::warning title=Tagger domain unset::No tag_domain for this profile — "
+    "postings are tagged with NO field lens and the generic seniority ladder "
+    "(Entry..VP), which is weaker than a domain-shaped tagger and is the "
+    "reason to set one. Set `tag_domain` in users/<name>/profile.yaml."
+)
+
+
+def unset_domain_warning(domain) -> str:
+    """The line a tagging worker prints when it runs without a stated domain.
+
+    Empty string when a domain IS stated, so callers can `if warning: print`.
+
+    Degraded is not healthy (#252/#255). A domain-less tag run is not idle —
+    it still extracts every fact that has nothing to do with the seeker's
+    field (comp, YoE, work model, skills, industry), which is exactly why it
+    runs at all instead of skipping and leaving the whole feed permanently
+    `needs-info`. But it IS running weaker than a configured one, and until
+    #253 it did so silently AND wrongly, tagging through one person's domain.
+    """
+    return "" if domain_or_unset(domain) else UNSET_DOMAIN_WARNING
+
+
+def system_prompt(domain: str = "") -> str:
     """The tagger is domain-parameterized: the same extraction, told what kind
     of posting it is reading. Hardcoding 'product-manager' here is exactly what
-    blocked a second user."""
-    ladder = SENIORITY_LADDERS.get(domain, SENIORITY_LADDERS["generic"])
+    blocked a second user. An unset domain tells the model nothing about the
+    field rather than telling it somebody else's."""
+    label = _domain_label(domain)
     return (
-        f"You tag {_domain_label(domain)} job postings for a job seeker. "
-        "Extract ONLY what the posting actually states. When a field is not stated, "
+        f"You tag {label + ' ' if label else ''}job postings for a job seeker. "
+        # "field" below already means a tag field, so this says profession.
+        + ("" if label else
+           "The seeker's profession is not stated: read each posting on its "
+           "own terms and never assume one. ")
+        + "Extract ONLY what the posting actually states. When a field is not stated, "
         "return an empty string (or an empty list for skills) — never guess or invent. "
         "Condense each requirement/qualification to at most 5 words. "
-        f"Normalize seniority to exactly one of: {ladder}."
+        f"Normalize seniority to exactly one of: {_ladder(domain)}."
     )
 
 
-def tag_tool(domain: str = DEFAULT_DOMAIN) -> dict:
-    ladder = SENIORITY_LADDERS.get(domain, SENIORITY_LADDERS["generic"])
+def tag_tool(domain: str = "") -> dict:
+    label = _domain_label(domain)
     tool = {k: (dict(v) if isinstance(v, dict) else v) for k, v in _TAG_TOOL.items()}
-    tool["description"] = (f"Emit structured tags extracted from a "
-                           f"{_domain_label(domain)} job description.")
+    if label:
+        tool["description"] = (f"Emit structured tags extracted from a "
+                               f"{label} job description.")
     props = {k: dict(v) for k, v in _TAG_TOOL["input_schema"]["properties"].items()}
     props["seniority"] = dict(props["seniority"],
-                              description=f"One of {ladder}. Empty if unclear.")
+                              description=f"One of {_ladder(domain)}. Empty if unclear.")
     tool["input_schema"] = dict(_TAG_TOOL["input_schema"], properties=props)
     return tool
 
@@ -128,7 +186,7 @@ def _tool_input(message) -> dict:
 
 
 def extract_tags(jd_text: str, title: str, company: str, *, client=None,
-                 domain: str = DEFAULT_DOMAIN) -> Tags:
+                 domain: str = "") -> Tags:
     if not jd_text or not jd_text.strip():
         return Tags()
     client = client or _default_client()

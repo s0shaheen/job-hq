@@ -379,3 +379,34 @@ def test_untaggable_regate_uses_stored_geo_and_seniority():
     # falls to the seniority proxy -> filtered, NOT geo-unknown
     d, reason = store.dispositions["greenhouse-4"]
     assert d == "filtered" and reason == "seniority:Director"
+
+
+# ---- the tagger's domain (#253)
+
+def _domains_seen(domain_arg, seen):
+    def extract(jd, title, company, *, client=None, domain=None):
+        seen.append(domain)
+        return Tags(yoe="5+")
+
+    review_feed(_store([_rec("greenhouse-1", status="Seen")]), today=TODAY,
+                fetch=_fetch_const("Own the roadmap end to end"), extract=extract,
+                workers=1, domain=domain_arg)
+    return seen
+
+
+def test_the_backlog_drain_does_not_borrow_a_domain_it_was_not_given(capsys):
+    """review.py used to resolve an absent domain to the owner's
+    ("product-manager"), so the nightly drain re-read every other user's feed
+    through one person's field (#253)."""
+    for absent in (None, "", "   "):
+        assert _domains_seen(absent, []) == [""]
+    out = capsys.readouterr().out
+    assert out.count("::warning title=Tagger domain unset::") == 3
+    assert "tag_domain" in out
+
+
+def test_the_backlog_drain_passes_a_stated_domain_through_and_stays_quiet(capsys):
+    from core.profile import Profile
+    assert _domains_seen(Profile().tag_domain, []) == ["product-manager"]
+    assert _domains_seen("finance", []) == ["finance"]
+    assert "Tagger domain unset" not in capsys.readouterr().out

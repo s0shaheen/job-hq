@@ -299,7 +299,14 @@ figure in `apply-fixtures.ts` must be gone from rendered output, not merely rena
 
 In dependency order:
 
-1. `core/config_defaults.yaml` and `core/profile.py` — worker defaults.
+1. `core/config_defaults.yaml`, `core/profile.py` and `monitor/tagging.py` — worker
+   defaults. The tagger belongs here, not with the taxonomy in (3): its
+   `DEFAULT_DOMAIN = "product-manager"` made an unset `tag_domain` read every posting
+   through the owner's field, which is the *unset-acquires-a-value* bug, not the ladder
+   question. Fixed in #253 — unset now claims no field, keeps the neutral seniority
+   alphabet the three named families already fall back to, and says so once per run
+   (a weaker-than-configured lane must not look healthy, per #252/#255). The four
+   `SENIORITY_LADDERS` families themselves are (3)'s problem and were left alone.
 2. `webapp/lib/profile/criteria.ts` — make the write-path fallback an explicit *unset*
    state, not a different default. A generic default is still a default; the bug is that a
    blank field silently acquires a value.

@@ -67,12 +67,19 @@ def _inline_tag_max(cfg_default: int) -> int:
 
 
 def make_tagger(session_factory=requests.Session, *, jd_fetch=None, extract=None,
-                domain: str = tagging.DEFAULT_DOMAIN):
+                domain: str = ""):
     """(JobRecord, slug) -> Tags|None. None = no JD source (stays untagged;
     review.py retries nightly). Raises on fetch/LLM failure so the caller can
     count it and move on — a tag failure never blocks the append. Runs under a
     thread pool at discovery, so each worker thread gets its own session
-    (requests.Session is not thread-safe)."""
+    (requests.Session is not thread-safe).
+
+    An unset `domain` tags without a field lens and says so once, here — the
+    factory is built exactly once per sweep, and a tagger running weaker than
+    it should must not look identical to a configured one (#253)."""
+    warning = tagging.unset_domain_warning(domain)
+    if warning:
+        print(warning)
     jd_fetch = jd_fetch or jobcontent.fetch_description
     extract = extract or tagging.extract_tags
     get_session = tagworker.session_pool(session_factory)

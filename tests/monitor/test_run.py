@@ -508,3 +508,41 @@ def test_a_store_failure_fails_the_sweep_and_withholds_the_heartbeat(monkeypatch
     # The sheet lane is untouched by the abort — it finished before pg was called.
     assert (tmp_path / "hq.json").exists()
     assert not _beat(hq), "a sweep that could not write the store must not claim it ran"
+
+
+# ---- the tagger's domain (#253)
+
+def _tag_one(domain):
+    """Drive the sweep's tagger factory end to end; returns the domains it
+    handed the extractor."""
+    seen = []
+
+    def extract(jd_text, title, company, *, client=None, domain=None):
+        seen.append(domain)
+        return Tags(yoe="3+")
+
+    tagger = run_mod.make_tagger(jd_fetch=lambda *a, **k: "a real job description",
+                                 extract=extract, domain=domain)
+    rec = JobRecord(id="greenhouse-1", company="Acme", title="Staff Nurse",
+                    location="NYC", url="http://x", status="New",
+                    first_seen=TODAY, last_seen=TODAY, posted="")
+    tagger(rec, "acme")
+    return seen
+
+
+def test_the_sweep_tags_a_domainless_profile_without_borrowing_a_domain(capsys):
+    """#253: `make_tagger()`'s default used to be the owner's tag_domain, so a
+    profile that named no field still tagged every posting through it."""
+    assert _tag_one("") == [""]
+    out = capsys.readouterr().out
+    assert "::warning title=Tagger domain unset::" in out, \
+        "a tagger running with no field lens must not look like a configured one"
+    assert "tag_domain" in out
+
+
+def test_the_sweep_passes_a_stated_domain_through_and_stays_quiet(capsys):
+    """The live flat lane (Profile.tag_domain = product-manager) is unchanged."""
+    from core.profile import Profile
+    assert _tag_one(Profile().tag_domain) == ["product-manager"]
+    assert _tag_one("finance") == ["finance"]
+    assert "Tagger domain unset" not in capsys.readouterr().out

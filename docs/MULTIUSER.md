@@ -54,6 +54,14 @@ reading "product-manager job postings" and to normalize seniority to
 `APM..VP`. Pointed at an FP&A posting that produces junk, and the YoE-unknown
 gate then acts on the junk. Ladders live in `monitor/tagging.py`.
 
+Leaving `tag_domain` out is now a real answer rather than a silent one (#253):
+the tagger claims no field, reads each posting on its own terms, normalizes
+seniority to the neutral `Entry..VP` alphabet, and prints a
+`::warning title=Tagger domain unset::` line once per sweep. Every other tag —
+comp, YoE, work model, skills, industry — is unaffected, so a domain-less
+profile still gets a working feed; it just gets a blunter one than a profile
+that names its field. What it never gets is somebody else's field.
+
 `metros` is the grain a local search needs. Chicago spans Illinois, Indiana
 and Wisconsin suburbs that never contain the word "Chicago" (Naperville,
 Hammond, Kenosha), while `state: IL` would admit Peoria, 170 miles away.

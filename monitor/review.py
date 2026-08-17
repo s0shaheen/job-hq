@@ -96,7 +96,13 @@ def review_feed(store: SheetStore, *, today: str | None = None,
     session = session or requests.Session()
     fetch = fetch or jobcontent.fetch_description
     extract = extract or tagging.extract_tags
-    domain = domain or tagging.DEFAULT_DOMAIN
+    # Unset stays unset: an absent domain used to become the deployment
+    # owner's, so this lane drained the backlog through one person's lens
+    # (#253). Announced once per sweep for the same reason make_tagger does.
+    domain = tagging.domain_or_unset(domain)
+    domain_warning = tagging.unset_domain_warning(domain)
+    if domain_warning:
+        print(domain_warning)
     if time_budget_min is None:
         time_budget_min = float(os.environ.get("REVIEW_TIME_BUDGET_MIN", "40"))
     workers = _int_arg(workers, "REVIEW_WORKERS", 8)
