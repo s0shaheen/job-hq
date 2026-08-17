@@ -151,7 +151,7 @@ security/privacy analysis, rollout, reversibility, and evidence.
 | ADR-012 | Privacy/terms, processor list, AI no-training/data-use posture, consent versioning | Invitations |
 | ADR-013 | Submission receipt evidence classes, screenshot prohibition/redaction, access, retention | Receipt storage/classification |
 | ADR-014 | Resume feature matrix: imports, RenderCV schema/themes/fonts, job-specific AI tailoring, lossy behavior | Resume design/build |
-| ADR-015 | Stripe test ownership and later commercialization policy | Billing integration |
+| ADR-015 | Stripe test ownership and later commercialization policy. **Two further questions recorded 2026-08-16 from #210 — see §2.2** | Billing integration |
 | ADR-017 | ntfy topic rotation: the committed topic literals are live credentials and one of them is the `resume.yml` fallback that broadcasts rendered resumes to a public broker. Owner must create replacements, and decide whether already-broadcast material is treated as exposed | RM-40 Step 1; any public repository visibility |
 | ADR-018 | Third-party personal data: `users/dad/` and `users/roommate/` are two other people's job-search profiles, in history and in every clone. Deletion does not retract them. Decide whether those individuals are notified | RM-40 Step 6 |
 | ADR-019 | Legacy resume pipeline disposition: vaulting `resume/base.yaml` breaks the single-tenant `editor/` app, `resume.yml`, and `scripts/publish_to_drive.py`. Retire, repoint, or keep them outside the product repository | RM-40 Step 5 |
@@ -223,6 +223,53 @@ three trade-offs; rule on whether the egress trial may run against real employer
 is an external-side-effect approval; rule on whether a vendor whose hosted business is
 CAPTCHA bypass may be used for its self-hosted product; authorize or decline an approach
 to SmartRecruiters about partner API access. Signing this ADR makes ADD-003 blocking.
+
+### 2.2 ADR-015 — two questions the billing seam cannot be designed without
+
+Recorded 2026-08-16 from #210, which wrote the entitlement boundary's commercial seam into
+`docs/specs/user-entitlement.md` and found these two unanswered. Neither is answerable by
+an implementer. Neither blocks the pilot: founding users are free forever and nothing
+charges. Both block the first line of billing code, and the second one also blocks #261.
+
+**Q1 — How is the founding exemption assigned and removed?** Contract v2 §6 says the owner
+"explicitly assigns `founding_free` to each invited first-user account through an audited
+activation command", that assignment survives ordinary suspension/reactivation, and that it
+"can be removed only through a separately confirmed, audited owner action". The store does
+not match that in three ways. The column is `entitlements.invited`, not `founding_free` —
+that string exists in no migration and no webapp file. It is set by the signup trigger
+`handle_new_auth_user()` from `public.allowed_emails`, and signup deliberately writes **no
+`events` row**, so the assignment is unaudited. And `hq_activate_user` does not touch
+`invited` at all, so an owner turning on a pending, non-allowlisted account gets
+`invited = false` with no audited path to change it and no removal path at any time —
+direct DML is the only route in both directions.
+
+Requested: confirm `invited` **is** the contract's `founding_free` (so the contract can be
+amended to the shipped name rather than the schema growing a synonym); and decide whether
+the audited set/remove RPC pair is built now, built with the first paid tier, or declared
+unnecessary for a two-user pilot. The answer decides whether §D of the entitlement spec is
+a build item or stays a recorded gap.
+
+**Q2 — Is the warm daily cap a provider-spend limit or a commercial quota?** One number,
+two readings, opposite answers for user #1. `HQ_WARM_DAILY_CAP` (default 20/day) is applied
+by `app_start_warm_search` unconditionally — the RPC branches on neither `invited` nor
+`plan`. `webapp/lib/warm/config.ts` documents it as a cap "on SPEND", which §6 permits for
+a founding user. Contract §6 promises founding users "no company, job, **search**,
+referral-result, resume, or submission quota", and FP-REF-003 wants the 40-result target
+"without a founding-user quota" — under which reading the cap is a promise already broken.
+The product says the second thing out loud: `/settings/plan` renders "Free forever, with
+no usage limits on the product itself." to every invited account.
+
+Requested: classify the cap. If provider-spend, the UI sentence needs amending, because it
+currently promises something the store does not deliver. If a commercial quota,
+`app_start_warm_search` needs to skip it for `invited` and the owner accepts uncapped
+harvestapi spend for founding accounts.
+
+**Q2 is the general rule, not one number.** #261 has to classify every bound it adds — the
+per-user rate bound on the `app_*` RPCs, per-user concurrency, and the outbound-fetch rate
+on quick-add resolve and warm — as security/abuse, provider-spend, or reliability (all of
+which a founding user is subject to) versus a commercial quota (which `invited` is promised
+exemption from). Answering Q2 answers that rule once. Answering it separately in #261
+produces two rules for one distinction, so the two should be decided together.
 
 ## 3. Resolved ADRs
 
