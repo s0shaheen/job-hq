@@ -23,6 +23,20 @@ database to run a command as the authenticated owner.
 - `public.events` — the audit ledger (`0001_init.sql`), written in the same transaction
   as the row change; update/delete revoked from browser roles (`0002_invariants.sql`).
 - Version tokens are plain `updated_at` columns on the written rows.
+- `public.rate_bounds` / `public.usage_counters` —
+  `20260817_011844_per_user_rate_bounds.sql` (#261): the bound catalog and the
+  durable per-user meter. No browser role holds any privilege on either.
+  `usage_counters` carries the entitlement pair (its rows are owned, and the guard
+  is the entire boundary inside a definer, where RLS does not apply);
+  `rate_bounds` deliberately does not (no `user_id`, so the guard's ownership half
+  is inexpressible, so a future write grant plus a permissive write policy would
+  let any entitled account raise its own limits — `allowed_emails`' situation, and
+  the grant system is the answer). Counters cascade with the account. Not every
+  bound is a counter: `rate_bounds.is_chargeable = false` marks a bound enforced
+  from live state (`warm.concurrent` reads `warm_searches.status`), and the charge
+  refuses it with `22023` — without that flag a catalogued short-window meter is a
+  browser-reachable way to mint durable counter rows for a bound that refuses
+  nothing. Retiring a meter deletes its counters first; the FK is `RESTRICT`.
 
 ## Who reads and writes it
 
@@ -89,6 +103,36 @@ is server-only and used by the capture and digest handlers alone.
 - **Result shapes** — `app_*_row()` helpers (`0003`, `0008`, `0010`, `0021`, `0025`,
   `0026`, `20260814_021627`) keep RPC results and reads byte-compatible; they are
   deliberately not security definer.
+- **Bounds** — a command may be metered. The durable surface is
+  `public.rate_bounds` (the catalog) and `public.usage_counters`
+  (`(user_id, meter, window_start)`), `20260817_011844_per_user_rate_bounds.sql`.
+  The charge is `hq_charge_rate_bound(user, meter)` called explicitly from inside
+  the RPC — not a trigger, because a trigger fires per ROW (a bulk gesture writing
+  40 rows would pay 40) and cannot meter work that happens outside the database at
+  all. **The one ordering rule: the charge sits strictly BELOW every replay check
+  and strictly ABOVE the write.** A bound at the route, or at RPC entry above
+  `hq_command_replay`, makes a retried gesture pay twice for work performed once,
+  which the emailed-link lane does by design. If a command re-checks the replay
+  under a row lock (the `0003`/`0026` double-check shape), the charge moves below
+  that check too. **A transaction charging more than one meter must charge them in
+  ascending `meter` order** — the increment holds a row lock to commit, and two
+  meters charged in opposite orders deadlock (measured: 17 of 20 with `40P01`).
+  Nothing does that today; the rule is written before the second meter exists
+  because afterwards it is an intermittent production `40P01`. Nothing leases a
+  slot either: concurrency is live in-flight state or
+  `pg_advisory_xact_lock`, both of which release on the replay-return path as well
+  as on commit, so there is nothing to leak. The charge is in the write's
+  transaction, so a raise anywhere below it un-charges — including the raise that
+  trips the bound, which is why `units` rests at the bound rather than climbing
+  while refused. Over the bound raises SQLSTATE `HQBND` with the meter in `DETAIL`
+  and the retry horizon in `HINT`; `supabase-source.ts` matches the code, never the
+  message, and the route answers 429. **Not every metered path is a command:**
+  quick-add's resolve (a server action) reads pages and `/api/export` (a route)
+  rebuilds a whole file, both writing nothing — so the app-side seam is
+  `DataSource.chargeRateBound(meter)` → `app_charge_rate_bound`, which is what
+  lets the mechanism reach server actions and route handlers as well as RPCs. The
+  fixture twin always allows and says why (no network, no vendor, no shared
+  capacity — `lib/quickadd/rate.ts`'s asymmetry, generalised).
 
 ## Hardening around the pattern
 
@@ -104,6 +148,15 @@ is server-only and used by the capture and digest handlers alone.
 - One command, one logical effect, one audit event, one durable result. A replayed key
   must return the first result, never apply twice.
 - Conflicts are surfaced, never silently merged; the server's row wins the screen.
+- A bound is charged once per GESTURE, never per retry and never per row. Which
+  commands are bounded today is asserted exact in both directions by
+  `tests/db/test_rate_bounds.py::test_the_bounded_command_set_is_exact`, derived
+  from `pg_proc.prosrc` — that test is what pays for choosing an explicit call
+  over a trigger, which could not have been forgotten. The values are
+  PLACEHOLDERS pending an owner decision (#261, to be answered with #210's
+  warm-cap classification): `rate_bounds.is_placeholder` says so per row, and
+  `bound_class` cannot hold `commercial`, which is the only class founding users
+  are exempt from.
 - **`command_idempotency` rows are never deleted on a schedule.** A digest email's
   one-click link has no revocation table: the row IS its single-use guarantee, keyed on
   the token's `jti` (`0019_digest_action.sql`, `core/digest_links.py`). Pruning by age

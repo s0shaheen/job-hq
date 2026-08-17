@@ -264,6 +264,17 @@ def full_user(conn, tag: str) -> dict:
     conn.execute(
         "insert into public.notification_outbox (user_id, dedupe_key, event) "
         "values (%s, %s, 'digest')", (uid, str(uuid.uuid4())))
+    # The durable per-user meter (#261). It CASCADES, and that is a decision with
+    # a stated cost rather than a default: `(user_id, meter, window_start, units)`
+    # is behavioural telemetry about a person, so it does not outlive the account
+    # — at the price that a deleted-and-recreated account gets a fresh budget,
+    # which is affordable only while every window is short (the
+    # `rate_bounds_window_is_short` CHECK is what makes a long one arrive loudly).
+    # A meter that ever needs to survive deletion is a third survivor class and
+    # an owner ruling, not a schema tweak.
+    conn.execute(
+        "insert into public.usage_counters (user_id, meter, window_start, units) "
+        "values (%s, 'quickadd.resolve', now(), 1)", (uid,))
     # The transactional-mail ledger and suppression list (#203) both carry the
     # account's ADDRESS — `recipient` / `address` — which is exactly what the
     # post-delete identifier sweep hunts for. Their `on delete cascade` is what

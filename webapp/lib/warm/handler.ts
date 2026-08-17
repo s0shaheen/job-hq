@@ -150,6 +150,14 @@ export async function handleWarmStart(
   if (!started.ok) {
     if (started.kind === "auth") return fail("Your session expired — sign in again.", 401);
     if (started.kind === "over-cap") return NextResponse.json({ error: started.message }, { status: 429 });
+    // #261: the per-user burst and in-flight bounds. Same 429 as the daily cap
+    // — `warm-intro-cell.tsx` keys the refusal panel off the STATUS and renders
+    // `body.error` verbatim, so a rate refusal lands in a designed state with
+    // the correct sentence and no component invents anything. A different
+    // sentence, deliberately: the cap's copy names a 24-hour reset.
+    if (started.kind === "rate-limited") {
+      return NextResponse.json({ error: started.message }, { status: 429 });
+    }
     return fail(started.message, 400);
   }
 

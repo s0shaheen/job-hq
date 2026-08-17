@@ -249,6 +249,20 @@ export type ResolveJobLinksResult =
   | { ok: false; kind: "error"; message: string };
 
 /**
+ * The outcome of charging a per-user bound (#261).
+ *
+ * `rate-limited` carries the sentence already resolved from the meter, because
+ * the database's own message names the meter and the numbers and a refusal says
+ * what to do rather than what said no. `error` is deliberately NOT a pass: an
+ * unreachable meter is not permission to spend the capacity it was bounding.
+ */
+export type ChargeRateBoundResult =
+  | { ok: true }
+  | { ok: false; kind: "auth" }
+  | { ok: false; kind: "rate-limited"; message: string }
+  | { ok: false; kind: "error"; message: string };
+
+/**
  * One confirmed job, as the user left it on screen.
  *
  * `company` and `title` may both be empty, and that is the point the legacy
@@ -439,6 +453,16 @@ export type StartWarmSearchResult =
   | { ok: true; search: WarmSearchView }
   | { ok: false; kind: "auth" }
   | { ok: false; kind: "over-cap"; message: string }
+  /**
+   * `rate-limited` is the per-user rate / in-flight refusal (#261), and it is a
+   * separate arm from `over-cap` rather than a reuse of it. Both become a 429,
+   * and the surface renders whichever sentence arrives — but `over-cap` says
+   * "the count resets 24 hours after each search", which is false about a burst
+   * bound and about an in-flight bound, and the two are not even the same class
+   * of limit (a commercial quota vs a security/provider/reliability one, which
+   * is the distinction founding users' exemption turns on).
+   */
+  | { ok: false; kind: "rate-limited"; message: string }
   | { ok: false; kind: "error"; message: string };
 
 export type AttachWarmRunInput = { id: string; runs: WarmVendorRun[] };
@@ -1114,6 +1138,23 @@ export interface DataSource {
   // ---- quick add (RM-12) --------------------------------------------------
 
   /** Read pasted links: split, key, parse with provenance, flag duplicates. */
+  /**
+   * Charge one unit against a per-user bound, for work this process is about to
+   * do that no command RPC covers (#261).
+   *
+   * On the interface rather than inside one method because the expensive
+   * user-driven paths are not all commands: quick-add's resolve reads pages,
+   * `/api/export` regenerates a whole file. Both are server-side work a signed-in
+   * caller can ask for as fast as we answer, and neither has an `app_*` RPC to
+   * charge inside.
+   *
+   * The FIXTURE twin always allows, and that asymmetry is the point rather than a
+   * parity gap — `ResolveRateGate`'s shipped reasoning, generalised. A fixture
+   * export builds rows from an in-memory table and a fixture resolve is a map
+   * lookup; there is no capacity and no vendor to protect, so a gated fake would
+   * rate-limit a demo for the cost of nothing.
+   */
+  chargeRateBound(meter: string): Promise<ChargeRateBoundResult>;
   resolveJobLinks(input: ResolveJobLinksInput): Promise<ResolveJobLinksResult>;
   /** Track one confirmed posting. Idempotent; a duplicate says so. */
   addJob(input: AddJobInput): Promise<AddJobResult>;

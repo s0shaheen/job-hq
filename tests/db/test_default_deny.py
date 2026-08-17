@@ -557,6 +557,28 @@ AUTHENTICATED_CANNOT_READ: dict[str, str] = {
         "server lane only. 20260813_055534 (#203), same posture: the bounce/"
         "complaint list is consulted inside hq_email_claim_send by the service "
         "role, and a browser session has no question that needs it.",
+    "rate_bounds":
+        "the operator's bound catalog (#261, 20260817_011844). `revoke all` from "
+        "`public, anon, authenticated`, and the grant system is the PRIMARY "
+        "control — `allowed_emails`' answer. The entitlement pair is armed anyway "
+        "(the notification_outbox shape, and what test_owner_bypass.py requires of "
+        "every unforced table), with one honest caveat recorded in the migration: "
+        "the rows have no `user_id`, so the guard's ownership half passes "
+        "vacuously and only its entitlement half does work. That is additive on "
+        "top of an RLS-denies-everything table, not a substitute for the revoke. "
+        "tests/db/test_rate_bounds.py asserts the zero-privilege property "
+        "directly, in both directions.",
+    "usage_counters":
+        "the durable per-user meter (#261, 20260817_011844). `revoke all` from "
+        "`public, anon, authenticated`: nothing in the approved design shows a "
+        "user their usage — the usage surface is ADD-006 and unbuilt (#210) — and "
+        "a table a browser cannot reach is one fewer surface to gate. The "
+        "self-read policy AND the entitlement pair are both written with no grant "
+        "behind them, the notification_outbox shape verbatim, so a later "
+        "`grant select` arrives already gated. Unlike rate_bounds the guard "
+        "trigger also does real work TODAY: the charge runs inside a security "
+        "definer where RLS does not apply, so a suspended account is refused at "
+        "the counter before the command it was driving reaches its own write.",
 }
 
 

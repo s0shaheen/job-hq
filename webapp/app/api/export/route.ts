@@ -1,5 +1,6 @@
 import { entitlementRefusal, refuseUnlessEntitled } from "@/lib/auth/api-guard";
 import { getDataSource } from "@/lib/data/get-source";
+import { METERS } from "@/lib/limits/bounds";
 import { isDemoMode, type DataSource } from "@/lib/data/source";
 import { getSupabaseEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
@@ -147,6 +148,31 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const src = await getDataSource();
+
+    // THE PER-USER BOUND (#261), charged before a single row is read.
+    //
+    // This route is the cheapest amplification in the product and it had no
+    // bound of any kind: a ~100-byte POST regenerates the caller's entire
+    // dataset — up to 999 rows through `s.queue({ limit: 999 })`, and for
+    // `xlsx` through a zip writer — as often as it is asked, with no payload
+    // cap in front of it either. Auth and entitlement both answer "may you",
+    // never "how often".
+    //
+    // Charged HERE rather than inside an RPC because there is no command here:
+    // an export writes nothing. `chargeRateBound` is the seam for exactly this
+    // — server-side work a signed-in caller can ask for that no `app_*` RPC
+    // covers — so the mechanism reaches route handlers and server actions, not
+    // only RPCs.
+    const charged = await src.chargeRateBound(METERS.exportBuild);
+    if (!charged.ok) {
+      if (charged.kind === "auth") {
+        return fail("Your session expired. Sign in again to export.", 401);
+      }
+      // 429 for the bound, and the same 429 shape the warm route uses; anything
+      // else is a refusal we could not evaluate, which is not permission.
+      return fail(charged.message, charged.kind === "rate-limited" ? 429 : 503);
+    }
+
     const { body, rows } = await (req.dataset === "jobs"
       ? build(JOBS, req, src, "jobs")
       : build(APPLICATIONS, req, src, "applications"));

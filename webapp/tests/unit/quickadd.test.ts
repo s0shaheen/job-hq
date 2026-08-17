@@ -318,9 +318,15 @@ describe("the resolve rate gate", () => {
     expect(refused).toEqual({ ok: false, kind: "error", message: RESOLVE_RATE_MESSAGE });
 
     // And an open gate answers the resolve itself — free text only, so the
-    // resolver needs neither the network nor the stub client.
+    // resolver needs neither the network nor a real client. The `rpc` stub is
+    // the DURABLE bound (#261), which the open gate falls through to: with the
+    // in-memory pre-filter passing, the charge is what decides.
     const open = { allow: () => true } as unknown as ResolveRateGate;
-    const allowed = new SupabaseDataSource({} as SupabaseClient, "user-a", open);
+    const allowed = new SupabaseDataSource(
+      { rpc: async () => ({ data: 1, error: null }) } as unknown as SupabaseClient,
+      "user-a",
+      open,
+    );
     const result = await allowed.resolveJobLinks({ pasted: "Ramp, Product Manager" });
     expect(result.ok).toBe(true);
   });

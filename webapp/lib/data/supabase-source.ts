@@ -6,6 +6,7 @@ import type {
   AddJobInput,
   AddJobResult,
   ResolveJobLinksInput,
+  ChargeRateBoundResult,
   ResolveJobLinksResult,
   AppWriteResult,
   CommitImportInput,
@@ -88,6 +89,13 @@ import type {
   WarmVendorRun,
 } from "./source";
 import { APPLY_LIBRARY_LIMIT, CONNECTION_LIST_LIMIT, IMPORT_LIST_LIMIT } from "./source";
+import {
+  envMax,
+  isRateBound,
+  METERS,
+  rateBoundMessage,
+  type MeterName,
+} from "@/lib/limits/bounds";
 import { warmDailyCap, WARM_CAP_SQLSTATE, warmOverCapMessage } from "@/lib/warm/config";
 import { WARM_PERSONAS } from "@/lib/warm/types";
 import type {
@@ -1270,14 +1278,55 @@ export class SupabaseDataSource implements DataSource {
    * would answer a question about somebody else's queue, which is a
    * cross-account disclosure dressed as a convenience.
    */
+  /**
+   * Charge one unit against a per-user bound (#261).
+   *
+   * FAILS LOUD on anything unexpected, `app_add_job`'s precedent: an unreachable
+   * meter is not permission to spend the capacity it was bounding. That includes
+   * the window between a deploy and the `db-apply` run that creates the function
+   * — the refusal is correct there too, and it is why database changes never
+   * ride along with a deploy in this repo.
+   */
+  async chargeRateBound(meter: string): Promise<ChargeRateBoundResult> {
+    const { error } = await this.supabase.rpc("app_charge_rate_bound", {
+      p_meter: meter,
+      p_max: envMax(meter as MeterName),
+    });
+    if (!error) return { ok: true };
+    if (error.code === "28000") return { ok: false, kind: "auth" };
+    if (isRateBound(error)) {
+      // The sentence comes from the meter PostgREST carries in `details`, never
+      // from the database's message, which names the meter and the numbers.
+      return { ok: false, kind: "rate-limited", message: rateBoundMessage(error.details) };
+    }
+    return { ok: false, kind: "error", message: "Couldn't check your usage limit right now." };
+  }
+
   async resolveJobLinks(input: ResolveJobLinksInput): Promise<ResolveJobLinksResult> {
     // The abuse damper, BEFORE anything resolves: a refused call performs no
     // outbound read and no duplicate lookup. The bound and its reasoning live
     // in `lib/quickadd/rate.ts`; the fixture twin carries no gate because its
     // page reads are an in-memory table — the capability this bounds is the
     // network, and only this source has one.
+    //
+    // #261: this in-memory gate is now a PRE-FILTER, not the bound. It is kept
+    // because it is free and it refuses a runaway client without a round trip,
+    // and it is carried at the SAME number as the catalogue's `quickadd.resolve`
+    // row — so with one server instance the two agree exactly and with N
+    // instances the durable one below bites first. What it cannot do is what the
+    // durable one does: hold across instances and across restarts.
     if (!this.resolveGate.allow(this.userId)) {
       return { ok: false, kind: "error", message: RESOLVE_RATE_MESSAGE };
+    }
+    // THE DURABLE BOUND, charged before any outbound read. There is no command
+    // RPC here to charge inside — resolve reads pages and writes nothing — so
+    // the meter is charged by its own call (the migration's decision 3).
+    const charge = await this.chargeRateBound(METERS.quickaddResolve);
+    if (!charge.ok) {
+      if (charge.kind === "auth") return { ok: false, kind: "auth" };
+      // The resolve surface has ONE refusal shape — an inline sentence — so both
+      // a bound and an unreachable meter land in it. Nothing new is invented.
+      return { ok: false, kind: "error", message: charge.message };
     }
     const links = await resolveJobLinksWith(input.pasted, {
       readPage: (url) => readPosting(url),
@@ -1430,6 +1479,14 @@ export class SupabaseDataSource implements DataSource {
       // not the message, so the copy can change without becoming load-bearing.
       if (error.code === WARM_CAP_SQLSTATE) {
         return { ok: false, kind: "over-cap", message: warmOverCapMessage(cap) };
+      }
+      // #261: the per-user rate and in-flight bounds. A DIFFERENT arm from
+      // `over-cap` on purpose — the daily cap's sentence names a 24-hour reset,
+      // which is false about both of these, and their class is not the same
+      // question. Matched on the code; the sentence comes from the meter
+      // PostgREST carries in `details`, never from the database's own message.
+      if (isRateBound(error)) {
+        return { ok: false, kind: "rate-limited", message: rateBoundMessage(error.details) };
       }
       return { ok: false, kind: "error", message: error.message };
     }

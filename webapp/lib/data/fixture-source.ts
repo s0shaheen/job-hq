@@ -83,6 +83,7 @@ import type {
   UnpinWarmIntroInput,
   UnpinWarmIntroResult,
   ResolveJobLinksInput,
+  ChargeRateBoundResult,
   ResolveJobLinksResult,
   AddJobInput,
   AddJobResult,
@@ -1508,6 +1509,24 @@ export class FixtureDataSource implements DataSource {
    * network capability here to bound, and a gated fake would rate-limit the
    * e2e suite's one shared demo user into flake.
    */
+  /**
+   * Always allows, and that is the parity answer rather than a parity gap (#261).
+   *
+   * The rate gate's shipped reasoning, generalised: the Supabase source bounds a
+   * NETWORK and a database's capacity, and this one has neither. A fixture
+   * resolve is a lookup in the table above; a fixture export builds rows from
+   * memory. There is no vendor bill, no outbound read and no shared instance to
+   * protect, so a gated fake would rate-limit the E2E suite's one shared demo
+   * user into flake for the cost of nothing.
+   *
+   * The capability the bound protects exists only where the store and the
+   * network do — which is the same sentence `lib/quickadd/rate.ts` already
+   * carries, and the reason the fixture twin is honest rather than symmetric.
+   */
+  async chargeRateBound(_meter: string): Promise<ChargeRateBoundResult> {
+    return { ok: true };
+  }
+
   async resolveJobLinks(input: ResolveJobLinksInput): Promise<ResolveJobLinksResult> {
     const links = await resolveJobLinksWith(input.pasted, {
       readPage: async (url) => {
