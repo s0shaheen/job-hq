@@ -224,11 +224,13 @@ docker run --rm -v "$PWD":/host mcr.microsoft.com/playwright:v1.61.1-noble bash 
 ```
 
 **`=all`, not bare `--update-snapshots`.** The bare form rewrites only the
-baselines that FAIL, so a shot that changed by less than `maxDiffPixelRatio`
-stays on disk as the old image and the gate goes on defending it. That is how
-the `/jobs` and `/queue` baselines survived a nav item being added to every
-page: passing, and no longer pictures of the app. Re-record the whole set in one
-run, always.
+baselines that FAIL, so a shot that changed by less than the diff budget
+(`maxDiffPixels` in `playwright.config.ts`, 600 for every shot — that file
+carries the measurement) stays on disk as the old image and the gate goes on
+defending it. That is how the `/jobs` and `/queue` baselines survived a nav item
+being added to every page, and how `/connections` was still a picture of the
+whole pre-#121 nav when #248 tightened the budget: passing, and no longer
+pictures of the app. Re-record the whole set in one run, always.
 
 Then check it in CHECK mode, in the same container, **twice** — a baseline
 recorded against its own rendering noise passes the first time by construction.

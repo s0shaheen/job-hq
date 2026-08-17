@@ -36,7 +36,7 @@ import { LAST_STEP } from "@/lib/profile/draft";
  * to re-record:
  *
  *   A bare `--update-snapshots` rewrites ONLY the baselines that fail. Anything
- *   under `maxDiffPixelRatio` silently keeps its old image, and the run still
+ *   under the diff budget silently keeps its old image, and the run still
  *   exits 0 — so a re-record that did nothing is indistinguishable from one that
  *   worked. `=all` is the fix — and its own trap is the mirror image: it
  *   rewrites EVERY file, so afterwards `git status` lists every baseline whose
@@ -66,8 +66,12 @@ test.skip(
  * ruling changed nothing visible in light mode.
  */
 
-// A small tolerance already lives in playwright.config.ts (maxDiffPixelRatio).
-// It absorbs sub-pixel antialiasing without letting a real regression through.
+// The budget lives in playwright.config.ts, it is ABSOLUTE (`maxDiffPixels`),
+// and it is the same number for every shot in this file. The reasoning — why a
+// ratio was the wrong unit, what a removed control and a one-word copy edit
+// each measure, and why the noise floor it is guarding against is zero — is
+// written out there. Do not re-introduce a per-test ratio: `visual-budget.test.ts`
+// fails if either file declares one.
 
 test.beforeEach(async ({ page, context }) => {
   await page.clock.setFixedTime(new Date("2026-07-21T15:00:00.000Z"));
@@ -83,35 +87,25 @@ test("queue looks right", async ({ page }) => {
   await expect(page.locator('[data-testid="triage"][data-ready="true"]')).toBeAttached();
   await page.waitForLoadState("load");
   /**
-   * A TIGHTER tolerance than the project default, on this surface only, and
-   * it is here because the default was measured letting the whole cutover
-   * through.
+   * THIS SHOT IS WHERE THE SUITE'S BUDGET CAME FROM, and it no longer needs an
+   * override to get it.
    *
-   * `maxDiffPixelRatio: 0.02` on a 1280x900 desktop canvas is a budget of
-   * 23,040 pixels. Today is a single 760px column on a mostly empty page, so
-   * replacing the ENTIRE surface — the one-card stack became the owner's
-   * list, and #121 had already replaced the nav beside it — moves 21,964
-   * pixels. That is under budget, so the committed desktop baseline still
-   * depicted the pre-#121 nine-link nav and the retired triage card, and the
-   * check went green on a page that no longer existed. Measured, not
-   * suspected: a probe with the ratio set to 0 printed the number.
+   * The history is worth keeping because it is the measurement. Under the old
+   * project default of `maxDiffPixelRatio: 0.02` this 1280x900 canvas had a
+   * budget of 23,040 pixels, and replacing the ENTIRE surface — the one-card
+   * stack became the owner's list, and #121 had already replaced the nav
+   * beside it — moved 21,964. Under budget, so the committed desktop baseline
+   * went on depicting the pre-#121 nine-link nav and the retired triage card,
+   * and the check went green on a page that no longer existed. A probe with
+   * the ratio set to 0 printed the number; nothing about it was suspected.
    *
-   * A ratio is the wrong unit for a sparse surface — it scales the budget
-   * with the empty background rather than with the ink. An absolute budget
-   * does not, and inside the pinned Playwright container font rasterisation
-   * is deterministic, so 600 pixels is generous for antialiasing and far
-   * below anything a person would call a change.
-   *
-   * Scoped to this one assertion deliberately. The other surfaces' baselines
-   * are the previous packets' evidence, and re-tolerancing twelve of them is
-   * its own change with its own re-recording; this is a finding to hand back,
-   * not a licence to churn them.
+   * The fix was `maxDiffPixels: 600` here, plus a note that the other twelve
+   * surfaces still needed it — and `/settings/preferences` then lost a whole
+   * control under the ratio in #247, which is issue #248 and the reason 600 is
+   * now the default for every shot in this file rather than a special case for
+   * this one.
    */
-  await expect(page).toHaveScreenshot("queue-light.png", {
-    fullPage: true,
-    maxDiffPixels: 600,
-    maxDiffPixelRatio: 1,
-  });
+  await expect(page).toHaveScreenshot("queue-light.png", { fullPage: true });
 });
 
 test("the pipeline looks right", async ({ page }) => {

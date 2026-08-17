@@ -9,7 +9,7 @@
 # TWO FAILURE MODES, IN OPPOSITE DIRECTIONS
 #
 # 1. A bare `--update-snapshots` rewrites a file only when the comparison FAILS.
-#    Anything under `maxDiffPixelRatio` keeps its old image and the run exits 0,
+#    Anything under the diff budget keeps its old image and the run exits 0,
 #    so a re-record that did nothing is indistinguishable from one that worked.
 #    `webapp/README.md` has said "`=all`, not bare" for a while and the bare form
 #    has still been used three times — most recently on the Applications cutover

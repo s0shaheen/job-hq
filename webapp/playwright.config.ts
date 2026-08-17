@@ -109,9 +109,56 @@ export default defineConfig({
     baseURL: BASE,
     trace: "on-first-retry",
   },
-  // Small tolerance: font rasterisation differs slightly across machines, and
-  // a zero threshold makes snapshots a nuisance rather than a safety net.
-  expect: { toHaveScreenshot: { maxDiffPixelRatio: 0.02 } },
+  /**
+   * THE SNAPSHOT BUDGET IS ABSOLUTE, NOT A RATIO — and that is the whole of
+   * issue #248.
+   *
+   * It used to be `maxDiffPixelRatio: 0.02`, described as "a small tolerance
+   * for font rasterisation". A ratio scales the budget with the CANVAS, and a
+   * canvas is mostly background, so the emptier a page is the more of it the
+   * gate will let vanish. `/settings/preferences` is 1280x900 with about
+   * 19,600 pixels of drawn detail on it; 2% of that canvas is 23,040 — a
+   * budget LARGER THAN EVERYTHING THE PAGE DRAWS. The gate was not tolerant
+   * there, it was absent.
+   *
+   * Watched to fail, which is the constitution's bar for changing a gate.
+   * During #247 (DEC-014) the Theme select was deleted from that page and the
+   * visual check PASSED against baselines that still contained it. Reproduced
+   * on this branch by deleting the Type size select instead: 3,095 differing
+   * pixels, 13% of the ratio budget, green. The queue had already been given
+   * `maxDiffPixels: 600` in anger for the same reason (its baseline depicted a
+   * surface that no longer existed) and `visual.spec.ts` recorded the finding
+   * that the other twelve surfaces still needed it. This is that change.
+   *
+   * WHY 600, AND WHY ONE NUMBER FOR EVERY SURFACE. The premise of this suite is
+   * that the rendering environment is pinned (one container, one font set), and
+   * measurement says the premise holds exactly: two consecutive full runs at a
+   * ZERO budget produced identical per-shot diffs, and twenty of the twenty-nine
+   * shots differed from their committed baselines by literally 0 pixels. There
+   * is no per-surface rasterisation noise to calibrate a per-surface number
+   * against. What the budget actually has to separate is an edit from a
+   * regression, and both of those are ABSOLUTE quantities — a control is worth
+   * about the same few thousand pixels whether the page around it is sparse or
+   * dense. Measured on `/settings/preferences`: a one-word label edit
+   * ("Keyboard hints" -> "Keyboard shortcuts") moves 102 pixels; a deleted
+   * control moves 3,095. 600 sits between them with 6x headroom over the edit
+   * and 5x under the regression, and it is not a new number — it is the one the
+   * queue has been carrying, green, in CI, which is also the evidence that 600
+   * survives a different machine running this same image.
+   *
+   * REJECTED, both measured rather than argued. A budget scaled to the
+   * baseline's own ink is the shape the issue proposed and it fails on the
+   * dense surfaces: 10% of the edge detail on `/settings/answers` is 29,681
+   * pixels, ten times the signal it would need to catch, so the surfaces with
+   * the most to lose would get the loosest budget. Per-surface hand-tuned
+   * numbers calibrate against a noise floor that is zero, i.e. against nothing,
+   * and go stale the first time a page legitimately grows.
+   *
+   * A genuine layout or spacing change still fails here, deliberately. That is
+   * what a picture is for, and `scripts/record-baselines.sh` is the answer to
+   * it.
+   */
+  expect: { toHaveScreenshot: { maxDiffPixels: 600 } },
   ...(LIVE
     ? {
         globalSetup: "./tests/live/global-setup.ts",
