@@ -18,6 +18,16 @@ memory.
 | `docs/plans/AUTO-APPLY.md` | `8359c8ad727dd69d8e697ae977bfcf2f3b14dca3d66c0149f60b61d1b585845a` |
 | `docs/plans/REFERRAL-FINDER.md` | `0ec6e93f28e42914de7f39bd34994f71991220399d0b830e87fdf775db3c0315` |
 
+**Superseded 2026-08-14 by #270 / #272 — `AGENTS.md` and `CLAUDE.md` are no longer the
+same blob, by design.** The one digest recorded twice above was accurate on 2026-08-02:
+`AGENTS.md` was then a byte-for-byte copy of `CLAUDE.md`, one doctrine under two names.
+That duplication was the drift generator — the copy went stale while `CLAUDE.md` moved —
+so `AGENTS.md` is now a short pointer saying `CLAUDE.md` is the constitution for every
+harness and carries no rules of its own. Expect the two digests to differ; equal digests
+would now be the defect. The 2026-08-02 rows stay as the dated observation they are and
+are not restated here: nothing enforces them, every file above has moved since, and a
+digest re-recorded by hand is the same drift in a new place.
+
 The full-product contract and this package supersede older scope/Sheet/Gmail assumptions
 inside those plans. Their technical inventories remain inputs, not scope authority.
 

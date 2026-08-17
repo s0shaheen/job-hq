@@ -12,12 +12,12 @@ until you approve a plan.
 re-assert + the re-pinned registry + commit). Lambda's `/var/task` is read-only, so that write
 there is silently skipped, and a backup that silently doesn't happen is worse than no backup. It
 stays on GitHub Actions until there's a sink for it (see Known gaps). (`pgdump.yml` was the other
-one; it was gated off with no database behind it and got deleted in the 2026-07-25 workflow
-cleanup — resurrectable from git history.)
+one; it is a refusing tombstone on Actions since PKT-DUMP-DISABLE — no dump may enter git
+(FP-OPS-001) — and its replacement lane, `tracker.pgdump`, is scheduled *here*.)
 The sheet backup itself no longer waits on that: `snapshot` runs here and writes the tab CSVs to
 the S3 bucket in `backups.tf`, so it survives GitHub being down (Actions billing lapse,
-2026-07-24 — 21 h with no backup and no alert). Seven schedules live here: `monitor`, `review`,
-`tracker`, `digest`, `snapshot`, `wide_cafe`, `wide_theirstack`.
+2026-07-24 — 21 h with no backup and no alert). Eight schedules live here: `monitor`, `review`,
+`tracker`, `digest`, `snapshot`, `pgdump`, `wide_cafe`, `wide_theirstack`.
 
 ---
 
@@ -109,7 +109,7 @@ repo named `job-hq-botsatest`.)
 ```sh
 cd infra/terraform
 terraform apply     # the Lambda, IAM roles, the S3 backup bucket (backups.tf),
-                    # 7 schedules x users, and the alerting stack (alerts.tf)
+                    # 8 schedules x users, and the alerting stack (alerts.tf)
 ```
 
 ## 6. Smoke-test one bot before trusting the schedules
@@ -239,11 +239,6 @@ put HQ_DIGEST_EMAIL "engine"                        # the engine-side switch; un
 
 ## Known gaps (all documented, none silent)
 
-- **`pgdump` is deleted, not ported.** There is no live Supabase behind it, so there was nothing to
-  dump, and it sat gated OFF by `PGDUMP_ENABLED` — a workflow file impersonating a backup. Bringing
-  it here instead of to Actions would need a `pg_dump` binary baked into the image *and* a live
-  database. Restore the workflow from git history when both exist (`docs/RUNBOOK.md` § PG snapshot
-  has the commands).
 - **The re-pinned registry still needs Actions.** `selfheal.yml` re-pins `hq.config.yaml` and
   commits it; git is its product, so it stays there. The *sheet* backup no longer depends on that
   (see below) — only the registry half does.
@@ -260,6 +255,12 @@ put HQ_DIGEST_EMAIL "engine"                        # the engine-side switch; un
 
 Closed on this branch (kept here so the history is readable):
 
+- ~~`pgdump` is deleted, not ported.~~ It **is** ported, and it is the store's only backup: the
+  `pgdump` schedule in `var.jobs` fires `tracker.pgdump` daily at **09:13 UTC** and writes
+  `s3://job-hq-backups-<account>/pgdump/public.sql.gz` (versioned; versioning is the history),
+  using the `pg_dump` 17 baked into the bots image by `infra/Dockerfile`. It stays off Actions by
+  rule — `pgdump.yml` is a refusing tombstone and no workflow may produce a dump (FP-OPS-001).
+  Operations, liveness beat and restore are in `docs/RUNBOOK.md` § The store's backup.
 - ~~No per-user fan-out.~~ Schedules are `var.jobs` x the registry's `users:` keys
   (`local.schedules` in `main.tf`), so a second user gets `job-hq-<job>-<user>` lanes firing
   `{"job":..,"user":..}` and the handler exports `HQ_USER` per invocation. Adding a user =
