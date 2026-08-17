@@ -223,11 +223,17 @@ docker run --rm -v "$PWD":/host mcr.microsoft.com/playwright:v1.61.1-noble bash 
 '
 ```
 
+The comparison has TWO tolerances and `playwright.config.ts` carries the
+measurement for both: `maxDiffPixels: 600` is how many differing pixels are
+allowed, and `threshold: 0.01` is whether a pixel counts as differing at all.
+The second one is why a shot can change visibly and still report zero — at
+Playwright's default of 0.2 the first shade change that counts is 53 units, so
+a background token could move under every baseline in the suite unnoticed
+(issue #280, reproduced at 2,401,547 pixels and `29 passed`).
+
 **`=all`, not bare `--update-snapshots`.** The bare form rewrites only the
-baselines that FAIL, so a shot that changed by less than the diff budget
-(`maxDiffPixels` in `playwright.config.ts`, 600 for every shot — that file
-carries the measurement) stays on disk as the old image and the gate goes on
-defending it. That is how the `/jobs` and `/queue` baselines survived a nav item
+baselines that FAIL, so a shot that changed by less than either tolerance stays
+on disk as the old image and the gate goes on defending it. That is how the `/jobs` and `/queue` baselines survived a nav item
 being added to every page, and how `/connections` was still a picture of the
 whole pre-#121 nav when #248 tightened the budget: passing, and no longer
 pictures of the app. Re-record the whole set in one run, always.

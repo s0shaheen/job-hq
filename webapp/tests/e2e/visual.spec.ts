@@ -66,12 +66,22 @@ test.skip(
  * ruling changed nothing visible in light mode.
  */
 
-// The budget lives in playwright.config.ts, it is ABSOLUTE (`maxDiffPixels`),
-// and it is the same number for every shot in this file. The reasoning — why a
-// ratio was the wrong unit, what a removed control and a one-word copy edit
-// each measure, and why the noise floor it is guarding against is zero — is
-// written out there. Do not re-introduce a per-test ratio: `visual-budget.test.ts`
-// fails if either file declares one.
+// BOTH tolerances live in playwright.config.ts, and they are the same two
+// numbers for every shot in this file:
+//
+//   maxDiffPixels: 600   how many differing pixels are allowed (absolute, #248)
+//   threshold: 0.01      whether a pixel counts as differing at all (#280)
+//
+// They fail in opposite directions and each was watched to fail on its own. The
+// budget was a RATIO, so it scaled with the empty background and a sparse page
+// could lose a whole control. The threshold was NEVER SET, so it was
+// Playwright's default of 0.2 — at which the first shade change that counts is
+// 53 units, and a background token could move under every one of these shots
+// while the suite reported 29 passed. The measurement behind both numbers, and
+// the corridor the threshold has to sit in, is written out in the config.
+//
+// Do not re-introduce a per-test ratio or a per-shot threshold:
+// `visual-budget.test.ts` fails if either file declares one.
 
 test.beforeEach(async ({ page, context }) => {
   await page.clock.setFixedTime(new Date("2026-07-21T15:00:00.000Z"));

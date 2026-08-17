@@ -157,8 +157,93 @@ export default defineConfig({
    * A genuine layout or spacing change still fails here, deliberately. That is
    * what a picture is for, and `scripts/record-baselines.sh` is the answer to
    * it.
+   *
+   * ─────────────────────────────────────────────────────────────────────────
+   * THE SECOND TOLERANCE: `threshold`, and that is the whole of issue #280.
+   *
+   * `maxDiffPixels` decides how many differing pixels are allowed. `threshold`
+   * decides whether a pixel counts as differing AT ALL, and it is the knob that
+   * was still wrong after #248 — because it was never set, so it was
+   * Playwright's default of 0.2. Fixing the budget did nothing for it: no
+   * budget can catch a pixel the comparator has already scored as identical.
+   *
+   * WHAT 0.2 MEANT. Playwright compares with pixelmatch, which scores a pixel
+   * pair by a weighted YIQ distance and ignores anything under
+   * `35215 * threshold^2`. At 0.2 that ceiling is 1,408.6 — and a pure grey
+   * shift of d units scores 0.5053*d^2, so the first shade change the default
+   * counted was FIFTY-THREE units. The entire estate could have gone from
+   * #ffffff to #cccccc without one pixel counting.
+   *
+   * WATCHED TO FAIL, which is the constitution's bar. #278 measured it on
+   * `/connections` (nav rail #ffffff -> #f6f6f4, 188,981 pixels changed shade,
+   * 0 counted) and handed it back rather than fixing it. Reproduced on this
+   * branch from the other side — the rail put back to `bg-surface`, so 22 of
+   * the 28 baselines carry the tint at once:
+   *
+   *   2,401,547 pixels changed shade across the estate.  29 passed.
+   *
+   * The same mutation under this threshold: 22 failed, 7 passed. The seven are
+   * the six shots with no rail in them (`/login` and the onboarding preview are
+   * outside the app shell; the warm popover is shot on its own) plus the
+   * `/companies` skeleton test, which asserts geometry and takes no picture.
+   *
+   * WHY 0.01, AND WHY BOTH ENDS ARE MEASURED RATHER THAN ARGUED. The tint's
+   * YIQ delta is 43.24, and the ceiling reaches it at a threshold of 0.03504 —
+   * so anything above that is blind to it, which rules out 0.05, 0.1 and the
+   * default. (0.03 still catches it, but with 1.36x of margin, so a slightly
+   * subtler tint — an 8-unit shift rather than this 9-to-11-unit one — would
+   * walk straight through.) The other end is the real question,
+   * because absorbing sub-pixel antialiasing is what this knob is FOR, and
+   * these baselines are mostly text. So it was measured:
+   *
+   *   the rendering floor        two full runs, same code, same container:
+   *                              61 pixels differ, by at most 2 units on one
+   *                              channel. Counted: 9 at threshold 0, 0 from
+   *                              0.005 up.
+   *   a renderer that rounds     +-1 on every channel of every pixel (28.2M):
+   *   differently                threshold 0 -> 28,174,259 counted, the whole
+   *                              suite red. 0.005 and up -> 0.
+   *                              +-2 on every channel: 0.005 -> 28,168,673
+   *                              counted, red. 0.01 -> 0.
+   *
+   * That is why threshold 0 is rejected on measurement rather than on nerves,
+   * and it is the correction to #248's record: the floor it called "exactly
+   * zero" was zero as COUNTED at 0.2, where a 2-unit wobble is invisible by
+   * construction. The rasteriser does move; 0.2 simply could not see that
+   * either.
+   *
+   * So the corridor is (0.0076, 0.0350) and both ends are numbers. 0.01 sits at
+   * the sensitive end of it: 1.74x above the worst-case rounding wobble, 12.3x
+   * below the tint. In product terms it draws the line exactly where the
+   * measurement does — a 2-unit difference is the rasteriser, a 3-unit one is
+   * somebody changing a token.
+   *
+   * WHAT IT COSTS, measured on the same cases #248 calibrated the budget with.
+   * Every legitimate diff grows, because glyph antialiasing fringes now count:
+   * the one-word label edit goes 102 -> 164 pixels, and the in-the-wild
+   * antialiasing on `/companies`' toggle tracks goes 32 -> 120. Both still pass
+   * with 3.7x and 5x headroom under 600, and nothing green on main turns red.
+   *
+   * The separation 600 encodes is not merely preserved, it WIDENS — the
+   * inflation is larger for a regression than for an edit, because a removed
+   * control takes its antialiasing with it while a reworded label only moves
+   * its own fringes. Deleting the Type size select from `/settings/preferences`,
+   * the same mutation #248 used, goes 3,095 -> 8,368 pixels (2.7x) against the
+   * label edit's 102 -> 164 (1.6x). Under 600 the gap between them was 30x; it
+   * is now 51x.
+   *
+   * REJECTED, and priced rather than dismissed. A whole-image mean-colour
+   * assertion alongside the per-pixel one is the obvious second mechanism, and
+   * it is WEAKER on the very case that motivates it: the rail is 17.5% of the
+   * desktop canvas, so a 9-unit tint of the whole rail moves the mean channel
+   * delta by ~1.6 units, and a tint of one card or chip moves it by ~0.2 —
+   * under the quantisation floor of any real renderer, so its budget would have
+   * to be set below the noise to catch what a corrected `threshold` catches at
+   * 199,017 pixels. A downsampled comparison keeps a uniform tint's amplitude
+   * but needs a PNG decoder in the test path and a second budget to tune. Both
+   * are a new mechanism where the existing one had a knob set wrong.
    */
-  expect: { toHaveScreenshot: { maxDiffPixels: 600 } },
+  expect: { toHaveScreenshot: { maxDiffPixels: 600, threshold: 0.01 } },
   ...(LIVE
     ? {
         globalSetup: "./tests/live/global-setup.ts",

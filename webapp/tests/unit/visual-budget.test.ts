@@ -85,3 +85,105 @@ describe("the visual diff budget", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * The SECOND tolerance (issue #280), and the reason it needs its own test is
+ * that it failed silently for longer than the budget did: it was never written
+ * down at all, so it was Playwright's default.
+ *
+ * `maxDiffPixels` says how many differing pixels are allowed. `threshold` says
+ * whether a pixel counts as differing in the first place, and no budget can
+ * catch a pixel the comparator already scored as identical. At the default of
+ * 0.2 a whole surface could change its background token and this suite reported
+ * zero: measured on `/connections` in #278 (188,981 pixels, 0 counted) and
+ * reproduced across 22 of the 28 baselines at once on this branch (2,401,547
+ * pixels changed shade, `29 passed`).
+ *
+ * These assertions are about the DEFECT, not about the number. They are
+ * computed from pixelmatch's own scoring function — the one Playwright's image
+ * comparator calls — so they say "the threshold must be able to see the change
+ * #280 is about, and must not be able to see the rasteriser rounding" rather
+ * than "the threshold must be 0.01". Any value in the measured corridor passes;
+ * 0.2, and 0, do not.
+ */
+
+/**
+ * pixelmatch scores a pixel pair by weighted YIQ distance and ignores anything
+ * at or under `35215 * threshold^2`. Both halves are reproduced here because a
+ * test that re-imported them from Playwright's bundle would pass whatever the
+ * bundle did, including the default this test exists to forbid.
+ */
+const RGB2Y = [0.29889531, 0.58662247, 0.11448223];
+const RGB2I = [0.59597799, -0.2741761, -0.32180189];
+const RGB2Q = [0.21147017, -0.52261711, 0.31114694];
+
+function yiqDelta(a: string, b: string): number {
+  const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const [p, q] = [rgb(a), rgb(b)];
+  const axis = (w: number[]) => w[0] * (p[0] - q[0]) + w[1] * (p[1] - q[1]) + w[2] * (p[2] - q[2]);
+  const [y, i, qq] = [axis(RGB2Y), axis(RGB2I), axis(RGB2Q)];
+  return 0.5053 * y * y + 0.299 * i * i + 0.1957 * qq * qq;
+}
+
+/** The largest YIQ distance the declared threshold scores as "identical". */
+function ceilingFor(threshold: number): number {
+  return 35215 * threshold * threshold;
+}
+
+describe("the visual per-pixel threshold", () => {
+  const declaration = CONFIG.filter((l) => l.includes("toHaveScreenshot"));
+  const declared = /threshold:\s*([0-9.]+)/.exec(declaration[0] ?? "");
+  // NaN when it is absent, so the two corridor assertions below report their own
+  // message instead of throwing on a null match. An undeclared threshold is the
+  // 0.2 default in force, which is the defect, and every one of these fails.
+  const threshold = Number(declared?.[1] ?? NaN);
+
+  it("is declared in playwright.config.ts, never left to Playwright's default", () => {
+    expect(declaration, "no toHaveScreenshot options in playwright.config.ts").toHaveLength(1);
+    expect(
+      declared,
+      `the per-pixel threshold must be stated, not inherited (#280). Got: ${declaration[0]}`,
+    ).not.toBeNull();
+  });
+
+  it("is low enough to see a whole-surface tint — the #280 defect", () => {
+    // The exact change #278 measured and handed back: the nav rail's background
+    // token. 188,981 pixels went this far and the suite counted none of them.
+    const tint = yiqDelta("#ffffff", "#f6f6f4");
+    expect(
+      ceilingFor(threshold),
+      `a background token can move #ffffff->#f6f6f4 (YIQ ${tint.toFixed(2)}) under this ` +
+        `threshold and no pixel will count. That is #280, and at Playwright's default of ` +
+        `0.2 the first shade change counted is 53 units — the estate could go #ffffff to ` +
+        `#cccccc unnoticed.`,
+    ).toBeLessThan(tint);
+  });
+
+  it("is high enough to absorb a rasteriser that rounds differently", () => {
+    // The other direction, and it is the one that would make this suite flake
+    // rather than lie. MEASURED in the pinned container: two full runs of
+    // identical code differ on 61 pixels by up to 2 units on one channel, and a
+    // synthetic +-2 on every channel of every pixel (28.2M) counts 28,168,673
+    // at threshold 0.005 and 0 at 0.01. So the floor is not a preference:
+    // threshold 0 turns the whole estate red the first time a font stack or a
+    // GPU rounds one unit differently.
+    const wobble = yiqDelta("#ffffff", "#fdfdfd");
+    expect(
+      ceilingFor(threshold),
+      `a 2-unit rounding difference (YIQ ${wobble.toFixed(2)}) would count as a real ` +
+        `difference at this threshold. That is the measured rendering floor of the pinned ` +
+        `container, so this is a flake, not a regression.`,
+    ).toBeGreaterThan(wobble);
+  });
+
+  it("is the same threshold for every shot — no surface sets its own", () => {
+    // The budget's rule, for the same reason: a per-shot `threshold` re-exempts
+    // one surface from the corridor above, and "just this once" is how the
+    // queue's absolute budget had to exist as a special case for two PRs.
+    const overrides = SPEC.filter((l) => l.includes("threshold"));
+    expect(
+      overrides,
+      "visual.spec.ts sets its own per-pixel threshold; the suite's threshold is the config's",
+    ).toEqual([]);
+  });
+});
