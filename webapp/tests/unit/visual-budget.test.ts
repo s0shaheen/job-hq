@@ -46,6 +46,20 @@ function code(relative: string): string[] {
 
 const CONFIG = code("playwright.config.ts");
 const SPEC = code("tests/e2e/visual.spec.ts");
+/**
+ * The shot helper is scanned for the same two words as the spec, because the
+ * `toHaveScreenshot` calls now live in it. Not a new rule — the SAME rule,
+ * following the code. Without this the entire check below could be escaped by
+ * moving one call into a helper, which is a thing that happens for good reasons
+ * and would take the budget's only enforcement with it.
+ *
+ * The helper is allowed exactly one `maxDiffPixels`, and only the value `0`:
+ * the probe that makes the comparator state its count. Zero is the strict end
+ * of the knob, so it can never let through what the gate catches, and its
+ * verdict is discarded — the assertion that decides the run is the one with no
+ * options of its own.
+ */
+const HELPER = code("tests/e2e/visual-diff.ts");
 
 describe("the visual diff budget", () => {
   it("is declared in playwright.config.ts as an absolute pixel count", () => {
@@ -66,7 +80,9 @@ describe("the visual diff budget", () => {
     // call it re-exempts that one surface from the absolute budget — which is
     // how /queue had to opt out of the old default, and is the shape a future
     // "just this once" would take.
-    const offenders = [...CONFIG, ...SPEC].filter((l) => l.includes("maxDiffPixelRatio"));
+    const offenders = [...CONFIG, ...SPEC, ...HELPER].filter((l) =>
+      l.includes("maxDiffPixelRatio"),
+    );
     expect(
       offenders,
       "a ratio budget scales with the empty background, not with what the page draws (#248)",
@@ -83,6 +99,24 @@ describe("the visual diff budget", () => {
       overrides,
       "visual.spec.ts sets its own pixel budget; the suite's budget is the config's",
     ).toEqual([]);
+  });
+
+  it("lets the shot helper name only the zero probe, never a budget of its own", () => {
+    // The helper measures by asking the comparator for the same screenshot at a
+    // budget of 0, which is how the count reaches the log. Any OTHER number in
+    // that file is a budget the whole suite would silently inherit — the #248
+    // defect with one more level of indirection, and the reason this file reads
+    // the helper at all.
+    const declarations = HELPER.filter((l) => l.includes("maxDiffPixels"));
+    expect(
+      declarations,
+      "the shot helper must name maxDiffPixels exactly once, for the zero probe",
+    ).toHaveLength(1);
+    expect(
+      /maxDiffPixels:\s*0\b/.test(declarations[0]),
+      `the shot helper's only budget must be 0 — the strict end, whose verdict is ` +
+        `discarded. Got: ${declarations[0]}`,
+    ).toBe(true);
   });
 });
 
@@ -180,10 +214,10 @@ describe("the visual per-pixel threshold", () => {
     // The budget's rule, for the same reason: a per-shot `threshold` re-exempts
     // one surface from the corridor above, and "just this once" is how the
     // queue's absolute budget had to exist as a special case for two PRs.
-    const overrides = SPEC.filter((l) => l.includes("threshold"));
+    const overrides = [...SPEC, ...HELPER].filter((l) => l.includes("threshold"));
     expect(
       overrides,
-      "visual.spec.ts sets its own per-pixel threshold; the suite's threshold is the config's",
+      "the visual lane sets its own per-pixel threshold; the suite's threshold is the config's",
     ).toEqual([]);
   });
 });

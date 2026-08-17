@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { LAST_STEP } from "@/lib/profile/draft";
+import { expectShot } from "./visual-diff";
 
 /**
  * Visual regression. A pixel diff beyond the tolerance fails the run — this is
@@ -82,6 +83,15 @@ test.skip(
 //
 // Do not re-introduce a per-test ratio or a per-shot threshold:
 // `visual-budget.test.ts` fails if either file declares one.
+//
+// Every shot goes through `expectShot` (tests/e2e/visual-diff.ts) rather than
+// calling `toHaveScreenshot` directly. It is the same assertion with the same
+// options — plus the number the assertion throws away. A shot that differs by
+// less than the budget passes silently today, which is how the /pipeline pair
+// below went on picturing "8 in flight" for the whole life of the number 7
+// (#283), how /queue kept the pre-#121 nav (#248), and how 22 baselines could
+// have gone a different colour (#280). The count is printed for every shot,
+// passing ones included; it fails nothing.
 
 test.beforeEach(async ({ page, context }) => {
   await page.clock.setFixedTime(new Date("2026-07-21T15:00:00.000Z"));
@@ -115,7 +125,7 @@ test("queue looks right", async ({ page }) => {
    * now the default for every shot in this file rather than a special case for
    * this one.
    */
-  await expect(page).toHaveScreenshot("queue-light.png", { fullPage: true });
+  await expectShot(page, "queue-light.png", { fullPage: true });
 });
 
 test("the pipeline looks right", async ({ page }) => {
@@ -135,7 +145,7 @@ test("the pipeline looks right", async ({ page }) => {
   // mid-write would be a different image every run.
   await expect(page.locator('[data-testid="pipeline"][data-saving="false"]')).toBeAttached();
   await page.waitForLoadState("load");
-  await expect(page).toHaveScreenshot("pipeline-light.png", { fullPage: true });
+  await expectShot(page, "pipeline-light.png", { fullPage: true });
 });
 
 test("the jobs grid looks right", async ({ page }) => {
@@ -144,7 +154,7 @@ test("the jobs grid looks right", async ({ page }) => {
   await page.goto("/jobs?set=all");
   await expect(page.locator('[data-testid="jobs-grid"][data-ready="true"]')).toBeAttached();
   await page.waitForLoadState("load");
-  await expect(page).toHaveScreenshot("jobs-light.png", { fullPage: true });
+  await expectShot(page, "jobs-light.png", { fullPage: true });
 });
 
 test("the companies grid looks right", async ({ page }) => {
@@ -160,7 +170,7 @@ test("the companies grid looks right", async ({ page }) => {
   await page.goto("/companies?set=all");
   await expect(page.locator('[data-testid="companies-grid"][data-ready="true"]')).toBeAttached();
   await page.waitForLoadState("load");
-  await expect(page).toHaveScreenshot("companies-light.png", { fullPage: true });
+  await expectShot(page, "companies-light.png", { fullPage: true });
 });
 
 test("the /companies skeleton lands the grid where the loaded page does", async ({
@@ -259,7 +269,7 @@ test("the import mapping screen looks right", async ({ page }) => {
   // a page nobody uses.
   await expect(page.getByTestId("import-step")).toHaveAttribute("data-ready", "true");
   await page.waitForLoadState("load");
-  await expect(page).toHaveScreenshot("import-map-light.png", { fullPage: true });
+  await expectShot(page, "import-map-light.png", { fullPage: true });
 });
 
 test("a selection looks right", async ({ page }) => {
@@ -282,7 +292,7 @@ test("a selection looks right", async ({ page }) => {
   // The count moved into the selection BAR at the redesign; the standalone
   // `selection-count` element it used to live in is gone.
   await expect(page.getByTestId("selection-bar")).toContainText("3 selected");
-  await expect(page).toHaveScreenshot("jobs-selected-light.png", { fullPage: true });
+  await expectShot(page, "jobs-selected-light.png", { fullPage: true });
 });
 
 /**
@@ -324,7 +334,7 @@ test("the profile preview looks right", async ({ page, context }) => {
   // of the running state, which is a different thing entirely.
   await expect(page.getByTestId("preview-panel")).toBeVisible({ timeout: 30_000 });
   await page.waitForLoadState("load");
-  await expect(page).toHaveScreenshot("onboarding-preview-light.png", { fullPage: true });
+  await expectShot(page, "onboarding-preview-light.png", { fullPage: true });
 });
 
 test("the search profile looks right", async ({ page }) => {
@@ -335,7 +345,7 @@ test("the search profile looks right", async ({ page }) => {
   await page.goto("/settings");
   await expect(page.getByTestId("profile-form")).toHaveAttribute("data-hydrated", "true");
   await page.waitForLoadState("load");
-  await expect(page).toHaveScreenshot("settings-light.png", { fullPage: true });
+  await expectShot(page, "settings-light.png", { fullPage: true });
 });
 
 test("the preferences section looks right", async ({ page }) => {
@@ -350,7 +360,7 @@ test("the preferences section looks right", async ({ page }) => {
   await page.goto("/settings/preferences");
   await expect(page.getByTestId("preferences-form")).toHaveAttribute("data-hydrated", "true");
   await page.waitForLoadState("load");
-  await expect(page).toHaveScreenshot("settings-preferences-light.png", { fullPage: true });
+  await expectShot(page, "settings-preferences-light.png", { fullPage: true });
 });
 
 test("the entry column looks right", async ({ page }) => {
@@ -367,7 +377,7 @@ test("the entry column looks right", async ({ page }) => {
   await page.goto("/login");
   await expect(page.getByRole("heading", { name: "Log in", level: 1 })).toBeVisible();
   await page.waitForLoadState("load");
-  await expect(page).toHaveScreenshot("login-light.png", { fullPage: true });
+  await expectShot(page, "login-light.png", { fullPage: true });
 });
 
 test("the connections list looks right", async ({ page }) => {
@@ -379,7 +389,7 @@ test("the connections list looks right", async ({ page }) => {
   await page.goto("/connections");
   await expect(page.getByTestId("connections")).toHaveAttribute("data-hydrated", "true");
   await page.waitForLoadState("load");
-  await expect(page).toHaveScreenshot("connections-light.png", { fullPage: true });
+  await expectShot(page, "connections-light.png", { fullPage: true });
 });
 
 test("the warm-paths popover looks right", async ({ page }) => {
@@ -401,7 +411,7 @@ test("the warm-paths popover looks right", async ({ page }) => {
   // The popover only, not the page: a full-page shot of a virtualized grid
   // with an open portal is mostly the grid, and the grid already has its own
   // baseline above.
-  await expect(page.getByTestId("warm-popover")).toHaveScreenshot("warm-popover-light.png");
+  await expectShot(page.getByTestId("warm-popover"), "warm-popover-light.png");
 });
 
 test("application answers look right", async ({ page }) => {
@@ -414,7 +424,7 @@ test("application answers look right", async ({ page }) => {
   await page.goto("/settings/answers");
   await expect(page.getByTestId("answers-surface")).toHaveAttribute("data-hydrated", "true");
   await page.waitForLoadState("load");
-  await expect(page).toHaveScreenshot("answers-light.png", { fullPage: true });
+  await expectShot(page, "answers-light.png", { fullPage: true });
 });
 
 test("a staged application looks right", async ({ page }) => {
@@ -426,5 +436,5 @@ test("a staged application looks right", async ({ page }) => {
   await page.goto("/apply/1");
   await expect(page.getByTestId("apply-surface")).toHaveAttribute("data-hydrated", "true");
   await page.waitForLoadState("load");
-  await expect(page).toHaveScreenshot("apply-light.png", { fullPage: true });
+  await expectShot(page, "apply-light.png", { fullPage: true });
 });

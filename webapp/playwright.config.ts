@@ -104,6 +104,12 @@ export default defineConfig({
         // States, at the end of every non-live run, that the live mode went
         // uncovered. See tests/live/reporter.ts.
         ["./tests/live/reporter.ts"],
+        // Prints the pixel count of every visual shot, the passing ones
+        // included. It decides nothing — see tests/e2e/visual-diff.ts for the
+        // three baselines that drifted out of the app's reach under the budget
+        // while the suite said nothing. Silent on any run with no shots in it,
+        // which is every run outside the Playwright container.
+        ["./tests/e2e/visual-diff-reporter.ts"],
       ],
   use: {
     baseURL: BASE,

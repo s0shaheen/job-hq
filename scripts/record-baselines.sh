@@ -35,6 +35,12 @@
 # Tell you whether the new images are RIGHT. A baseline is the only expected
 # value in this repo that is a binary blob nobody reads, so a person opening the
 # changed PNGs is the last step and there is no automating it.
+#
+# What it CAN do now is tell you which ones to open. Step 1's run prints the
+# pixel count of every shot, the passing ones included, so a baseline that moved
+# without failing is named instead of being one more file in the churn list.
+# That is how the /pipeline pair and the /companies pair were separated from the
+# other 24 — both green, both pictures of controls the app had stopped drawing.
 set -euo pipefail
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -56,9 +62,14 @@ echo "                   Whatever fails here is what genuinely changed."
 echo "════════════════════════════════════════════════════════════════════════"
 check_log=$(mktemp)
 set +e
+# `--reporter=` REPLACES the config's list rather than adding to it, so the
+# per-shot pixel counts have to be named here too or this step — the one whose
+# whole job is telling a real change from churn — is the one place they do not
+# print. `line` stays first: the failure-name grep below reads its output.
 "$repo/scripts/test-shell.sh" bash -lc '
   cd webapp
-  HQ_VISUAL=1 HQ_DEMO=1 npx playwright test tests/e2e/visual.spec.ts --reporter=line
+  HQ_VISUAL=1 HQ_DEMO=1 npx playwright test tests/e2e/visual.spec.ts \
+    --reporter=line,./tests/e2e/visual-diff-reporter.ts
 ' 2>&1 | tee "$check_log"
 set -e
 
@@ -86,15 +97,22 @@ echo "════════════════════════�
 if [[ "$failed" == "0" || -z "$failed" ]]; then
   cat <<'EOF'
 
-  The CHECK WAS GREEN before recording. That means NONE of these is a real
-  change: `=all` rewrote every file and these are the ones whose bytes differ
-  by rendering noise the gate already tolerates.
+  The CHECK WAS GREEN before recording, so `=all` rewrote every file and none of
+  these was failing. Most are rendering noise the gate already tolerates.
 
-  Unless you know exactly why a given file should change, drop the lot:
+  MOST, NOT ALL — and step 1 above printed which is which. Read its per-shot
+  table: a shot at 0 px is byte-noise and nothing else, and a shot with a
+  NONZERO count moved while staying under the budget, which is the one way a
+  baseline drifts away from the app without ever going red. Four have now been
+  found that way (#248, #278, #280, #283), each of them green.
 
-      git checkout -- webapp/tests/e2e/visual.spec.ts-snapshots/
+  So: keep the files whose shots the table says MOVED, and only after opening
+  them. Drop everything else:
 
-  A green check plus a long modified list is not a re-record. It is churn.
+      git checkout -- webapp/tests/e2e/visual.spec.ts-snapshots/<path>
+
+  A green check plus a long modified list is not a re-record. It is churn plus,
+  sometimes, one file that matters.
 EOF
 else
   echo

@@ -173,6 +173,17 @@ path_map=(
   "webapp/middleware.ts               = typecheck,vitest,build,e2e"
   "webapp/tests/unit/*                = typecheck,vitest"
   "webapp/tests/e2e/visual.spec.ts*   = e2e-visual"
+  # The shot helper and the reporter that prints its counts. Two suites the row
+  # below does not reach, and the union is what makes naming them here enough:
+  #   e2e-visual  every shot goes through the helper and the config loads the
+  #               reporter. `e2e` runs visual.spec.ts too, but WITHOUT HQ_VISUAL,
+  #               so it skips the whole file and reports green on a helper that
+  #               cannot take a screenshot.
+  #   vitest      tests/unit/visual-budget.test.ts reads the helper's SOURCE —
+  #               the zero-probe rule is asserted against these bytes, so a
+  #               change here turns that suite red with no test file touched.
+  #               Same shape as the db/migrations row below, same reason.
+  "webapp/tests/e2e/visual-diff*      = typecheck,vitest,e2e-visual"
   "webapp/tests/e2e/*                 = typecheck,e2e"
   # e2e-visual: under HQ_DEMO the baselined pages are RENDERING this fixture data,
   # so a changed row changes the screenshot. visual.spec.ts also reads
@@ -200,7 +211,12 @@ path_map=(
   "webapp/next.config.mjs             = typecheck,build,e2e,e2e-visual"
   "webapp/postcss.config.mjs          = build,e2e,e2e-visual"
   "webapp/vitest.config.mts           = vitest"
-  "webapp/playwright.config.ts        = e2e,e2e-visual"
+  # vitest: tests/unit/visual-budget.test.ts reads THIS file's source and is the
+  # only thing that fails when the diff budget goes back to a ratio or the
+  # per-pixel threshold goes missing — neither of which makes any pixel run red,
+  # which is the whole point of that test. Mapping the config to everything but
+  # the suite that reads it is the same gap the db/migrations row below names.
+  "webapp/playwright.config.ts        = vitest,e2e,e2e-visual"
 
   # ── database
   #
