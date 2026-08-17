@@ -134,8 +134,10 @@ now a single workflow, **`run-bot.yml` "Run a bot"**: pick a `job` from a dropdo
 `JOBS` table below, optionally a `user` lane and `extra_args`, and `scripts/runjob.py` runs that
 job's exact module chain with the same code and the repo secrets. That is the manual re-run path,
 the run-when-AWS-is-the-problem path, and the only thing that refreshes the git-diffable snapshot
-copies. `.github/workflows/` is now four files: `ci.yml`, `resume.yml`, `selfheal.yml`,
-`run-bot.yml`.
+copies. Only two workflows still run bot code: `selfheal.yml` (the nightly cron whose product is a
+git commit) and `run-bot.yml` (dispatch only). `pgdump.yml` remains as a refusing tombstone
+(PKT-DUMP-DISABLE, above) and everything else under `.github/workflows/` is CI, deploy or ops —
+don't read a file count here as a list, `ls .github/workflows` is the answer.
 
 ---
 
@@ -305,7 +307,7 @@ function the same document would have had the role that reads every `/job-hq/*` 
 | image | `infra/Dockerfile`, Python 3.11 | `infra/render/Dockerfile`, Python 3.12 (rendercv 2.8 needs >= 3.12) |
 | deps | `requirements.txt` | `infra/render/requirements.txt` (rendercv + pypdf, nothing else) |
 | role | SSM read + S3 backups + SES send | **CloudWatch Logs only** |
-| invoked by | EventBridge Scheduler, 7 lanes | the webapp, synchronously |
+| invoked by | EventBridge Scheduler, 8 lanes (`var.jobs`) | the webapp, synchronously |
 | alarms | `-bots-errors`, `-bots-silent` | `-render-errors` only (no schedule = no silence alarm) |
 
 ```sh
