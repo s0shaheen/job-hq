@@ -97,6 +97,48 @@ Three tables are deliberately outside the gate (`0027_entitlement.sql`): `users`
 holding surface must be able to name a pending user), `allowed_emails` (no policy at
 all), and `entitlements` itself (gating it on `hq_is_entitled()` would recurse).
 
+### The third mechanism: the replay lookup (#256)
+
+The pair above is a **write** boundary, and one read went past it. `command_idempotency`
+has RLS enabled with no policies at all, so only a security-definer function reaches it —
+and a replay returns the stored result and returns EARLY, above every write, so the guard
+trigger never fires. A **suspended** account replaying an idempotency key it had already
+used therefore received its own stored command result: no write, exposure limited to its
+own prior answers, and still a read of product state by an account the owner turned off.
+Found by the #254 review as a family-wide observation, measured on real Postgres, decided
+in #256 (fail closed, coordinator 2026-08-17) and closed by
+`20260817_051941_replay_respects_entitlement.sql`.
+
+`public.hq_command_replay` now refuses, before it reads the table, a caller who is not
+entitled and a caller whose `p_user` is not `auth.uid()` — `42501` with
+`hq_entitlement_guard()`'s hint, and that function's engine hatch copied verbatim
+(`auth.uid() is null` is waved through for `service_role` and for a superuser session, and
+refused for a browser role). The check lives in the SHARED PRIMITIVE, not at its ten call
+sites, so the eleventh command inherits it; the ten are asserted exact in both directions,
+with the properties that make centralising sound, by
+`tests/db/test_default_deny.py::test_the_replay_family_is_exactly_this_set`. The accepted
+cost, recorded with the decision: an in-flight retry that crosses the moment of suspension
+gets a denial instead of its original answer.
+
+**The residual — and it is larger than "a neighbouring hole".** The 27 PRE-0026 commands
+do not call that function. They carry the inline lookup `0003_write_path.sql` established
+(e.g. `app_start_warm_search`, `0020_warm_referral.sql`), and that lookup keys on
+`(user_id, idem_key)` **alone** — it never compares the command and never compares
+`request_hash`, both of which `0026` added and only the post-0026 family uses.
+
+So a suspended account sends the same key to any pre-0026 sibling — `app_save_view`,
+`app_clear_connections` — and gets a POST-0026 command's stored result back verbatim,
+demonstrated in the #287 security review with both of those. **The residual therefore
+defeats the fix's headline property for exactly the rows the fix protects: #256 is not
+closed until the 27 are.** That is #288.
+
+Until then the honest statement of this section is narrow, and the test names say so
+(`…_through_a_post_0026_command`): the post-0026 door is shut, the pre-0026 doors are
+open, and they open onto the same room. Closing them means re-declaring 27 function
+bodies (the shape `0027` refused by name) or forcing RLS on a table the digest and email
+lanes also write — a separate decision, not an implementer's call. The set is derivable
+from `pg_proc` at any time.
+
 The storage bucket takes the same predicate inline in each policy instead of a
 restrictive policy, because `storage.objects` is shared across buckets
 (`20260802_084857_resume_storage.sql`).
@@ -150,6 +192,17 @@ copy per status via `data-status`).
 | unknown — absent row | → `/pending` ("no row at all", `entitlement-gate.test.ts`) | throws — absence is never permission | 403 | users row present, entitlements row deleted: predicate false, reads 0, writes refused (`test_an_absent_entitlement_row_is_denied…`, mutant-pinned) |
 | unknown — unreadable | FAILS OPEN, by decision #223 above | throws — closed on the same signal | 403 | deny-by-error: the invoker-rights predicate raises and every gated query raises with it (`test_an_unreadable_entitlement_row_denies_by_error…`, mutant-pinned) |
 | removed — stale session | treated as signed out when the auth server refuses the stale session; a cryptographically-live JWT reads the cascade-deleted row as absent → `/pending`. Either way, never a data surface | throws — the absent-row shape | 403 | `removed` state in the sweep: reads 0, RPCs refused (`test_default_deny.py`) |
+
+Every `database` cell also covers the **durable result lookup** since #256, **through a
+post-0026 command**: `hq_command_replay` refuses each of those states before it reads
+`command_idempotency`, so a replay is denied rather than answered, and denied ABOVE the
+write rather than at it — the message names the command (`not entitled to replay
+app_add_job`) where the guard's names the table. Both are `42501`. Proven per state, with
+the entitled replay as the positive control, by the #256 block in
+`tests/db/test_default_deny.py`. **The qualifier is load-bearing:** the same key sent to a
+pre-0026 sibling still returns that stored result, because those 27 lookups compare
+neither command nor `request_hash` (§"The third mechanism"). Read these cells as "the
+post-0026 door", not "the account cannot reach its stored results", until #288 lands.
 
 ## The commercial seam (#210)
 
@@ -328,8 +381,15 @@ Recorded rather than resolved. Two of them are owner decisions and are in ADR-01
 ## Invariants
 
 - Unknown, pending, suspended, removed, or wrong-owner access defaults to deny
-  (CLAUDE.md). The mechanism is the pair above, not reviewer vigilance; the
-  cross-check lives in `tests/db/test_default_deny.py`.
+  (CLAUDE.md). The mechanism is the pair above plus the replay lookup, not reviewer
+  vigilance; the cross-check lives in `tests/db/test_default_deny.py`. **Reads count, not
+  only writes** — that is what #256 settled: a stored command result is product state, and
+  returning one to a suspended account is a read the pair could not see. **This invariant
+  does not hold yet.** #256 shut the post-0026 door; the 27 pre-0026 commands still hand a
+  non-entitled account any stored result keyed by `(user_id, idem_key)`, including the
+  post-0026 ones. Enumerated, demonstrated, and tracked as #288 — written here rather than
+  softened, because a spec that reads cleaner than the schema is is the drift this repo
+  keeps paying for.
 - Exactly three entitlement states. New access tiers are new `plan`/`invite_ref` values,
   not new statuses.
 - `hq_is_entitled()` reads `status` and nothing else. No plan, quota, period, provider

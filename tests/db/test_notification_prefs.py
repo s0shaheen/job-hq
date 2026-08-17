@@ -59,7 +59,9 @@ from core.channels import quiet_window  # noqa: E402
 from core.config import defaults as committed_defaults  # noqa: E402
 from tests.db.test_profile import CRITERIA  # noqa: E402
 from tests.db.test_write_path import (  # noqa: E402  (fixtures are shared on purpose)
+    as_definer,
     as_user,
+    guard_verdict,
     make_user,
     schema,  # noqa: F401 — session fixture
 )
@@ -883,17 +885,24 @@ def test_the_gate_refuses_a_pending_a_suspended_and_a_removed_account(conn):
     hole 0027's trigger exists to close, and why "the policy is there" is not
     evidence.
 
-    THE REFUSAL HAS TO NAME `public.profiles`, and this test passed for the wrong
-    reason until it did. `hq_entitlement_guard` raises the same sentence for every
-    gated table, and this RPC also writes `events` and `command_idempotency`,
-    which are gated too. With `profiles_entitlement_guard` DISABLED the write
-    landed and the refusal still arrived — from the `events` insert one statement
-    later — so a bare "not entitled to write" matched a mutation that had already
-    stored a suspended account's preference. Observed, then fixed by naming the
-    table.
+    SINCE #256 THE RPC REFUSES HIGHER UP: `hq_command_replay` checks entitlement
+    before it reads the idempotency key, so none of the three states reaches the
+    `profiles` write at all and the sentence they get names the COMMAND. That is
+    asserted per state below, because it is the boundary each one actually meets.
 
-    KILLED BY: dropping or disabling `profiles_entitlement_guard`, or making the
-    RPC's write bypass the trigger.
+    THE PER-TABLE HALF STILL HAS TO NAME `public.profiles`, and this test passed
+    for the wrong reason until it did. `hq_entitlement_guard` raises the same
+    sentence for every gated table, and this RPC also writes `events` and
+    `command_idempotency`, which are gated too. With `profiles_entitlement_guard`
+    DISABLED the write landed and the refusal still arrived — from the `events`
+    insert one statement later — so a bare "not entitled to write" matched a
+    mutation that had already stored a suspended account's preference. Observed,
+    then fixed by naming the table. It is driven through `guard_verdict` now
+    rather than through the RPC, which no longer gets that far.
+
+    KILLED BY: dropping or disabling `profiles_entitlement_guard` (the per-table
+    half), or deleting the entitlement check from `hq_command_replay` (the three
+    command-level halves).
     """
     owner = make_user(conn, f"owner-{uuid.uuid4()}@example.com")
 
@@ -912,7 +921,7 @@ def test_the_gate_refuses_a_pending_a_suspended_and_a_removed_account(conn):
     as_authenticated(conn, pending)
     with pytest.raises(psycopg.errors.InsufficientPrivilege) as exc:
         prefs(conn, stale_days=32)
-    assert "not entitled to write public.profiles" in exc.value.diag.message_primary, (
+    assert "not entitled to replay app_set_notification_prefs" in exc.value.diag.message_primary, (
         f"refused for the wrong reason: {exc.value.diag.message_primary!r}"
     )
 
@@ -922,7 +931,7 @@ def test_the_gate_refuses_a_pending_a_suspended_and_a_removed_account(conn):
     as_authenticated(conn, owner)
     with pytest.raises(psycopg.errors.InsufficientPrivilege) as exc:
         prefs(conn, stale_days=33)
-    assert "not entitled to write public.profiles" in exc.value.diag.message_primary
+    assert "not entitled to replay app_set_notification_prefs" in exc.value.diag.message_primary
 
     # REMOVED: no entitlement row at all. Absence is never permission.
     as_operator(conn)
@@ -930,7 +939,15 @@ def test_the_gate_refuses_a_pending_a_suspended_and_a_removed_account(conn):
     as_authenticated(conn, owner)
     with pytest.raises(psycopg.errors.InsufficientPrivilege) as exc:
         prefs(conn, stale_days=34)
-    assert "not entitled to write public.profiles" in exc.value.diag.message_primary
+    assert "not entitled to replay app_set_notification_prefs" in exc.value.diag.message_primary
+
+    # And the table's own guard, which the command no longer reaches: `profiles`
+    # by name, under the definer rights the RPC's write would have carried.
+    as_definer(conn, owner)
+    verdict = guard_verdict(
+        conn, "update public.profiles set stale_days = 99 where user_id = %s", (owner,))
+    assert "not entitled to write public.profiles" in verdict, (
+        f"the refusal did not name profiles: {verdict}")
 
     as_operator(conn)
     assert conn.execute(

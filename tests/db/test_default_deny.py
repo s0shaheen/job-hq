@@ -1203,3 +1203,592 @@ def test_an_unreadable_entitlement_row_denies_by_error_rather_than_leaking(conn)
         "the mechanism must come back when the read does — the denial above was the "
         "revoke's doing, not a broken harness")
     _system(conn)
+
+
+# ═══════════════════════════════════════════ the replay lookup (#256)
+#
+# The gate above is a WRITE boundary: a restrictive policy on the table and a
+# BEFORE-ROW trigger inside the definer. A REPLAY writes nothing, so neither one
+# fires — `hq_command_replay` reads `command_idempotency` (RLS on, no policies at
+# all, so the definer is the only reader) and hands back the stored result.
+#
+# That was the hole, and it was measured on this harness before it was fixed: an
+# account suspended AFTER a successful `app_add_job`, replaying the same key with
+# the same arguments, received its own stored result — a read of product state by
+# an account the owner had turned off. `20260817_051941_replay_respects_entitlement.sql`
+# closes it inside the shared primitive rather than at each call site, and these
+# are the proofs that it is closed, that it is closed for every non-entitled
+# state, that it cost nothing else, and that the position it sits at is above
+# both the rate charge and the write.
+#
+# WHAT "CLOSED" MEANS HERE, because the tests below must not be read as more than
+# they are: the POST-0026 door. The 27 pre-0026 commands key their inline lookup
+# on `(user_id, idem_key)` alone — no command, no `request_hash` — so a suspended
+# account still reaches these same stored results through any of them. #256 is
+# not closed until #288 is, `docs/specs/user-entitlement.md` §"The third
+# mechanism" carries it, and the test names below say `…_through_a_post_0026_command`
+# rather than claiming the system property.
+#
+# MEASURED KILL COUNT, whole suite rather than this file: deleting the
+# `hq_is_entitled()` block from the migration reddens THIRTEEN tests —
+# the six here, plus the four per-table guard proofs this PR re-homed
+# (`test_a_non_entitled_account_cannot_settle` ×2,
+# `test_a_non_entitled_account_is_refused_by_name` ×2,
+# `test_the_gate_refuses_a_pending_a_suspended_and_a_removed_account`,
+# `test_a_suspended_session_can_neither_read_nor_write_a_resume`), plus
+# `test_mutation_dropping_only_the_stages_guard_is_caught`. Recorded because the
+# first count taken was six — a per-file run, which is exactly how a suite-wide
+# property gets under-reported — and because the higher number is the evidence
+# that re-homing those proofs did not weaken them: they still detect the loss of
+# the boundary they were rewritten around.
+
+#: Every function whose stored body calls `hq_command_replay`, with the migration
+#: that last declared it. Asserted exact in BOTH directions below: this is what
+#: makes centralising the check sound — a new caller, or an engine-lane caller
+#: (which would be a design change, since the gate reads `auth.uid()`), has to
+#: come here and say so.
+REPLAY_FAMILY: dict[str, str] = {
+    "app_add_job": "20260813_025743_app_add_job.sql",
+    "app_record_resume_artifact": "0026_resume.sql",
+    "app_retry_autopilot_stage": "20260814_030545_autopilot_handoff.sql",
+    "app_review_autopilot_stage": "20260814_030545_autopilot_handoff.sql",
+    "app_save_resume_document": "0026_resume.sql",
+    "app_save_resume_version": "0026_resume.sql",
+    "app_set_default_resume": "0026_resume.sql",
+    "app_set_notification_prefs": "20260814_021627_notification_prefs.sql",
+    "app_settle_autopilot_handoff": "20260814_030545_autopilot_handoff.sql",
+    "app_stage_autopilot_application": "20260802_094615_autopilot_staging.sql",
+}
+
+
+def replay_users(conn) -> dict[str, str]:
+    """name -> the body Postgres actually stored, for every caller of the lookup.
+
+    `prosrc`, not the migration text, for `tables_written_by_browser_definers`'
+    reason: a function re-declared by a later migration is read once, in the shape
+    that is actually live.
+    """
+    return {
+        name: src
+        for name, src in conn.execute(
+            """select p.proname, p.prosrc
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public'
+                  and p.prosrc like '%hq_command_replay%'
+                  and p.proname <> 'hq_command_replay'"""
+        ).fetchall()
+    }
+
+
+def _uncommented(body: str) -> str:
+    """`--` comments dropped: a comment NAMING the charge is not a charge.
+
+    `tests/core/test_migrations.py::_strip_sql_comments`' lesson, which found a
+    correct function flagged as a vulnerability because the prose explaining why
+    it was not one matched the detector.
+    """
+    return re.sub(r"--[^\n]*", "", body)
+
+
+def _first(pattern: str, body: str) -> int | None:
+    m = re.search(pattern, _uncommented(body), re.I)
+    return m.start() if m else None
+
+
+#: What counts as a write, for the ordering detector.
+#:
+#: Widened after the #287 security review, which found the first version blind to
+#: three shapes. None is reachable in the ten callers today; the detector exists
+#: for the ELEVENTH, so a blind spot here is a blind spot exactly when it matters.
+#:
+#:   * an UNQUALIFIED table name — `update postings set …`, not `update
+#:     public.postings`. Matched via the mandatory `set` clause rather than by the
+#:     table name, because `select … for update` and `for no key update` are not
+#:     writes and would otherwise match.
+#:   * `merge into`, which is neither insert, update nor delete to a regex.
+#:   * a WRITE THROUGH A COMPOSED COMMAND. `app_settle_autopilot_handoff` already
+#:     performs `app_set_status` (`docs/specs/write-path.md` §Composition), so a
+#:     body with no DML of its own can still write — the callee's. `_row` helpers
+#:     are excluded: they are result-shape builders, deliberately not definers and
+#:     deliberately not writes.
+_REPLAY_WRITE = r"""(?x)
+    \b insert \s+ into \b
+  | \b merge  \s+ into \b
+  | \b delete \s+ from \b
+  | \b update \s+ (?:only\s+)? (?:public\.)? [a-z_][a-z0-9_]* \s+ set \b
+  | \b public\.app_(?!\w*_row\b) \w+ \s* \(
+"""
+
+
+def replay_order(body: str) -> tuple[int | None, int | None, int | None, int | None]:
+    """(first replay, LAST replay, first rate charge, first write), as offsets.
+
+    Two anchors, not one, and the #287 review is why. #261 decision 4 is "the
+    charge sits strictly BELOW every replay check and strictly ABOVE the write" —
+    so the charge must be compared against the LAST check, not the first. Against
+    the first, a command that charges BETWEEN its pre-lock check and its
+    under-lock re-check passes this detector and still double-charges every
+    retry, which is the exact bug decision 4 was written about. The WRITE is
+    compared against the FIRST check, because that is what puts the #256 denial
+    above every write rather than above the last one.
+    """
+    replays = [m.start() for m in re.finditer(r"hq_command_replay\s*\(", _uncommented(body), re.I)]
+    return (
+        replays[0] if replays else None,
+        replays[-1] if replays else None,
+        _first(r"hq_charge_rate_bound\s*\(", body),
+        _first(_REPLAY_WRITE, body),
+    )
+
+
+def _add_job(conn, key: str, idem: str, *, company: str = "ReplayCo", title: str = "PM"):
+    return conn.execute(
+        "select public.app_add_job(%s, %s, %s, %s, %s)",
+        (key, f"https://example.com/{key}", company, title, idem),
+    ).fetchone()[0]
+
+
+def test_the_replay_family_is_exactly_this_set(conn):
+    """Both directions, out of `pg_proc`, plus the properties the fix relies on.
+
+    The issue named three functions. The database names ten, and the decision
+    said to enumerate rather than trust the list. More than a headcount: putting
+    the entitlement check inside the shared primitive is only sound because every
+    caller is a browser command that already derives `auth.uid()` — one
+    engine-lane (`hq_*`, service role, no JWT subject) caller and the same line
+    would refuse the engine instead of the suspended browser.
+
+    KILLED BY: a new command calling `hq_command_replay` without joining the
+    dict, or one leaving the family while the line stays.
+    """
+    found = replay_users(conn)
+    assert sorted(found) == sorted(REPLAY_FAMILY), {
+        "in the schema, not in the list": sorted(set(found) - set(REPLAY_FAMILY)),
+        "in the list, not in the schema": sorted(set(REPLAY_FAMILY) - set(found)),
+    }
+
+    meta = dict(
+        conn.execute(
+            """select p.proname, p.prosecdef
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = any(%s)""",
+            (sorted(found),),
+        ).fetchall()
+    )
+    for name, body in found.items():
+        assert name.startswith("app_"), (
+            f"{name} calls the replay lookup and is not an app_* browser command — the "
+            "entitlement check inside the lookup reads auth.uid(), which an engine "
+            "lane does not have")
+        assert meta[name] is True, f"{name} is not security definer"
+        assert "auth.uid()" in body, (
+            f"{name} calls the replay lookup without deriving auth.uid() — the value it "
+            "passes as p_user must be the caller")
+
+
+def test_a_suspended_account_cannot_replay_its_own_result_through_a_post_0026_command(conn):
+    """The finding, end to end, on the real RPC path (#256, the #254 review).
+
+    THE NAME IS NARROW ON PURPOSE, and the earlier one was a lie by omission. It
+    read `…cannot_replay_its_own_stored_command_result`, which asserts a SYSTEM
+    property that is FALSE: the 27 pre-0026 commands key their inline lookup on
+    `(user_id, idem_key)` ALONE and never compare the command, so a suspended
+    account sends the SAME key to any pre-0026 sibling — `app_save_view`,
+    `app_clear_connections` — and receives THIS command's stored result verbatim.
+    The #287 security review demonstrated both. What is proven here is exactly
+    what the title now says: the post-0026 door is shut. #256 is not closed until
+    the pre-0026 doors are (#288), and until then the residual defeats this
+    property for precisely the rows this test protects.
+
+    The account is ACTIVE when it stores the result and the entitled replay is
+    the positive control — so the refusal below is suspension doing it, not an
+    empty table, not a mangled key, not a fingerprint mismatch. The stored row is
+    re-read afterwards to prove the same point from the other side: the result is
+    still there, and the account simply may not have it through THIS door.
+
+    Measured before the fix, this harness, same script: the suspended call
+    returned `{'outcome': 'added', …}` — the account's own prior answer, handed
+    to a person the owner had turned off.
+
+    KILLED BY: deleting the `hq_is_entitled()` block from
+    `hq_command_replay` (20260817_051941) — the suspended replay answers again.
+    """
+    uid = make_user(conn, f"replay-susp-{uuid.uuid4()}@example.com")
+    key, idem = f"gh-{uuid.uuid4().hex[:8]}", str(uuid.uuid4())
+
+    _as(conn, uid)
+    first = _add_job(conn, key, idem)
+    assert first["outcome"] == "added"
+    assert _add_job(conn, key, idem) == first, (
+        "positive control: an ENTITLED caller replaying the same key with the same "
+        "arguments must still get the durable result back")
+
+    _system(conn)
+    conn.execute("select public.hq_suspend_user(%s, 'abuse')", (uid,))
+
+    _as(conn, uid)
+    with pytest.raises(psycopg.errors.InsufficientPrivilege) as exc:
+        _add_job(conn, key, idem)
+    assert "not entitled to replay" in exc.value.diag.message_primary, exc.value
+
+    _system(conn)
+    assert conn.execute(
+        "select result from public.command_idempotency where user_id = %s and idem_key = %s",
+        (uid, idem),
+    ).fetchone()[0] == first, (
+        "the stored result must still exist — a refusal that works by having deleted "
+        "the row is not the property under test")
+
+
+@pytest.mark.parametrize("state", NON_ENTITLED)
+def test_no_non_entitled_state_reaches_the_replay_lookup(conn, states, state):
+    """Every state in the denial matrix, on the command path, by name.
+
+    A fresh key on purpose: the denial must fire whether or not a stored result
+    exists, because that is what puts it ABOVE the write rather than beside it.
+    The error message is asserted because it is the evidence of WHERE the refusal
+    happened — "not entitled to replay" is the lookup; "not entitled to write" is
+    the guard trigger, which is one whole command body further down.
+
+    `suspended` is the only state that can realistically own a stored result (it
+    was active once); `removed` cannot, because `command_idempotency` cascades
+    with the user, and `pending`/`unknown` never ran a command. They are here for
+    the position of the check, which is the same for all four.
+
+    KILLED BY: deleting the `hq_is_entitled()` block — every state falls through
+    to the write and is refused by the guard with the OTHER message, one command
+    body later.
+    """
+    _as(conn, states["active"])
+    control = _add_job(conn, f"gh-{uuid.uuid4().hex[:8]}", str(uuid.uuid4()))
+    assert control["outcome"] == "added", "positive control: the RPC works when entitled"
+
+    _as(conn, states[state])
+    with pytest.raises(psycopg.errors.InsufficientPrivilege) as exc:
+        _add_job(conn, f"gh-{uuid.uuid4().hex[:8]}", str(uuid.uuid4()))
+    assert "not entitled to replay" in exc.value.diag.message_primary, (
+        f"{state} was refused somewhere other than the replay lookup: {exc.value}")
+    _system(conn)
+
+
+#: A metered command in both orders, built inside the live schema and dropped in
+#: a `finally`. Nothing in the replay family charges a meter TODAY, so the
+#: interaction between #261's charge and #256's denial has no shipped example to
+#: test — and "we will get it right when the first one arrives" is the sentence
+#: `20260817_011844`'s decision 4 was written to replace. So the first one is
+#: built here, in both the correct order and the mistake.
+_METERED = """
+create function public.{name}(p_idem text)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp
+as $fn$
+declare
+  v_user uuid := auth.uid();
+  v_fp   text := public.hq_command_fingerprint(jsonb_build_object('demo', true));
+  v_res  jsonb;
+begin
+  if v_user is null then
+    raise exception 'not authenticated' using errcode = '28000';
+  end if;
+  {body}
+  insert into public.command_idempotency (user_id, idem_key, command, request_hash, result)
+    values (v_user, p_idem, '{name}', v_fp, jsonb_build_object('ok', true));
+  return jsonb_build_object('ok', true);
+end;
+$fn$"""
+
+_CHARGE = "perform public.hq_charge_rate_bound(v_user, 'demo.replay');"
+#: The replay check AND its early return: decision 4's step 4 is "if it returns,
+#: RETURN", and a charge that sits below the lookup but above the return is the
+#: same double-charge with more lines.
+_REPLAY = (
+    "v_res := public.hq_command_replay(v_user, p_idem, '{name}', v_fp);\n"
+    "  if v_res is not null then return v_res; end if;"
+)
+
+
+def test_the_replay_denial_and_the_rate_charge_compose(conn):
+    """#261 decision 4 and #256 in one transaction, executed.
+
+    Decision 4: the charge sits strictly BELOW every replay check and strictly
+    ABOVE the write, so a retried gesture pays once. #256 puts the entitlement
+    denial INSIDE the replay check — above the charge — so a suspended caller is
+    refused before it can spend anything.
+
+    Both halves are driven against a real meter here, and the mistake is built
+    alongside the correct order so the assertion is not vacuous: the SAME two
+    calls that leave `units` at 1 with the charge below the replay leave it at 2
+    with the charge above it, which is a person paying twice for one gesture.
+
+    The suspended half is asserted for both orders, and the reason they agree is
+    worth stating rather than hiding: with the denial above the charge nothing is
+    charged, and with the charge above the denial the raise rolls its own
+    increment back (`20260817_011844`, "a raise anywhere below it un-charges").
+    Transactionality is what makes a suspended replay free; the ORDER is what
+    makes an entitled retry free, and only one of those is a property this file
+    can lose.
+
+    KILLED BY: the `charge_above` half of this test, watched, every run.
+    """
+    _system(conn)
+    conn.execute(
+        """insert into public.rate_bounds
+             (meter, bound_class, max_units, window_seconds, note)
+           values ('demo.replay', 'security', 50, 60, 'counterexample, dropped in finally')""")
+    below = "app_counterexample_charge_below"
+    above = "app_counterexample_charge_above"
+    conn.execute(_METERED.format(
+        name=below, body=_REPLAY.format(name=below) + "\n  " + _CHARGE))
+    conn.execute(_METERED.format(
+        name=above, body=_CHARGE + "\n  " + _REPLAY.format(name=above)))
+    for fn in (below, above):
+        conn.execute(f"grant execute on function public.{fn}(text) to authenticated")
+
+    uid = make_user(conn, f"replay-meter-{uuid.uuid4()}@example.com")
+
+    def units() -> int:
+        return conn.execute(
+            "select coalesce(sum(units), 0) from public.usage_counters "
+            "where user_id = %s and meter = 'demo.replay'", (uid,)).fetchone()[0]
+
+    try:
+        # 1. the shipped order: one gesture, retried, pays once.
+        _as(conn, uid)
+        idem_ok = str(uuid.uuid4())
+        first = conn.execute(f"select public.{below}(%s)", (idem_ok,)).fetchone()[0]
+        again = conn.execute(f"select public.{below}(%s)", (idem_ok,)).fetchone()[0]
+        _system(conn)
+        assert first == again == {"ok": True}
+        assert units() == 1, "a retried gesture paid more than once with the charge BELOW"
+
+        # 2. the mistake, for contrast: the same retry pays twice.
+        _as(conn, uid)
+        idem_bad = str(uuid.uuid4())
+        conn.execute(f"select public.{above}(%s)", (idem_bad,))
+        conn.execute(f"select public.{above}(%s)", (idem_bad,))
+        _system(conn)
+        assert units() == 3, (
+            "the counterexample did not double-charge — this test cannot see the "
+            "mistake it exists to rule out")
+
+        # 3. suspended: refused at the replay, and nothing is spent.
+        conn.execute("select public.hq_suspend_user(%s, 'abuse')", (uid,))
+        spent = units()
+        _as(conn, uid)
+        with pytest.raises(psycopg.errors.InsufficientPrivilege) as exc:
+            conn.execute(f"select public.{below}(%s)", (idem_ok,))
+        assert "not entitled to replay" in exc.value.diag.message_primary, exc.value
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute(f"select public.{above}(%s)", (idem_bad,))
+        _system(conn)
+        assert units() == spent, "a refused call moved the meter"
+
+        # 4. and the structural helper below tells the two apart, which is what
+        #    lets it stand in for this test on the ten commands that are not
+        #    metered yet. Measured against the LAST replay check, per #261
+        #    decision 4 and the #287 review.
+        bodies = dict(
+            conn.execute(
+                "select p.proname, p.prosrc from pg_proc p "
+                "join pg_namespace n on n.oid = p.pronamespace "
+                "where n.nspname = 'public' and p.proname = any(%s)",
+                ([below, above],)).fetchall())
+        _, last_below, c_below, _ = replay_order(bodies[below])
+        _, last_above, c_above, _ = replay_order(bodies[above])
+        assert last_below < c_below, "the correct order is not read as correct"
+        assert c_above < last_above, "the mistake is not read as the mistake"
+    finally:
+        _system(conn)
+        for fn in (below, above):
+            conn.execute(f"drop function if exists public.{fn}(text)")
+        conn.execute("delete from public.usage_counters where meter = 'demo.replay'")
+        conn.execute("delete from public.rate_bounds where meter = 'demo.replay'")
+
+
+def test_the_replay_denial_sits_above_the_charge_and_the_write(conn):
+    """The position, derived from the stored bodies, and watched to fail.
+
+    None of the ten charges a meter today, so the executed proof above can only
+    say "nothing was consumed". This says the stronger thing, and says it for the
+    command that gets metered next: in every caller the FIRST `hq_command_replay`
+    call — where the denial now lives — precedes the first write, and the LAST
+    one precedes the first `hq_charge_rate_bound`. Two anchors, per #261
+    decision 4 and the #287 review: against the first check only, a command
+    charging BETWEEN its pre-lock check and its under-lock re-check would pass
+    here and still bill every retry twice.
+
+    WHAT THIS DETECTOR STILL CANNOT SEE, stated rather than left to be discovered:
+    a write performed by SQL this regex does not model — dynamic `execute`, a
+    trigger fired by a read, or a write inside a function called through a name
+    this file does not recognise as a command. `_REPLAY_WRITE` covers qualified and
+    unqualified DML, `merge`, and composed `app_*` calls; it is a detector, not a
+    parser, and it is a floor under review rather than a replacement for it.
+
+    KILLED BY: the four synthetic bodies below — the charge-above mistake, and
+    each of the three write shapes the first version of `_REPLAY_WRITE` was blind to.
+    """
+    for name, body in replay_users(conn).items():
+        first_replay, last_replay, charge, write = replay_order(body)
+        assert first_replay is not None, name
+        assert write is not None, f"{name} has no write at all — is it still a command?"
+        assert first_replay < write, (
+            f"{name} writes before it checks the replay — a non-entitled caller would "
+            "reach a write, and a retry would apply twice")
+        if charge is not None:
+            assert last_replay < charge, (
+                f"{name} charges a rate bound above its LAST replay check: a retried "
+                "gesture pays twice, and a suspended one pays at all (#261 decision 4)")
+
+    # The counterexample, so this is not a test that looks at nothing.
+    mutant = """
+    begin
+      perform public.hq_charge_rate_bound(v_user, 'demo.meter');
+      v_result := public.hq_command_replay(v_user, p_idem, 'app_demo', v_fp);
+      insert into public.events values (1);
+    end;"""
+    first_replay, last_replay, charge, write = replay_order(mutant)
+    assert charge < first_replay < write, "the helper cannot see the mistake it exists for"
+
+    # The charge BETWEEN two checks: legal against the first anchor, billed twice
+    # in production. This is the anchor the #287 review added.
+    between = """
+    begin
+      v_result := public.hq_command_replay(v_user, p_idem, 'app_demo', v_fp);
+      perform public.hq_charge_rate_bound(v_user, 'demo.meter');
+      v_result := public.hq_command_replay(v_user, p_idem, 'app_demo', v_fp);
+      insert into public.events values (1);
+    end;"""
+    first_replay, last_replay, charge, write = replay_order(between)
+    assert first_replay < charge, "the old single anchor would have passed this"
+    assert not (last_replay < charge), (
+        "a charge between the two checks must fail the rule — it is paid on the "
+        "path that returns a stored result")
+
+    # The three write shapes the first `_REPLAY_WRITE` missed, each proven visible now.
+    for label, sql in (
+        ("unqualified update", "update postings set status = 'Open' where key = k;"),
+        ("merge", "merge into public.postings p using x on true when matched then do nothing;"),
+        ("composed command", "v := public.app_set_status(p_id, 'Rejected', v_inner);"),
+    ):
+        body = "v_result := public.hq_command_replay(a, b, c, d);\n" + sql
+        assert replay_order(body)[3] is not None, f"_REPLAY_WRITE is blind to a {label}"
+
+    # `select … for update` is NOT a write, and neither is a `_row` helper — the
+    # widening must not turn a lock or a result shape into a false positive.
+    for label, sql in (
+        ("row lock", "select * into r from public.postings where key = k for update;"),
+        ("no key update", "select 1 from public.applications for no key update;"),
+        ("result shape helper", "return public.app_resume_document_row(d);"),
+    ):
+        assert _first(_REPLAY_WRITE, sql) is None, f"_REPLAY_WRITE reads a {label} as a write"
+
+    # And a comment naming the charge is not a charge.
+    assert replay_order("-- hq_charge_rate_bound is deliberately not called here\n"
+                        "v_result := public.hq_command_replay(a, b, c, d);\n"
+                        "insert into public.events values (1);")[2] is None
+
+
+def test_another_accounts_stored_result_stays_unreachable(conn):
+    """Wrong-owner, unchanged where it was already closed and pinned where it was not.
+
+    Through the RPC nothing changes and that is the point: every caller passes its
+    own `auth.uid()`, so another account's key is simply a key this account has
+    never used — B gets a fresh `added`, not A's stored answer. What the primitive
+    gains is the case the RPC layer happens to prevent: called DIRECTLY with
+    somebody else's id, the lookup now refuses instead of answering, so a future
+    caller that passes a foreign id cannot have the caller's entitlement checked
+    while another account's result is returned.
+
+    KILLED BY: deleting the `p_user is distinct from v_uid` block.
+    """
+    a = make_user(conn, f"replay-a-{uuid.uuid4()}@example.com")
+    b = make_user(conn, f"replay-b-{uuid.uuid4()}@example.com")
+    idem = str(uuid.uuid4())
+
+    _as(conn, a)
+    mine = _add_job(conn, f"gh-{uuid.uuid4().hex[:8]}", idem, company="ACorp")
+
+    _as(conn, b)
+    theirs = _add_job(conn, f"gh-{uuid.uuid4().hex[:8]}", idem, company="BCorp")
+    assert theirs != mine and theirs["outcome"] == "added", (
+        "B reusing A's key must be a NEW key for B, never a read of A's result")
+
+    # The browser cannot reach the primitive at all — 0026 revoked it and this
+    # change keeps that. The refusal below is therefore about the ONE caller shape
+    # that can reach it: something already running with definer rights.
+    with pytest.raises(psycopg.errors.InsufficientPrivilege) as exc:
+        conn.execute("select public.hq_command_replay(%s, %s, 'app_add_job', 'x')", (b, idem))
+    assert "permission denied for function" in exc.value.diag.message_primary
+
+    # Definer rights, B's identity, A's id in the argument: refused. The positive
+    # control on the line after is what makes it the ID and not the privilege.
+    conn.execute("reset role")
+    conn.execute("select set_config('hq.test_user', %s, false)", (b,))
+    with pytest.raises(psycopg.errors.InsufficientPrivilege) as exc:
+        conn.execute(
+            "select public.hq_command_replay(%s, %s, 'app_add_job', 'whatever')", (a, idem))
+    assert "may not replay a result stored for" in exc.value.diag.message_primary
+    fingerprint = conn.execute(
+        "select request_hash from public.command_idempotency "
+        "where user_id = %s and idem_key = %s", (b, idem)).fetchone()[0]
+    assert conn.execute(
+        "select public.hq_command_replay(%s, %s, 'app_add_job', %s)", (b, idem, fingerprint)
+    ).fetchone()[0] == theirs, (
+        "positive control: the same session asking for its OWN key must be answered — "
+        "the refusal above is the id, not the rights and not the key")
+    _system(conn)
+
+
+def test_an_entitled_key_reused_with_different_arguments_still_raises(conn):
+    """0026's contract, preserved: the gate is additive, not a replacement.
+
+    Same key, different payload, entitled caller — still `22023`, still on the
+    fingerprint, still before anything is written twice.
+
+    KILLED BY: dropping the `request_hash` comparison while adding the gate.
+    """
+    uid = make_user(conn, f"replay-fp-{uuid.uuid4()}@example.com")
+    idem = str(uuid.uuid4())
+    _as(conn, uid)
+    _add_job(conn, f"gh-{uuid.uuid4().hex[:8]}", idem, company="FirstCo")
+    with pytest.raises(psycopg.errors.Error) as exc:
+        _add_job(conn, f"gh-{uuid.uuid4().hex[:8]}", idem, company="SecondCo")
+    assert exc.value.sqlstate == "22023"
+    assert "different arguments" in exc.value.diag.message_primary
+    _system(conn)
+
+
+def test_the_operator_and_engine_lane_keep_their_hatch(conn):
+    """The direction a too-strict gate breaks silently, `test_the_engine_still_writes_everything`'s
+
+    reason. `auth.uid() is null` under a service-role or superuser session is the
+    engine, the migration runner and psql — none of them governed by entitlement,
+    all of them governed by grants. The hatch is `hq_entitlement_guard()`'s,
+    copied rather than reinvented, and it has to hold for a SUSPENDED account's
+    row: an operator reading the store must not be told the account is off.
+
+    KILLED BY: writing the gate as "deny unless entitled" — every service-role
+    lane that ever composes a command starts failing, and the failure is silent
+    until 03:00.
+    """
+    uid = make_user(conn, f"replay-hatch-{uuid.uuid4()}@example.com")
+    idem = str(uuid.uuid4())
+    _as(conn, uid)
+    stored = _add_job(conn, f"gh-{uuid.uuid4().hex[:8]}", idem)
+    _system(conn)
+    conn.execute("select public.hq_suspend_user(%s, 'abuse')", (uid,))
+
+    fingerprint = conn.execute(
+        "select request_hash from public.command_idempotency "
+        "where user_id = %s and idem_key = %s", (uid, idem)).fetchone()[0]
+    assert conn.execute(
+        "select public.hq_command_replay(%s, %s, 'app_add_job', %s)",
+        (uid, idem, fingerprint),
+    ).fetchone()[0] == stored
+
+    # A browser role with no identity gets no hatch, `hq_entitlement_guard`'s
+    # correction: "nobody is signed in" is not evidence that the engine is calling.
+    conn.execute("set role authenticated")
+    with pytest.raises(psycopg.errors.Error) as exc:
+        conn.execute("select public.app_add_job('k','u','C','T',%s)", (str(uuid.uuid4()),))
+    assert exc.value.sqlstate == "28000"
+    _system(conn)

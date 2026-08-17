@@ -40,7 +40,9 @@ pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="no DATABASE_URL")
 
 from tests.db.test_rls import as_authenticated  # noqa: E402
 from tests.db.test_write_path import (  # noqa: E402  (fixtures are shared on purpose)
+    as_definer,
     as_user,
+    guard_verdict,
     make_user,
     schema,  # noqa: F401 — session fixture
 )
@@ -564,20 +566,53 @@ def test_a_suspended_session_can_neither_read_nor_write_a_resume(conn, user):
         ("resume_documents",
          "select public.app_set_default_resume(%s, %s)", (doc["id"], uuid.uuid4().hex)),
     ):
+        command = call.split("(")[0].split(".")[-1].strip()
         with pytest.raises(psycopg.errors.Error) as exc:
             conn.execute(call, args)
-        # The TABLE is named, not merely "not entitled", and that is what makes
-        # this test specific to 0028. Every one of these RPCs also writes
-        # `public.events`, which 0027 already gates — so with 0028's triggers
-        # dropped all four still raise, on the events row, one statement later.
-        # Asserting only the phrase would pass under the exact mutation this test
-        # exists to kill. Measured, both ways: with the triggers attached the
-        # message names `public.resume_documents` / `_versions` / `_artifacts`;
-        # with them dropped it names `public.events` for all four.
-        assert f"not entitled to write public.{table}" in exc.value.diag.message_primary, (
-            f"a SUSPENDED session was not refused AT {table} by "
-            f"{call.split('(')[0].strip()} — {exc.value}"
+        # SINCE #256 the refusal arrives one layer higher: `hq_command_replay`
+        # checks entitlement before it reads the idempotency key, so none of these
+        # four RPCs reaches its own write and the sentence names the COMMAND. The
+        # command is asserted here — a bare "not entitled" would also match the
+        # events row one statement later, which is the mutation this test has
+        # always existed to kill, now stated against the new boundary.
+        assert f"not entitled to replay {command}" in exc.value.diag.message_primary, (
+            f"a SUSPENDED session got past the replay lookup in {command} — "
+            f"{exc.value}"
         )
+
+    # THE PER-TABLE HALF, which the RPCs no longer carry. The TABLE is named, not
+    # merely "not entitled", and that is what makes it specific to 0028: every one
+    # of those RPCs also writes `public.events`, which 0027 already gates, so with
+    # 0028's triggers dropped all four still raised — on the events row, one
+    # statement later. Measured, both ways: with the triggers attached the message
+    # names `public.resume_documents` / `_versions` / `_artifacts`; with them
+    # dropped it names `public.events`. `guard_verdict` writes under table-owner
+    # rights with the suspended account's `auth.uid()`, which is the context the
+    # RPC's own write ran in — RLS off, trigger on — and rolls the probe back.
+    #
+    # `resume_versions` is probed with an INSERT rather than the no-op UPDATE the
+    # other two use: the table is APPEND-ONLY and its own trigger refuses an
+    # UPDATE before the entitlement guard is reached, which would have proved the
+    # append-only rule twice and the gate not at all.
+    probes = {
+        "resume_documents":
+            ("update public.resume_documents set user_id = user_id where user_id = %s",
+             (user,)),
+        "resume_versions":
+            ("insert into public.resume_versions "
+             "  (document_id, user_id, content, design, theme, content_hash) "
+             "values (%s, %s, '{}'::jsonb, '{}'::jsonb, 'harvard', %s)",
+             (doc["id"], user, "d" * 64)),
+        "resume_artifacts":
+            ("update public.resume_artifacts set user_id = user_id where user_id = %s",
+             (user,)),
+    }
+    for table, (sql, params) in probes.items():
+        as_definer(conn, user)
+        verdict = guard_verdict(conn, sql, params)
+        assert f"not entitled to write public.{table}" in verdict, (
+            f"a SUSPENDED session was not refused AT {table}: {verdict}")
+    as_authenticated(conn, user)
 
     # And nothing landed: the refusals are refusals, not partial writes.
     as_engine(conn)

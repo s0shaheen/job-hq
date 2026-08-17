@@ -70,6 +70,8 @@ from tests.db.test_autopilot_staging import (  # noqa: E402  (harness shared on 
     stage,
 )
 from tests.db.test_write_path import (  # noqa: E402
+    as_definer,
+    guard_verdict,
     make_posting,
     schema,  # noqa: F401 — session fixture
 )
@@ -873,12 +875,16 @@ def test_an_anonymous_caller_cannot_settle(conn, actor):
 
 @pytest.mark.parametrize("entitlement", ["pending", "suspended"])
 def test_a_non_entitled_account_cannot_settle(conn, actor, entitlement):
-    """The 0027 boundary reaches inside the settle: the stage UPDATE fires
-    `autopilot_stages_entitlement_guard`, and the refusal NAMES the table —
-    the staging suite's T3/B4 lesson, applied to the new RPC. The whole settle
-    rolls back: no handed_off, no status write.
+    """The 0027 boundary reaches inside the settle, and since #256 it reaches it
+    EARLIER: `hq_command_replay` refuses the non-entitled caller at the top of the
+    command, so the settle never gets as far as its own stage UPDATE. Both halves
+    are asserted — the command-level refusal by name, and then the stage table's
+    own guard under definer rights, which is the staging suite's T3/B4 lesson and
+    is no longer reachable through this RPC. The whole settle rolls back either
+    way: no handed_off, no status write.
 
-    KILLED BY: removing `autopilot_stages` from the entitlement loop.
+    KILLED BY: removing `autopilot_stages` from the entitlement loop (the second
+    half), or deleting the entitlement check from `hq_command_replay` (the first).
     """
     sid = approved_stage(conn, actor)
     _system(conn)
@@ -893,7 +899,14 @@ def test_a_non_entitled_account_cannot_settle(conn, actor, entitlement):
         conn.execute("select public.app_settle_autopilot_handoff(%s, 'submitted', '', %s, null)",
                      (sid, str(uuid.uuid4())))
     assert "not entitled" in refusal(exc), exc.value
-    assert "autopilot_stages" in refusal(exc), exc.value
+    assert "not entitled to replay app_settle_autopilot_handoff" in refusal(exc), (
+        f"the settle refused somewhere other than the replay lookup: {exc.value}")
+
+    as_definer(conn, actor["uid"])
+    verdict = guard_verdict(
+        conn, "update public.autopilot_stages set state = 'handed_off' where id = %s", (sid,))
+    assert "not entitled to write public.autopilot_stages" in verdict, (
+        f"the refusal did not name autopilot_stages: {verdict}")
 
     _system(conn)
     conn.execute("update public.entitlements set status = 'active' where user_id = %s",

@@ -89,6 +89,44 @@ def as_user(conn, user_id: str):
     conn.execute("select set_config('hq.test_user', %s, false)", (str(user_id),))
 
 
+class _Rollback(Exception):
+    """Raised only to unwind `guard_verdict`'s probe transaction."""
+
+
+def as_definer(conn, user_id: str) -> None:
+    """Owner rights carrying a browser identity — a `security definer` RPC's own
+    context, reproduced.
+
+    Table-owner rights, so RLS does not apply; a browser `auth.uid()`, so
+    `hq_entitlement_guard()` still fires. That combination is the only remaining
+    vehicle for proving a PARTICULAR table's guard trigger is attached, and it
+    became necessary with #256: `hq_command_replay` now refuses a non-entitled
+    caller at the top of every post-0026 command, so those RPCs stop above their
+    own writes and the refusal they produce names the COMMAND rather than the
+    table.
+    """
+    conn.execute("reset role")
+    conn.execute("select set_config('hq.test_user', %s, false)", (str(user_id),))
+
+
+def guard_verdict(conn, sql: str, params=()) -> str:
+    """Run one definer-rights write and return the guard's sentence about it.
+
+    The write is rolled back either way, so a probe never leaves a row behind. A
+    write that LANDS returns a sentence too, rather than raising — so a caller's
+    assertion fails with its own "did not name <table>" message under a dropped
+    trigger, which is the string the staging suite's mutation test greps for.
+    """
+    try:
+        with conn.transaction():
+            conn.execute(sql, params)
+            raise _Rollback
+    except _Rollback:
+        return "(the write landed — no guard refused it)"
+    except psycopg.errors.Error as exc:
+        return exc.diag.message_primary or str(exc)
+
+
 def make_user(conn, email: str = "a@example.com") -> str:
     """Create a user the way a real signup does.
 

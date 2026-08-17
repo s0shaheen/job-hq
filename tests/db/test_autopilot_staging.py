@@ -54,7 +54,9 @@ if not DATABASE_URL and os.environ.get("HQ_REQUIRE_DB") == "1":
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="no DATABASE_URL")
 
 from tests.db.test_write_path import (  # noqa: E402  (fixtures are shared on purpose)
+    as_definer,
     gate,
+    guard_verdict,
     make_posting,
     make_user,
     schema,  # noqa: F401 — session fixture
@@ -1119,9 +1121,16 @@ def test_a_non_entitled_account_is_refused_by_name(conn, state):
     nothing else. `test_mutation_dropping_only_the_stages_guard_is_caught` drives
     exactly that mutation and proves this test goes red under it.
 
-    The write is driven through the definer RPC, because that is the path that
-    bypasses RLS: a direct insert would be refused by the privilege system with
-    the guard removed entirely, which is a vacuous test.
+    The write is driven with definer RIGHTS rather than through the definer RPC,
+    and #256 is why. `hq_command_replay` now refuses a non-entitled caller at the
+    top of every post-0026 command, so `app_stage_autopilot_application` stops
+    above its own insert and the sentence it produces names the COMMAND. That is
+    the stronger boundary and it is asserted first; but it cannot say anything
+    about which table carries a trigger, so the per-table half moved to
+    `guard_verdict`, which writes the row under table-owner rights with a browser
+    `auth.uid()` — RLS off, guard on, the same context the RPC's insert ran in.
+    A direct insert as `authenticated` would be refused by the privilege system
+    with the guard removed entirely, which is the vacuous test this avoids.
 
     KILLED BY: removing `autopilot_stages` from the entitlement loop at the bottom
     of the migration.
@@ -1141,9 +1150,19 @@ def test_a_non_entitled_account_is_refused_by_name(conn, state):
             "  %s, 'greenhouse', 'v1', '', '', '{}'::jsonb, '[]'::jsonb, '{}'::jsonb, "
             "  '[]'::jsonb, 'preparing', '', %s, null)", (app_id, str(uuid.uuid4())))
     assert "not entitled" in refusal(exc), exc.value
-    assert "autopilot_stages" in refusal(exc), (
+    assert "not entitled to replay app_stage_autopilot_application" in refusal(exc), (
+        f"the RPC refused somewhere other than the replay lookup, so the account got "
+        f"further into the command than #256 allows: {exc.value}")
+
+    # The per-table half, at the layer that still has one to prove.
+    as_definer(conn, uid)
+    verdict = guard_verdict(
+        conn,
+        "insert into public.autopilot_stages (user_id, application_id, provider) "
+        "values (%s, %s, 'greenhouse')", (uid, app_id))
+    assert "not entitled to write public.autopilot_stages" in verdict, (
         f"the refusal did not name autopilot_stages — it may have come from another "
-        f"gated table: {exc.value}")
+        f"gated table, or from nothing at all: {verdict}")
 
     _system(conn)
     assert conn.execute(

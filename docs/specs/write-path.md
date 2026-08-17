@@ -64,7 +64,17 @@ is server-only and used by the capture and digest handlers alone.
   before `0026` re-check the stored result before and after taking the row lock
   (`0003_write_path.sql`); later RPCs call `hq_command_replay`, which also compares
   `request_hash` (via `hq_command_fingerprint`, values-only sha256) and raises `22023`
-  when the same key arrives with a different command or arguments.
+  when the same key arrives with a different command or arguments. **A replay is an
+  entitled caller's read of its own result, and the lookup enforces both halves**
+  (`20260817_051941_replay_respects_entitlement.sql`, #256): before it reads
+  `command_idempotency` it refuses a caller who is not entitled and a caller whose
+  `p_user` is not `auth.uid()`, `42501`. The guard trigger cannot do this — a replay
+  returns above every write, so no trigger fires — and `docs/specs/user-entitlement.md`
+  §"The third mechanism" carries the reasoning and the pre-0026 residual. **The
+  pre-0026 lookup keys on `(user_id, idem_key)` alone** — no command, no `request_hash`
+  — so the same key sent to any of those 27 siblings returns a post-0026 command's
+  stored result to an account the gate just refused. #256 is not closed until they
+  are (#288); until then the guarantee is "the post-0026 door", not the key.
 - **Compare-and-set** — each single-row write takes `p_expected_updated_at`; bulk writes
   take a parallel array that must match the id list one-for-one. A mismatch raises
   errcode `40001` with a message containing `conflict`, which the data layer matches
@@ -90,6 +100,14 @@ is server-only and used by the capture and digest handlers alone.
     `gen_random_uuid()`. Post-0026 callees (via `hq_command_replay`) raise on a
     command/fingerprint mismatch instead of answering silently — safer, but not a
     reason to skip this.
+  - **Authorization is inherited from the shared primitive, not re-typed.** The
+    entitlement and own-account checks live inside `hq_command_replay` (#256), which
+    every post-0026 command calls above its first write — so a composed command gets
+    them without a line, and so does the inner call, which does its own lookup. The
+    third rule is therefore a prohibition: do not re-implement the check at a call
+    site and do not skip the lookup to "save a round trip". A command that reads a
+    stored result without going through that function is outside the boundary, which
+    is exactly the state the 27 pre-0026 commands are in.
   - **The composition must verify its postcondition.** After the inner call, re-read
     the row and require it to actually say what the composition claims, raising and
     rolling back if it does not; build the returned object from that re-read rather
@@ -114,7 +132,15 @@ is server-only and used by the capture and digest handlers alone.
   `hq_command_replay`, makes a retried gesture pay twice for work performed once,
   which the emailed-link lane does by design. If a command re-checks the replay
   under a row lock (the `0003`/`0026` double-check shape), the charge moves below
-  that check too. **A transaction charging more than one meter must charge them in
+  that check too. **#256 puts the entitlement denial inside that replay check**, so
+  it is above the charge as well: a non-entitled caller — replay or first call — is
+  refused before any unit is spent and before any row is written. Nothing in the
+  replay family is metered today, so the property is held structurally
+  (`tests/db/test_default_deny.py::test_the_replay_denial_sits_above_the_charge_and_the_write`,
+  derived from `pg_proc.prosrc`) and executed against a metered command built for
+  the purpose in `test_the_replay_denial_and_the_rate_charge_compose`, which also
+  builds the mistake: the same retry that costs one unit with the charge below the
+  replay costs two with it above. **A transaction charging more than one meter must charge them in
   ascending `meter` order** — the increment holds a row lock to commit, and two
   meters charged in opposite orders deadlock (measured: 17 of 20 with `40P01`).
   Nothing does that today; the rule is written before the second meter exists
@@ -146,7 +172,14 @@ is server-only and used by the capture and digest handlers alone.
 
 - No browser DML, no browser-chosen owner: ownership is `auth.uid()` inside the RPC.
 - One command, one logical effect, one audit event, one durable result. A replayed key
-  must return the first result, never apply twice.
+  must return the first result, never apply twice — **to the entitled account that stored
+  it, and to nobody else.** A durable result is product state; the lookup refuses a
+  pending, suspended, removed or unknown caller, and refuses a `p_user` that is not
+  `auth.uid()` (#256). **This invariant is aspirational until #288**: it holds through the
+  ten post-0026 commands and fails through the 27 pre-0026 ones, whose lookup compares
+  neither command nor `request_hash`, so one key reaches a post-0026 stored result through
+  a sibling that never asks who is calling (`docs/specs/user-entitlement.md` §"The third
+  mechanism").
 - Conflicts are surfaced, never silently merged; the server's row wins the screen.
 - A bound is charged once per GESTURE, never per retry and never per row. Which
   commands are bounded today is asserted exact in both directions by
