@@ -106,10 +106,27 @@ first-hand:
   (29), `reactClick` (13), `writeCoverLetter` (11).
 
 That last point is what makes the design reviewable. The remote payload never defines
-behaviour; it *selects among behaviours compiled into the package*. The interpreter and its
+behaviour; it *selects among behaviours compiled into the package*.
+
+**One sub-decision this leaves open, and ADR-001 must settle it explicitly.** The sentence
+above has the remote data naming which of the ten verbs to use. `ats-apply-surfaces-2026-08.md`
+§5.3 argues the stricter line — strip verbs from the remote payload entirely, ship pure
+locators, and let the packaged code derive the action from the element's own type. Those are
+different schemas and different manifests, so #296 and #297 cannot both be built until one is
+chosen. The strict form is more obviously compliant and costs a per-element type inference;
+the incumbent's form is proven through review and is simpler to author. Decide it in the ADR,
+not in an implementer's PR. The interpreter and its
 ten verbs ship in the reviewed bundle; the remote data supplies coordinates and which of the
 ten to use. "All logic for the functionality is contained within the extension package" is
 literally true, not argued.
+
+**Retraction, so both documents are not left contradicting each other in the repo.**
+`ats-apply-surfaces-2026-08.md` §5.2 is titled "The incumbent precedent does not exist" and
+treats the remote-config claim as unverified; the extraction above verifies it first-hand and
+that section is superseded. The install count is also unreconciled: the store badge says
+500,000 while their marketing says 1M+, and the teardown repeated the marketing figure.
+Neither number changes the architecture; both are recorded so a later reader does not
+re-derive the discrepancy.
 
 **This is the exact design the prior teardown named as its recommended candidate** —
 compiled-in interpreter plus a compiled-in verb set plus remote tables — and the incumbent
@@ -163,7 +180,11 @@ in force 27 July 2026).
   or submit work authorization, visa, EEO, compensation, legal identity" rule already
   forbids. Pennsylvania's job-seeker AI policy — the only candidate-facing rule found
   anywhere — prohibits precisely this and requires nothing else.
-- **ATS terms of service.** Unresearched. Should be, before the executor ships.
+- **ATS terms of service.** Partly researched, and the supersession here runs backwards:
+  `ats-apply-surfaces-2026-08.md` §6.1 carries a primary-quoted survey of seven surfaces.
+  Greenhouse is settled (its board API is explicitly public and keyless); the others are
+  surveyed but unruled, and the enforcement frame — what any of them actually does about
+  automated access — is genuinely open. That is what the ToS issue tracks, not a blank page.
 
 ---
 
@@ -227,8 +248,9 @@ not an engineering one, and it should be made deliberately rather than by defaul
 
 ### 5.3 The honest tradeoffs
 
-- **Coverage will look bad next to competitors' claims.** 49% of postings across four
-  adapters, against marketing that implies universal autofill. The counter is that their
+- **Coverage will look bad next to competitors' claims.** 49.2% of postings across the
+  three easy adapters (Greenhouse, Ashby, Lever), or 66.5% once Workday lands, against
+  marketing that implies universal autofill. The counter is that their
   own measured accuracy is ~90% Greenhouse, ~70% Workday, ~50% iCIMS, ~40% Taleo behind one
   undifferentiated UI, which is how "glorified autofill" became their top complaint. Showing
   per-ATS confidence honestly is a differentiator available to us and taken by nobody.
