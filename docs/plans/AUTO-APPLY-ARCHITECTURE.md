@@ -196,10 +196,34 @@ a field Workday publishes for nothing.
 4. **Lever** — 4.4%. Cheap, and completes the "standard ATS" story at 49.2%.
 5. Everything else: deep-link and hand off, with the prepared payload available to copy.
 
-Amazon (17.9%) is deliberately **not** on this list. One employer, its own account and
-assessment flow, and the archetype of the high-volume low-conversion application that an
-auto-apply product should not be optimising. Revisit only with evidence that pursued Amazon
-applications convert.
+Amazon (17.9%) is **excluded on evidence, not preference** — and the evidence is stronger
+than "low conversion". A dedicated research pass found:
+
+- **Amazon caps a candidate at 10 concurrent applications**, verified across four locales
+  with the enforcement string recovered from the shipped applicant-portal bundle. Their own
+  recruiters advise targeting five.
+- **Only one resume is stored per candidate**, so per-requisition tailoring — the thing our
+  resume engine exists to do — is architecturally impossible there.
+- **The application status enum places `assessment` and `assessment_expired` *between*
+  `draft` and `submitted`.** An auto-submitted Amazon application can therefore consume one
+  of ten scarce slots, silently expire at the assessment step, and report success.
+- **The incumbent agrees by omission**: their shipped table carries `submitButtonPaths` for
+  48 of 57 ATS integrations and deliberately omits it for Amazon.
+
+So automating submission here does not merely convert poorly; it **spends a scarce resource
+the user cannot easily reclaim and can report a false success while doing it**. That is the
+exact failure our receipts claim exists to prevent.
+
+**The defensible product at Amazon is a slot ledger, not an adapter**: track the user's ten
+concurrent slots, show what each is spent on, warn before a submission consumes one, and
+surface `assessment_expired` as the reclaimable waste it is. Ingest already returns the apply
+deep link; hand off there.
+
+**One open business-risk item for the owner.** Amazon's Conditions of Use carry a "personal
+and non-commercial use" clause that covers the *read* path, not only submission — meaning the
+877 Amazon postings we ingest today sit under it. `deep-link-only` is right on mechanics and
+conversion regardless, but whether to keep ingesting Amazon at all is a business decision,
+not an engineering one, and it should be made deliberately rather than by default.
 
 ### 5.3 The honest tradeoffs
 
