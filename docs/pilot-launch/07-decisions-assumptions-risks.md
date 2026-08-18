@@ -151,7 +151,7 @@ security/privacy analysis, rollout, reversibility, and evidence.
 | ADR-012 | Privacy/terms, processor list, AI no-training/data-use posture, consent versioning | Invitations |
 | ADR-013 | Submission receipt evidence classes, screenshot prohibition/redaction, access, retention | Receipt storage/classification |
 | ADR-014 | Resume feature matrix: imports, RenderCV schema/themes/fonts, job-specific AI tailoring, lossy behavior | Resume design/build |
-| ADR-015 | Stripe test ownership and later commercialization policy. **Two further questions recorded 2026-08-16 from #210 — see §2.2** | Billing integration |
+| ADR-015 | Stripe test ownership and later commercialization policy. **Two further questions recorded 2026-08-16 from #210 — see §2.2. Q2 RULED 2026-08-18: the per-user limits are provider-spend protection, not commercial quotas, and founding users are not exempt. Q1 still open** | Billing integration |
 | ADR-017 | ntfy topic rotation: the committed topic literals are live credentials and one of them is the `resume.yml` fallback that broadcasts rendered resumes to a public broker. Owner must create replacements, and decide whether already-broadcast material is treated as exposed | RM-40 Step 1; any public repository visibility |
 | ADR-018 | Third-party personal data: `users/dad/` and `users/roommate/` are two other people's job-search profiles, in history and in every clone. Deletion does not retract them. Decide whether those individuals are notified | RM-40 Step 6 |
 | ADR-019 | Legacy resume pipeline disposition: vaulting `resume/base.yaml` breaks the single-tenant `editor/` app, `resume.yml`, and `scripts/publish_to_drive.py`. Retire, repoint, or keep them outside the product repository | RM-40 Step 5 |
@@ -249,7 +249,37 @@ the audited set/remove RPC pair is built now, built with the first paid tier, or
 unnecessary for a two-user pilot. The answer decides whether §D of the entitlement spec is
 a build item or stays a recorded gap.
 
-**Q2 — Is the warm daily cap a provider-spend limit or a commercial quota?** One number,
+**Q2 — Is the warm daily cap a provider-spend limit or a commercial quota? RULED
+2026-08-18.** The owner answered on #210:
+
+> the per-user limits are PROVIDER-SPEND PROTECTION, not commercial quotas. Founding users
+> are NOT exempt from them; CLAUDE.md already says the free-forever exemption covers
+> commercial quotas only.
+
+**The reasoning, as the ruling states it.** CLAUDE.md already draws the line — founding
+users are "exempt from commercial quotas, not from security, abuse, concurrency, provider,
+or reliability limits" — so the answer was a reading of the existing rule rather than a new
+one. Free forever is a promise about MONEY: no charge and no plan quota, ever. It is not a
+promise of no ceilings, and a limit that exists to stop somebody else's bill running away
+is not a thing a founding user was ever promised exemption from.
+
+**What it settles, and what shipped for it.** The cap keeps applying to `invited` accounts
+and `app_start_warm_search` is right to branch on neither `invited` nor `plan`
+(`tests/db/test_default_deny.py` drives it to HQCAP as a founding account). Every bound in
+`public.rate_bounds` keeps its decided, non-commercial class — `warm.start` provider,
+`quickadd.resolve` security, `warm.concurrent` and `export.build` reliability — under a
+CHECK that cannot hold `'commercial'`;
+`20260818_223038_bound_class_is_decided.sql` records the ruling in the catalogue's own
+comments and clears the stale "open owner question" note, and changes no limit, window,
+class or flag, because none of them needed changing. `is_placeholder` stays true on every
+row: the ruling decided the CLASS, and the four numbers are still engineering guesses.
+`/settings/plan`'s founding line was rewritten — it no longer says "no usage limits on the
+product itself", it promises no plan quota and no charge and says the protective limits
+apply to every account. **Follow-up, not blocking:** Contract §6 and FP-REF-003 still read
+as though any cap breaches the founding promise, and should be amended to say "commercial
+quota".
+
+**The question as it was recorded, 2026-08-16.** One number,
 two readings, opposite answers for user #1. `HQ_WARM_DAILY_CAP` (default 20/day) is applied
 by `app_start_warm_search` unconditionally — the RPC branches on neither `invited` nor
 `plan`. `webapp/lib/warm/config.ts` documents it as a cap "on SPEND", which §6 permits for
@@ -264,12 +294,15 @@ currently promises something the store does not deliver. If a commercial quota,
 `app_start_warm_search` needs to skip it for `invited` and the owner accepts uncapped
 harvestapi spend for founding accounts.
 
-**Q2 is the general rule, not one number.** #261 has to classify every bound it adds — the
-per-user rate bound on the `app_*` RPCs, per-user concurrency, and the outbound-fetch rate
-on quick-add resolve and warm — as security/abuse, provider-spend, or reliability (all of
-which a founding user is subject to) versus a commercial quota (which `invited` is promised
-exemption from). Answering Q2 answers that rule once. Answering it separately in #261
-produces two rules for one distinction, so the two should be decided together.
+**Q2 is the general rule, not one number** — which is why the ruling was written as a rule.
+#261 had to classify every bound it adds — the per-user rate bound on the `app_*` RPCs,
+per-user concurrency, and the outbound-fetch rate on quick-add resolve and warm — as
+security/abuse, provider-spend, or reliability (all of which a founding user is subject to)
+versus a commercial quota (which `invited` is promised exemption from). The ruling answers
+that once, for every bound now and later: a per-user limit in this product is one of the
+three protective classes, `'commercial'` is not a value the catalogue can hold, and nothing
+in the charging lane may read `invited`. A future commercial quota is a different mechanism
+and arrives with Q1.
 
 ## 3. Resolved ADRs
 
@@ -563,10 +596,20 @@ which account they are in would be the fixture-as-real-data failure the nav's ab
 fallback already refuses.
 
 Plan & billing likewise adds a line the design does not draw: for an `invited` account,
-*"Free forever, with no usage limits on the product itself."* DEC-005 makes founding users
-free forever, and a section reading only "Plan: Free" beside a rail slot labelled
+*"Free forever, with no plan quota and no charge. Limits that prevent misuse and cap what
+outside services cost apply to every account, including this one."* DEC-005 makes founding
+users free forever, and a section reading only "Plan: Free" beside a rail slot labelled
 "Plan & billing" invites the reader to wonder what happens when the trial ends. The
 sentence is read from `entitlements.invited`, not printed unconditionally.
+
+**Amended 2026-08-18.** The line first shipped as *"Free forever, with no usage limits on
+the product itself."*, which was false the day it was written: a 20/day warm cap and the
+`public.rate_bounds` bounds applied to every founding account. The ADR-015 Q2 ruling (§2.2)
+classified those limits as provider-spend and abuse protection, which founding users are
+not exempt from, so the promise was narrowed to the one this product keeps — money — and
+the second sentence was added to stop the first being read as a promise of no ceilings.
+Still no new component and no new test id: the same span, two sentences.
+`tests/e2e/settings.spec.ts` asserts both halves and the absence of the old wording.
 
 ### DEV-013 — Settings → Data omits Export defaults
 

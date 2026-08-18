@@ -56,8 +56,11 @@ describe("the refusal is matched on the SQLSTATE, never on the message", () => {
 
   it("is a DIFFERENT code from the warm daily cap, which means something else", () => {
     // `HQCAP` renders "you have used your N warm searches for today", which is
-    // false about a burst bound and about an in-flight bound — and the two are
-    // not even the same class of limit (#210's open question).
+    // false about a burst bound and about an in-flight bound. Since ADR-015 Q2
+    // (owner ruling on #210, 2026-08-18) the two ARE the same class of limit —
+    // both provider-spend, both applying to founding accounts — and they still
+    // need different codes, because the class settles who a bound applies to and
+    // not what it says or when it resets.
     expect(isRateBound(pgError("HQCAP"))).toBe(false);
   });
 });

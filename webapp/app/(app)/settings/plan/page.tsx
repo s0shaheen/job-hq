@@ -20,9 +20,22 @@ export const dynamic = "force-dynamic";
  * rendered as real data.
  *
  * NOTHING HERE CHARGES OR CHANGES A PLAN. There is no Stripe integration, no
- * checkout, and no upgrade control, because RM-70 is unbuilt and ADR-015 is
- * unsigned. A section that showed a price with a button beside it would be the
- * charging surface, half-built.
+ * checkout, and no upgrade control, because RM-70 is unbuilt and ADR-015 Q1 —
+ * whether a paid tier exists at all — is unanswered. A section that showed a
+ * price with a button beside it would be the charging surface, half-built.
+ *
+ * THE FOUNDING LINE, and why it says two things. ADR-015 Q2 (owner ruling on
+ * #210, 2026-08-18) classified every per-user limit in this product as
+ * PROVIDER-SPEND AND ABUSE PROTECTION rather than a commercial quota, which
+ * settles who they apply to: everybody, founding accounts included. CLAUDE.md
+ * grants the free-forever exemption against COMMERCIAL quotas and nothing else.
+ * So the old sentence — "Free forever, with no usage limits on the product
+ * itself." — was false the day it shipped: `app_start_warm_search` applies
+ * `HQ_WARM_DAILY_CAP` (20/day) branching on neither `invited` nor `plan`, and
+ * the #282 bounds in `public.rate_bounds` are classed security, provider and
+ * reliability with a CHECK that cannot hold 'commercial'. The promise this
+ * product can keep is about MONEY, not about ceilings, and the second sentence
+ * is what stops the first one being read as a promise of no ceilings at all.
  */
 export default async function SettingsPlanPage() {
   const read = await getSessionEntitlement().catch(() => null);
@@ -42,7 +55,9 @@ export default async function SettingsPlanPage() {
         </span>
         {entitlement?.invited ? (
           <span data-testid="plan-founding" className="mt-1 text-xs text-muted">
-            Free forever, with no usage limits on the product itself.
+            Free forever, with no plan quota and no charge. Limits that prevent
+            misuse and cap what outside services cost apply to every account,
+            including this one.
           </span>
         ) : null}
       </div>

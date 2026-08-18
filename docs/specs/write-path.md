@@ -186,10 +186,11 @@ is server-only and used by the capture and digest handlers alone.
   `tests/db/test_rate_bounds.py::test_the_bounded_command_set_is_exact`, derived
   from `pg_proc.prosrc` — that test is what pays for choosing an explicit call
   over a trigger, which could not have been forgotten. The values are
-  PLACEHOLDERS pending an owner decision (#261, to be answered with #210's
-  warm-cap classification): `rate_bounds.is_placeholder` says so per row, and
+  PLACEHOLDERS pending an owner decision (#261): `rate_bounds.is_placeholder`
+  says so per row. The CLASS is not pending and never was open here —
   `bound_class` cannot hold `commercial`, which is the only class founding users
-  are exempt from.
+  are exempt from, and ADR-015 Q2 (owner ruling, 2026-08-18) ratified that for
+  every bound at once.
 - **`command_idempotency` rows are never deleted on a schedule.** A digest email's
   one-click link has no revocation table: the row IS its single-use guarantee, keyed on
   the token's `jti` (`0019_digest_action.sql`, `core/digest_links.py`). Pruning by age

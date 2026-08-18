@@ -938,8 +938,15 @@ def test_a_founding_user_is_not_exempt_from_the_abuse_and_spend_limits(conn):
     The warm referral daily cap (0020) is the only real spend control in the
     system: it charges at INSERT, under an advisory lock, before a cent reaches
     harvestapi. A founding account is `invited = true` and free forever, and it is
-    capped exactly like everybody else — the cap is an ABUSE limit, not a
+    capped exactly like everybody else — the cap is a PROVIDER-SPEND limit, not a
     commercial quota, and the distinction is the whole sentence.
+
+    That distinction is no longer this file's reading of CLAUDE.md. ADR-015 Q2,
+    owner ruling on #210 dated 2026-08-18: "the per-user limits are PROVIDER-SPEND
+    PROTECTION, not commercial quotas. Founding users are NOT exempt from them."
+    So this test is the ruling's enforcement at the boundary the ruling is about,
+    and `/settings/plan` says the same thing to the person in
+    `webapp/app/(app)/settings/plan/page.tsx`.
 
     Asserted two ways, because the cap has two failure modes:
       * the per-user count is enforced for a founding account (SQLSTATE HQCAP);

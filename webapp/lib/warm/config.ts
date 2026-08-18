@@ -13,6 +13,18 @@
  * Config-knob philosophy, at the one place the webapp can enforce it. ~20/day is
  * ~$2–8/day at the brief's $0.10–0.40 per job, which is the intended ceiling.
  *
+ * THE CLASSIFICATION IS SETTLED, and this comment used to be where the question
+ * was left hanging. ADR-015 Q2, owner ruling on #210 dated 2026-08-18: the
+ * per-user limits in this product are PROVIDER-SPEND PROTECTION, not commercial
+ * quotas. So this cap is a provider-spend limit, CLAUDE.md's free-forever
+ * exemption does not reach it — that exemption covers commercial quotas only —
+ * and `app_start_warm_search` is right to branch on neither `invited` nor
+ * `plan`. A founding account gets the same 20/day as anybody else, which is
+ * what `/settings/plan` now says out loud and what
+ * `tests/db/test_default_deny.py` proves by driving the RPC to HQCAP as an
+ * `invited = true` account. Making this cap skip founding users is the change
+ * the ruling refused; it needs a new owner decision, not a patch.
+ *
  * `HQ_WARM_DAILY_CAP` can override it in a deployment without a code change; a
  * bad value falls back to the default rather than taking the feature down (the
  * house rule for knobs).

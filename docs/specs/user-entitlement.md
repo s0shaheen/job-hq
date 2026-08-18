@@ -212,6 +212,20 @@ build order: it records the seam so a paid tier is possible later without a rewr
 it is inert until ADR-015 names the tiers. The one thing here that is NOT billing, and
 does not wait on ADR-015, is §E.
 
+**ADR-015 Q2 is answered, and it draws the line this whole section turns on.** Owner
+ruling on #210, 2026-08-18: *the per-user limits are PROVIDER-SPEND PROTECTION, not
+commercial quotas. Founding users are NOT exempt from them; CLAUDE.md already says the
+free-forever exemption covers commercial quotas only.* Read as a rule rather than as one
+number, that says: **free forever is a promise about money, not about ceilings.** A
+founding account is never charged and never carries a plan quota; it carries every
+security, abuse, provider-spend, concurrency and reliability limit the product has, on
+the same terms as anybody else. Three consequences are already shipped rather than
+pending — the warm daily cap keeps applying to `invited` accounts unconditionally
+(`app_start_warm_search` branches on neither `invited` nor `plan`), every bound in
+`public.rate_bounds` carries a decided non-commercial class under a CHECK that cannot
+hold `'commercial'`, and `/settings/plan` says both halves to the person. **Q1 — whether
+a paid tier exists at all — remains open, and blocks nothing.**
+
 The seam already exists in the store. `plan` (`0027_entitlement.sql`) is `text not null
 default 'free'` with deliberately **no CHECK** — the vocabulary belongs to the billing
 phase, and a CHECK naming tiers that do not exist yet would be a guess. `invited` is the
@@ -315,13 +329,22 @@ them.
 
 Contract v2 §6 and CLAUDE.md agree: "uncapped" removes commercial quotas and charges, and
 does not remove security, abuse, concurrency, provider-rate, reliability, or
-infrastructure-safety limits. Measured against the repo rather than reasoned:
+infrastructure-safety limits. **The ADR-015 Q2 ruling of 2026-08-18 makes that agreement
+operative rather than theoretical:** every per-user limit this product has is one of those
+classes, so none of them is removed for a founding account.
+
+Measured against the repo rather than reasoned. **This table is the state on 2026-08-16,
+before `20260817_011844_per_user_rate_bounds.sql` shipped `public.rate_bounds`,
+`public.usage_counters` and `app_charge_rate_bound` with four durable per-user bounds
+(`quickadd.resolve` security, `warm.start` provider, `warm.concurrent` reliability,
+`export.build` reliability).** It is kept as the measurement that motivated them rather
+than silently rewritten; read the migration for what is enforced today.
 
 | Limit class | What exists today |
 |---|---|
 | Per-user request rate | One gate, one gesture. `ResolveRateGate` (`webapp/lib/quickadd/rate.ts`) — 60 calls per user per 10-minute fixed window, **in memory, per server instance**, so two serverless instances allow 2×. It is a module-level singleton in `webapp/lib/data/supabase-source.ts` checked inside `resolveJobLinks()`, reached from one server action (`webapp/app/(app)/add/actions.ts`). Its own comment: "an abuse damper, not billing-grade accounting". Every `app_*` command RPC, `/api/import/upload`, `/api/warm/start`, `/api/connections/upload`, `/api/companies/propose` and the capture-token lane carry a payload bound and **no** rate bound; `/api/export` carries neither — it regenerates the caller's whole CSV on every request, as often as it is asked. |
 | Per-user concurrency | Nothing. Every `concurren` hit across `webapp/**` and `db/migrations/**` is optimistic concurrency (an `updated_at` CAS token) or an advisory lock serialising one race — neither is an in-flight bound. `warm_searches` has a daily cap and no "one at a time". |
-| Provider spend | `warmDailyCap()` only (`webapp/lib/warm/config.ts`, `HQ_WARM_DAILY_CAP`, default 20, clamped 1..1000 in the RPC) — and its classification is undecided; see contradiction 4. |
+| Provider spend | `warmDailyCap()` (`webapp/lib/warm/config.ts`, `HQ_WARM_DAILY_CAP`, default 20, clamped 1..1000 in the RPC), classified PROVIDER-SPEND by the ADR-015 Q2 owner ruling of 2026-08-18 and therefore applying to founding accounts; plus the `warm.start` bound. See contradiction 4. |
 | Reliability / infrastructure | `HQ_WARM_DAILY_CAP` and the payload bounds below. That is the set. |
 
 Payload bounds are **not** quotas and must not be counted as ones. They bound one call;
@@ -337,8 +360,9 @@ wait on ADR-015. It is **#261**, at its own tier.
 
 ### Contradictions between the contract and the store
 
-Recorded rather than resolved. Two of them are owner decisions and are in ADR-015
-(`docs/pilot-launch/07-decisions-assumptions-risks.md` §2.2).
+Recorded rather than resolved, except where marked. Two of them are owner decisions and
+are in ADR-015 (`docs/pilot-launch/07-decisions-assumptions-risks.md` §2.2); **the second
+of those, contradiction 4, was ruled on 2026-08-18 and is resolved below.**
 
 1. **`founding_free` does not exist.** Contract v2 §6 says the owner "explicitly assigns
    `founding_free` to each invited first-user account". The string appears in
@@ -360,17 +384,19 @@ Recorded rather than resolved. Two of them are owner decisions and are in ADR-01
 3. **Nothing removes it.** §6 requires a separately confirmed, audited removal action.
    `invited` is written in exactly two places in the whole schema — the signup trigger and
    `0027`'s backfill — and neither is a removal. No such function exists.
-4. **The warm daily cap applies to founding users unconditionally, and its class is
-   undecided.** `webapp/lib/warm/config.ts` documents it as a cap "on SPEND" (a
-   provider-spend limit, which §6 permits). Contract §6 promises founding users "no
-   company, job, **search**, referral-result, resume, or submission quota", and FP-REF-003
-   (`15-full-product-requirements-register.md`) requires the 40-result target "without a
-   founding-user quota". `app_start_warm_search` takes `p_daily_cap` from the app and
-   branches on nothing else — not `invited`, not `plan`. Sharper than the issue recorded
-   it: the shipped UI makes the promise in so many words — the founding line on
-   `/settings/plan` reads "Free forever, with no usage limits on the product itself." One
-   number, two readings, and a user-visible sentence on the wrong side of one of them.
-   **Owner decision, ADR-015. This spec does not decide it.**
+4. **The warm daily cap applies to founding users unconditionally, and that is now
+   correct.** *Resolved 2026-08-18 by the ADR-015 Q2 owner ruling on #210: the cap is
+   PROVIDER-SPEND PROTECTION, so a founding account is subject to it.* The reading that
+   made it a defect was Contract §6's promise of "no company, job, **search**,
+   referral-result, resume, or submission quota" plus FP-REF-003's 40-result target
+   "without a founding-user quota"; the ruling settles that those promise the absence of a
+   COMMERCIAL quota, which this cap is not. What changed in the product is the sentence,
+   not the mechanism: `app_start_warm_search` still takes `p_daily_cap` from the app and
+   branches on nothing else, and the founding line on `/settings/plan` no longer reads
+   "Free forever, with no usage limits on the product itself." — it promises no plan quota
+   and no charge, and says the protective limits apply to every account. **The contract
+   text is the remaining follow-up:** §6 and FP-REF-003 still read as though any cap is a
+   breach, and should be amended to say "commercial quota".
 5. **Contract §3 overstates the shipped plan surface.** It rates "Plan and billing
    surfaces" as `Complete, dormant charging` with a "real plan/usage model and Stripe
    test-mode hosted integration". Shipped is `webapp/app/(app)/settings/plan/page.tsx`,

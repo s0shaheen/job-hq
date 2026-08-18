@@ -43,7 +43,13 @@ entry on its attack list:
                             for choosing an explicit call over a trigger;
     the numbers are        every seeded bound still says `is_placeholder`, and no
     placeholders           bound is classified `commercial` — founding users are
-                            exempt from that and from nothing here.
+                            exempt from that and from nothing here;
+    THE CLASS IS DECIDED   ADR-015 Q2 (owner ruling on #210, 2026-08-18) classed
+                            every per-user limit here as provider-spend and abuse
+                            protection. The four shipped classes are pinned one by
+                            one, and no seeded note may still call the question
+                            open. The VALUES stay placeholders: the ruling decided
+                            the class, and nobody has picked 60, 10, 3 or 30.
 
 Run it the way the rest of this directory runs:
 
@@ -922,15 +928,23 @@ def test_the_bounded_command_set_is_exact(conn):
 
 
 def test_every_shipped_bound_is_still_flagged_a_placeholder(conn):
-    """#261 does NOT decide the values; it routes them to an owner question that
-    must be answered alongside #210's undecided warm-cap classification.
+    """#261 does NOT decide the values, and ADR-015 Q2 did not decide them either.
 
-    So the schema says so in a column, and this is what stops the flag rotting
-    into a lie: the day the owner answers, whoever writes the number clears the
-    flag, and the day somebody adds a bound without asking, this goes red.
+    The owner ruling on #210 (2026-08-18) answered the CLASS question this flag
+    was once bundled with — the limits are provider-spend and abuse protection,
+    not commercial quotas — and it left the four integers exactly where they
+    were. `is_placeholder` is a fact about the NUMBER and about nothing else, so
+    a ruling that decided the class must not clear it; that separation is what
+    `20260818_223038_bound_class_is_decided.sql` writes into the column comment
+    rather than into the data.
 
-    KILLED BY: seeding a bound without `is_placeholder`, or defaulting the column
-    to false.
+    So the schema still says so in a column, and this is what stops the flag
+    rotting into a lie: the day the owner picks the numbers, whoever writes them
+    clears the flag, and the day somebody adds a bound without asking, this goes
+    red.
+
+    KILLED BY: seeding a bound without `is_placeholder`, defaulting the column to
+    false, or clearing the flag on the strength of the class ruling.
     """
     _system(conn)
     decided = conn.execute(
@@ -945,6 +959,84 @@ def test_every_shipped_bound_is_still_flagged_a_placeholder(conn):
     # than a fact about an empty table.
     assert conn.execute(
         "select count(*) from public.rate_bounds where is_placeholder").fetchone()[0] >= 4
+
+
+def test_the_class_of_every_shipped_bound_is_decided_and_named(conn):
+    """ADR-015 Q2, owner ruling on #210 (2026-08-18): the per-user limits are
+    PROVIDER-SPEND PROTECTION, not commercial quotas, and founding users are not
+    exempt from them.
+
+    The ruling decided the class for every meter at once, which turns the four
+    classes from an implementer's judgement into the shipped contract — so they
+    get pinned one by one, with the reason each was chosen. The CHECK below is
+    asserted separately and is not enough on its own: it forbids `commercial`
+    and permits any of the other three, so it would not notice a later branch
+    quietly moving `warm.start` to `security` or seeding a fifth bound whose
+    class nobody argued for.
+
+    Deliberately NOT asserted here: that the migration reassigned something. It
+    reassigned nothing, because every row already carried a decided,
+    non-commercial class the day it shipped. This test is what makes that a
+    measured fact rather than a claim in a PR body.
+
+    KILLED BY: changing a seeded meter's class, or adding a bound without adding
+    it here with its reason.
+    """
+    _system(conn)
+    shipped = dict(conn.execute(
+        "select meter, bound_class from public.rate_bounds "
+        " where meter not like 'test.%' order by 1").fetchall())
+    assert shipped == {
+        # Somebody else's bill: ~$0.30 of harvestapi spend per search.
+        "warm.start": "provider",
+        # Abuse and misuse: a user-driven OUTBOUND fetch, up to 25 pages a call.
+        "quickadd.resolve": "security",
+        # Our own capacity: live in-flight work, not a window count.
+        "warm.concurrent": "reliability",
+        # Our own capacity again: function CPU, memory and egress, no third party.
+        "export.build": "reliability",
+    }, (
+        "a shipped bound's class changed, or a new bound arrived unclassified. "
+        "ADR-015 Q2 ruled on the class of every per-user limit in this product; "
+        "a new one needs its reason here, and none of them may be commercial."
+    )
+
+
+def test_no_shipped_note_still_calls_the_classification_an_open_question(conn):
+    """The prose half of the ruling, and the reason it is worth a test.
+
+    `20260817_011844_per_user_rate_bounds.sql` seeded `warm.start` with a note
+    ending "The DAILY cap's classification is the open owner question (#210)."
+    That sentence is data an operator reads while deciding whether to touch the
+    number, and it went false on 2026-08-18. A comment that describes a settled
+    decision as pending is worse than no comment: the next person re-derives the
+    answer, or re-asks it.
+
+    Asserted over EVERY note rather than over `warm.start` alone, so a bound
+    seeded later carrying the same stale framing is caught too.
+
+    KILLED BY: dropping the guarded UPDATE from
+    `20260818_223038_bound_class_is_decided.sql`, or seeding a new bound whose
+    note calls the class an open question.
+    """
+    _system(conn)
+    stale = conn.execute(
+        "select meter, note from public.rate_bounds "
+        " where meter not like 'test.%' "
+        "   and (note ilike '%open owner question%' "
+        "     or note ilike '%classification is%open%') order by 1").fetchall()
+    assert stale == [], (
+        "a bound's note still calls the classification undecided. ADR-015 Q2 was "
+        f"ruled on 2026-08-18: {stale}"
+    )
+
+    # And the positive control, so the emptiness above is a rewrite rather than a
+    # note somebody deleted: the row that carried the stale sentence now names
+    # the ruling and still says the daily cap is enforced elsewhere.
+    note = conn.execute(
+        "select note from public.rate_bounds where meter = 'warm.start'").fetchone()[0]
+    assert "ADR-015 Q2" in note, note
+    assert "PROVIDER-SPEND" in note, note
 
 
 def test_no_bound_is_a_commercial_quota_and_the_charge_never_reads_invited(conn):

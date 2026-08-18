@@ -112,6 +112,41 @@ test("each section states its own save semantics", async ({ page, context, baseU
   await expect(page.getByText("Changes save as you make them.")).toBeVisible();
 });
 
+test("the founding line promises no charge, and does not promise no limits", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  // ADR-015 Q2, owner ruling on #210 (2026-08-18): the per-user limits are
+  // PROVIDER-SPEND AND ABUSE PROTECTION, not commercial quotas, so a founding
+  // account is subject to all of them. CLAUDE.md's free-forever exemption covers
+  // commercial quotas and nothing else.
+  //
+  // This is the assertion the old copy could not pass. It read "Free forever,
+  // with no usage limits on the product itself." while `app_start_warm_search`
+  // applied a 20/day cap to `invited` accounts and `public.rate_bounds` shipped
+  // four more — a user-visible promise on the wrong side of the ruling. Demo mode
+  // is `invited: true` (`lib/auth/entitlement.ts`), which is what makes the
+  // founding line reachable in a browser at all.
+  //
+  // BOTH HALVES, because either alone passes a build that drops the other: the
+  // money promise is still made, and the limits sentence that keeps it honest is
+  // beside it.
+  await isolate(page, context, baseURL!, "founding-line");
+  await page.goto("/settings/plan");
+
+  const founding = page.getByTestId("plan-founding");
+  await expect(founding).toBeVisible();
+  await expect(founding).toContainText("Free forever, with no plan quota and no charge.");
+  await expect(founding).toContainText(
+    "Limits that prevent misuse and cap what outside services cost apply to every account, including this one.",
+  );
+
+  // MUTATION: restore the old sentence and this fails on both counts — the
+  // promise it makes is one the store does not keep.
+  await expect(founding).not.toContainText("no usage limits");
+});
+
 // ────────────────────────────────────────────────────────── the absences
 
 test("Connected accounts names Google and nothing that reads mail", async ({

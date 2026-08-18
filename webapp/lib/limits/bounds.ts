@@ -21,12 +21,15 @@
  * without a database write and can never loosen one. That asymmetry is the
  * whole of the override contract.
  *
- * THE NUMBERS ARE PLACEHOLDERS. #261 routes the values to an owner question
- * that must be answered alongside #210's undecided warm-cap classification —
- * the CLASS decides the code and the value only decides the threshold — so
- * every seeded row carries `is_placeholder = true` and a test asserts it. There
- * is nothing to change here when the owner answers: it is one UPDATE against
- * `public.rate_bounds`.
+ * THE CLASS IS DECIDED; THE NUMBERS ARE STILL PLACEHOLDERS, and the two were
+ * always separate questions — the CLASS decides the code and the value only
+ * decides the threshold. ADR-015 Q2, owner ruling on #210 dated 2026-08-18,
+ * answered the first for every meter at once: these limits are PROVIDER-SPEND
+ * AND ABUSE PROTECTION, never commercial quotas, so a founding account is
+ * subject to all of them and nothing in this lane may read `invited`. The
+ * second is still open — every seeded row carries `is_placeholder = true` and a
+ * test asserts it. There is still nothing to change here when the owner picks
+ * the numbers: it is one UPDATE against `public.rate_bounds`.
  */
 
 /**
@@ -38,10 +41,12 @@
  * `error.details`, and the retry horizon through as `error.hint`.
  *
  * NOT `HQCAP`, and the difference is load-bearing. `HQCAP` means "you have used
- * your N warm searches for today", renders its own designed state, and belongs
- * to a bound whose CLASS is still an open owner question. A security or
- * reliability bound is a different refusal with a different reset, and fusing
- * the two would make the sentence lie about both.
+ * your N warm searches for today" and renders its own designed state. The two
+ * bounds are the same CLASS since ADR-015 Q2 (both provider-spend, both applying
+ * to founding accounts), and they still get different codes: a burst bound, an
+ * in-flight bound and a daily cap are three refusals with three different
+ * resets, and fusing them would make one sentence lie about the others. The
+ * class settles WHO a bound applies to, not what it says when it bites.
  */
 export const RATE_BOUND_SQLSTATE = "HQBND";
 
