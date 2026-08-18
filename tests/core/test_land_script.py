@@ -825,6 +825,10 @@ def test_land_tier_skips_the_check_wait_but_not_the_gates(land: Land, tier: str)
     allowed to skip WAITING for CI. It is not allowed to skip the local gates,
     and it must not reference a variable only the wait loop sets — that exact
     unbound-variable bug shipped twice.
+    
+    The fast path uses `gh pr merge --auto --squash` to arm auto-merge, letting
+    the platform fire it when the gate check passes, so nobody waits and nothing
+    lands unchecked.
     """
     r = land.run(LAND_TIER=tier, GH_CHECKS_FILE=land.checks(FAILING_CHECKS))
     assert r.returncode == 0, r.stdout + r.stderr
@@ -833,7 +837,10 @@ def test_land_tier_skips_the_check_wait_but_not_the_gates(land: Land, tier: str)
         "the fast path still polled the check API"
     assert "unbound variable" not in r.stderr, r.stderr
     assert "checks not waited on" in r.stderr, "the run must say it did not wait"
-    assert "LANDED" in r.stdout
+    assert "AUTO-MERGE ARMED" in r.stdout, "the fast path must arm auto-merge, not merge immediately"
+    # The key fix: --auto is passed to gh pr merge, not immediate merge
+    assert any("--auto" in c and "pr merge" in c for c in land.gh_calls()), \
+        "the fast path must use --auto, not attempt immediate merge"
 
 
 def test_an_unknown_tier_is_not_a_fast_path(land: Land) -> None:
@@ -1274,6 +1281,16 @@ MUTATIONS = [
         id="tier-skips-gates",
     ),
     pytest.param(
+        "LAND_TIER fast path uses --auto not immediate merge",
+        (
+            '  if ! gh pr merge "$PR_NUM" "--${MERGE_METHOD}" --auto --delete-branch; then',
+            '  if ! gh pr merge "$PR_NUM" "--${MERGE_METHOD}" --delete-branch; then',
+        ),
+        {"LAND_TIER": "t1", "GH_CHECKS_FILE": PASSING_CHECKS},
+        None,  # asserted on the gh_calls, checking for --auto
+        id="tier-uses-auto",
+    ),
+    pytest.param(
         "a second run on one branch refuses",
         (
             'claim_lock() { mkdir "$LOCK_DIR" 2>/dev/null; }',
@@ -1319,9 +1336,17 @@ def test_mutations_break_the_properties(
 
 def _run_mutation_pair(land, mutant, env, name, expected_code):
     # The real script holds the property...
-    good = land.run("--dry-run", **env)
+    # The --auto mutation needs to see the merge call, so it must NOT use --dry-run
+    dry_run_args = () if name == "LAND_TIER fast path uses --auto not immediate merge" else ("--dry-run",)
+    good = land.run(*dry_run_args, **env)
     if expected_code is not None:
         assert good.returncode == expected_code, f"{name}: {good.stdout}{good.stderr}"
+    elif name == "LAND_TIER fast path uses --auto not immediate merge":
+        # This mutation asserts that --auto is used in the fast path
+        assert any("--auto" in c and "pr merge" in c for c in land.gh_calls()), (
+            f"{name}: the real script did not use --auto in pr merge call.\n"
+            f"gh calls: {land.gh_calls()}"
+        )
     else:
         assert land.gate_marker.exists(), f"{name}: gates did not run on the real script"
 
@@ -1330,11 +1355,17 @@ def _run_mutation_pair(land, mutant, env, name, expected_code):
     (land.work / ".git" / "land-gates-passed").unlink(missing_ok=True)
     land.gh_log.unlink(missing_ok=True)
 
-    bad = land.run("--dry-run", script=mutant, **env)
+    bad = land.run(*dry_run_args, script=mutant, **env)
     if expected_code is not None:
         assert bad.returncode != expected_code, (
             f"{name}: the mutated script STILL refused with {expected_code} — "
             f"the test is not detecting the property it claims to.\n{bad.stdout}{bad.stderr}"
+        )
+    elif name == "LAND_TIER fast path uses --auto not immediate merge":
+        # The mutation removes --auto, so the mutant should NOT have --auto
+        assert not any("--auto" in c and "pr merge" in c for c in land.gh_calls()), (
+            f"{name}: the mutated script still used --auto — the assertion is vacuous.\n"
+            f"gh calls: {land.gh_calls()}"
         )
     else:
         assert not land.gate_marker.exists(), (

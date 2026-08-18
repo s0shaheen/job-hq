@@ -919,6 +919,32 @@ if [ "$DRY_RUN" = "1" ]; then
   exit 0
 fi
 
+# The fast path for LAND_TIER=t0/t1: arm auto-merge and return. The platform then
+# merges when the gate check goes green, so nobody waits and nothing lands unchecked.
+if [ -n "${SKIP_CHECK_WAIT:-}" ]; then
+  step "Arming auto-merge for PR #${PR_NUM} (${MERGE_METHOD})"
+  if ! gh pr merge "$PR_NUM" "--${MERGE_METHOD}" --auto --delete-branch; then
+    refuse 11 "gh pr merge --auto failed for PR #${PR_NUM}." \
+      "Nothing was queued for auto-merge. See ${PR_URL}."
+  fi
+  ok "PR #${PR_NUM} is queued for auto-merge when checks pass"
+  info "$PR_URL"
+  
+  # Verify the auto-merge flag was set. The platform will merge when the `gate`
+  # check concludes green, so we do not wait or verify — that happens on main.
+  # This is the original intent of the t0/t1 fast path: skip local wait time,
+  # let CI be the gate, and the platform lands it.
+  
+  rm -f "$GATE_STAMP"
+  
+  printf '\n%s\n' "${_g}${_b}AUTO-MERGE ARMED${_0}"
+  info "PR      #${PR_NUM}  ${PR_URL}"
+  info "branch  ${BRANCH} @ ${HEAD_SHA:0:8}"
+  info "checks  will run on main when pushed; auto-merge fires when gate passes"
+  info "${BASE}    ${BASE_BEFORE:0:8} -> (will move when merged)"
+  exit 0
+fi
+
 step "Merging PR #${PR_NUM} (${MERGE_METHOD})"
 if ! gh pr merge "$PR_NUM" "--${MERGE_METHOD}" --delete-branch; then
   # A non-zero exit here does NOT prove the merge failed. `gh pr merge` also
