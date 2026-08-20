@@ -433,7 +433,7 @@ test("an expired session refuses the save, keeps the form usable, and queues not
  * above: they assert on an end state, so re-running against a store their last
  * run mutated still means what it says. The three display-preference cases below
  * assert on a STARTING state ("large type is off, now turn it on"), and
- * `globalThis.__hqDemoStores` survives between runs against a reused server — so
+ * `globalThis.__hqDemoSessions` survives between runs against a reused server — so
  * the second run of the suite would start with the preference already set and
  * the precondition would fail for a reason that has nothing to do with the code.
  * A per-run suffix buys a genuinely untouched store; the map is bounded, so

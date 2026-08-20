@@ -282,23 +282,97 @@ function buildStore(seed: SeedName): DataSource {
  * came closest and still only checked that the banner cleared.
  */
 const globalForDemo = globalThis as typeof globalThis & {
-  __hqDemoStores?: Map<string, DataSource>;
+  __hqDemoSessions?: Map<string, DemoSession>;
 };
 
-const stores: Map<string, DataSource> = (globalForDemo.__hqDemoStores ??= new Map());
+/**
+ * One demo session: its store, and when a request last used it.
+ *
+ * The timestamp is the whole of the fix below. The key is `__hqDemoSessions`
+ * rather than the `__hqDemoStores` it replaces because this map's VALUES changed
+ * shape: a dev server that survives the edit would otherwise hand the new code
+ * the old code's bare `DataSource` and fail somewhere far from here.
+ */
+type DemoSession = { store: DataSource; touched: number };
 
+const sessions: Map<string, DemoSession> = (globalForDemo.__hqDemoSessions ??= new Map());
+
+/**
+ * How many demo stores are held at once. UNCHANGED at 50, because the number was
+ * never what was wrong — see `demoStore` for what was.
+ */
+const MAX_DEMO_STORES = 50;
+
+/**
+ * How long after its last request a session still counts as IN USE, and so is
+ * never the one dropped to make room.
+ *
+ * The bound below evicts nothing while every session is inside this window, so
+ * the map is allowed to exceed `MAX_DEMO_STORES` for as long as more than fifty
+ * people are genuinely mid-journey. That is the correct trade: holding a store
+ * costs memory, and dropping one costs somebody the import they are half way
+ * through. The cost is bounded by arrival rate rather than by a constant, which
+ * is affordable HERE and would not be everywhere: `HQ_DEMO` is never set in
+ * production (`deploy.yml` omits it deliberately), so the only things that reach
+ * this map are `npm run demo` and the e2e suite. The e2e suite is the heaviest
+ * arrival rate this will ever see — about 13 new sessions a second, which is
+ * roughly 800 stores held at the peak.
+ *
+ * A minute is far longer than any gap inside a single journey — the failure this
+ * was written for lost its batch 292ms after the previous request on the same
+ * store — and far shorter than a session anybody would expect to resume.
+ */
+const DEMO_SESSION_IN_FLIGHT_MS = 60_000;
+
+/**
+ * The store for one demo session, held under the bound above.
+ *
+ * **The bound used to drop the store created LONGEST AGO, which is not the same
+ * thing as the one nobody is using** (issue #311). `Map` iterates in insertion
+ * order and `get` does not disturb it, so `keys().next()` named the oldest
+ * session rather than the idlest one — and a demo visitor who started before
+ * fifty other people arrived had their in-progress import deleted out from under
+ * them mid-wizard. The app then told them "That import is not one of yours, or
+ * it is gone", which is a wrong answer to a question they never asked.
+ *
+ * Watched to fail, at both ends. In the browser, against a demo server: upload a
+ * file, load `/import/<batchId>` (200, the mapping screen), make 45 requests
+ * from other `hq_demo_id` cookies (still 200), make 55 instead — 404, the batch
+ * is gone. Re-reading your own batch every 5 requests throughout did not save
+ * it, which is the defect stated as an experiment: being in use was not an input
+ * to the decision. In the e2e suite it was the same event seen from the other
+ * side — `import-wizard.spec.ts`'s preview step failed on a clean `main` roughly
+ * every other full run, and a server-side trace of the store's life showed it
+ * created, used five times over four seconds, then evicted 292ms after the
+ * upload that was still being mapped.
+ *
+ * So the eviction is now by RECENCY OF USE, and only past a quiet period.
+ * Unbounded growth is still refused; what is refused with it is answering a
+ * request from a store and deleting that store in the same breath.
+ */
 function demoStore(id: string, seed: SeedName): DataSource {
   // The seed is part of the key: the same browser switching seeds must get a
   // different store, not the one it already populated.
   const key = `${seed}:${id}`;
-  let s = stores.get(key);
-  if (!s) {
-    s = buildStore(seed);
-    stores.set(key, s);
-    // bounded so a long-lived demo deployment cannot grow without limit
-    if (stores.size > 50) stores.delete(stores.keys().next().value as string);
+  const now = Date.now();
+  const held = sessions.get(key);
+  if (held) {
+    // Deleted and re-set rather than merely read: that is what moves this
+    // session to the tail and keeps the map ordered least-recently-used first.
+    sessions.delete(key);
+    held.touched = now;
+    sessions.set(key, held);
+    return held.store;
   }
-  return s;
+  const fresh: DemoSession = { store: buildStore(seed), touched: now };
+  sessions.set(key, fresh);
+  // Bounded so a long-lived demo deployment cannot grow without limit.
+  while (sessions.size > MAX_DEMO_STORES) {
+    const idlest = sessions.entries().next().value as [string, DemoSession];
+    if (now - idlest[1].touched < DEMO_SESSION_IN_FLIGHT_MS) break;
+    sessions.delete(idlest[0]);
+  }
+  return fresh.store;
 }
 
 /**

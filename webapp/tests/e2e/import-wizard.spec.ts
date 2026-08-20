@@ -64,14 +64,22 @@ function fixture(name: string) {
   };
 }
 
-/** Each test owns its demo store — desktop and mobile share one server process. */
-async function ownStore(page: Page, testInfo: { title: string; project: { name: string } }) {
+/**
+ * Each test owns its demo store — desktop and mobile share one server process.
+ *
+ * Keyed on the whole `titlePath` and not on `title`, because three of the titles
+ * in this file are not unique: the axe sweep and the console-error sweep are both
+ * `for (const step of STEPS)`, so both name a test `map`, `preview` and `report`.
+ * On the title alone those six tests were three stores, and the later test of each
+ * pair opened a wizard that already held the earlier one's batch. Nothing asserted
+ * against it, so it never showed up as a failure of its own — it showed up as
+ * issue #311, where the store the console-error test was using had been created
+ * fifty tests earlier by the axe test and was evicted mid-upload.
+ */
+async function ownStore(page: Page, testInfo: { titlePath: string[]; project: { name: string } }) {
+  const own = testInfo.titlePath.join("-").replace(/\W+/g, "-").slice(-48);
   await page.context().addCookies([
-    {
-      name: "hq_demo_id",
-      value: `wiz-${testInfo.project.name}-${testInfo.title.replace(/\W+/g, "-").slice(0, 48)}`,
-      url: "http://127.0.0.1:3210",
-    },
+    { name: "hq_demo_id", value: `wiz-${testInfo.project.name}-${own}`, url: "http://127.0.0.1:3210" },
   ]);
 }
 
