@@ -24,13 +24,12 @@ import time
 import requests
 
 from core import jobkeys
+from core.useragent import USER_AGENT
 from monitor import jobcontent
 from monitor.fetchers import _REGISTRY, get_jobs_for
 from monitor.fetchers import amazon as amazon_fetcher
 from monitor.fetchers import google as google_fetcher
 
-UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 PAGE_CAP = 2
 MIN_DESC = 200     # a real JD is never shorter; a bot-wall page strips to less
 
@@ -126,7 +125,7 @@ def main() -> int:
 
     _cap_pages()
     session = requests.Session()
-    session.headers["User-Agent"] = UA
+    session.headers["User-Agent"] = USER_AGENT
 
     rows = [smoke_one(*t, session=session) for t in targets]
 

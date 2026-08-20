@@ -23,14 +23,13 @@ from urllib.parse import quote
 import requests
 
 from core import jobkeys
+from core.useragent import USER_AGENT
 from monitor.models import Job
 
 TIMEOUT = 30
 PAGE = 10          # server-enforced on both variants
 MAX_PAGES = 60     # runaway guard; largest verified tenant (Microsoft) has ~330 PM hits
 SLEEP = 0.4        # ≤1 req/s/host politeness
-UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 _PCSX_DENIAL = "Not authorized for PCSX"
 
 
@@ -102,7 +101,7 @@ def parse_pcsx(payload: dict, company: str, host: str, domain: str) -> list[Job]
 
 def get_jobs(slug: str, company: str, session: requests.Session, search: str = "product") -> list[Job]:
     host, domain = _split_slug(slug)
-    headers = {"User-Agent": UA, "Accept": "application/json"}
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
     out: list[Job] = []
     start, total, pages = 0, None, 0
     mode = "smartapply"

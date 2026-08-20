@@ -3,11 +3,11 @@ import re
 
 import requests
 
+from core.useragent import USER_AGENT
 from monitor.models import Job
 
 TIMEOUT = 30
 PAGE = 100
-_UA = "Mozilla/5.0 (compatible; job-hq/1.0)"
 
 # The modern iCIMS careers-home / jibeapply JSON exposes each job's classic iCIMS
 # apply_url (careers-<tenant>.icims.com/jobs/<id>). core.jobkeys keys email-captured
@@ -51,7 +51,7 @@ def get_jobs(slug: str, company: str, session: requests.Session) -> list[Job]:
     page = 1
     while True:
         url = f"https://{slug}/api/jobs?page={page}&limit={PAGE}"
-        resp = session.get(url, timeout=TIMEOUT, headers={"User-Agent": _UA})
+        resp = session.get(url, timeout=TIMEOUT, headers={"User-Agent": USER_AGENT})
         resp.raise_for_status()
         payload = resp.json()
         batch = parse(payload, company)

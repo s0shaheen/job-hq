@@ -3,14 +3,12 @@ from urllib.parse import quote
 
 import requests
 
+from core.useragent import USER_AGENT
 from monitor.models import Job
 
 TIMEOUT = 30
 PAGE = 100         # result_limit is honored up to 100; the old size/start params are ignored
 MAX_PAGES = 50     # runaway guard only (~741 PM hits = 8 pages)
-# amazon.jobs rejects the default python-requests UA; present a browser-like one.
-UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
 # id_icims -> combined JD html, filled at parse time. search.json embeds the
 # FULL description + basic/preferred qualifications per job (verified
@@ -52,7 +50,7 @@ def get_jobs(slug: str, company: str, session: requests.Session, search: str = "
     while pages < MAX_PAGES:
         url = (f"https://www.amazon.jobs/en/search.json?base_query={quote(search)}"
                f"&result_limit={PAGE}&offset={offset}")
-        resp = session.get(url, timeout=TIMEOUT, headers={"User-Agent": UA})
+        resp = session.get(url, timeout=TIMEOUT, headers={"User-Agent": USER_AGENT})
         resp.raise_for_status()
         payload = resp.json()
         page = payload.get("jobs", [])

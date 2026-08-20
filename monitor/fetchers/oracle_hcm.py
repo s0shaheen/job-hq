@@ -21,14 +21,13 @@ from urllib.parse import quote
 
 import requests
 
+from core.useragent import USER_AGENT
 from monitor.models import Job
 
 TIMEOUT = 30
 PAGE = 25          # research-safe limit; larger untested
 MAX_PAGES = 12     # relevance head: 300 postings
 SLEEP = 0.4
-UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
 
 def _split_slug(slug: str) -> tuple[str, str]:
@@ -61,7 +60,7 @@ def parse(payload: dict, company: str, slug: str) -> list[Job]:
 
 def get_jobs(slug: str, company: str, session: requests.Session, search: str = "product") -> list[Job]:
     host, site = _split_slug(slug)
-    headers = {"User-Agent": UA, "Accept": "application/json"}
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
     out: list[Job] = []
     offset, pages = 0, 0
     while pages < MAX_PAGES:

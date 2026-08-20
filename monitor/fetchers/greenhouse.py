@@ -1,6 +1,7 @@
 from __future__ import annotations
 import requests
 
+from core.useragent import USER_AGENT
 from monitor.models import Job
 
 TIMEOUT = 30
@@ -20,6 +21,6 @@ def parse(payload: dict, company: str) -> list[Job]:
 
 def get_jobs(slug: str, company: str, session: requests.Session) -> list[Job]:
     url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=false"
-    resp = session.get(url, timeout=TIMEOUT)
+    resp = session.get(url, timeout=TIMEOUT, headers={"User-Agent": USER_AGENT})
     resp.raise_for_status()
     return parse(resp.json(), company)

@@ -30,14 +30,13 @@ from urllib.parse import quote
 
 import requests
 
+from core.useragent import USER_AGENT
 from monitor.models import Job
 
 TIMEOUT = 30
 PAGE = 20
 MAX_PAGES = 25
 SLEEP = 0.4
-UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
 _LINK_RE = re.compile(r'href="/en-us/details/(\d{6,})(?:-\d+)?/([^"/?]+)[^"]*"[^>]*>([^<]+)</a>')
 _DATE_RE = re.compile(r'class="job-posted-date"[^>]*>([^<]*)<')
@@ -87,7 +86,7 @@ def parse(html: str, company: str) -> list[Job]:
 
 def get_jobs(slug: str, company: str, session: requests.Session, search: str = "product") -> list[Job]:
     """Paginate page=1..N until a page adds no new ids ('slug' unused)."""
-    headers = {"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"}
+    headers = {"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"}
     out: list[Job] = []
     seen: set[str] = set()
     for page in range(1, MAX_PAGES + 1):

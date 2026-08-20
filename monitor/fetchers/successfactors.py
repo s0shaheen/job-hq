@@ -5,13 +5,12 @@ from urllib.parse import quote
 
 import requests
 
+from core.useragent import USER_AGENT
 from monitor.models import Job
 
 TIMEOUT = 30
 PAGE = 25            # Career Site Builder returns 25 tiles per page
 MAX_PAGES = 40       # safety cap (~1000 postings) — real termination is "no new ids"
-_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
 
 # <a ... class="jobTitle-link" ...>TITLE</a> — attribute order varies (mobile vs desktop tile).
 _LINK = re.compile(r'<a\b([^>]*\bclass="jobTitle-link"[^>]*)>(.*?)</a>', re.S)
@@ -54,7 +53,7 @@ def parse(html_text: str, company: str, host: str) -> list[Job]:
 def get_jobs(slug: str, company: str, session: requests.Session, search: str = "product") -> list[Job]:
     """slug is the CSB careers host, e.g. "jobs.grainger.com". search hits the server-side filter."""
     host = slug
-    headers = {"User-Agent": _UA, "Accept": "text/html,application/xhtml+xml"}
+    headers = {"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"}
     jobs: list[Job] = []
     seen: set[str] = set()
     startrow = 0

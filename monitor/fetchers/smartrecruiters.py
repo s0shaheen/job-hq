@@ -1,6 +1,7 @@
 from __future__ import annotations
 import requests
 
+from core.useragent import USER_AGENT
 from monitor.models import Job
 
 TIMEOUT = 30
@@ -26,7 +27,7 @@ def get_jobs(slug: str, company: str, session: requests.Session) -> list[Job]:
     while True:
         url = (f"https://api.smartrecruiters.com/v1/companies/{slug}/postings"
                f"?limit={PAGE}&offset={offset}")
-        resp = session.get(url, timeout=TIMEOUT)
+        resp = session.get(url, timeout=TIMEOUT, headers={"User-Agent": USER_AGENT})
         resp.raise_for_status()
         payload = resp.json()
         content = payload.get("content") or []

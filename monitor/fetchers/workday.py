@@ -2,6 +2,7 @@ from __future__ import annotations
 import re
 import requests
 
+from core.useragent import USER_AGENT
 from monitor.models import Job
 
 TIMEOUT = 30
@@ -57,7 +58,8 @@ def get_jobs(slug: str, company: str, session: requests.Session, search: str = "
     offset = 0
     while True:
         body = {"appliedFacets": {}, "limit": PAGE, "offset": offset, "searchText": search}
-        resp = session.post(endpoint, json=body, timeout=TIMEOUT)
+        resp = session.post(endpoint, json=body, timeout=TIMEOUT,
+                            headers={"User-Agent": USER_AGENT})
         resp.raise_for_status()
         payload = resp.json()
         page_jobs = parse(payload, company, slug)

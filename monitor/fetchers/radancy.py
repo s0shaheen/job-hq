@@ -21,14 +21,13 @@ from urllib.parse import quote_plus
 
 import requests
 
+from core.useragent import USER_AGENT
 from monitor.models import Job
 
 TIMEOUT = 30
 PAGE = 15          # RecordsPerPage — the sites' own default
 MAX_PAGES = 40
 SLEEP = 0.4
-UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
 _LINK_RE = re.compile(r'<a[^>]*href="(/job/[^"]+)"[^>]*>(.*?)</a>', re.DOTALL)
 _ID_RE = re.compile(r"/(\d{6,})/?$")
@@ -79,7 +78,7 @@ def total_pages(results_html: str) -> int:
 
 def get_jobs(slug: str, company: str, session: requests.Session, search: str = "product") -> list[Job]:
     host = slug
-    headers = {"User-Agent": UA, "X-Requested-With": "XMLHttpRequest"}
+    headers = {"User-Agent": USER_AGENT, "X-Requested-With": "XMLHttpRequest"}
     out: list[Job] = []
     seen: set[str] = set()
     pages = MAX_PAGES

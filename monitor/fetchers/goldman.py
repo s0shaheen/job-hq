@@ -21,17 +21,16 @@ import time
 
 import requests
 
+from core.useragent import USER_AGENT
 from monitor.models import Job
 
 TIMEOUT = 30
 PAGE = 20
 MAX_PAGES = 15     # relevance head: 300 roles
 SLEEP = 0.4
-UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 ENDPOINT = "https://api-higher.gs.com/gateway/api/v1/graphql"
 HEADERS = {"Origin": "https://higher.gs.com", "Referer": "https://higher.gs.com/",
-           "User-Agent": UA}
+           "User-Agent": USER_AGENT}
 
 _QUERY = ("query GetRoles($searchQueryInput: RoleSearchQueryInput!) { "
           "roleSearch(searchQueryInput: $searchQueryInput) { totalCount items { "

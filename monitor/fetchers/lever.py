@@ -1,6 +1,7 @@
 from __future__ import annotations
 import requests
 
+from core.useragent import USER_AGENT
 from monitor.models import Job
 
 TIMEOUT = 30
@@ -20,6 +21,6 @@ def parse(payload: list, company: str) -> list[Job]:
 
 def get_jobs(slug: str, company: str, session: requests.Session) -> list[Job]:
     url = f"https://api.lever.co/v0/postings/{slug}?mode=json"
-    resp = session.get(url, timeout=TIMEOUT)
+    resp = session.get(url, timeout=TIMEOUT, headers={"User-Agent": USER_AGENT})
     resp.raise_for_status()
     return parse(resp.json(), company)
