@@ -127,6 +127,22 @@ async function openPane(page: Page, id: number) {
 }
 
 /**
+ * The single highlighted option's text, or `""` when the highlight is not on
+ * exactly one option — which is a real transient, not a defensive `??`: the
+ * walk moves focus, and a blur that renders before its matching focus leaves
+ * zero options carrying `data-highlighted`.
+ *
+ * Count and text are read in ONE `evaluateAll` so they cannot describe two
+ * different moments. Two locator calls could, and that is the class of bug
+ * this whole helper is being repaired for.
+ */
+function readHighlight(page: Page): Promise<string> {
+  return page
+    .locator('[role="option"][data-highlighted]')
+    .evaluateAll((nodes) => (nodes.length === 1 ? (nodes[0].textContent ?? "").trim() : ""));
+}
+
+/**
  * Change one row's status entirely from the keyboard.
  *
  * The focus-floor tests (#232) have to be keyboard-driven to mean anything: a
@@ -137,6 +153,50 @@ async function openPane(page: Page, id: number) {
  * the vocabulary order, so a reordered status list cannot make this pick the
  * wrong status silently — the highlight assertion fails loudly instead. The
  * walk is bounded by the vocabulary's size (eleven statuses plus Custom).
+ *
+ * ── WHY EACH STEP WAITS FOR THE HIGHLIGHT TO *MOVE* (issue #316) ────────────
+ *
+ * The comment that stood here described a race and then did not defend against
+ * it. It waited for "a highlighted option to exist" — and one always does, the
+ * one the walk is standing on — so the wait was satisfied by the state BEFORE
+ * the press. The loop then read that stale text, concluded the target had not
+ * been reached, and pressed ArrowDown again for a step already taken. Nothing
+ * in it tied the number of keys it sent to the number of steps the walk owed.
+ *
+ * The window is Radix's and it is not small: `SelectContentImpl`'s ArrowDown
+ * handler defers the move with `setTimeout(() => focusFirst(candidateNodes))`
+ * (`@radix-ui/react-select`), so `keyboard.press()` resolving proves the key
+ * was DISPATCHED and never that the step was APPLIED. Push those zero-delay
+ * timers out and the old loop sent FOUR TO FIFTEEN ArrowDowns for a three-step
+ * walk at every setting measured (1, 2, 3, 4, 6, 9 and 60ms). At 60ms it ran
+ * off the end of the list and failed the pick 10 times out of 10 — the `null`
+ * `data-highlighted` this issue saw on `main`. At 9ms one trial reproduced the
+ * other reported face exactly: five keys, this helper's own assertion green,
+ * and `Final` written where `Interview` had just been asserted highlighted —
+ * the extra key was still in flight when the loop read the target, so
+ * `toHaveAttribute("data-highlighted", "")` passed against a highlight about
+ * to be invalidated. `Interview` and `Final` are adjacent in `STATUS_ORDER`.
+ * Which face comes up depends on whether the surplus presses coalesce, which
+ * is why it was rare rather than constant.
+ *
+ * MEASURED FIRST, because the tier depended on it: the PRODUCT is not the
+ * defect. Radix takes each step from `event.target`, the LIVE focused item, so
+ * a commit is a function of the keys actually pressed and cannot run past
+ * them. Driven with real key events at a human cadence (three ArrowDowns
+ * 80-146ms apart, then Enter), at machine speed with no gap at all, and with
+ * the deferred step forced 60ms late, the value written equalled the option
+ * carrying `data-highlighted` at the instant Enter was dispatched in all 32
+ * commits; under a 20x CPU throttle three ArrowDowns wrote `Interview` 10
+ * times out of 10. Surplus presses at MACHINE speed coalesce instead —
+ * `focusFirst` returns early when its first candidate is already focused — so
+ * the control can drop a step and can never invent one. A person cannot land
+ * one past what they see; only something choosing HOW MANY keys to send from a
+ * stale read can, and that was this helper. Even in the reproduced `Final`
+ * commit the control agreed with itself: highlight, focus and written value
+ * were all `Final`. What had gone stale was the TEST's assertion.
+ *
+ * The product side of that measurement is now an assertion of its own: "a
+ * keyboard commit writes the option that was highlighted under it".
  */
 async function pickStatusByKeyboard(page: Page, id: number, status: string) {
   const trigger = page.getByTestId(`status-trigger-${id}`);
@@ -145,17 +205,32 @@ async function pickStatusByKeyboard(page: Page, id: number, status: string) {
   await page.keyboard.press("Enter");
   const option = page.getByRole("option", { name: status, exact: true });
   await expect(option).toBeVisible();
-  // Exactly one option is highlighted at a time; walk the highlight down to the
-  // target. Each step WAITS for a highlighted option to exist before deciding:
-  // sampling the target's own attribute between fast presses outran Radix's
-  // highlight render once, overshot, and failed the pick — which read as a
-  // focus-floor failure and was the helper racing itself.
-  const highlighted = page.locator('[role="option"][data-highlighted]');
-  for (let i = 0; i < 15; i++) {
-    await expect(highlighted).toHaveCount(1);
-    if ((await highlighted.textContent())?.trim() === status) break;
+
+  let current = "";
+  await expect
+    .poll(async () => (current = await readHighlight(page)), {
+      message: "the open listbox never settled on exactly one highlighted option",
+    })
+    .not.toBe("");
+
+  for (let step = 0; current !== status; step++) {
+    // Bounded by the vocabulary's size, and loud rather than silent: a walk
+    // that runs off the end has picked nothing and must not fall through to a
+    // commit.
+    expect(step, `walked past ${step} options without reaching "${status}"`).toBeLessThan(15);
+    const from = current;
     await page.keyboard.press("ArrowDown");
+    // The step LANDING is the event to wait for. `not.toBe(from)` also fails
+    // loudly at the bottom of the list, where the highlight cannot move and
+    // the target was therefore never below us.
+    await expect
+      .poll(async () => (current = await readHighlight(page)), {
+        message: `the ArrowDown off "${from}" never moved the highlight`,
+      })
+      .not.toBe(from);
   }
+  // Nothing is in flight here — the loop only exits once the last press has
+  // landed — so this reads the same state `Enter` is about to commit against.
   await expect(option).toHaveAttribute("data-highlighted", "");
   await page.keyboard.press("Enter");
 }
@@ -291,6 +366,95 @@ test("setting a status persists across a reload and clears the suggestion", asyn
   // step in the ladder any more, it is its own band.
   await expect(page.getByTestId("group-Offers").getByTestId(`row-${PLAID}`)).toContainText("Offer");
   await expect(page.getByTestId("application-pane")).not.toContainText("Suggests: Rejected");
+});
+
+test("a keyboard commit writes the option that was highlighted under it", async ({ page }) => {
+  /**
+   * #316's discriminating question, as an assertion — and the reason that issue
+   * closed as a test defect rather than a product one.
+   *
+   * The observation was a helper committing `Final` having just asserted
+   * `Interview` was highlighted; the two are adjacent in `STATUS_ORDER`. Either
+   * the helper sent a key it had not accounted for, or this CONTROL commits
+   * against a state the person has already been shown to have left. Only the
+   * second is a product defect — and it would be a silent one, on a field
+   * `CLAUDE.md` makes authoritative and nothing downstream corrects.
+   *
+   * Measured with real key events in the container — at a human cadence, at
+   * machine speed, and with the deferred step forced 60ms late — the value
+   * written equalled the option carrying `data-highlighted` at the instant
+   * `Enter` was dispatched, in all 32 commits. This pins that. Radix takes each
+   * step from the LIVE focused item (`event.target`), so the commit is a
+   * function of the keys actually pressed and can never run past them.
+   *
+   * NOT "three presses move three options". They do at a human's cadence and
+   * they demonstrably do not at a machine's — `focusFirst` returns early when
+   * its first candidate already has focus, so presses arriving inside one
+   * deferred step COALESCE. A step can be dropped; one can never be invented,
+   * and it is the invented step that would corrupt a status.
+   *
+   * The listener is one-shot and CAPTURE, so it runs in the same dispatch as
+   * Radix's own item handler and strictly before it. Nothing can interleave
+   * between what it reads and what the control commits.
+   *
+   * The proving mutation, in `status-select.tsx`: commit one past what the
+   * listbox highlighted, leaving the listbox itself untouched —
+   * `onSelect(options[options.indexOf(next) + 1] ?? next)`. This then fails
+   * with #316's exact pair: highlighted `Interview`, written `Final`.
+   */
+  await isolate(page, "keyboard-commit");
+  await gotoPipeline(page, "?open=Active");
+
+  const trigger = page.getByTestId(`status-trigger-${ANTHROPIC}`);
+  // Stated, not assumed: the three options below are only the reachable set if
+  // the row really starts where the fixture says. A dirty store would otherwise
+  // fail the reachable-set check and read as a commit mismatch, which is the
+  // opposite of what it would mean.
+  await expect(trigger).toContainText("Applied");
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("option", { name: "Interview", exact: true })).toBeVisible();
+
+  const mark = await writeCount(page);
+  // The first step is waited for, so the walk has provably left `Applied` and a
+  // write must follow. The rest are pressed at a gap a person can type at —
+  // that cadence IS the experimental condition here, not a wait for the app.
+  await page.keyboard.press("ArrowDown");
+  await expect
+    .poll(() => readHighlight(page), { message: "the first ArrowDown never moved the highlight" })
+    .not.toBe("Applied");
+  for (let i = 0; i < 2; i++) {
+    await page.keyboard.press("ArrowDown");
+    await page.waitForTimeout(120);
+  }
+
+  await page.evaluate(() => {
+    const w = window as Window & { __committedAgainst?: string };
+    w.__committedAgainst = "no Enter was seen";
+    document.addEventListener(
+      "keydown",
+      () => {
+        const on = document.querySelectorAll('[role="option"][data-highlighted]');
+        w.__committedAgainst =
+          on.length === 1 ? (on[0].textContent ?? "").trim() : `${on.length} options highlighted`;
+      },
+      { capture: true, once: true },
+    );
+  });
+  await page.keyboard.press("Enter");
+  const highlightedAtCommit = await page.evaluate(
+    () => (window as Window & { __committedAgainst?: string }).__committedAgainst ?? "",
+  );
+
+  // Three ArrowDowns off `Applied` reach one of these three and no further.
+  expect(["OA", "Screen", "Interview"]).toContain(highlightedAtCommit);
+  await wroteMore(page, mark);
+  await expect(trigger).toContainText(highlightedAtCommit);
+  // And it SURVIVES, so this is a claim about the write and not about the
+  // optimistic patch that painted it.
+  await page.reload();
+  await reloadedAndReady(page);
+  await expect(page.getByTestId(`status-trigger-${ANTHROPIC}`)).toContainText(highlightedAtCommit);
 });
 
 test("a custom status is accepted and survives a reload", async ({ page }) => {
