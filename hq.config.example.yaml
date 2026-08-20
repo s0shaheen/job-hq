@@ -1,0 +1,15 @@
+# Machine registry for the legacy Sheet-based tracker (`tracker/`, `appsscript/`).
+# The live product (webapp/ + Postgres) does not read this file.
+#
+# Copy to `hq.config.yaml` and let `tracker/bootstrap.py` fill in sheet_id and
+# tab gids; humans configure the system in the spreadsheet's Config tab, not here.
+sheet_id: YOUR_SHEET_ID
+tabs: {}
+ntfy:
+  jobs: your-ntfy-jobs-topic
+  ops: your-ntfy-ops-topic
+drive:
+  job_search_folder: YOUR_FOLDER_ID
+  job_applications_folder: YOUR_FOLDER_ID
+service_account_email: your-sa@your-project.iam.gserviceaccount.com
+owner_email: you@example.com
