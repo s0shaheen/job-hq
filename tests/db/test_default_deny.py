@@ -1254,6 +1254,12 @@ def test_an_unreadable_entitlement_row_denies_by_error_rather_than_leaking(conn)
 #: makes centralising the check sound — a new caller, or an engine-lane caller
 #: (which would be a design change, since the gate reads `auth.uid()`), has to
 #: come here and say so.
+#:
+#: This list GROWS as functions adopt the primitive. Its mirror,
+#: `tests/db/test_replay_command_scope.py::INLINE_REPLAY_BASELINE`, holds the 29
+#: that still carry the pre-0026 inline shape and may only SHRINK. A function
+#: moving between them edits both lists in one commit, and both tests fail until
+#: it does.
 REPLAY_FAMILY: dict[str, str] = {
     "app_add_job": "20260813_025743_app_add_job.sql",
     "app_record_resume_artifact": "0026_resume.sql",
@@ -1398,14 +1404,21 @@ def test_a_suspended_account_cannot_replay_its_own_result_through_a_post_0026_co
 
     THE NAME IS NARROW ON PURPOSE, and the earlier one was a lie by omission. It
     read `…cannot_replay_its_own_stored_command_result`, which asserts a SYSTEM
-    property that is FALSE: the 27 pre-0026 commands key their inline lookup on
-    `(user_id, idem_key)` ALONE and never compare the command, so a suspended
-    account sends the SAME key to any pre-0026 sibling — `app_save_view`,
-    `app_clear_connections` — and receives THIS command's stored result verbatim.
-    The #287 security review demonstrated both. What is proven here is exactly
-    what the title now says: the post-0026 door is shut. #256 is not closed until
-    the pre-0026 doors are (#288), and until then the residual defeats this
-    property for precisely the rows this test protects.
+    property that was FALSE: the pre-0026 commands keyed their inline lookup on
+    `(user_id, idem_key)` ALONE and never compared the command, so a suspended
+    account sent the SAME key to any pre-0026 sibling — `app_save_view`,
+    `app_clear_connections` — and received THIS command's stored result verbatim.
+    The #287 security review demonstrated both.
+
+    #288 closed that bypass (`20260820_013851_replay_compares_the_command.sql`):
+    the 29 pre-0026 lookups compare the command and refuse a key that belongs to
+    another one, which is asserted end to end by
+    `tests/db/test_replay_command_scope.py::test_a_suspended_account_cannot_reach
+    _a_post_0026_result_through_a_pre_0026_sibling`. THE NAME STAYS NARROW
+    ANYWAY, because what THIS test proves is still exactly what it says — the
+    post-0026 door — and the pre-0026 commands still run no entitlement check of
+    their own, so a suspended account replaying its own key against its own
+    pre-0026 command is still answered by it.
 
     The account is ACTIVE when it stores the result and the entitled replay is
     the positive control — so the refusal below is suspension doing it, not an

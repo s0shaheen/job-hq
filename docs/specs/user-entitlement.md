@@ -120,24 +120,33 @@ with the properties that make centralising sound, by
 cost, recorded with the decision: an in-flight retry that crosses the moment of suspension
 gets a denial instead of its original answer.
 
-**The residual — and it is larger than "a neighbouring hole".** The 27 PRE-0026 commands
-do not call that function. They carry the inline lookup `0003_write_path.sql` established
-(e.g. `app_start_warm_search`, `0020_warm_referral.sql`), and that lookup keys on
-`(user_id, idem_key)` **alone** — it never compares the command and never compares
-`request_hash`, both of which `0026` added and only the post-0026 family uses.
+**The bypass, and what remains after it (#288).** The 29 PRE-0026 commands — 27 `app_*`
+plus the two `hq_*` engine lanes, enumerated from `pg_proc` — do not call that function.
+They carry the inline lookup `0003_write_path.sql` established (e.g.
+`app_start_warm_search`, `0020_warm_referral.sql`), which keys on `(user_id, idem_key)`
+and, until #288, never compared the command either.
 
-So a suspended account sends the same key to any pre-0026 sibling — `app_save_view`,
-`app_clear_connections` — and gets a POST-0026 command's stored result back verbatim,
-demonstrated in the #287 security review with both of those. **The residual therefore
-defeats the fix's headline property for exactly the rows the fix protects: #256 is not
-closed until the 27 are.** That is #288.
+That made them a BYPASS rather than a neighbouring hole: a suspended account sent the same
+key to any pre-0026 sibling — `app_save_view`, `app_clear_connections` — and got a
+POST-0026 command's stored result back verbatim, demonstrated in the #287 security review
+with both of those. `20260820_013851_replay_compares_the_command.sql` closed it. All 49 of
+those lookups now compare the command and raise `22023` — `hq_command_replay`'s own
+wording — when the key belongs to another one, so no pre-0026 door opens onto a post-0026
+room. The refusal is key scoping, not entitlement, and it therefore holds for an entitled
+caller too: the same change fixes the correctness bug where any caller reusing one key
+across two commands received the first command's payload as the second's answer.
 
-Until then the honest statement of this section is narrow, and the test names say so
-(`…_through_a_post_0026_command`): the post-0026 door is shut, the pre-0026 doors are
-open, and they open onto the same room. Closing them means re-declaring 27 function
-bodies (the shape `0027` refused by name) or forcing RLS on a table the digest and email
-lanes also write — a separate decision, not an implementer's call. The set is derivable
-from `pg_proc` at any time.
+**What remains, stated narrowly.** Those 29 still compare no `request_hash` and still run
+no entitlement check of their own. The lookup returns above every write, so
+`hq_entitlement_guard()` never fires, so a suspended account replaying its OWN key against
+the SAME pre-0026 command still receives its own stored result. That is bounded to the
+account's own prior results, and it closes per function as each adopts
+`hq_command_replay`. The route is opportunistic and safe to take one function at a time
+now that the bypass is gone: `tests/db/test_replay_command_scope.py` derives both families
+from `pg_proc` and holds the pre-0026 set as a baseline that may only SHRINK, so a new
+command cannot join it and a departing one must delete its line in the same commit.
+`test_the_pre_0026_lookup_still_has_no_entitlement_check` asserts the residual from the
+other side, so it cannot be quietly forgotten and cannot quietly change.
 
 The storage bucket takes the same predicate inline in each policy instead of a
 restrictive policy, because `storage.objects` is shared across buckets
@@ -199,10 +208,12 @@ post-0026 command**: `hq_command_replay` refuses each of those states before it 
 write rather than at it — the message names the command (`not entitled to replay
 app_add_job`) where the guard's names the table. Both are `42501`. Proven per state, with
 the entitled replay as the positive control, by the #256 block in
-`tests/db/test_default_deny.py`. **The qualifier is load-bearing:** the same key sent to a
-pre-0026 sibling still returns that stored result, because those 27 lookups compare
-neither command nor `request_hash` (§"The third mechanism"). Read these cells as "the
-post-0026 door", not "the account cannot reach its stored results", until #288 lands.
+`tests/db/test_default_deny.py`. **The qualifier is load-bearing, and it is now smaller
+than it was:** since #288 the same key sent to a pre-0026 sibling is REFUSED (`22023`,
+"already used by `app_add_job`") rather than answered, so these cells no longer leak
+through a sibling. They still mean "the post-0026 door": a suspended account replaying its
+own key against its own pre-0026 command is answered by that command, because those 29
+lookups carry no entitlement check (§"The third mechanism").
 
 ## The commercial seam (#210)
 
@@ -411,11 +422,15 @@ of those, contradiction 4, was ruled on 2026-08-18 and is resolved below.**
   vigilance; the cross-check lives in `tests/db/test_default_deny.py`. **Reads count, not
   only writes** — that is what #256 settled: a stored command result is product state, and
   returning one to a suspended account is a read the pair could not see. **This invariant
-  does not hold yet.** #256 shut the post-0026 door; the 27 pre-0026 commands still hand a
-  non-entitled account any stored result keyed by `(user_id, idem_key)`, including the
-  post-0026 ones. Enumerated, demonstrated, and tracked as #288 — written here rather than
-  softened, because a spec that reads cleaner than the schema is is the drift this repo
-  keeps paying for.
+  holds for every command's result except the reading command's own.** #256 shut the
+  post-0026 door and #288 shut the cross-command one: the 29 pre-0026 lookups compare the
+  command, so a non-entitled account can no longer spend one key on a sibling to reach a
+  protected result. It can still reach ITS OWN stored result through the pre-0026 command
+  that stored it, because those bodies run no entitlement check and return above every
+  write. Bounded, enumerated, asserted from both sides in
+  `tests/db/test_replay_command_scope.py`, and closing per function as each adopts
+  `hq_command_replay` — written here rather than softened, because a spec that reads
+  cleaner than the schema is is the drift this repo keeps paying for.
 - Exactly three entitlement states. New access tiers are new `plan`/`invite_ref` values,
   not new statuses.
 - `hq_is_entitled()` reads `status` and nothing else. No plan, quota, period, provider

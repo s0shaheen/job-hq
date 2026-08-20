@@ -70,11 +70,20 @@ is server-only and used by the capture and digest handlers alone.
   `command_idempotency` it refuses a caller who is not entitled and a caller whose
   `p_user` is not `auth.uid()`, `42501`. The guard trigger cannot do this — a replay
   returns above every write, so no trigger fires — and `docs/specs/user-entitlement.md`
-  §"The third mechanism" carries the reasoning and the pre-0026 residual. **The
-  pre-0026 lookup keys on `(user_id, idem_key)` alone** — no command, no `request_hash`
-  — so the same key sent to any of those 27 siblings returns a post-0026 command's
-  stored result to an account the gate just refused. #256 is not closed until they
-  are (#288); until then the guarantee is "the post-0026 door", not the key.
+  §"The third mechanism" carries the reasoning and what is left of the pre-0026
+  residual. **The pre-0026 lookup now compares the command too**
+  (`20260820_013851_replay_compares_the_command.sql`, #288): it still keys on
+  `(user_id, idem_key)` and still has no `request_hash` and no entitlement check, but a
+  key that belongs to another command raises `22023` with the same wording
+  `hq_command_replay` uses, rather than answering with that command's stored result. That
+  closes the bypass — a suspended account can no longer reach a post-0026 result through
+  a pre-0026 sibling — and closes the same confusion for entitled callers, who could get
+  an unrelated command's payload reported as this command's answer. **What is left is
+  narrower and is still open**: those 29 lookups return above every write, so no trigger
+  fires, so a suspended account replaying its OWN key against the SAME pre-0026 command
+  still receives its own stored result. That closes per function as each adopts
+  `hq_command_replay`; `tests/db/test_replay_command_scope.py` holds the set as a
+  baseline that may only shrink.
 - **Compare-and-set** — each single-row write takes `p_expected_updated_at`; bulk writes
   take a parallel array that must match the id list one-for-one. A mismatch raises
   errcode `40001` with a message containing `conflict`, which the data layer matches
@@ -175,11 +184,14 @@ is server-only and used by the capture and digest handlers alone.
   must return the first result, never apply twice — **to the entitled account that stored
   it, and to nobody else.** A durable result is product state; the lookup refuses a
   pending, suspended, removed or unknown caller, and refuses a `p_user` that is not
-  `auth.uid()` (#256). **This invariant is aspirational until #288**: it holds through the
-  ten post-0026 commands and fails through the 27 pre-0026 ones, whose lookup compares
-  neither command nor `request_hash`, so one key reaches a post-0026 stored result through
-  a sibling that never asks who is calling (`docs/specs/user-entitlement.md` §"The third
-  mechanism").
+  `auth.uid()` (#256). **The "and to nobody else" half now holds; "to the entitled
+  account" holds only through the ten post-0026 commands.** #288 taught the 29 pre-0026
+  lookups to compare the command, so one key no longer reaches a DIFFERENT command's
+  stored result through a sibling — the bypass that made #256's fix one call away from
+  being no fix. Those 29 still carry no entitlement check of their own, so a suspended
+  account replaying its own key against its own pre-0026 command is still answered; that
+  closes per function as each adopts `hq_command_replay` (`docs/specs/user-entitlement.md`
+  §"The third mechanism").
 - Conflicts are surfaced, never silently merged; the server's row wins the screen.
 - A bound is charged once per GESTURE, never per retry and never per row. Which
   commands are bounded today is asserted exact in both directions by
