@@ -198,6 +198,25 @@ test.describe("the page survives a 200% text zoom", () => {
       test(`${path} @ ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(path);
+
+        /**
+         * THE LOADED FRAME, NAMED — issue #281.
+         *
+         * This was a bare `goto` and a 120ms sleep, and 120ms is not a state:
+         * it is whichever of two frames the machine happened to be showing.
+         * The skeleton is a real frame with geometry of its own, so what got
+         * measured below was a coin flip. It came up "loaded" on a fast host
+         * and "skeleton" inside the verification image — that, and not fonts,
+         * is the whole of "fails in the image, passes in CI". Five consecutive
+         * PRs stopped to prove that red pre-existing before shipping.
+         *
+         * `h1` exists only once the page itself has rendered; neither skeleton
+         * carries one. Waiting for it makes THIS test about the loaded frame,
+         * and the skeleton frame gets its own measurement below rather than a
+         * lottery ticket.
+         */
+        await expect(page.locator("h1")).toBeVisible();
+
         await page.evaluate(() => {
           document.documentElement.style.fontSize = "32px"; // 2x the 16px default
         });
@@ -217,6 +236,63 @@ test.describe("the page survives a 200% text zoom", () => {
           .locator("h1")
           .evaluate((el) => el.scrollWidth > el.clientWidth + 1);
         expect(clipped, `the h1 on ${path} clips its own text at 200% zoom`).toBe(false);
+      });
+    }
+  }
+});
+
+/**
+ * THE SAME SWEEP, OVER THE FRAME NOBODY WAS MEASURING — issue #281.
+ *
+ * A skeleton is not exempt from reflow: it is what a large-text reader on a
+ * small phone actually looks at for the length of a load, and both of these
+ * were painting off the page edge into `html { overflow-x: hidden }` the whole
+ * time. `/pipeline`'s title bar and `/queue`'s three shortcut lines are `w-40`
+ * — 10rem, so 320px at 200% text — and a 320px viewport leaves 256px inside
+ * `p-4`. Measured on `origin/main`: both painted from x=32 to x=352.
+ *
+ * It was never invisible, only unassertable. The sweep above reached these
+ * frames only when the machine was slow enough to still be showing one at its
+ * 120ms mark, so the estate read a real defect as an environment quirk that
+ * came and went. `hq_demo_slow` is the seam that holds the frame still
+ * (`lib/data/get-source.ts` — it exists because the fixture source answers too
+ * fast for any fallback to be seen), and a client-side navigation is what puts
+ * a `loading.tsx` on screen for longer than a frame.
+ *
+ * No 1280px row: reflow is a narrow-viewport requirement and the bars are
+ * 320px at their worst, so a desktop canvas cannot fail this.
+ */
+test.describe("the loading skeleton survives a 200% text zoom", () => {
+  const HOPS = [
+    // The rail's labels, not the routes': `/pipeline` is "Applications" there
+    // (`components/ds/app-shell.tsx` — the label cut over before the route did).
+    { from: "/pipeline", link: "Today", skeleton: "queue-skeleton" },
+    { from: "/queue", link: "Applications", skeleton: "pipeline-skeleton" },
+  ];
+  for (const hop of HOPS) {
+    for (const width of [320, 375]) {
+      test(`${hop.skeleton} @ ${width}px`, async ({ page, context, baseURL }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(hop.from);
+        await expect(page.locator("h1")).toBeVisible();
+
+        // Set AFTER the first page has landed, so only the navigation this
+        // test is about waits on it. The seam clamps the value at 5s itself.
+        await context.addCookies([{ name: "hq_demo_slow", value: "3000", url: baseURL! }]);
+        const nav = page.getByRole("navigation", { name: "Sections" });
+        await nav.getByRole("link", { name: hop.link }).click();
+        await expect(page.getByTestId(hop.skeleton)).toBeVisible();
+
+        await page.evaluate(() => {
+          document.documentElement.style.fontSize = "32px"; // 2x the 16px default
+        });
+        await page.waitForTimeout(120);
+        // Still the skeleton, so the measurement below is of the frame this
+        // test names rather than of whatever arrived while it was waiting.
+        await expect(page.getByTestId(hop.skeleton)).toBeVisible();
+
+        const offenders = await page.evaluate(collectPaintedOverflow);
+        expect(offenders, describeOffenders(offenders)).toEqual([]);
       });
     }
   }

@@ -42,13 +42,29 @@ export default function ApplicationsLoading() {
       <span className="sr-only">Loading applications</span>
 
       {/* Mirrors `PageHeader`: an `text-xl` title (28px line box) over a
-          `text-sm` subtitle (20px), with the export control on the baseline. */}
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <div className="h-7 w-40 animate-pulse rounded bg-raised" />
-          <div className="mt-0.5 h-5 w-24 animate-pulse rounded bg-raised" />
+          `text-sm` subtitle (20px), with the export control on the baseline.
+
+          `flex-wrap`, `min-w-0` and `max-w-full` ARE that mirror, not
+          decoration — they are what `PageHeader` itself carries for the narrow
+          viewport, and this block had none of them (issue #281). `w-40` is
+          10rem, which is 320px once a large-text reader has doubled the root
+          font size, and a 320px phone leaves 256px inside `p-4`. The title bar
+          therefore painted from x=32 to x=352 and `html { overflow-x: hidden }`
+          clipped it out of reach instead of letting the page scroll — the WCAG
+          2.2 reflow failure the loaded header fixed for itself and the skeleton
+          did not.
+
+          `min-w-0` alone is not enough: it lets the flex ITEM shrink while a
+          fixed-width child keeps painting past it. `max-w-full` alone is not
+          enough either: the item's automatic minimum size is its min-content
+          width, which that same fixed-width child pins at 10rem. Both, or the
+          bar still hangs off the page. */}
+      <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <div className="h-7 w-40 max-w-full animate-pulse rounded bg-raised" />
+          <div className="mt-0.5 h-5 w-24 max-w-full animate-pulse rounded bg-raised" />
         </div>
-        <div className="h-8 w-20 animate-pulse rounded-md bg-raised" />
+        <div className="h-8 w-20 max-w-full animate-pulse rounded-md bg-raised" />
       </header>
 
       {SKELETON_BANDS.map((band, i) => (

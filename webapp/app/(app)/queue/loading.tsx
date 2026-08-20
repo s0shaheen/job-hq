@@ -61,10 +61,18 @@ export default function QueueLoading() {
         </div>
 
         {/* The three shortcut lines, so the footer does not arrive late and
-            push nothing. */}
+            push nothing.
+
+            `max-w-full` for the reason issue #281 measured: `w-40` is 10rem,
+            which is 320px once a large-text reader has doubled the root font
+            size, and a 320px phone leaves 256px inside `p-4`. These are block
+            `li`s, so nothing shrinks them — all three painted from x=32 to
+            x=352 and `html { overflow-x: hidden }` clipped them rather than
+            letting the page scroll. Nearly every other bar in this estate
+            already carries the clamp; these and the pipeline header did not. */}
         <ul className="mt-6 space-y-0.5">
           {[0, 1, 2].map((i) => (
-            <li key={i} className="h-4 w-40 animate-pulse rounded bg-raised" />
+            <li key={i} className="h-4 w-40 max-w-full animate-pulse rounded bg-raised" />
           ))}
         </ul>
       </div>
